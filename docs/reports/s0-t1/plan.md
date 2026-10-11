@@ -32,8 +32,8 @@ scripts/check-deps.sh            # 종료 코드 0 = 통과, 1 = 위반. 위반 
 | --- | --- | --- | --- |
 | 1 | `scripts/check-deps.sh` (워크스페이스) | 스크립트 | 다섯 crate의 직접 의존이 허용 목록과 정확히 같다 |
 | 2 | `scripts/check-deps.sh` (금지 crate) | 스크립트 | `core`·`text`의 전이 의존에 `gpui*`, `coremidi*`, `reqwest`가 없다 |
-| 3 | 역방향 의존 주입 시 실패 | 스크립트 수동 실험 | `core`에 `keyscore-text` 의존을 임시로 넣으면 1번이 실패한다(실패 확인 후 되돌림) |
-| 4 | 금지 crate 주입 시 실패 | 스크립트 수동 실험 | `text`에 `reqwest`(가짜 path crate 이름 일치로 대체 가능)를 넣으면 2번이 실패한다 |
+| 3 | 위반 주입 시 실패 | `scripts/check-deps.test.sh` (리뷰 1 뒤 자동화) | 직접·플랫폼별·이름 바꾼·dev·build 의존으로 넣은 역방향 내부 의존과 금지 crate를 모두 잡는다 |
+| 4 | 깨끗한 워크스페이스 통과 | `scripts/check-deps.test.sh` | 위반이 없으면 통과한다(검사가 무조건 실패하는 퇴화 방지) |
 | 5 | `cargo fmt/clippy/test/deny` | 자동 게이트 | 빈 워크스페이스에서 네 게이트 통과 |
 | 6 | `unsafe` 거부 확인 | 수동 실험 | `core`에 `unsafe {}` 블록을 임시로 넣으면 컴파일 실패 |
 
@@ -43,6 +43,8 @@ scripts/check-deps.sh            # 종료 코드 0 = 통과, 1 = 위반. 위반 
 
 - 의존 방향: `app → ai → text → core`, `app → midi → core`. 역방향 또는 건너뛴 방향(`text → midi` 등)이 생기면 `check-deps.sh`가 실패한다.
 - `core`·`text`는 GPUI·CoreMIDI·네트워크 crate에 전이적으로도 의존하지 않는다.
+- `core`·`text`의 직접 외부 의존은 `check-deps.sh`의 허용 목록 안에 있다. 새 crate는 그 목록을 고치는 PR에서 리뷰받는다.
+- 검사는 모든 타깃(`--target all`)과 normal·build·dev 의존 전부에 적용한다.
 
 ## 범위 밖
 
