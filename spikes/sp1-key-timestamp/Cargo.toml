@@ -1,0 +1,17 @@
+[package]
+name = "sp1-key-timestamp"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+# 어떤 워크스페이스에도 속하지 않게 한다(제품 빌드와 분리).
+[workspace]
+
+[dependencies]
+gpui-kit = { version = "=0.7.1", default-features = false }
+# gpui-pre-macos가 이미 쓰는 objc2 계열 버전에 맞춘다. 라이선스: objc2·block2 MIT,
+# objc2-app-kit·objc2-foundation Zlib OR Apache-2.0 OR MIT.
+objc2 = "0.6"
+block2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSProcessInfo", "NSString", "NSGeometry"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "block2", "NSEvent", "NSApplication", "NSResponder", "NSWindow", "NSGraphicsContext"] }
