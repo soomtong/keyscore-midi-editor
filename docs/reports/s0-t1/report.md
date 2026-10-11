@@ -81,3 +81,18 @@ check-deps.test: 9 passed, 0 failed
 
 - `scripts/check-deps.sh`가 핵심이다. 정규식 `forbidden`이 놓치는 이름이 없는지 봐 달라. 예를 들어 `objc2`, `core-foundation`처럼 macOS 프레임워크 바인딩은 지금 금지하지 않는다. `-e normal,build`만 보고 dev 의존은 보지 않는 판단이 맞는지도 봐 달라.
 - `deny.toml`의 `targets`를 macOS로 한정한 판단(REQ 8.3)과 `private = { ignore = true }`를 봐 달라.
+
+## 리뷰 대응 (review-2)
+
+| # | 지적 | 대응 | 커밋 |
+| --- | --- | --- | --- |
+| 1 | optional 의존을 다른 crate가 feature로 켜면 통과 | `cargo tree --all-features`. 회귀 사례 추가 | 테스트 먼저, 그다음 수정 |
+| 2 | 허용된 이름을 path 소스로 바꿔치기 (제안) | 받음. `core`·`text`의 허용 목록 의존은 레지스트리 crate여야 한다. 회귀 사례 추가 | 같음 |
+| 3 | 실패 사유를 확인하지 않음 (제안) | 받음. 회귀 테스트의 모든 fail 사례가 기대한 메시지를 확인한다 | 같음 |
+| 4 | 6~8 답변 기록 | 6·8은 S0 출구 보고서에서 반영 여부를 확인한다 | 없음 |
+
+추가로 스스로 확인한 것: `cargo tree`가 반복 노드에 붙이는 ` (*)`, proc-macro에 붙이는 ` (proc-macro)`가 소스로 오인되지 않게 지웠다. 실제 레지스트리 `thiserror`를 normal·dev 양쪽에 넣어 오탐이 없음을 수동으로 확인했다. 레지스트리 접근이 필요해 오프라인 회귀 사례로는 넣지 않았다.
+
+~~~
+check-deps.test: 11 passed, 0 failed
+~~~
