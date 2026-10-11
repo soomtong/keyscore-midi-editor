@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    # 제품이 macOS 전용이고(REQ 8.3) midi·app이 CoreMIDI·Metal에 묶이므로 macOS 러너에서만 돈다.
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      # rust-toolchain.toml의 채널과 컴포넌트를 rustup이 자동으로 설치한다.
+      - run: rustup show active-toolchain
+      - uses: Swatinem/rust-cache@v2
+      - name: fmt
+        run: cargo fmt --all -- --check
+      - name: clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: test
+        run: cargo test --workspace
+      - name: dependency direction
+        run: scripts/check-deps.sh
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny
+      - name: deny
+        run: cargo deny check
