@@ -1,0 +1,13 @@
+[package]
+name = "sp3-coremidi"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+coremidi = "0.9.2"
+coremidi-sys = "3.2.1"
+libc = "0.2"
+core-foundation = "0.10.1"
+
+[workspace]
