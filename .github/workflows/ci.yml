@@ -25,6 +25,8 @@ jobs:
         run: cargo test --workspace
       - name: dependency direction
         run: scripts/check-deps.sh
+      - name: dependency check regression
+        run: scripts/check-deps.test.sh
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-deny
