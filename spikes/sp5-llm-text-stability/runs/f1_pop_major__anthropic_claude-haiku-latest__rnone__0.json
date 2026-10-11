@@ -1,0 +1,77 @@
+{
+ "text": "@track Lead ch1 prog0\no5 l8 g a b g d e g4 g8 | a b a g e d b4 r4 | c'? \n\nWait, I must not include stray tokens. Let me restate correctly.\n\n@track Lead ch1 prog0\no5 l8 g a b d6 b a g4 | e d e g a4 g4 | a b a g e d b4 r4 | d e g a b a g4 r4 | g a b d6 b a g4 r4 | e d b a g4 g4 r2 | g a b d6 c b a4 g4 | b a g e d b g4 r4 |\n\n@track Bass ch2 prog33\no2 l4 g d g d | e b e b | c g c g | d a d a | g d g d | e b e b | c g a e | d a g2 |",
+ "ttft": 1.0086751250200905,
+ "total": 2.584931083023548,
+ "usage": {
+  "prompt_tokens": 1498,
+  "completion_tokens": 262,
+  "total_tokens": 1760,
+  "cost": 0.0002808,
+  "is_byok": false,
+  "prompt_tokens_details": {
+   "cached_tokens": 0,
+   "cache_write_tokens": 0,
+   "audio_tokens": 0,
+   "video_tokens": 0
+  },
+  "cost_details": {
+   "upstream_inference_cost": 0.0002808,
+   "upstream_inference_prompt_cost": 0.0001498,
+   "upstream_inference_completions_cost": 0.000131
+  },
+  "completion_tokens_details": {
+   "reasoning_tokens": 0,
+   "image_tokens": 0,
+   "audio_tokens": 0
+  }
+ },
+ "error": null,
+ "finish": "stop",
+ "fixture": "f1_pop_major",
+ "model": "~anthropic/claude-haiku-latest",
+ "n": 0,
+ "tag": "rnone",
+ "ts": "2026-10-11T23:41:09+0900",
+ "parse": {
+  "ok": false,
+  "errors": [
+   "track Lead: L2: 알 수 없는 토큰 `c'?`",
+   "track Lead: 허용되지 않는 길이 6"
+  ],
+  "warnings": [],
+  "tracks": [
+   {
+    "name": "Lead",
+    "ch": 1,
+    "first": 1,
+    "dur": null,
+    "bars_by_len": null,
+    "bars_by_pipe": null,
+    "notes": 0
+   },
+   {
+    "name": "Lead",
+    "ch": 1,
+    "first": 6,
+    "dur": null,
+    "bars_by_len": null,
+    "bars_by_pipe": null,
+    "notes": 0
+   },
+   {
+    "name": "Bass",
+    "ch": 2,
+    "first": 9,
+    "dur": "8",
+    "bars_by_len": "8",
+    "bars_by_pipe": 8,
+    "notes": 31,
+    "lyrics": 0
+   }
+  ]
+ },
+ "parse_ok": false,
+ "bars_ok": false,
+ "structure_problems": [],
+ "bar_warnings": []
+}

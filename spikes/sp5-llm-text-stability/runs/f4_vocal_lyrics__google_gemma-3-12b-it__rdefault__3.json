@@ -1,0 +1,82 @@
+{
+ "text": "\n\n@track Vocal ch1 prog52\no4 l8 d\"꽃\" e\"잎\" f\"떨\" g\"어\" g\"지\" f\"와\" e\"같\" d\"아\" | e\"별\" f\"빛\" g\"반\" a\"짝\" a\"이\" g\"되\" f\"고\" e\"서\" d\"로\" |\no4 l8 c\"기\" d\"억\" e\"새\" f\"겨\" g\"운\" a\"날\" g\"이\" f\"와\" e\"로\" d\"가\" | c\"서\" d\"늘\" e\"바\" f\"람\" g\"에\" a\"실\" g\"려\" f\"오\" e\"고\" d\"운\" |\no4 l8 d\"아\" e\"련\" f\"한\" g\"기\" a\"억\" g\"을\" f\"안\" e\"고\" d\"만\" | e\"픈\" f\"미\" g\"소\" a\"를\" g\"들\" f\"어\" e\"놓\" d\"았\" |\no4 l8 c\"던\" d\"시\" e\"계\" f\"통\" g\"이\" a\"멈\" g\"춘\" f\"듯\" e\"했\" d\"어\" | c\"결\" d\"국\" e\"은\" f\"이\" g\"별\" a\"이\" g\"었\" f\"네\" e\"요\" d\"요\" |\no4 l8 d\"봄\" e\"날\" f\"의\" g\"이\" a\"별\" g\"을\" f\"송\" e\"상\" d\"했\" | e\"네\" f\"모\" g\"든\" a\"것\" g\"이\" f\"아\" e\"픔\" d\"이\" |\no4 l8 c\"결\" d\"정\" e\"하\" f\"는\" g\"마\" a\"음\" g\"이\" f\"아\" e\"픔\" d\"을\" | c\"가\" d\"려\" e\"주\" f\"는\" g\"듯\" a\"했\" g\"어\" f\"요\" e\"요\" d\"요\" |\no4 l8 d\"그\" e\"리\" f\"워\" g\"진\" a\"기\" g\"억\" f\"이\" e\"야\" d\"했\" | e\"지\" f\"만\" g\"다\" a\"시\" g\"는\" f\"미\" e\"련\" d\"했\" |\no4 l8 c\"다\" d\"시\" e\"도\" f\"봄\" g\"은\" a\"올\" g\"거\" f\"라\" e\"고\" d\"했\" | c\"다\" d\"시\" e\"도\" f\"꽃\" g\"은\" a\"피\" g\"를\" f\"거\" e\"나\" d\"요\" |\n",
+ "ttft": 0.5275670830160379,
+ "total": 8.475834332988597,
+ "usage": {
+  "prompt_tokens": 1106,
+  "completion_tokens": 659,
+  "total_tokens": 1765,
+  "cost": 0.00015415,
+  "is_byok": false,
+  "prompt_tokens_details": {
+   "cached_tokens": 0,
+   "cache_write_tokens": 0,
+   "audio_tokens": 0,
+   "video_tokens": 0
+  },
+  "cost_details": {
+   "upstream_inference_cost": 0.00015415,
+   "upstream_inference_prompt_cost": 5.53e-05,
+   "upstream_inference_completions_cost": 9.885e-05
+  },
+  "completion_tokens_details": {
+   "reasoning_tokens": 0,
+   "image_tokens": 0,
+   "audio_tokens": 0
+  }
+ },
+ "error": null,
+ "finish": "stop",
+ "fixture": "f4_vocal_lyrics",
+ "model": "google/gemma-3-12b-it",
+ "n": 3,
+ "ts": "2026-10-11T23:40:08+0900",
+ "parse": {
+  "ok": true,
+  "errors": [],
+  "warnings": [
+   "마디 2 길이 9/8 != 1 (트랙 Vocal)",
+   "마디 3 길이 5/4 != 1 (트랙 Vocal)",
+   "마디 4 길이 5/4 != 1 (트랙 Vocal)",
+   "마디 5 길이 9/8 != 1 (트랙 Vocal)",
+   "마디 7 길이 5/4 != 1 (트랙 Vocal)",
+   "마디 8 길이 5/4 != 1 (트랙 Vocal)",
+   "마디 9 길이 9/8 != 1 (트랙 Vocal)",
+   "마디 11 길이 5/4 != 1 (트랙 Vocal)",
+   "마디 12 길이 5/4 != 1 (트랙 Vocal)",
+   "마디 13 길이 9/8 != 1 (트랙 Vocal)",
+   "마디 15 길이 5/4 != 1 (트랙 Vocal)",
+   "마디 16 길이 5/4 != 1 (트랙 Vocal)"
+  ],
+  "tracks": [
+   {
+    "name": "Vocal",
+    "ch": 1,
+    "first": 1,
+    "dur": "37/2",
+    "bars_by_len": "37/2",
+    "bars_by_pipe": 16,
+    "notes": 148,
+    "lyrics": 148
+   }
+  ]
+ },
+ "parse_ok": true,
+ "bars_ok": false,
+ "structure_problems": [],
+ "bar_warnings": [
+  "마디 2 길이 9/8 != 1 (트랙 Vocal)",
+  "마디 3 길이 5/4 != 1 (트랙 Vocal)",
+  "마디 4 길이 5/4 != 1 (트랙 Vocal)",
+  "마디 5 길이 9/8 != 1 (트랙 Vocal)",
+  "마디 7 길이 5/4 != 1 (트랙 Vocal)",
+  "마디 8 길이 5/4 != 1 (트랙 Vocal)",
+  "마디 9 길이 9/8 != 1 (트랙 Vocal)",
+  "마디 11 길이 5/4 != 1 (트랙 Vocal)",
+  "마디 12 길이 5/4 != 1 (트랙 Vocal)",
+  "마디 13 길이 9/8 != 1 (트랙 Vocal)",
+  "마디 15 길이 5/4 != 1 (트랙 Vocal)",
+  "마디 16 길이 5/4 != 1 (트랙 Vocal)"
+ ],
+ "tag": "rdefault"
+}

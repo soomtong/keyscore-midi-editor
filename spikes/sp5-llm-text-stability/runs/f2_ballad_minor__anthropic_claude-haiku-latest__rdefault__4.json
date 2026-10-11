@@ -1,0 +1,50 @@
+{
+ "text": "",
+ "ttft": null,
+ "total": 12.545071541971993,
+ "usage": {
+  "prompt_tokens": 1512,
+  "completion_tokens": 2500,
+  "total_tokens": 4012,
+  "cost": 0.0014012,
+  "is_byok": false,
+  "prompt_tokens_details": {
+   "cached_tokens": 0,
+   "cache_write_tokens": 0,
+   "audio_tokens": 0,
+   "video_tokens": 0
+  },
+  "cost_details": {
+   "upstream_inference_cost": 0.0014012,
+   "upstream_inference_prompt_cost": 0.0001512,
+   "upstream_inference_completions_cost": 0.00125
+  },
+  "completion_tokens_details": {
+   "reasoning_tokens": 2500,
+   "image_tokens": 0,
+   "audio_tokens": 0
+  }
+ },
+ "error": null,
+ "finish": "length",
+ "fixture": "f2_ballad_minor",
+ "model": "~anthropic/claude-haiku-latest",
+ "n": 4,
+ "ts": "2026-10-11T23:38:10+0900",
+ "parse": {
+  "ok": false,
+  "errors": [
+   "빈 응답"
+  ],
+  "warnings": [],
+  "tracks": []
+ },
+ "parse_ok": false,
+ "bars_ok": false,
+ "structure_problems": [
+  "트랙 누락 Piano",
+  "트랙 누락 Lead"
+ ],
+ "bar_warnings": [],
+ "tag": "rdefault"
+}

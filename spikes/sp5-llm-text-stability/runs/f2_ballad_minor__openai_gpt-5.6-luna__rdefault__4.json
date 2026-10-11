@@ -1,0 +1,66 @@
+{
+ "text": "@track Piano ch1 prog0\no3 [a c e]2 [e g+ b d]4 | [f a c]2 [c e g]4 | [g b d]2 [e g+ b d]4 | [a c e]2 r4 | [f a c]2 [g b d]4 | [c e g]2 [e g+ b d]4 | [d f a]2 [e g+ b d]4 | [a c e]2 [a c e]4 |\n\n@track Lead ch2 prog73\no4 l8 e a c b a e | a g e f e c | d e g e d c | a4 e d c4 | c e a g e c | e g a b a g | f e d f e d | e4 a4 r4 |",
+ "ttft": 11.351188875036314,
+ "total": 12.046445708023384,
+ "usage": {
+  "prompt_tokens": 1061,
+  "completion_tokens": 1005,
+  "total_tokens": 2066,
+  "cost": 0.00122776,
+  "is_byok": false,
+  "prompt_tokens_details": {
+   "cached_tokens": 1058,
+   "cache_write_tokens": 0,
+   "audio_tokens": 0,
+   "video_tokens": 0
+  },
+  "cost_details": {
+   "upstream_inference_cost": 0.00122776,
+   "upstream_inference_prompt_cost": 2.176e-05,
+   "upstream_inference_completions_cost": 0.001206
+  },
+  "completion_tokens_details": {
+   "reasoning_tokens": 813,
+   "image_tokens": 0,
+   "audio_tokens": 0
+  }
+ },
+ "error": null,
+ "finish": "stop",
+ "fixture": "f2_ballad_minor",
+ "model": "openai/gpt-5.6-luna",
+ "n": 4,
+ "ts": "2026-10-11T23:37:50+0900",
+ "parse": {
+  "ok": true,
+  "errors": [],
+  "warnings": [],
+  "tracks": [
+   {
+    "name": "Piano",
+    "ch": 1,
+    "first": 1,
+    "dur": "6",
+    "bars_by_len": "8",
+    "bars_by_pipe": 8,
+    "notes": 49,
+    "lyrics": 0
+   },
+   {
+    "name": "Lead",
+    "ch": 2,
+    "first": 4,
+    "dur": "6",
+    "bars_by_len": "8",
+    "bars_by_pipe": 8,
+    "notes": 42,
+    "lyrics": 0
+   }
+  ]
+ },
+ "parse_ok": true,
+ "bars_ok": true,
+ "structure_problems": [],
+ "bar_warnings": [],
+ "tag": "rdefault"
+}

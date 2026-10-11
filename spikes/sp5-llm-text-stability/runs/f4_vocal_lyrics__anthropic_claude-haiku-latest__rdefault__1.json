@@ -1,0 +1,56 @@
+{
+ "text": "@track Vocal ch1 prog52\no4 d8\"봄\" f8\"날\" a4\"에\" a8\"꽃\" g8\"잎\" f8\"이\" e8\"지\" | d4\"면\" d8\"그\" e8\"대\" f4\"가\" g8\"떠\" a8\"나\" | a4\"그\" a8\"봄\" b8\"은\" a4\"떠\" g4\"나\" | f2\"어\" e4\"디\" d4\"로\" | a4\"돌\" a8\"아\" b8\"오\" a4\"나\" g4\"요\" | f4\"꽃\" e4\"비\" d2\"가\" | e8\"흩\" f8\"날\" g4\"리\" f8\"는\" e8\"봄\" d4\"밤\" | d2\"떠\" f4\"나\" d4\"요\" |",
+ "ttft": 9.53371225000592,
+ "total": 9.695065292005893,
+ "usage": {
+  "prompt_tokens": 1508,
+  "completion_tokens": 1840,
+  "total_tokens": 3348,
+  "cost": 0.0010708,
+  "is_byok": false,
+  "prompt_tokens_details": {
+   "cached_tokens": 0,
+   "cache_write_tokens": 0,
+   "audio_tokens": 0,
+   "video_tokens": 0
+  },
+  "cost_details": {
+   "upstream_inference_cost": 0.0010708,
+   "upstream_inference_prompt_cost": 0.0001508,
+   "upstream_inference_completions_cost": 0.00092
+  },
+  "completion_tokens_details": {
+   "reasoning_tokens": 1609,
+   "image_tokens": 0,
+   "audio_tokens": 0
+  }
+ },
+ "error": null,
+ "finish": "stop",
+ "fixture": "f4_vocal_lyrics",
+ "model": "~anthropic/claude-haiku-latest",
+ "n": 1,
+ "ts": "2026-10-11T23:39:45+0900",
+ "parse": {
+  "ok": true,
+  "errors": [],
+  "warnings": [],
+  "tracks": [
+   {
+    "name": "Vocal",
+    "ch": 1,
+    "first": 1,
+    "dur": "8",
+    "bars_by_len": "8",
+    "bars_by_pipe": 8,
+    "notes": 38,
+    "lyrics": 38
+   }
+  ]
+ },
+ "parse_ok": true,
+ "bars_ok": true,
+ "structure_problems": [],
+ "bar_warnings": [],
+ "tag": "rdefault"
+}

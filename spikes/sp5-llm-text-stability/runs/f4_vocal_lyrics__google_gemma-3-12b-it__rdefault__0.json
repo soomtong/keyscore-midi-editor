@@ -1,0 +1,98 @@
+{
+ "text": "@track Vocal ch1 prog52\no4 l8 d\"봄\" e\"이\" f#\"별\" g\"을\" a\"노\" b\"래\" d\"하\" e\"네\" | f#4\"봄\" g\"날\" a\"이\" b\"별\" d\"을\" e\"노\" |\nf#4\"래\" g\"하\" a\"는\" b\"이\" d\"별\" e\"을\" f#4\"기\" g\"억\" a\"하\" b\"고\" | d2\"아\" r4 |\no4 l8 d\"픈\" e\"마\" f#\"음\" g\"이\" a\"새\" b\"겨\" d\"오\" e\"네\" | f#4\"봄\" g\"날\" a\"이\" b\"별\" d\"을\" e\"기\" |\nf#4\"억\" g\"하\" a\"는\" b\"마\" d\"음\" e\"이\" f#4\"새\" g\"겨\" a\"오\" b\"네\" | d2\"기\" r4 |\no4 l8 d\"쁜\" e\"빛\" f#\"을\" g\"가\" a\"득\" b\"히\" d\"채\" e\"우\" f#4\"는\" | g\"봄\" a\"날\" b\"이\" d\"별\" e\"을\" f#4\"보\" |\nd4\"고\" g\"싶\" a\"어\" b\"라\" d\"했\" e\"지\" | f#2\"요\" r4 |\no4 l8 d\"아\" e\"련\" f#\"한\" g\"기\" a\"억\" b\"이\" d\"라\" e\"고\" f#4\"했\" | g\"지\" a\"만\" b\"은\" d\"봄\" e\"날\" |\nd2\"이\" r4 |\n",
+ "ttft": 0.6096149579971097,
+ "total": 9.95890899997903,
+ "usage": {
+  "prompt_tokens": 1102,
+  "completion_tokens": 433,
+  "total_tokens": 1535,
+  "cost": 0.00012005,
+  "is_byok": false,
+  "prompt_tokens_details": {
+   "cached_tokens": 0,
+   "cache_write_tokens": 0,
+   "audio_tokens": 0,
+   "video_tokens": 0
+  },
+  "cost_details": {
+   "upstream_inference_cost": 0.00012005,
+   "upstream_inference_prompt_cost": 5.51e-05,
+   "upstream_inference_completions_cost": 6.495e-05
+  },
+  "completion_tokens_details": {
+   "reasoning_tokens": 0,
+   "image_tokens": 0,
+   "audio_tokens": 0
+  }
+ },
+ "error": null,
+ "finish": "stop",
+ "fixture": "f4_vocal_lyrics",
+ "model": "google/gemma-3-12b-it",
+ "n": 0,
+ "ts": "2026-10-11T23:39:59+0900",
+ "parse": {
+  "ok": true,
+  "errors": [],
+  "warnings": [
+   "AMBIG: L2 `#` 올림표 `f#` (주석 문자와 충돌)",
+   "AMBIG: L2 `#` 올림표 `f#4` (주석 문자와 충돌)",
+   "AMBIG: L3 `#` 올림표 `f#4` (주석 문자와 충돌)",
+   "AMBIG: L3 `#` 올림표 `f#4` (주석 문자와 충돌)",
+   "AMBIG: L4 `#` 올림표 `f#` (주석 문자와 충돌)",
+   "AMBIG: L4 `#` 올림표 `f#4` (주석 문자와 충돌)",
+   "AMBIG: L5 `#` 올림표 `f#4` (주석 문자와 충돌)",
+   "AMBIG: L5 `#` 올림표 `f#4` (주석 문자와 충돌)",
+   "AMBIG: L6 `#` 올림표 `f#` (주석 문자와 충돌)",
+   "AMBIG: L6 `#` 올림표 `f#4` (주석 문자와 충돌)",
+   "AMBIG: L6 `#` 올림표 `f#4` (주석 문자와 충돌)",
+   "AMBIG: L7 `#` 올림표 `f#2` (주석 문자와 충돌)",
+   "AMBIG: L8 `#` 올림표 `f#` (주석 문자와 충돌)",
+   "AMBIG: L8 `#` 올림표 `f#4` (주석 문자와 충돌)",
+   "마디 2 길이 7/8 != 1 (트랙 Vocal)",
+   "마디 3 길이 3/2 != 1 (트랙 Vocal)",
+   "마디 4 길이 3/4 != 1 (트랙 Vocal)",
+   "마디 6 길이 7/8 != 1 (트랙 Vocal)",
+   "마디 7 길이 3/2 != 1 (트랙 Vocal)",
+   "마디 8 길이 3/4 != 1 (트랙 Vocal)",
+   "마디 9 길이 5/4 != 1 (트랙 Vocal)",
+   "마디 10 길이 7/8 != 1 (트랙 Vocal)",
+   "마디 11 길이 7/8 != 1 (트랙 Vocal)",
+   "마디 12 길이 3/4 != 1 (트랙 Vocal)",
+   "마디 13 길이 5/4 != 1 (트랙 Vocal)",
+   "마디 14 길이 5/8 != 1 (트랙 Vocal)",
+   "마디 15 길이 3/4 != 1 (트랙 Vocal)"
+  ],
+  "tracks": [
+   {
+    "name": "Vocal",
+    "ch": 1,
+    "first": 1,
+    "dur": "117/8",
+    "bars_by_len": "117/8",
+    "bars_by_pipe": 15,
+    "notes": 87,
+    "lyrics": 87
+   }
+  ]
+ },
+ "parse_ok": true,
+ "bars_ok": false,
+ "structure_problems": [],
+ "bar_warnings": [
+  "마디 2 길이 7/8 != 1 (트랙 Vocal)",
+  "마디 3 길이 3/2 != 1 (트랙 Vocal)",
+  "마디 4 길이 3/4 != 1 (트랙 Vocal)",
+  "마디 6 길이 7/8 != 1 (트랙 Vocal)",
+  "마디 7 길이 3/2 != 1 (트랙 Vocal)",
+  "마디 8 길이 3/4 != 1 (트랙 Vocal)",
+  "마디 9 길이 5/4 != 1 (트랙 Vocal)",
+  "마디 10 길이 7/8 != 1 (트랙 Vocal)",
+  "마디 11 길이 7/8 != 1 (트랙 Vocal)",
+  "마디 12 길이 3/4 != 1 (트랙 Vocal)",
+  "마디 13 길이 5/4 != 1 (트랙 Vocal)",
+  "마디 14 길이 5/8 != 1 (트랙 Vocal)",
+  "마디 15 길이 3/4 != 1 (트랙 Vocal)"
+ ],
+ "tag": "rdefault"
+}

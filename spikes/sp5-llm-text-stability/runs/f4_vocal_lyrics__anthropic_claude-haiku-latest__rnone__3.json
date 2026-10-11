@@ -1,0 +1,74 @@
+{
+ "text": "@track Vocal ch1 prog52\no4 l4 a\"봄\"d\"날\"f\"의\"a\"이\"g8\"별\"f8\"을\"e4\"노\"d\"래\"d4\"하\"r2 |\no4 l4 f\"바\"a\"람\"b-\"에\"a\"꽃\"g\"잎\"f\"이\"e\"지\"d2\"고\"r2 |\no4 l4 e\"떠\"f\"나\"g\"던\"a\"그\"b-\"날\"a\"처\"g\"럼\"f2\"우\"r2 |\no4 l4 d\"리\"e\"는\"f\"함\"g\"께\"a2\"걸\"f\"었\"d\"던\"e4\"길\"d4\"위\" |\no4 l4 a\"에\"b-\"서\"a\"꽃\"g\"이\"f\"흩\"e\"날\"d2\"리\"r2 |\no4 l4 f\"는\"a\"날\"b-\"에\"a\"나\"g\"는\"f\"홀\"e\"로\"d2\"남\"r2 |\no4 l4 e\"아\"f\"그\"g\"리\"a\"움\"b-\"을\"a\"접\"g\"어\"f\"두\"e\"고\"d\"가\"d2 |\no4 l4 d\"만\"e\"개\"f\"봄\"g\"빛\"a1 |",
+ "ttft": 1.1551700419513509,
+ "total": 3.454114749969449,
+ "usage": {
+  "prompt_tokens": 1507,
+  "completion_tokens": 381,
+  "total_tokens": 1888,
+  "cost": 0.0003412,
+  "is_byok": false,
+  "prompt_tokens_details": {
+   "cached_tokens": 0,
+   "cache_write_tokens": 0,
+   "audio_tokens": 0,
+   "video_tokens": 0
+  },
+  "cost_details": {
+   "upstream_inference_cost": 0.0003412,
+   "upstream_inference_prompt_cost": 0.0001507,
+   "upstream_inference_completions_cost": 0.0001905
+  },
+  "completion_tokens_details": {
+   "reasoning_tokens": 0,
+   "image_tokens": 0,
+   "audio_tokens": 0
+  }
+ },
+ "error": null,
+ "finish": "stop",
+ "fixture": "f4_vocal_lyrics",
+ "model": "~anthropic/claude-haiku-latest",
+ "n": 3,
+ "tag": "rnone",
+ "ts": "2026-10-11T23:41:42+0900",
+ "parse": {
+  "ok": true,
+  "errors": [],
+  "warnings": [
+   "마디 1 길이 5/2 != 1 (트랙 Vocal)",
+   "마디 2 길이 11/4 != 1 (트랙 Vocal)",
+   "마디 3 길이 11/4 != 1 (트랙 Vocal)",
+   "마디 4 길이 5/2 != 1 (트랙 Vocal)",
+   "마디 5 길이 5/2 != 1 (트랙 Vocal)",
+   "마디 6 길이 11/4 != 1 (트랙 Vocal)",
+   "마디 7 길이 3 != 1 (트랙 Vocal)",
+   "마디 8 길이 2 != 1 (트랙 Vocal)"
+  ],
+  "tracks": [
+   {
+    "name": "Vocal",
+    "ch": 1,
+    "first": 1,
+    "dur": "83/4",
+    "bars_by_len": "83/4",
+    "bars_by_pipe": 8,
+    "notes": 65,
+    "lyrics": 63
+   }
+  ]
+ },
+ "parse_ok": true,
+ "bars_ok": false,
+ "structure_problems": [],
+ "bar_warnings": [
+  "마디 1 길이 5/2 != 1 (트랙 Vocal)",
+  "마디 2 길이 11/4 != 1 (트랙 Vocal)",
+  "마디 3 길이 11/4 != 1 (트랙 Vocal)",
+  "마디 4 길이 5/2 != 1 (트랙 Vocal)",
+  "마디 5 길이 5/2 != 1 (트랙 Vocal)",
+  "마디 6 길이 11/4 != 1 (트랙 Vocal)",
+  "마디 7 길이 3 != 1 (트랙 Vocal)",
+  "마디 8 길이 2 != 1 (트랙 Vocal)"
+ ]
+}

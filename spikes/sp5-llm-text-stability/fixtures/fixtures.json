@@ -1,0 +1,14 @@
+[
+ {"id":"f1_pop_major","bars":8,"tempo":120,"time":"4/4","bar_desc":"4 quarter notes","key":"G major",
+  "tracks":[{"name":"Lead","ch":1,"prog":0,"role":"melody"},{"name":"Bass","ch":2,"prog":33,"role":"bass"}],
+  "request":"밝은 팝 느낌의 멜로디와 그 밑을 받치는 베이스. 8마디."},
+ {"id":"f2_ballad_minor","bars":8,"tempo":72,"time":"3/4","bar_desc":"3 quarter notes","key":"A minor",
+  "tracks":[{"name":"Piano","ch":1,"prog":0,"role":"chords (use [ ] chords)"},{"name":"Lead","ch":2,"prog":73,"role":"melody"}],
+  "request":"슬프고 느린 단조 발라드. 피아노는 화음, 플루트는 멜로디. 8마디."},
+ {"id":"f3_rock_drums","bars":8,"tempo":140,"time":"4/4","bar_desc":"4 quarter notes","key":"E minor",
+  "tracks":[{"name":"Lead","ch":1,"prog":29,"role":"melody"},{"name":"Bass","ch":2,"prog":33,"role":"bass"},{"name":"Drums","ch":10,"prog":null,"role":"drums"}],
+  "request":"에너지 있는 록 8마디. 드럼은 마디마다 필 없이 8비트, 마지막 마디만 필 포함."},
+ {"id":"f4_vocal_lyrics","bars":8,"tempo":90,"time":"4/4","bar_desc":"4 quarter notes","key":"D major",
+  "tracks":[{"name":"Vocal","ch":1,"prog":52,"role":"vocal melody with Korean lyrics, one syllable per note, lyric attached to every sounding note"}],
+  "request":"봄날의 이별을 노래하는 한국어 가사와 멜로디. 8마디."}
+]

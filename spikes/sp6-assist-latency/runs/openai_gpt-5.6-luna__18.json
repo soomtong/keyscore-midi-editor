@@ -1,0 +1,40 @@
+{
+ "text": "@track Lead ch1 prog29\no5 l8 e g a b >d c b a | o5 e g a b >c b a b |\n",
+ "ttft": 1.2434929169830866,
+ "total": 1.609537124983035,
+ "usage": {
+  "prompt_tokens": 1441,
+  "completion_tokens": 38,
+  "total_tokens": 1479,
+  "cost": 7.496e-05,
+  "is_byok": false,
+  "prompt_tokens_details": {
+   "cached_tokens": 1438,
+   "cache_write_tokens": 0,
+   "audio_tokens": 0,
+   "video_tokens": 0
+  },
+  "cost_details": {
+   "upstream_inference_cost": 7.496e-05,
+   "upstream_inference_prompt_cost": 2.936e-05,
+   "upstream_inference_completions_cost": 4.56e-05
+  },
+  "completion_tokens_details": {
+   "reasoning_tokens": 0,
+   "image_tokens": 0,
+   "audio_tokens": 0
+  }
+ },
+ "error": null,
+ "finish": "stop",
+ "model": "openai/gpt-5.6-luna",
+ "n": 18,
+ "ctx": 0,
+ "parse_ok": true,
+ "errors": [],
+ "warnings": [],
+ "bars": "2",
+ "only_lead": true,
+ "ts": "2026-10-11T23:43:39+0900",
+ "user_chars": 1166
+}

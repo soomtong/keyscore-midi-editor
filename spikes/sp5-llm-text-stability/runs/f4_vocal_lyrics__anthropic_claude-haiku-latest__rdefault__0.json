@@ -1,0 +1,56 @@
+{
+ "text": "@track Vocal ch1 prog52\no4 l4 a4\"봄\" f+4\"날\" d4\"의\" e4\"이\" | f+2\"별\" e8\"은\" d8\"떠\" e8\"나\" d8\"는\" | a4\"꽃\" f+4\"잎\" e4\"이\" d4\"져\" | d2\"바\" e4\"람\" f+4\"에\" | f+4\"흩\" g4\"날\" a2\"리\" | g8\"고\" f+8\"운\" e4\"그\" d4\"대\" e4\"여\" | a2\"향\" f+4\"기\" d4\"로\" | e2\"리\" d2\"워\" |",
+ "ttft": 8.85491362499306,
+ "total": 9.146950167021714,
+ "usage": {
+  "prompt_tokens": 1508,
+  "completion_tokens": 1736,
+  "total_tokens": 3244,
+  "cost": 0.0010188,
+  "is_byok": false,
+  "prompt_tokens_details": {
+   "cached_tokens": 0,
+   "cache_write_tokens": 0,
+   "audio_tokens": 0,
+   "video_tokens": 0
+  },
+  "cost_details": {
+   "upstream_inference_cost": 0.0010188,
+   "upstream_inference_prompt_cost": 0.0001508,
+   "upstream_inference_completions_cost": 0.000868
+  },
+  "completion_tokens_details": {
+   "reasoning_tokens": 1548,
+   "image_tokens": 0,
+   "audio_tokens": 0
+  }
+ },
+ "error": null,
+ "finish": "stop",
+ "fixture": "f4_vocal_lyrics",
+ "model": "~anthropic/claude-haiku-latest",
+ "n": 0,
+ "ts": "2026-10-11T23:39:40+0900",
+ "parse": {
+  "ok": true,
+  "errors": [],
+  "warnings": [],
+  "tracks": [
+   {
+    "name": "Vocal",
+    "ch": 1,
+    "first": 1,
+    "dur": "8",
+    "bars_by_len": "8",
+    "bars_by_pipe": 8,
+    "notes": 29,
+    "lyrics": 29
+   }
+  ]
+ },
+ "parse_ok": true,
+ "bars_ok": true,
+ "structure_problems": [],
+ "bar_warnings": [],
+ "tag": "rdefault"
+}

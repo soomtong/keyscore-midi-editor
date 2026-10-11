@@ -1,0 +1,85 @@
+{
+ "text": "\n\n@track Piano ch1 prog0\nl4 [a c e]4 [d f a]4 [e g b]4 [f a c]4 | [a c e]4 [g b d]4 [b d f]4 [c e g]4 | [a c e]4 [d f a]4 [e g b]4 [f a c]4 | [a c e]4 [g b d]4 [b d f]4 [c e g]4 |\nl4 [a c e]4 [d f a]4 [e g b]4 [f a c]4 | [a c e]4 [g b d]4 [b d f]4 [c e g]4 | [a c e]4 [d f a]4 [e g b]4 [f a c]4 | [a c e]4 [g b d]4 [b d f]4 [c e g]4 |\n\n@track Lead ch2 prog73\no5 l8 a4 g4 e4 | d4 c4 b3 a3 | a4 g4 e4 | d4 c4 b3 a3 |\no5 l8 a4 g4 e4 | d4 c4 b3 a3 | a4 g4 e4 | d4 c4 b3 a3 |",
+ "ttft": 0.5247953749494627,
+ "total": 4.196788791974541,
+ "usage": {
+  "prompt_tokens": 1114,
+  "completion_tokens": 298,
+  "total_tokens": 1412,
+  "cost": 0.0001004,
+  "is_byok": false,
+  "prompt_tokens_details": {
+   "cached_tokens": 0,
+   "cache_write_tokens": 0,
+   "audio_tokens": 0,
+   "video_tokens": 0
+  },
+  "cost_details": {
+   "upstream_inference_cost": 0.0001004,
+   "upstream_inference_prompt_cost": 5.57e-05,
+   "upstream_inference_completions_cost": 4.47e-05
+  },
+  "completion_tokens_details": {
+   "reasoning_tokens": 0,
+   "image_tokens": 0,
+   "audio_tokens": 0
+  }
+ },
+ "error": null,
+ "finish": "stop",
+ "fixture": "f2_ballad_minor",
+ "model": "google/gemma-3-12b-it",
+ "n": 3,
+ "ts": "2026-10-11T23:38:10+0900",
+ "parse": {
+  "ok": false,
+  "errors": [
+   "track Lead: 허용되지 않는 길이 3"
+  ],
+  "warnings": [
+   "마디 1 길이 1 != 3/4 (트랙 Piano)",
+   "마디 2 길이 1 != 3/4 (트랙 Piano)",
+   "마디 3 길이 1 != 3/4 (트랙 Piano)",
+   "마디 4 길이 1 != 3/4 (트랙 Piano)",
+   "마디 5 길이 1 != 3/4 (트랙 Piano)",
+   "마디 6 길이 1 != 3/4 (트랙 Piano)",
+   "마디 7 길이 1 != 3/4 (트랙 Piano)",
+   "마디 8 길이 1 != 3/4 (트랙 Piano)"
+  ],
+  "tracks": [
+   {
+    "name": "Piano",
+    "ch": 1,
+    "first": 1,
+    "dur": "8",
+    "bars_by_len": "32/3",
+    "bars_by_pipe": 8,
+    "notes": 96,
+    "lyrics": 0
+   },
+   {
+    "name": "Lead",
+    "ch": 2,
+    "first": 5,
+    "dur": null,
+    "bars_by_len": null,
+    "bars_by_pipe": null,
+    "notes": 0
+   }
+  ]
+ },
+ "parse_ok": false,
+ "bars_ok": false,
+ "structure_problems": [],
+ "bar_warnings": [
+  "마디 1 길이 1 != 3/4 (트랙 Piano)",
+  "마디 2 길이 1 != 3/4 (트랙 Piano)",
+  "마디 3 길이 1 != 3/4 (트랙 Piano)",
+  "마디 4 길이 1 != 3/4 (트랙 Piano)",
+  "마디 5 길이 1 != 3/4 (트랙 Piano)",
+  "마디 6 길이 1 != 3/4 (트랙 Piano)",
+  "마디 7 길이 1 != 3/4 (트랙 Piano)",
+  "마디 8 길이 1 != 3/4 (트랙 Piano)"
+ ],
+ "tag": "rdefault"
+}

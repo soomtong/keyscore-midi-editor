@@ -1,0 +1,80 @@
+{
+ "text": "@track Lead ch1 prog29\no4 l8 e g b >e e4 d8 b | a g e g a4 r4 | e g b >e >c b a g | f+ a >c >d e4 r4 | e g b >e >e4 d8 b | a g e g a4 r4 | g b >d >e >f+ e d b | a4 r4 r2 |\n\n@track Bass ch2 prog33\no2 l4 e e g g | a a e e | e e f+ f+ | g g a4 r4 | e e g g | a a e e | e g b >e | e2 e2 |\n\n@track Drums ch10\nl8 [bd ch] ch [sd ch] ch [bd ch] ch [sd ch] ch | [bd ch] ch [sd ch] ch [bd ch] ch [sd ch] ch | [bd ch] ch [sd ch] ch [bd ch] ch [sd ch] ch | [bd ch] ch [sd ch] ch [bd ch] ch [sd ch] ch | [bd ch] ch [sd ch] ch [bd ch] ch [sd ch] ch | [bd ch] ch [sd ch] ch [bd ch] ch [sd ch] ch | [bd ch] ch [sd ch] ch [bd ch] ch [sd ch] ch | [bd cr] ch [sd ch] ch [bd ch] ch [sd cr] [sd sd] [sd ch] |",
+ "ttft": 1.0734927909797989,
+ "total": 3.150253125000745,
+ "usage": {
+  "prompt_tokens": 1522,
+  "completion_tokens": 478,
+  "total_tokens": 2000,
+  "cost": 0.0003912,
+  "is_byok": false,
+  "prompt_tokens_details": {
+   "cached_tokens": 0,
+   "cache_write_tokens": 0,
+   "audio_tokens": 0,
+   "video_tokens": 0
+  },
+  "cost_details": {
+   "upstream_inference_cost": 0.0003912,
+   "upstream_inference_prompt_cost": 0.0001522,
+   "upstream_inference_completions_cost": 0.000239
+  },
+  "completion_tokens_details": {
+   "reasoning_tokens": 0,
+   "image_tokens": 0,
+   "audio_tokens": 0
+  }
+ },
+ "error": null,
+ "finish": "stop",
+ "fixture": "f3_rock_drums",
+ "model": "~anthropic/claude-haiku-latest",
+ "n": 3,
+ "tag": "rnone",
+ "ts": "2026-10-11T23:41:31+0900",
+ "parse": {
+  "ok": true,
+  "errors": [],
+  "warnings": [
+   "마디 8 길이 9/8 != 1 (트랙 Drums)"
+  ],
+  "tracks": [
+   {
+    "name": "Lead",
+    "ch": 1,
+    "first": 1,
+    "dur": "8",
+    "bars_by_len": "8",
+    "bars_by_pipe": 8,
+    "notes": 46,
+    "lyrics": 0
+   },
+   {
+    "name": "Bass",
+    "ch": 2,
+    "first": 4,
+    "dur": "8",
+    "bars_by_len": "8",
+    "bars_by_pipe": 8,
+    "notes": 29,
+    "lyrics": 0
+   },
+   {
+    "name": "Drums",
+    "ch": 10,
+    "first": 7,
+    "dur": "65/8",
+    "bars_by_len": "65/8",
+    "bars_by_pipe": 8,
+    "notes": 99,
+    "lyrics": 0
+   }
+  ]
+ },
+ "parse_ok": true,
+ "bars_ok": false,
+ "structure_problems": [],
+ "bar_warnings": [
+  "마디 8 길이 9/8 != 1 (트랙 Drums)"
+ ]
+}

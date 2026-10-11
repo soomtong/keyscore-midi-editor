@@ -1,0 +1,72 @@
+{
+ "text": "@track Lead ch1 prog29\no4 l8 e8 e8 g8 a8 b4 a8 g8 | f+8 e8 d8 e8 f+4 e4 | g8 a8 b8 a8 g4 e4 | d8 e8 f+8 e8 d4 r4 | e8 g8 b8 >e8 d8 <b8 a8 g8 | a4 g8 f+8 e4 r4 | b8 a8 g8 f+8 e8 d8 e4 | e1 |\n\n@track Bass ch2 prog33\no2 l8 e e e e e e e e | c c c c c c c c | g g g g g g g g | d d d d d d d d | e e e e",
+ "ttft": 11.23772612499306,
+ "total": 11.777064458990935,
+ "usage": {
+  "prompt_tokens": 1523,
+  "completion_tokens": 2500,
+  "total_tokens": 4023,
+  "cost": 0.0014023,
+  "is_byok": false,
+  "prompt_tokens_details": {
+   "cached_tokens": 0,
+   "cache_write_tokens": 0,
+   "audio_tokens": 0,
+   "video_tokens": 0
+  },
+  "cost_details": {
+   "upstream_inference_cost": 0.0014023,
+   "upstream_inference_prompt_cost": 0.0001523,
+   "upstream_inference_completions_cost": 0.00125
+  },
+  "completion_tokens_details": {
+   "reasoning_tokens": 2268,
+   "image_tokens": 0,
+   "audio_tokens": 0
+  }
+ },
+ "error": null,
+ "finish": "length",
+ "fixture": "f3_rock_drums",
+ "model": "~anthropic/claude-haiku-latest",
+ "n": 2,
+ "ts": "2026-10-11T23:38:50+0900",
+ "parse": {
+  "ok": true,
+  "errors": [],
+  "warnings": [
+   "마디 5 길이 1/2 != 1 (트랙 Bass)"
+  ],
+  "tracks": [
+   {
+    "name": "Lead",
+    "ch": 1,
+    "first": 1,
+    "dur": "8",
+    "bars_by_len": "8",
+    "bars_by_pipe": 8,
+    "notes": 44,
+    "lyrics": 0
+   },
+   {
+    "name": "Bass",
+    "ch": 2,
+    "first": 4,
+    "dur": "9/2",
+    "bars_by_len": "9/2",
+    "bars_by_pipe": 5,
+    "notes": 36,
+    "lyrics": 0
+   }
+  ]
+ },
+ "parse_ok": true,
+ "bars_ok": false,
+ "structure_problems": [
+  "트랙 누락 Drums"
+ ],
+ "bar_warnings": [
+  "마디 5 길이 1/2 != 1 (트랙 Bass)"
+ ],
+ "tag": "rdefault"
+}

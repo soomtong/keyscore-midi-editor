@@ -1,0 +1,80 @@
+{
+ "text": "@track Lead ch1 prog29\no4 l8 e g b > e d b g | o5 a b c d c b a g | o5 e g b e d b a g | o5 e d c b a g f+ e | o5 b a g e g a b d | o5 e g a b > d c b a | o5 e e g a b a g e | o5 b a g e d e g e |\n\n@track Bass ch2 prog33\no2 l8 e e b e e e b e | c c g c c c g c | g g d g g g d g | d d a d d d a d | e e b e e e b e | c c g c c c g c | g g d g g g d g | e e b e e b e e |\n\n@track Drums ch10\nl8 [bd ch] ch [sd ch] ch [bd ch] ch [sd ch] ch | [bd ch] ch [sd ch] ch [bd ch] ch [sd ch] ch | [bd ch] ch [sd ch] ch [bd ch] ch [sd ch] ch | [bd ch] ch [sd ch] ch [bd ch] ch [sd ch] ch | [bd ch] ch [sd ch] ch [bd ch] ch [sd ch] ch | [bd ch] ch [sd ch] ch [bd ch] ch [sd ch] ch | [bd ch] ch [sd ch] ch [bd ch] ch [sd ch] ch | [bd cr] ch [sd ch] lt mt ht [sd ch] [bd sd] |",
+ "ttft": 16.40031033300329,
+ "total": 18.822332000010647,
+ "usage": {
+  "prompt_tokens": 1063,
+  "completion_tokens": 1565,
+  "total_tokens": 2628,
+  "cost": 0.0018998,
+  "is_byok": false,
+  "prompt_tokens_details": {
+   "cached_tokens": 1060,
+   "cache_write_tokens": 0,
+   "audio_tokens": 0,
+   "video_tokens": 0
+  },
+  "cost_details": {
+   "upstream_inference_cost": 0.0018998,
+   "upstream_inference_prompt_cost": 2.18e-05,
+   "upstream_inference_completions_cost": 0.001878
+  },
+  "completion_tokens_details": {
+   "reasoning_tokens": 1198,
+   "image_tokens": 0,
+   "audio_tokens": 0
+  }
+ },
+ "error": null,
+ "finish": "stop",
+ "fixture": "f3_rock_drums",
+ "model": "openai/gpt-5.6-luna",
+ "n": 1,
+ "ts": "2026-10-11T23:38:29+0900",
+ "parse": {
+  "ok": true,
+  "errors": [],
+  "warnings": [
+   "마디 1 길이 7/8 != 1 (트랙 Lead)"
+  ],
+  "tracks": [
+   {
+    "name": "Lead",
+    "ch": 1,
+    "first": 1,
+    "dur": "63/8",
+    "bars_by_len": "63/8",
+    "bars_by_pipe": 8,
+    "notes": 63,
+    "lyrics": 0
+   },
+   {
+    "name": "Bass",
+    "ch": 2,
+    "first": 4,
+    "dur": "8",
+    "bars_by_len": "8",
+    "bars_by_pipe": 8,
+    "notes": 64,
+    "lyrics": 0
+   },
+   {
+    "name": "Drums",
+    "ch": 10,
+    "first": 7,
+    "dur": "8",
+    "bars_by_len": "8",
+    "bars_by_pipe": 8,
+    "notes": 96,
+    "lyrics": 0
+   }
+  ]
+ },
+ "parse_ok": true,
+ "bars_ok": false,
+ "structure_problems": [],
+ "bar_warnings": [
+  "마디 1 길이 7/8 != 1 (트랙 Lead)"
+ ],
+ "tag": "rdefault"
+}

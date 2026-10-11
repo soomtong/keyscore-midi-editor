@@ -1,0 +1,59 @@
+{
+ "text": "@track Vocal ch1 prog52\no4 l8 fis\"봄\" a\"날\" b\"에\" >d\"피\" <b\"어\" a\"난\" fis\"꽃\" e\"잎\" | fis\"처\" a\"럼\" b\"우\" >d\"리\" <b\"도\" a\"멀\" fis\"어\" e\"져\" | d\"햇\" fis\"살\" a\"속\" b\"에\" >d\"눈\" <b\"물\" a\"이\" fis\"흘\" e\"러\" | fis\"가\" a\"는\" b\"너\" >d\"의\" <b\"뒷\" a\"모\" fis\"습\" e\"만\" | d\"바\" fis\"람\" a\"따\" b\"라\" >d\"가\" <b\"고\" a\"있\" fis\"어\" e\"요\" | fis\"다\" a\"시\" b\"올\" >d\"봄\" <b\"을\" a\"기\" fis\"다\" e\"릴\" | d\"그\" fis\"리\" a\"움\" b\"속\" >d\"에\" <b\"서\" a\"도\" fis\"너\" e\"를\" | d4\"잊\" fis4\"지\" a4\"못\" d4\"해\" |",
+ "ttft": 1.1075847080210224,
+ "total": 3.968559750006534,
+ "usage": {
+  "prompt_tokens": 1055,
+  "completion_tokens": 302,
+  "total_tokens": 1357,
+  "cost": 0.000626,
+  "is_byok": false,
+  "prompt_tokens_details": {
+   "cached_tokens": 0,
+   "cache_write_tokens": 1052,
+   "audio_tokens": 0,
+   "video_tokens": 0
+  },
+  "cost_details": {
+   "upstream_inference_cost": 0.000626,
+   "upstream_inference_prompt_cost": 0.0002636,
+   "upstream_inference_completions_cost": 0.0003624
+  },
+  "completion_tokens_details": {
+   "reasoning_tokens": 0,
+   "image_tokens": 0,
+   "audio_tokens": 0
+  }
+ },
+ "error": null,
+ "finish": "stop",
+ "fixture": "f4_vocal_lyrics",
+ "model": "openai/gpt-5.6-luna",
+ "n": 0,
+ "tag": "rnone",
+ "ts": "2026-10-11T23:40:57+0900",
+ "parse": {
+  "ok": false,
+  "errors": [
+   "track Vocal: L2: 알 수 없는 토큰 `fis`"
+  ],
+  "warnings": [],
+  "tracks": [
+   {
+    "name": "Vocal",
+    "ch": 1,
+    "first": 1,
+    "dur": null,
+    "bars_by_len": null,
+    "bars_by_pipe": null,
+    "notes": 0
+   }
+  ]
+ },
+ "parse_ok": false,
+ "bars_ok": false,
+ "structure_problems": [
+  "가사 없음"
+ ],
+ "bar_warnings": []
+}

@@ -1,0 +1,112 @@
+{
+ "text": "\n\n@track Lead ch1 prog29\no5 l8 e4 g4 b4 e4 | d4 f4 a4 d4 | c4 e4 g4 c4 | b4 d4 f4 b4 | e4 g4 b4 e4 | d4 f4 a4 d4 | c4 e4 g4 c4 | b4 r8 f8 e4 |\n\n@track Bass ch2 prog33\no2 l4 e1 g1 b1 e1 | a1 f1 c1 a1 | e1 g1 b1 e1 | a1 f1 c1 a1 | e1 g1 b1 e1 | a1 f1 c1 a1 | e1 g1 b1 e1 | a1 r8 f8 e1 |\n\n@track Drums ch10\nl8 [bd ch]8 [ch sd]8 [bd ch]8 [ch sd]8 | [bd ch]8 [ch sd]8 [bd ch]8 [ch sd]8 | [bd ch]8 [ch sd]8 [bd ch]8 [ch sd]8 | [bd ch]8 [ch sd]8 [bd ch]8 [ch sd]8 | [bd ch]8 [ch sd]8 [bd ch]8 [ch sd]8 | [bd ch]8 [ch sd]8 [bd ch]8 [ch sd]8 | [bd ch]8 [ch sd]8 [bd ch]8 [ch sd]8 | [bd bd]8 [ch sd]8 [ch sd]8 [cr rd]4 |",
+ "ttft": 0.5162085829651915,
+ "total": 4.720289207994938,
+ "usage": {
+  "prompt_tokens": 1117,
+  "completion_tokens": 351,
+  "total_tokens": 1468,
+  "cost": 0.0001085,
+  "is_byok": false,
+  "prompt_tokens_details": {
+   "cached_tokens": 960,
+   "cache_write_tokens": 0,
+   "audio_tokens": 0,
+   "video_tokens": 0
+  },
+  "cost_details": {
+   "upstream_inference_cost": 0.0001085,
+   "upstream_inference_prompt_cost": 5.585e-05,
+   "upstream_inference_completions_cost": 5.265e-05
+  },
+  "completion_tokens_details": {
+   "reasoning_tokens": 0,
+   "image_tokens": 0,
+   "audio_tokens": 0
+  }
+ },
+ "error": null,
+ "finish": "stop",
+ "fixture": "f3_rock_drums",
+ "model": "google/gemma-3-12b-it",
+ "n": 3,
+ "ts": "2026-10-11T23:39:06+0900",
+ "parse": {
+  "ok": true,
+  "errors": [],
+  "warnings": [
+   "마디 8 길이 3/4 != 1 (트랙 Lead)",
+   "마디 1 길이 4 != 1 (트랙 Bass)",
+   "마디 2 길이 4 != 1 (트랙 Bass)",
+   "마디 3 길이 4 != 1 (트랙 Bass)",
+   "마디 4 길이 4 != 1 (트랙 Bass)",
+   "마디 5 길이 4 != 1 (트랙 Bass)",
+   "마디 6 길이 4 != 1 (트랙 Bass)",
+   "마디 7 길이 4 != 1 (트랙 Bass)",
+   "마디 8 길이 9/4 != 1 (트랙 Bass)",
+   "마디 1 길이 1/2 != 1 (트랙 Drums)",
+   "마디 2 길이 1/2 != 1 (트랙 Drums)",
+   "마디 3 길이 1/2 != 1 (트랙 Drums)",
+   "마디 4 길이 1/2 != 1 (트랙 Drums)",
+   "마디 5 길이 1/2 != 1 (트랙 Drums)",
+   "마디 6 길이 1/2 != 1 (트랙 Drums)",
+   "마디 7 길이 1/2 != 1 (트랙 Drums)",
+   "마디 8 길이 5/8 != 1 (트랙 Drums)"
+  ],
+  "tracks": [
+   {
+    "name": "Lead",
+    "ch": 1,
+    "first": 1,
+    "dur": "31/4",
+    "bars_by_len": "31/4",
+    "bars_by_pipe": 8,
+    "notes": 31,
+    "lyrics": 0
+   },
+   {
+    "name": "Bass",
+    "ch": 2,
+    "first": 4,
+    "dur": "121/4",
+    "bars_by_len": "121/4",
+    "bars_by_pipe": 8,
+    "notes": 31,
+    "lyrics": 0
+   },
+   {
+    "name": "Drums",
+    "ch": 10,
+    "first": 7,
+    "dur": "33/8",
+    "bars_by_len": "33/8",
+    "bars_by_pipe": 8,
+    "notes": 64,
+    "lyrics": 0
+   }
+  ]
+ },
+ "parse_ok": true,
+ "bars_ok": false,
+ "structure_problems": [],
+ "bar_warnings": [
+  "마디 8 길이 3/4 != 1 (트랙 Lead)",
+  "마디 1 길이 4 != 1 (트랙 Bass)",
+  "마디 2 길이 4 != 1 (트랙 Bass)",
+  "마디 3 길이 4 != 1 (트랙 Bass)",
+  "마디 4 길이 4 != 1 (트랙 Bass)",
+  "마디 5 길이 4 != 1 (트랙 Bass)",
+  "마디 6 길이 4 != 1 (트랙 Bass)",
+  "마디 7 길이 4 != 1 (트랙 Bass)",
+  "마디 8 길이 9/4 != 1 (트랙 Bass)",
+  "마디 1 길이 1/2 != 1 (트랙 Drums)",
+  "마디 2 길이 1/2 != 1 (트랙 Drums)",
+  "마디 3 길이 1/2 != 1 (트랙 Drums)",
+  "마디 4 길이 1/2 != 1 (트랙 Drums)",
+  "마디 5 길이 1/2 != 1 (트랙 Drums)",
+  "마디 6 길이 1/2 != 1 (트랙 Drums)",
+  "마디 7 길이 1/2 != 1 (트랙 Drums)",
+  "마디 8 길이 5/8 != 1 (트랙 Drums)"
+ ],
+ "tag": "rdefault"
+}

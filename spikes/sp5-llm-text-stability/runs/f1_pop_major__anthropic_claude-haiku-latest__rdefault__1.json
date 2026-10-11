@@ -1,0 +1,66 @@
+{
+ "text": "@track Lead ch1 prog0\no5 g8 a8 b8 d8 g4 b4 | d4 e8 d8 b4 g4 | a8 g8 f+4 e4 d4 | e2 d4 b4 | g8 a8 b8 d8 e4 d4 | g4 f+8 e8 d4 b4 | c4 d8 e8 g4 f+4 | g1 |\n\n@track Bass ch2 prog33\no2 l4 g d g d | e b e b | c g c g | d a d a | g d g d | e b e b | c g c g | d2 g2 |",
+ "ttft": 9.011273999989498,
+ "total": 9.261106791964266,
+ "usage": {
+  "prompt_tokens": 1499,
+  "completion_tokens": 1612,
+  "total_tokens": 3111,
+  "cost": 0.0009559,
+  "is_byok": false,
+  "prompt_tokens_details": {
+   "cached_tokens": 0,
+   "cache_write_tokens": 0,
+   "audio_tokens": 0,
+   "video_tokens": 0
+  },
+  "cost_details": {
+   "upstream_inference_cost": 0.0009559,
+   "upstream_inference_prompt_cost": 0.0001499,
+   "upstream_inference_completions_cost": 0.000806
+  },
+  "completion_tokens_details": {
+   "reasoning_tokens": 1413,
+   "image_tokens": 0,
+   "audio_tokens": 0
+  }
+ },
+ "error": null,
+ "finish": "stop",
+ "fixture": "f1_pop_major",
+ "model": "~anthropic/claude-haiku-latest",
+ "n": 1,
+ "ts": "2026-10-11T23:37:17+0900",
+ "parse": {
+  "ok": true,
+  "errors": [],
+  "warnings": [],
+  "tracks": [
+   {
+    "name": "Lead",
+    "ch": 1,
+    "first": 1,
+    "dur": "8",
+    "bars_by_len": "8",
+    "bars_by_pipe": 8,
+    "notes": 36,
+    "lyrics": 0
+   },
+   {
+    "name": "Bass",
+    "ch": 2,
+    "first": 4,
+    "dur": "8",
+    "bars_by_len": "8",
+    "bars_by_pipe": 8,
+    "notes": 30,
+    "lyrics": 0
+   }
+  ]
+ },
+ "parse_ok": true,
+ "bars_ok": true,
+ "structure_problems": [],
+ "bar_warnings": [],
+ "tag": "rdefault"
+}

@@ -1,0 +1,42 @@
+{
+ "text": "@track Lead ch1 prog29\no5 l8 e g b g e g a b | a g e d e g a b | o6 c5 b a g e g a b | o5 e d b a g e g a |",
+ "ttft": 1.2038303340086713,
+ "total": 1.4482788749737665,
+ "usage": {
+  "prompt_tokens": 2081,
+  "completion_tokens": 65,
+  "total_tokens": 2146,
+  "cost": 0.0002406,
+  "is_byok": false,
+  "prompt_tokens_details": {
+   "cached_tokens": 0,
+   "cache_write_tokens": 0,
+   "audio_tokens": 0,
+   "video_tokens": 0
+  },
+  "cost_details": {
+   "upstream_inference_cost": 0.0002406,
+   "upstream_inference_prompt_cost": 0.0002081,
+   "upstream_inference_completions_cost": 3.25e-05
+  },
+  "completion_tokens_details": {
+   "reasoning_tokens": 0,
+   "image_tokens": 0,
+   "audio_tokens": 0
+  }
+ },
+ "error": null,
+ "finish": "stop",
+ "model": "~anthropic/claude-haiku-latest",
+ "n": 16,
+ "ctx": 1,
+ "parse_ok": false,
+ "errors": [
+  "track Lead: 허용되지 않는 길이 5"
+ ],
+ "warnings": [],
+ "bars": null,
+ "only_lead": true,
+ "ts": "2026-10-11T23:43:35+0900",
+ "user_chars": 1212
+}

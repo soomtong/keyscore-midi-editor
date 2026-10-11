@@ -1,0 +1,67 @@
+{
+ "text": "@track Lead ch1 prog0\no5 l8 g a b d6 b g a b | g4 e4 d8 e8 g4 g8 a8 | b d6 e6 d6 b a8 g8 | e4 d4 r2 |\no5 l8 d d g g a b g a | b d6 d6 c6 b a g e d | g a b d6 e6 d6 b g | a2 g2 |\n\n@track Bass ch2 prog33\no2 l4 g2 d2 | e2 c2 | d2 g2 | c2 d2 |\no2 l4 g2 b2 | c2 a2 | d2 g2 | d2 g2 |",
+ "ttft": 1.380829208996147,
+ "total": 2.430826583993621,
+ "usage": {
+  "prompt_tokens": 1498,
+  "completion_tokens": 219,
+  "total_tokens": 1717,
+  "cost": 0.0002593,
+  "is_byok": false,
+  "prompt_tokens_details": {
+   "cached_tokens": 0,
+   "cache_write_tokens": 0,
+   "audio_tokens": 0,
+   "video_tokens": 0
+  },
+  "cost_details": {
+   "upstream_inference_cost": 0.0002593,
+   "upstream_inference_prompt_cost": 0.0001498,
+   "upstream_inference_completions_cost": 0.0001095
+  },
+  "completion_tokens_details": {
+   "reasoning_tokens": 0,
+   "image_tokens": 0,
+   "audio_tokens": 0
+  }
+ },
+ "error": null,
+ "finish": "stop",
+ "fixture": "f1_pop_major",
+ "model": "~anthropic/claude-haiku-latest",
+ "n": 4,
+ "tag": "rnone",
+ "ts": "2026-10-11T23:41:12+0900",
+ "parse": {
+  "ok": false,
+  "errors": [
+   "track Lead: 허용되지 않는 길이 6"
+  ],
+  "warnings": [],
+  "tracks": [
+   {
+    "name": "Lead",
+    "ch": 1,
+    "first": 1,
+    "dur": null,
+    "bars_by_len": null,
+    "bars_by_pipe": null,
+    "notes": 0
+   },
+   {
+    "name": "Bass",
+    "ch": 2,
+    "first": 5,
+    "dur": "8",
+    "bars_by_len": "8",
+    "bars_by_pipe": 8,
+    "notes": 16,
+    "lyrics": 0
+   }
+  ]
+ },
+ "parse_ok": false,
+ "bars_ok": false,
+ "structure_problems": [],
+ "bar_warnings": []
+}

@@ -1,0 +1,64 @@
+{
+ "text": "@track Vocal ch1 prog52\no4 d8\"봄\" e8\"날\" f+8\"의\" a8\"햇\" g8\"살\" f+8\"속\" e8\"우\" d8\"리\" |\nd8\"사\" f+8\"랑\" a8\"은\" b8\"조\" a8\"용\" g8\"히\" f+8\"끝\" d8\"나\" |\ne8\"꽃\" f+8\"잎\" g8\"처\" a8\"럼\" b8\"흩\" a8\"어\" g8\"져\" f+8\"가\" |\ne4\"남\" d8\"은\" e8\"건\" f+4\"그\" e8\"리\" d8\"움\" c+4\"뿐\" |\na4\"네\" b8\"가\" a8\"없\" f+8\"는\" e8\"봄\" d8\"날\" e8\"에\" |\nd4\"너\" f+8\"를\" a8\"잊\" b4\"으\" a8\"려\" g8\"해\" f+4\"도\" |\ne8\"기\" f+8\"억\" g8\"은\" a8\"피\" b4\"어\" a4\"나\" |\ne4\"잘\" d8\"가\" e8\"나\" f+8\"의\" e8\"사\" d8\"랑\" d4\"아\" |",
+ "ttft": 21.382178625033703,
+ "total": 23.633344875008333,
+ "usage": {
+  "prompt_tokens": 1055,
+  "completion_tokens": 2153,
+  "total_tokens": 3208,
+  "cost": 0.00260524,
+  "is_byok": false,
+  "prompt_tokens_details": {
+   "cached_tokens": 1052,
+   "cache_write_tokens": 0,
+   "audio_tokens": 0,
+   "video_tokens": 0
+  },
+  "cost_details": {
+   "upstream_inference_cost": 0.00260524,
+   "upstream_inference_prompt_cost": 2.164e-05,
+   "upstream_inference_completions_cost": 0.0025836
+  },
+  "completion_tokens_details": {
+   "reasoning_tokens": 1820,
+   "image_tokens": 0,
+   "audio_tokens": 0
+  }
+ },
+ "error": null,
+ "finish": "stop",
+ "fixture": "f4_vocal_lyrics",
+ "model": "openai/gpt-5.6-luna",
+ "n": 3,
+ "ts": "2026-10-11T23:39:45+0900",
+ "parse": {
+  "ok": true,
+  "errors": [],
+  "warnings": [
+   "마디 4 길이 5/4 != 1 (트랙 Vocal)",
+   "마디 6 길이 5/4 != 1 (트랙 Vocal)",
+   "마디 8 길이 9/8 != 1 (트랙 Vocal)"
+  ],
+  "tracks": [
+   {
+    "name": "Vocal",
+    "ch": 1,
+    "first": 1,
+    "dur": "69/8",
+    "bars_by_len": "69/8",
+    "bars_by_pipe": 8,
+    "notes": 58,
+    "lyrics": 58
+   }
+  ]
+ },
+ "parse_ok": true,
+ "bars_ok": false,
+ "structure_problems": [],
+ "bar_warnings": [
+  "마디 4 길이 5/4 != 1 (트랙 Vocal)",
+  "마디 6 길이 5/4 != 1 (트랙 Vocal)",
+  "마디 8 길이 9/8 != 1 (트랙 Vocal)"
+ ],
+ "tag": "rdefault"
+}

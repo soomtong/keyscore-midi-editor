@@ -1,0 +1,67 @@
+{
+ "text": "\n\n@track Lead ch1 prog0\no5 l8 g a b c' b a g | d' c b a g f e d | e f# g a b c' d' | c b a g f e d |\no5 l8 g a b c' b a g | d' c b a g f e d | e f# g a b c' d' | c b a g2 |\n\n@track Bass ch2 prog33\no2 l4 g g g g | d d d d | g g g g | b, b, b, b, |\no2 l4 g g g g | d d d d | g g g g | c2 |",
+ "ttft": 0.43870612495811656,
+ "total": 2.2560624170000665,
+ "usage": {
+  "prompt_tokens": 1102,
+  "completion_tokens": 154,
+  "total_tokens": 1256,
+  "cost": 7.82e-05,
+  "is_byok": false,
+  "prompt_tokens_details": {
+   "cached_tokens": 1088,
+   "cache_write_tokens": 0,
+   "audio_tokens": 0,
+   "video_tokens": 0
+  },
+  "cost_details": {
+   "upstream_inference_cost": 7.82e-05,
+   "upstream_inference_prompt_cost": 5.51e-05,
+   "upstream_inference_completions_cost": 2.31e-05
+  },
+  "completion_tokens_details": {
+   "reasoning_tokens": 0,
+   "image_tokens": 0,
+   "audio_tokens": 0
+  }
+ },
+ "error": null,
+ "finish": "stop",
+ "fixture": "f1_pop_major",
+ "model": "google/gemma-3-12b-it",
+ "n": 2,
+ "ts": "2026-10-11T23:37:27+0900",
+ "parse": {
+  "ok": false,
+  "errors": [
+   "track Lead: L2: 알 수 없는 토큰 `c'`",
+   "track Bass: L6: 알 수 없는 토큰 `b,`"
+  ],
+  "warnings": [],
+  "tracks": [
+   {
+    "name": "Lead",
+    "ch": 1,
+    "first": 1,
+    "dur": null,
+    "bars_by_len": null,
+    "bars_by_pipe": null,
+    "notes": 0
+   },
+   {
+    "name": "Bass",
+    "ch": 2,
+    "first": 5,
+    "dur": null,
+    "bars_by_len": null,
+    "bars_by_pipe": null,
+    "notes": 0
+   }
+  ]
+ },
+ "parse_ok": false,
+ "bars_ok": false,
+ "structure_problems": [],
+ "bar_warnings": [],
+ "tag": "rdefault"
+}

@@ -1,0 +1,113 @@
+{
+ "text": "@track Vocal ch1 prog52\no4 l8 d\"봄\" e\"날\" f\"의\" g\"이\" a\"별\" | d\"을\" e\"노\" f\"래\" g\"하\" a\"는\" |\no4 l8 b\"마\" c\"음\" d\"이\" e\"를\" f\"기\" g\"다\" | a\"리\" b\"고\" c\"서\" d\"로\" e\"가\" |\no4 l8 f\"던\" g\"그\" a\"날\" b\"의\" c\"미\" d\"련\" | e\"이\" f\"야\" g\"금\" a\"가\" b\"슴\" |\no4 l8 c\"에\" d\"남\" e\"아\" f\"픈\" g\"기\" a\"억\" | b\"을\" c\"안\" d\"고\" e\"서\" f\"울\" |\no4 l8 g\"어\" a\"울\" b\"다\" c\"가\" d\"슴\" | e\"에\" f\"반\" g\"영\" a\"되\" b\"네\" |\no4 l8 c\"고\" d\"피\" e\"어\" f\"오\" g\"는\" | a\"꽃\" b\"잎\" c\"들\" d\"과\" e\"같\" |\no4 l8 f\"은\" g\"그\" a\"리\" b\"의\" c\"품\" | d\"에\" e\"기\" f\"대\" g\"어\" a\"가\" |\no4 l8 b\"고\" c\"시\" d\"릴\" e\"듯\" f\"한\" | g\"바\" a\"람\" b\"이\" c\"를\" d\"불\" |\n\n@track Piano ch2 prog1\no4 l4 d f a d | e g b e | f a c f | g b d g |\no4 l4 a c e a | b d f b | c e g c | d f a d |\no4 l4 e g b e | f a c f | g b d g | a c e a |\no4 l4 b d f b | c e g c | d f a d | e g b e |\no4 l4 f a c f | g b d g | a c e a | b d f b |\no4 l4 g b d g | a c e a | b d f b | c e g c |\no4 l4 a c e a | b d f b | c e g c | d f a d |\no4 l4 b d f b | c e g c | d f a d | e g b e |\n\n@track Drums ch10\nl8 [bd ch] ch [sd ch] ch [bd ch] ch [sd ch] [sd ch] | [bd ch] ch [sd ch] ch [bd cr] r4 sd8 |\nl8 [bd ch] ch [sd ch] ch [bd ch] ch [sd ch] [sd ch] | [bd ch] ch [sd ch] ch [bd cr] r4 sd8 |\nl8 [bd ch] ch [sd ch] ch [bd ch] ch [sd ch] [sd ch] | [bd ch] ch [sd ch] ch [bd cr] r4 sd8 |\nl8 [bd ch] ch [sd ch] ch [bd ch] ch [sd ch] [sd ch] | [bd ch] ch [sd ch] ch [bd cr] r4 sd8 |\nl8 [bd ch] ch [sd ch] ch [bd ch] ch [sd ch] [sd ch] | [bd ch] ch [sd ch] ch [bd cr] r4 sd8 |\nl8 [bd ch] ch [sd ch] ch [bd ch] ch [sd ch] [sd ch] | [bd ch] ch [sd ch] ch [bd cr] r4 sd8 |\nl8 [bd ch] ch [sd ch] ch [bd ch] ch [sd ch] [sd ch] | [bd ch] ch [sd ch] ch [bd cr] r4 sd8 |\nl8 [bd ch] ch [sd ch] ch [bd ch] ch [sd ch] [sd ch] | [bd ch] ch [sd ch] ch [bd cr] r4 sd8 |\n",
+ "ttft": 0.56317974999547,
+ "total": 21.864016041974537,
+ "usage": {
+  "prompt_tokens": 1102,
+  "completion_tokens": 981,
+  "total_tokens": 2083,
+  "cost": 0.00020225,
+  "is_byok": false,
+  "prompt_tokens_details": {
+   "cached_tokens": 0,
+   "cache_write_tokens": 0,
+   "audio_tokens": 0,
+   "video_tokens": 0
+  },
+  "cost_details": {
+   "upstream_inference_cost": 0.00020225,
+   "upstream_inference_prompt_cost": 5.51e-05,
+   "upstream_inference_completions_cost": 0.00014715
+  },
+  "completion_tokens_details": {
+   "reasoning_tokens": 0,
+   "image_tokens": 0,
+   "audio_tokens": 0
+  }
+ },
+ "error": null,
+ "finish": "stop",
+ "fixture": "f4_vocal_lyrics",
+ "model": "google/gemma-3-12b-it",
+ "n": 2,
+ "ts": "2026-10-11T23:40:20+0900",
+ "parse": {
+  "ok": true,
+  "errors": [],
+  "warnings": [
+   "마디 1 길이 5/8 != 1 (트랙 Vocal)",
+   "마디 2 길이 5/8 != 1 (트랙 Vocal)",
+   "마디 3 길이 3/4 != 1 (트랙 Vocal)",
+   "마디 4 길이 5/8 != 1 (트랙 Vocal)",
+   "마디 5 길이 3/4 != 1 (트랙 Vocal)",
+   "마디 6 길이 5/8 != 1 (트랙 Vocal)",
+   "마디 7 길이 3/4 != 1 (트랙 Vocal)",
+   "마디 8 길이 5/8 != 1 (트랙 Vocal)",
+   "마디 9 길이 5/8 != 1 (트랙 Vocal)",
+   "마디 10 길이 5/8 != 1 (트랙 Vocal)",
+   "마디 11 길이 5/8 != 1 (트랙 Vocal)",
+   "마디 12 길이 5/8 != 1 (트랙 Vocal)",
+   "마디 13 길이 5/8 != 1 (트랙 Vocal)",
+   "마디 14 길이 5/8 != 1 (트랙 Vocal)",
+   "마디 15 길이 5/8 != 1 (트랙 Vocal)",
+   "마디 16 길이 5/8 != 1 (트랙 Vocal)"
+  ],
+  "tracks": [
+   {
+    "name": "Vocal",
+    "ch": 1,
+    "first": 1,
+    "dur": "83/8",
+    "bars_by_len": "83/8",
+    "bars_by_pipe": 16,
+    "notes": 83,
+    "lyrics": 83
+   },
+   {
+    "name": "Piano",
+    "ch": 2,
+    "first": 11,
+    "dur": "32",
+    "bars_by_len": "32",
+    "bars_by_pipe": 32,
+    "notes": 128,
+    "lyrics": 0
+   },
+   {
+    "name": "Drums",
+    "ch": 10,
+    "first": 21,
+    "dur": "16",
+    "bars_by_len": "16",
+    "bars_by_pipe": 16,
+    "notes": 176,
+    "lyrics": 0
+   }
+  ]
+ },
+ "parse_ok": true,
+ "bars_ok": false,
+ "structure_problems": [
+  "예상 밖 트랙 Piano",
+  "예상 밖 트랙 Drums"
+ ],
+ "bar_warnings": [
+  "마디 1 길이 5/8 != 1 (트랙 Vocal)",
+  "마디 2 길이 5/8 != 1 (트랙 Vocal)",
+  "마디 3 길이 3/4 != 1 (트랙 Vocal)",
+  "마디 4 길이 5/8 != 1 (트랙 Vocal)",
+  "마디 5 길이 3/4 != 1 (트랙 Vocal)",
+  "마디 6 길이 5/8 != 1 (트랙 Vocal)",
+  "마디 7 길이 3/4 != 1 (트랙 Vocal)",
+  "마디 8 길이 5/8 != 1 (트랙 Vocal)",
+  "마디 9 길이 5/8 != 1 (트랙 Vocal)",
+  "마디 10 길이 5/8 != 1 (트랙 Vocal)",
+  "마디 11 길이 5/8 != 1 (트랙 Vocal)",
+  "마디 12 길이 5/8 != 1 (트랙 Vocal)",
+  "마디 13 길이 5/8 != 1 (트랙 Vocal)",
+  "마디 14 길이 5/8 != 1 (트랙 Vocal)",
+  "마디 15 길이 5/8 != 1 (트랙 Vocal)",
+  "마디 16 길이 5/8 != 1 (트랙 Vocal)"
+ ],
+ "tag": "rdefault"
+}

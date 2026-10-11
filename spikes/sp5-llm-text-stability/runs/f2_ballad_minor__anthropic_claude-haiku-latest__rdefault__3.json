@@ -1,0 +1,66 @@
+{
+ "text": "@track Piano ch1 prog0\no3 [a c e]2 [a c e]4 | [f a c]2 [f a c]4 | [d f a]2 [d f a]4 | [e g+ b]2 [e g+ b]4 | [a c e]2 [g b d]4 | [f a c]2 [e g+ b]4 | [d f a]2 [e g+ b]4 | [a c e]2. |\n\n@track Lead ch2 prog73\no5 l8 e4 a4 g8 f8 | e2 d4 | c4 d8 e8 f4 | g4. a8 e4 | a4 c4 b8 a8 | g2 f4 | e4 f8 e8 d4 | a2. |",
+ "ttft": 9.692690874973778,
+ "total": 10.411516333988402,
+ "usage": {
+  "prompt_tokens": 1512,
+  "completion_tokens": 1928,
+  "total_tokens": 3440,
+  "cost": 0.0011152,
+  "is_byok": false,
+  "prompt_tokens_details": {
+   "cached_tokens": 0,
+   "cache_write_tokens": 0,
+   "audio_tokens": 0,
+   "video_tokens": 0
+  },
+  "cost_details": {
+   "upstream_inference_cost": 0.0011152,
+   "upstream_inference_prompt_cost": 0.0001512,
+   "upstream_inference_completions_cost": 0.000964
+  },
+  "completion_tokens_details": {
+   "reasoning_tokens": 1689,
+   "image_tokens": 0,
+   "audio_tokens": 0
+  }
+ },
+ "error": null,
+ "finish": "stop",
+ "fixture": "f2_ballad_minor",
+ "model": "~anthropic/claude-haiku-latest",
+ "n": 3,
+ "ts": "2026-10-11T23:38:00+0900",
+ "parse": {
+  "ok": true,
+  "errors": [],
+  "warnings": [],
+  "tracks": [
+   {
+    "name": "Piano",
+    "ch": 1,
+    "first": 1,
+    "dur": "6",
+    "bars_by_len": "8",
+    "bars_by_pipe": 8,
+    "notes": 45,
+    "lyrics": 0
+   },
+   {
+    "name": "Lead",
+    "ch": 2,
+    "first": 4,
+    "dur": "6",
+    "bars_by_len": "8",
+    "bars_by_pipe": 8,
+    "notes": 24,
+    "lyrics": 0
+   }
+  ]
+ },
+ "parse_ok": true,
+ "bars_ok": true,
+ "structure_problems": [],
+ "bar_warnings": [],
+ "tag": "rdefault"
+}

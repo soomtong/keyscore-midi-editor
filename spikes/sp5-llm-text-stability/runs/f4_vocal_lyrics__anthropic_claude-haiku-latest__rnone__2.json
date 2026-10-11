@@ -1,0 +1,68 @@
+{
+ "text": "@track Vocal ch1 prog52\no4 l4 a\"봄\" b\"날\" >c\"의\" d\"이\" e2\"별\" d4\"을\" | c8\"노\" <b8\"래\" a4\"하\" g4\"는\" a2\"다\" | f4\"바\" g4\"람\" a4\"에\" b4\"실\" a4\"려\" g4\"온\" | a2\"꽃\" r4 r4 | f4\"비\" g4\"가\" a4\"흩\" e4\"날\" d4\"리\" | e8\"우\" f8\"는\" g4\"봄\" a2\"날\" | f4\"떠\" e4\"난\" d4\"사\" c4\"랑\" b4\"아\" | a2\"있\" d2\"다\" |",
+ "ttft": 1.25833145796787,
+ "total": 2.321785041014664,
+ "usage": {
+  "prompt_tokens": 1507,
+  "completion_tokens": 211,
+  "total_tokens": 1718,
+  "cost": 0.0002562,
+  "is_byok": false,
+  "prompt_tokens_details": {
+   "cached_tokens": 0,
+   "cache_write_tokens": 0,
+   "audio_tokens": 0,
+   "video_tokens": 0
+  },
+  "cost_details": {
+   "upstream_inference_cost": 0.0002562,
+   "upstream_inference_prompt_cost": 0.0001507,
+   "upstream_inference_completions_cost": 0.0001055
+  },
+  "completion_tokens_details": {
+   "reasoning_tokens": 0,
+   "image_tokens": 0,
+   "audio_tokens": 0
+  }
+ },
+ "error": null,
+ "finish": "stop",
+ "fixture": "f4_vocal_lyrics",
+ "model": "~anthropic/claude-haiku-latest",
+ "n": 2,
+ "tag": "rnone",
+ "ts": "2026-10-11T23:41:40+0900",
+ "parse": {
+  "ok": true,
+  "errors": [],
+  "warnings": [
+   "마디 1 길이 7/4 != 1 (트랙 Vocal)",
+   "마디 2 길이 5/4 != 1 (트랙 Vocal)",
+   "마디 3 길이 3/2 != 1 (트랙 Vocal)",
+   "마디 5 길이 5/4 != 1 (트랙 Vocal)",
+   "마디 7 길이 5/4 != 1 (트랙 Vocal)"
+  ],
+  "tracks": [
+   {
+    "name": "Vocal",
+    "ch": 1,
+    "first": 1,
+    "dur": "10",
+    "bars_by_len": "10",
+    "bars_by_pipe": 8,
+    "notes": 34,
+    "lyrics": 34
+   }
+  ]
+ },
+ "parse_ok": true,
+ "bars_ok": false,
+ "structure_problems": [],
+ "bar_warnings": [
+  "마디 1 길이 7/4 != 1 (트랙 Vocal)",
+  "마디 2 길이 5/4 != 1 (트랙 Vocal)",
+  "마디 3 길이 3/2 != 1 (트랙 Vocal)",
+  "마디 5 길이 5/4 != 1 (트랙 Vocal)",
+  "마디 7 길이 5/4 != 1 (트랙 Vocal)"
+ ]
+}

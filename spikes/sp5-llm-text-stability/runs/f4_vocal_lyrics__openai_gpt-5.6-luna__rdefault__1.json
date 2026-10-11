@@ -1,0 +1,56 @@
+{
+ "text": "@track Vocal ch1 prog52\no4 l4 d4\"봄\" f+4\"날\" a4\"바\" f+4\"람\" | e4\"불\" g4\"어\" a4\"와\" b4\"도\" | a4\"너\" f+4\"와\" e4\"걷\" d4\"던\" | g4\"길\" f+4\"꽃\" e4\"잎\" d4\"흩\" | f+4\"날\" a4\"려\" b4\"내\" a4\"맘\" | g4\"시\" f+4\"리\" e4\"고\" d4\"이\" | e4\"별\" f+4\"을\" g4\"노\" a4\"래\" | a4\"눈\" f+4\"물\" e4\"감\" d4\"추\" | \n",
+ "ttft": 15.197735916008241,
+ "total": 16.428418416006025,
+ "usage": {
+  "prompt_tokens": 1055,
+  "completion_tokens": 1414,
+  "total_tokens": 2469,
+  "cost": 0.00171844,
+  "is_byok": false,
+  "prompt_tokens_details": {
+   "cached_tokens": 1052,
+   "cache_write_tokens": 0,
+   "audio_tokens": 0,
+   "video_tokens": 0
+  },
+  "cost_details": {
+   "upstream_inference_cost": 0.00171844,
+   "upstream_inference_prompt_cost": 2.164e-05,
+   "upstream_inference_completions_cost": 0.0016968
+  },
+  "completion_tokens_details": {
+   "reasoning_tokens": 1214,
+   "image_tokens": 0,
+   "audio_tokens": 0
+  }
+ },
+ "error": null,
+ "finish": "stop",
+ "fixture": "f4_vocal_lyrics",
+ "model": "openai/gpt-5.6-luna",
+ "n": 1,
+ "ts": "2026-10-11T23:39:27+0900",
+ "parse": {
+  "ok": true,
+  "errors": [],
+  "warnings": [],
+  "tracks": [
+   {
+    "name": "Vocal",
+    "ch": 1,
+    "first": 1,
+    "dur": "8",
+    "bars_by_len": "8",
+    "bars_by_pipe": 8,
+    "notes": 32,
+    "lyrics": 32
+   }
+  ]
+ },
+ "parse_ok": true,
+ "bars_ok": true,
+ "structure_problems": [],
+ "bar_warnings": [],
+ "tag": "rdefault"
+}

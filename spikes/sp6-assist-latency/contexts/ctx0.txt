@@ -1,0 +1,29 @@
+@track Lead ch1 prog29
+o5 l8 e g a b >c b a g |
+o5 e g a b >c b a b |
+o5 b a g e g a b >d |
+o5 b a g e d e g b |
+o5 e g a b >c b a g |
+o5 e g a b >d c b a |
+o5 b a g e g a b >d |
+o5 e g a b >c4 b8 a |
+
+@track Bass ch2 prog33
+o2 l8 e e b b e e d d |
+o2 e e b b a a b b |
+o2 e e b b d d b b |
+o2 c c d d e e b b |
+o2 e e b b e e d d |
+o2 e e b b a a b b |
+o2 e e b b d d b b |
+o2 e e b b e4 b8 b |
+
+@track Drums ch10
+l8 [bd cr] ch [sd ch] ch [bd ch] ch [sd ch] ch |
+l8 [bd ch] ch [sd ch] ch [bd ch] ch [sd ch] ch |
+l8 [bd ch] ch [sd ch] ch [bd ch] ch [sd ch] ch |
+l8 [bd ch] ch [sd ch] ch [bd ch] ch [sd ch] ch |
+l8 [bd ch] ch [sd ch] ch [bd ch] ch [sd ch] ch |
+l8 [bd ch] ch [sd ch] ch [bd ch] ch [sd ch] ch |
+l8 [bd ch] ch [sd ch] ch [bd ch] ch [sd ch] ch |
+l8 [bd ch] ch [sd ch] ch l16 sd mt ht lt sd mt ht cr |

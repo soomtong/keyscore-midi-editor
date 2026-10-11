@@ -1,0 +1,90 @@
+{
+ "text": "\n\n@track Vocal ch1 prog52\no4 l8 d\"봄\" e\"날\" f\"이\" g\"별\" a\"을\" g\"노\" f\"래\" e\"하\" d\"네\" | e\"기\" f\"억\" g\"이\" a\"피\" g\"어\" f\"오\" e\"고\" d\"사\" r8 |\no4 l8 d\"라\" e\"운\" f\"데\" g\"도\" a\"를\" g\"보\" f\"며\" e\"서\" d\"운\" | e\"결\" f\"을\" g\"기\" a\"다\" g\"도\" f\"다\" e\"운\" d\"데\" r8 |\no4 l8 d\"서\" e\"로\" f\"로\" g\"가\" a\"는\" g\"길\" f\"이\" e\"야\" d\"와\" | e\"서\" f\"로\" g\"서\" a\"를\" g\"향\" f\"해\" e\"가\" d\"는\" r8 |\no4 l8 d\"그\" e\"대\" f\"로\" g\"가\" a\"득\" g\"하\" f\"고\" e\"는\" d\"다\" | e\"서\" f\"로\" g\"서\" a\"를\" g\"기\" f\"다\" e\"리\" d\"를\" r8 |\no4 l8 d\"서\" e\"로\" f\"를\" g\"기\" a\"다\" g\"인\" f\"이\" e\"야\" d\"리\" | e\"서\" f\"서\" g\"서\" a\"를\" g\"향\" f\"해\" e\"가\" d\"는\" r8 |\no4 l8 d\"그\" e\"리\" f\"를\" g\"다\" a\"가\" g\"이\" f\"야\" e\"서\" d\"를\" | e\"기\" f\"다\" g\"리\" a\"를\" g\"기\" f\"다\" e\"리\" d\"를\" r8 |\no4 l8 d\"서\" e\"서\" f\"서\" g\"가\" a\"다\" g\"이\" f\"야\" e\"서\" d\"를\" | e\"서\" f\"서\" g\"서\" a\"를\" g\"다\" f\"리\" e\"리\" d\"를\" r8 |\no4 l8 d\"서\" e\"서\" f\"서\" g\"가\" a\"다\" g\"이\" f\"야\" e\"서\" d\"를\" | e\"기\" f\"다\" g\"리\" a\"를\" g\"기\" f\"다\" e\"리\" d\"를\" r8 |\n",
+ "ttft": 0.7953957910067402,
+ "total": 7.9627515830216,
+ "usage": {
+  "prompt_tokens": 1106,
+  "completion_tokens": 627,
+  "total_tokens": 1733,
+  "cost": 0.00014935,
+  "is_byok": false,
+  "prompt_tokens_details": {
+   "cached_tokens": 0,
+   "cache_write_tokens": 0,
+   "audio_tokens": 0,
+   "video_tokens": 0
+  },
+  "cost_details": {
+   "upstream_inference_cost": 0.00014935,
+   "upstream_inference_prompt_cost": 5.53e-05,
+   "upstream_inference_completions_cost": 9.405e-05
+  },
+  "completion_tokens_details": {
+   "reasoning_tokens": 0,
+   "image_tokens": 0,
+   "audio_tokens": 0
+  }
+ },
+ "error": null,
+ "finish": "stop",
+ "fixture": "f4_vocal_lyrics",
+ "model": "google/gemma-3-12b-it",
+ "n": 4,
+ "ts": "2026-10-11T23:40:16+0900",
+ "parse": {
+  "ok": true,
+  "errors": [],
+  "warnings": [
+   "마디 1 길이 9/8 != 1 (트랙 Vocal)",
+   "마디 2 길이 9/8 != 1 (트랙 Vocal)",
+   "마디 3 길이 9/8 != 1 (트랙 Vocal)",
+   "마디 4 길이 9/8 != 1 (트랙 Vocal)",
+   "마디 5 길이 9/8 != 1 (트랙 Vocal)",
+   "마디 6 길이 9/8 != 1 (트랙 Vocal)",
+   "마디 7 길이 9/8 != 1 (트랙 Vocal)",
+   "마디 8 길이 9/8 != 1 (트랙 Vocal)",
+   "마디 9 길이 9/8 != 1 (트랙 Vocal)",
+   "마디 10 길이 9/8 != 1 (트랙 Vocal)",
+   "마디 11 길이 9/8 != 1 (트랙 Vocal)",
+   "마디 12 길이 9/8 != 1 (트랙 Vocal)",
+   "마디 13 길이 9/8 != 1 (트랙 Vocal)",
+   "마디 14 길이 9/8 != 1 (트랙 Vocal)",
+   "마디 15 길이 9/8 != 1 (트랙 Vocal)",
+   "마디 16 길이 9/8 != 1 (트랙 Vocal)"
+  ],
+  "tracks": [
+   {
+    "name": "Vocal",
+    "ch": 1,
+    "first": 1,
+    "dur": "18",
+    "bars_by_len": "18",
+    "bars_by_pipe": 16,
+    "notes": 136,
+    "lyrics": 136
+   }
+  ]
+ },
+ "parse_ok": true,
+ "bars_ok": false,
+ "structure_problems": [],
+ "bar_warnings": [
+  "마디 1 길이 9/8 != 1 (트랙 Vocal)",
+  "마디 2 길이 9/8 != 1 (트랙 Vocal)",
+  "마디 3 길이 9/8 != 1 (트랙 Vocal)",
+  "마디 4 길이 9/8 != 1 (트랙 Vocal)",
+  "마디 5 길이 9/8 != 1 (트랙 Vocal)",
+  "마디 6 길이 9/8 != 1 (트랙 Vocal)",
+  "마디 7 길이 9/8 != 1 (트랙 Vocal)",
+  "마디 8 길이 9/8 != 1 (트랙 Vocal)",
+  "마디 9 길이 9/8 != 1 (트랙 Vocal)",
+  "마디 10 길이 9/8 != 1 (트랙 Vocal)",
+  "마디 11 길이 9/8 != 1 (트랙 Vocal)",
+  "마디 12 길이 9/8 != 1 (트랙 Vocal)",
+  "마디 13 길이 9/8 != 1 (트랙 Vocal)",
+  "마디 14 길이 9/8 != 1 (트랙 Vocal)",
+  "마디 15 길이 9/8 != 1 (트랙 Vocal)",
+  "마디 16 길이 9/8 != 1 (트랙 Vocal)"
+ ],
+ "tag": "rdefault"
+}
