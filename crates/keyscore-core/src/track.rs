@@ -340,9 +340,10 @@ impl Track {
                 end,
             });
         }
-        let (_, mut clip) = self.clips.remove(index);
-        // 오버플로는 위에서 검사했으므로 set_start는 실패하지 않는다.
-        clip.set_start(new_start)?;
+        // 제자리에서 먼저 바꾼다. set_start가 실패해도 클립을 빼낸 상태로 남지 않는다
+        // (S0-T2 리뷰 2 제안 2). 위의 검사 때문에 지금은 실패하지 않는다.
+        self.clips[index].1.set_start(new_start)?;
+        let (_, clip) = self.clips.remove(index);
         self.place(id, clip);
         Ok(())
     }

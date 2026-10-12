@@ -4,7 +4,7 @@
 
 ## 공개 API
 
-- 값 타입: `Tick`(u64, `PPQ` = 960), `Pitch`(0–127), `PitchOffset`(센트, ±1200), `Velocity`(v1 0–127), `Channel`(1–16, `is_drum`), `TrackColor`(12색 팔레트), `Program`, `Bank`, `PitchClass`, `Key`, `CcPoint`.
+- 값 타입: `Tick`(u64, `PPQ` = 960), `Pitch`(0–127), `PitchOffset`(반음 1/2^25 단위, ±12반음), `Velocity`(MIDI 2.0 16비트, `from_midi1`/`to_midi1`), `Channel`(1–16, `is_drum`), `TrackColor`(12색 팔레트), `Program`, `Bank`, `PitchClass`, `Key`, `CcPoint`.
 - `Note`: 클립 기준 시작 틱, 길이(≥ 1), 음높이, 피치 오프셋, 벨로시티, 가사.
 - `Clip`: 트랙 위 구간과 노트. `insert_note`는 노트 끝까지 클립 안이어야 받는다.
 - `Track`: SEQ-7 속성과 클립. 클립의 삽입·삭제·이동·분할과 클립 안 노트 삽입·삭제는 `Track`의 메서드로만 한다.

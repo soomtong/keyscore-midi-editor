@@ -101,7 +101,10 @@ impl Velocity {
         Ok(Velocity(out))
     }
 
-    /// 16비트 값을 MIDI 1.0 7비트로 내린다(상위 7비트).
+    /// 16비트 값을 MIDI 1.0 7비트로 내린다(상위 7비트, MIDI 2.0 명세의 축소 규칙).
+    ///
+    /// 1–0x1FF는 0이 된다. MIDI 1.0 Note On의 벨로시티 0은 Note Off로 읽히므로,
+    /// 송신 쪽(S1)이 노트를 보낼 때 이 경우를 따로 처리해야 한다(결정 Q2).
     #[must_use]
     #[allow(
         clippy::cast_possible_truncation,
