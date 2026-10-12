@@ -734,18 +734,20 @@ mod tests {
     #[test]
     fn scale_anchors_each_clip_at_its_first_selected_note() {
         // 결정 개정: 클립마다 그 클립 안의 가장 이른 선택 노트가 기준이다. 클립 시작이 아니다.
-        let mut p = Project::new();
-        let mut t = Track::new("T", Channel::new(1).unwrap(), TrackColor::new(0).unwrap());
-        let tid = t.id();
-        let a = t.insert_clip(Clip::new(Tick::ZERO, 3840).unwrap()).unwrap();
-        let b = t
+        let mut project = Project::new();
+        let mut track = Track::new("T", Channel::new(1).unwrap(), TrackColor::new(0).unwrap());
+        let tid = track.id();
+        let a = track
+            .insert_clip(Clip::new(Tick::ZERO, 3840).unwrap())
+            .unwrap();
+        let b = track
             .insert_clip(Clip::new(Tick::new(7680), 3840).unwrap())
             .unwrap();
-        for (c, s) in [(a, 480), (a, 960), (b, 1000), (b, 1600)] {
-            t.insert_note(c, note(s, 100, 60)).unwrap();
+        for (clip, start) in [(a, 480), (a, 960), (b, 1000), (b, 1600)] {
+            track.insert_note(clip, note(start, 100, 60)).unwrap();
         }
-        p.push_track(t).unwrap();
-        let mut d = Document::new(p, usize::MAX).unwrap();
+        project.push_track(track).unwrap();
+        let mut d = Document::new(project, usize::MAX).unwrap();
         let mut sel = refs(&d, tid, a);
         sel.extend(refs(&d, tid, b));
         d.apply(scale(d.project(), &sel, 1, 2).unwrap(), None)
