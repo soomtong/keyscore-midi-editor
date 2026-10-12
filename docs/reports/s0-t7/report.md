@@ -106,3 +106,7 @@ cargo test --workspace: 227 passed, clippy 경고 0
 ~~~
 cargo test --workspace: 238 passed, clippy 경고 0
 ~~~
+
+## 리뷰 대응 (review-4, 판정: 병합 가능)
+
+제안 1(동시 치환 규칙을 직접 겨냥한 구현자 테스트)은 기록만 한다. 리뷰어 3·4회차 테스트(`review_s0_t7_r3.rs`, `review_s0_t7_r4.rs`)가 그 규칙을 겨냥하고 저장소에 남는다. 차례 치환으로 되돌리면 그 테스트들이 실패하는 것을 리뷰어가 확인했다.
