@@ -19,8 +19,28 @@ struct Content {
     tracks: Vec<TrackContent>,
 }
 
-/// (시작, 길이, 이름, 색, 노트).
-type ClipContent = (Tick, u64, Option<String>, Option<TrackColor>, Vec<Note>);
+/// (시작, 길이, 이름, 색, 노트). 노트는 알려진 필드만 본다. 모르는 키는 따로 검사한다.
+type ClipContent = (
+    Tick,
+    u64,
+    Option<String>,
+    Option<TrackColor>,
+    Vec<NoteContent>,
+);
+
+/// (시작, 길이, 음높이, 오프셋, 벨로시티, 가사).
+type NoteContent = (Tick, u32, Pitch, PitchOffset, Velocity, Option<String>);
+
+fn note_content(n: &Note) -> NoteContent {
+    (
+        n.start(),
+        n.length(),
+        n.pitch(),
+        n.offset(),
+        n.velocity(),
+        n.lyric().map(str::to_owned),
+    )
+}
 
 #[derive(Debug, PartialEq)]
 struct TrackContent {
@@ -64,7 +84,7 @@ fn content(p: &Project) -> Content {
                             c.length(),
                             c.name().map(str::to_owned),
                             c.color(),
-                            c.notes().to_vec(),
+                            c.notes().iter().map(note_content).collect(),
                         )
                     })
                     .collect(),
