@@ -9,6 +9,9 @@
 - `Clip`: 트랙 위 구간과 노트. `insert_note`는 노트 끝까지 클립 안이어야 받는다.
 - `Track`: SEQ-7 속성과 클립. 클립의 삽입·삭제·이동·분할과 클립 안 노트 삽입·삭제는 `Track`의 메서드로만 한다.
 - `Project`: 조성과 트랙 목록(템포·박자표 맵은 S0-T3).
+- `TempoMap`·`MeterMap`·`MusicTime`·`TimeSignature`: 템포·박자표 맵과 정확한 틱↔시각 변환(1/960 ns 단위).
+- `Edit`·`TrackProp`·`NoteRestore`: 모델을 바꾸는 원시 편집. `apply`가 역편집을 돌려준다.
+- `History`·`CoalesceKey`: undo/redo 스택. 묶음 적용은 원자적이고, 같은 키의 연속 편집은 한 단위로 묶인다.
 - `ModelError`: 불변식을 깨뜨리는 입력의 거부 사유.
 
 ## 불변식
@@ -19,7 +22,8 @@
 - 같은 트랙의 클립 구간 `[start, end)`는 겹치지 않는다(맞닿음은 허용).
 - 클립 안 노트의 시작은 `0 ≤ start < 클립 길이`다. 끝이 클립 길이를 넘는 노트(숨김 꼬리)는 분할로만 생긴다(`docs/decisions/2026-10-12-clip-split-and-velocity.md`).
 - 실패한 편집 메서드는 상태를 바꾸지 않는다.
-- 속성 기반 회귀 테스트: `tests/model_invariants.rs`.
+- 앱은 모든 편집을 `History`로 적용한다. 밖에서 고치면 역편집이 맞지 않아 undo가 실패할 수 있다(실패해도 상태는 그대로).
+- 속성 기반 회귀 테스트: `tests/model_invariants.rs`, `tests/tempo_map.rs`, `tests/history.rs`.
 
 ## 테스트
 
