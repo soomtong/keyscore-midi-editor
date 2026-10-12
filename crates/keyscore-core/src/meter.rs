@@ -21,7 +21,13 @@ impl TimeSignature {
     ///
     /// 분자가 0이거나 분모가 위 범위 밖이면 [`ModelError::TimeSignatureInvalid`].
     pub fn new(numerator: u8, denominator: u16) -> Result<Self, ModelError> {
-        todo!("{numerator} {denominator}")
+        if numerator == 0 || !denominator.is_power_of_two() || denominator > 256 {
+            return Err(ModelError::TimeSignatureInvalid(numerator, denominator));
+        }
+        Ok(TimeSignature {
+            numerator,
+            denominator,
+        })
     }
 
     #[must_use]
@@ -163,7 +169,13 @@ impl MeterMap {
     /// 마디 `bar`(0부터)가 시작하는 틱. 그 마디가 u64 틱 범위 안에서 시작하지 않으면 `None`.
     #[must_use]
     pub fn bar_start(&self, bar: u64) -> Option<Tick> {
-        todo!("{bar}")
+        // 시작 마디 번호는 변화마다 1 이상 늘어나므로 엄격히 증가한다.
+        let (start, sig, start_bar) =
+            self.changes[self.changes.partition_point(|c| c.2 <= bar) - 1];
+        (bar - start_bar)
+            .checked_mul(sig.bar_ticks())
+            .and_then(|span| start.get().checked_add(span))
+            .map(Tick::new)
     }
 }
 
