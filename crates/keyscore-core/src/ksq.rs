@@ -736,6 +736,10 @@ pub fn from_bytes(bytes: &[u8]) -> Result<(Project, Vec<Warning>), KsqError> {
     from_str(&text)
 }
 
+fn from_bytes_limited(bytes: &[u8], limit: u64) -> Result<(Project, Vec<Warning>), KsqError> {
+    todo!("{} {limit}", bytes.len())
+}
+
 // ---------------------------------------------------------------- 파일
 
 /// 파일로 쓴다. 같은 디렉터리의 임시 파일에 쓰고 fsync한 뒤 이름을 바꾼다. 그래서 쓰는 도중
@@ -964,6 +968,18 @@ mod tests {
         }
         let err = from_str("{\n  \"tracks\": [,]\n}").unwrap_err();
         assert!(matches!(err, KsqError::Json { line: 2, .. }), "{err:?}");
+    }
+
+    #[test]
+    fn ksq_gzip_larger_than_limit_is_rejected() {
+        // 압축 폭탄 방지(S0-T6 리뷰 1 제안 8). 상한을 작게 주고 시험한다.
+        let big = to_bytes(&sample(), Compression::Gzip).unwrap();
+        let unpacked = to_string(&sample()).len() as u64;
+        assert!(from_bytes_limited(&big, unpacked).is_ok());
+        assert!(matches!(
+            from_bytes_limited(&big, unpacked - 1),
+            Err(KsqError::Invalid { .. })
+        ));
     }
 
     #[test]

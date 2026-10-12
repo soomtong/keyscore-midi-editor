@@ -374,3 +374,114 @@ fn ksq_write_file_failure_keeps_original() {
     assert!(leftovers.is_empty(), "임시 파일이 남았다: {leftovers:?}");
     assert_eq!(fs::read(&path).unwrap(), original);
 }
+
+/// 쓴 파일의 모든 객체 수준에 모르는 키를 넣는다. 값에는 실수·중첩도 섞는다
+/// (S0-T6 리뷰 1 지적 1·2·11: 왕복 테스트가 모르는 키와 실수를 만들지 않아 결함을 놓쳤다).
+fn inject_unknown(text: &str, salt: u64, value: &serde_json::Value) -> (String, Vec<String>) {
+    use serde_json::Value;
+    let mut root: Value = serde_json::from_str(text).unwrap();
+    let mut names = Vec::new();
+    let mut put = |obj: &mut serde_json::Map<String, Value>, level: &str| {
+        let name = format!("zz_{level}_{salt}");
+        obj.insert(name.clone(), value.clone());
+        names.push(name);
+    };
+    let root_obj = root.as_object_mut().unwrap();
+    put(root_obj, "root");
+    if let Some(Value::Object(key)) = root_obj.get_mut("key") {
+        put(key, "key");
+    }
+    for track in root_obj.get_mut("tracks").unwrap().as_array_mut().unwrap() {
+        let t = track.as_object_mut().unwrap();
+        put(t, "track");
+        if let Some(Value::Object(port)) = t.get_mut("port") {
+            put(port, "port");
+        }
+        for clip in t.get_mut("clips").unwrap().as_array_mut().unwrap() {
+            let c = clip.as_object_mut().unwrap();
+            put(c, "clip");
+            for note in c.get_mut("notes").unwrap().as_array_mut().unwrap() {
+                let n = note.as_array_mut().unwrap();
+                if n.len() == 4 {
+                    n.push(Value::Object(serde_json::Map::new()));
+                }
+                put(n[4].as_object_mut().unwrap(), "note");
+            }
+        }
+    }
+    (serde_json::to_string(&root).unwrap(), names)
+}
+
+fn json_value() -> impl Strategy<Value = serde_json::Value> {
+    use serde_json::Value;
+    let leaf = prop_oneof![
+        Just(Value::Null),
+        any::<bool>().prop_map(Value::Bool),
+        any::<i64>().prop_map(Value::from),
+        any::<u64>().prop_map(Value::from),
+        any::<f64>()
+            .prop_filter("유한한 실수", |f| f.is_finite())
+            .prop_map(Value::from),
+        "[가-힣a-z\"\\\\ ]{0,6}".prop_map(Value::String),
+    ];
+    leaf.prop_recursive(3, 16, 4, |inner| {
+        prop_oneof![
+            prop::collection::vec(inner.clone(), 0..4).prop_map(Value::Array),
+            prop::collection::btree_map("[a-z]{1,4}", inner, 0..4)
+                .prop_map(|m| Value::Object(m.into_iter().collect())),
+        ]
+    })
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(256))]
+
+    #[test]
+    fn ksq_round_trip_with_unknown_keys_everywhere(
+        tracks in prop::collection::vec(track_spec(), 1..3),
+        key in prop::option::of((0..12u8, any::<bool>())),
+        salt in any::<u64>(),
+        value in json_value(),
+    ) {
+        let p = build(&tracks, &[], &[], key);
+        let (text, names) = inject_unknown(&ksq::to_string(&p), salt, &value);
+        let (read, _) = ksq::from_str(&text).unwrap();
+        let first = ksq::to_string(&read);
+        for name in &names {
+            prop_assert!(first.contains(name.as_str()), "모르는 키 {} 이 사라졌다", name);
+        }
+        let (again, _) = ksq::from_str(&first).unwrap();
+        prop_assert_eq!(ksq::to_string(&again), first);
+        prop_assert_eq!(content(&again), content(&p));
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn ksq_write_file_keeps_existing_permissions() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = TempDir::new("perm");
+    let path = dir.0.join("song.ksq");
+    ksq::write_file(&path, &sample(), Compression::None).unwrap();
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+    ksq::write_file(&path, &Project::new(), Compression::None).unwrap();
+    assert_eq!(
+        fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+}
+
+#[test]
+fn ksq_write_file_relative_path_works() {
+    let dir = TempDir::new("rel");
+    let previous = std::env::current_dir().unwrap();
+    std::env::set_current_dir(&dir.0).unwrap();
+    let result = ksq::write_file(
+        std::path::Path::new("rel.ksq"),
+        &sample(),
+        Compression::None,
+    );
+    std::env::set_current_dir(previous).unwrap();
+    result.unwrap();
+    assert!(dir.0.join("rel.ksq").exists());
+}
