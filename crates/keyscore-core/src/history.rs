@@ -22,11 +22,10 @@ struct Entry {
 ///
 /// 모든 연산은 원자적이다. 실패하면 프로젝트와 히스토리 모두 호출 전과 같다.
 ///
-/// 역편집은 히스토리 안에만 있고 밖으로 나오지 않는다. 앱은 모든 편집을 히스토리로 적용해야 한다.
-/// 히스토리 밖에서 프로젝트를 고치면 역편집이 맞지 않아 undo가 `Err`를 돌려줄 수 있다. 그때도
-/// 프로젝트는 바뀌지 않고, 트랙·클립을 id로 가리키므로 엉뚱한 대상에 적용되지 않는다.
+/// 역편집은 히스토리 안에만 있다. 역편집은 자기를 만든 상태에만 맞으므로, 히스토리는 crate
+/// 안에서만 쓰고 공개 API는 프로젝트와 히스토리를 한 값에 묶은 [`crate::Document`]다.
 #[derive(Debug, Clone)]
-pub struct History {
+pub(crate) struct History {
     undo: VecDeque<Entry>,
     redo: Vec<Entry>,
     limit_bytes: usize,
@@ -37,7 +36,7 @@ pub struct History {
 
 impl History {
     #[must_use]
-    pub fn new(limit_bytes: usize) -> Self {
+    pub(crate) fn new(limit_bytes: usize) -> Self {
         History {
             undo: VecDeque::new(),
             redo: Vec::new(),
@@ -56,7 +55,7 @@ impl History {
     /// # Errors
     ///
     /// 묶음의 편집 하나라도 실패하면 그 오류. 프로젝트와 히스토리는 바뀌지 않는다.
-    pub fn apply(
+    pub(crate) fn apply(
         &mut self,
         project: &mut Project,
         edits: Vec<Edit>,
@@ -94,7 +93,7 @@ impl History {
     ///
     /// 역편집이 맞지 않으면(히스토리 밖에서 프로젝트를 고친 경우) 그 오류. 프로젝트와 히스토리는
     /// 바뀌지 않는다.
-    pub fn undo(&mut self, project: &mut Project) -> Result<bool, ModelError> {
+    pub(crate) fn undo(&mut self, project: &mut Project) -> Result<bool, ModelError> {
         let Some(entry) = self.undo.pop_back() else {
             return Ok(false);
         };
@@ -123,7 +122,7 @@ impl History {
     /// # Errors
     ///
     /// [`History::undo`]와 같다.
-    pub fn redo(&mut self, project: &mut Project) -> Result<bool, ModelError> {
+    pub(crate) fn redo(&mut self, project: &mut Project) -> Result<bool, ModelError> {
         let Some(entry) = self.redo.pop() else {
             return Ok(false);
         };
@@ -158,23 +157,23 @@ impl History {
     }
 
     /// 다음 `apply`가 직전 단위와 묶이지 않게 한다(모드 전환, 다른 대상 선택 등).
-    pub fn seal(&mut self) {
+    pub(crate) fn seal(&mut self) {
         self.sealed = true;
     }
 
     #[must_use]
-    pub fn undo_len(&self) -> usize {
+    pub(crate) fn undo_len(&self) -> usize {
         self.undo.len()
     }
 
     #[must_use]
-    pub fn redo_len(&self) -> usize {
+    pub(crate) fn redo_len(&self) -> usize {
         self.redo.len()
     }
 
     /// undo·redo 스택이 차지하는 추정 바이트.
     #[must_use]
-    pub fn used_bytes(&self) -> usize {
+    pub(crate) fn used_bytes(&self) -> usize {
         self.used_bytes
     }
 }

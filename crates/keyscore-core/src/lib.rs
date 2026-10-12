@@ -9,6 +9,7 @@
 #![deny(unsafe_code)]
 
 mod clip;
+mod document;
 mod edit;
 mod error;
 mod history;
@@ -21,9 +22,10 @@ mod tick;
 mod track;
 
 pub use clip::{Clip, ClipId};
+pub use document::Document;
 pub use edit::{Edit, TrackProp};
 pub use error::ModelError;
-pub use history::{CoalesceKey, History};
+pub use history::CoalesceKey;
 pub use key::{Key, PitchClass};
 pub use meter::{BarPosition, MeterMap, TimeSignature};
 pub use note::{CcPoint, Note, Pitch, PitchOffset, Velocity};
