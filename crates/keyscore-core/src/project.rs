@@ -69,16 +69,16 @@ impl Project {
 
     #[must_use]
     pub fn track(&self, id: TrackId) -> Option<&Track> {
-        todo!("{id:?}")
+        self.tracks.iter().find(|t| t.id() == id)
     }
 
     pub fn track_by_id_mut(&mut self, id: TrackId) -> Option<&mut Track> {
-        todo!("{id:?}")
+        self.tracks.iter_mut().find(|t| t.id() == id)
     }
 
     #[must_use]
     pub fn track_index(&self, id: TrackId) -> Option<usize> {
-        todo!("{id:?}")
+        self.tracks.iter().position(|t| t.id() == id)
     }
 
     /// `index` 자리에 트랙을 넣는다. `index == 트랙 수`이면 맨 뒤에 넣는다.
@@ -96,6 +96,9 @@ impl Project {
                 len: self.tracks.len(),
             });
         }
+        if self.track_index(track.id()).is_some() {
+            return Err(ModelError::DuplicateTrackId);
+        }
         self.tracks.insert(index, track);
         Ok(())
     }
@@ -111,7 +114,11 @@ mod tests {
     use crate::{Tempo, Tick, TimeSignature};
 
     fn track(name: &str) -> Track {
-        Track::new(name, crate::Channel::new(1).unwrap(), crate::TrackColor::new(0).unwrap())
+        Track::new(
+            name,
+            crate::Channel::new(1).unwrap(),
+            crate::TrackColor::new(0).unwrap(),
+        )
     }
 
     #[test]

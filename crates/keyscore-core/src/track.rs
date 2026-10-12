@@ -121,7 +121,9 @@ pub struct TrackId(u64);
 
 impl TrackId {
     fn allocate() -> TrackId {
-        todo!()
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        // 유일성만 필요하고 다른 메모리와의 순서는 필요 없다.
+        TrackId(NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
     }
 }
 
@@ -443,6 +445,19 @@ impl Track {
         let ri = self.index_of(right).ok_or(ModelError::UnknownClip)?;
         if li == ri {
             return Err(ModelError::DuplicateClipId);
+        }
+        // 지금의 두 클립이 정말 `original`을 한 경계에서 나눈 것인지 확인한다. 아니면 되돌리면
+        // 두 클립 사이의 다른 내용을 덮거나 분할 없이 꼬리를 만들 수 있다(S0-T4 리뷰 1 지적 3).
+        let (l, r) = (&self.clips[li].1, &self.clips[ri].1);
+        let fits = l.end() == r.start().get()
+            && original.start() == l.start()
+            && original.end() == r.end();
+        if !fits {
+            return Err(ModelError::SplitOutsideClip {
+                at: l.end(),
+                start: original.start().get(),
+                end: original.end(),
+            });
         }
         self.check_free(&original, &[left, right])?;
         let (first, second) = if li > ri { (li, ri) } else { (ri, li) };

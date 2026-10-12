@@ -21,7 +21,7 @@ mod tick;
 mod track;
 
 pub use clip::{Clip, ClipId};
-pub use edit::{Edit, NoteRestore, TrackProp};
+pub use edit::{Edit, TrackProp};
 pub use error::ModelError;
 pub use history::{CoalesceKey, History};
 pub use key::{Key, PitchClass};

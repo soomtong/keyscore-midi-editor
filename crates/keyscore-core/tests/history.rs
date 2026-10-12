@@ -2,7 +2,7 @@
 
 use keyscore_core::{
     Channel, Clip, ClipId, CoalesceKey, Edit, History, Key, ModelError, Note, Pitch, PitchClass,
-    Project, Tempo, Tick, TimeSignature, Track, TrackColor, TrackProp, Velocity,
+    Project, Tempo, Tick, TimeSignature, Track, TrackColor, TrackId, TrackProp, Velocity,
 };
 use proptest::prelude::*;
 
@@ -92,16 +92,17 @@ fn initial() -> Project {
         "Lead",
         Channel::new(1).unwrap(),
         TrackColor::new(0).unwrap(),
-    ));
+    ))
+    .unwrap();
     p
 }
 
-fn pick_track(p: &Project, pick: usize) -> Option<usize> {
-    (!p.tracks().is_empty()).then(|| pick % p.tracks().len())
+fn pick_track(p: &Project, pick: usize) -> Option<TrackId> {
+    (!p.tracks().is_empty()).then(|| p.tracks()[pick % p.tracks().len()].id())
 }
 
-fn pick_clip(p: &Project, track: usize, pick: usize) -> Option<ClipId> {
-    let ids: Vec<ClipId> = p.tracks()[track].clips().map(|(id, _)| id).collect();
+fn pick_clip(p: &Project, track: TrackId, pick: usize) -> Option<ClipId> {
+    let ids: Vec<ClipId> = p.track(track)?.clips().map(|(id, _)| id).collect();
     (!ids.is_empty()).then(|| ids[pick % ids.len()])
 }
 
@@ -120,7 +121,7 @@ fn to_edits(p: &Project, op: &Op) -> Option<Vec<Edit>> {
         },
         // 트랙을 하나는 남겨야 나머지 연산이 대상을 찾는다(대상 없음이 많으면 시험이 약해진다).
         Op::RemoveTrack { pick } if p.tracks().len() > 1 => Edit::RemoveTrack {
-            index: pick_track(p, pick)?,
+            track: pick_track(p, pick)?,
         },
         Op::RemoveTrack { .. } => return None,
         Op::Prop { pick, mute, name } => {
@@ -139,7 +140,6 @@ fn to_edits(p: &Project, op: &Op) -> Option<Vec<Edit>> {
         } => Edit::InsertClip {
             track: pick_track(p, pick)?,
             clip: Box::new(Clip::new(Tick::new(start), length).ok()?),
-            id: None,
         },
         Op::RemoveClip { pick, clip } => {
             let track = pick_track(p, pick)?;
@@ -159,12 +159,11 @@ fn to_edits(p: &Project, op: &Op) -> Option<Vec<Edit>> {
         Op::SplitClip { pick, clip, offset } => {
             let track = pick_track(p, pick)?;
             let id = pick_clip(p, track, clip)?;
-            let start = p.tracks()[track].clip(id)?.start().get();
+            let start = p.track(track)?.clip(id)?.start().get();
             Edit::SplitClip {
                 track,
                 id,
                 at: Tick::new(start + offset),
-                right_id: None,
             }
         }
         Op::ClipName { pick, clip, name } => {
@@ -185,7 +184,7 @@ fn to_edits(p: &Project, op: &Op) -> Option<Vec<Edit>> {
             let track = pick_track(p, pick)?;
             let id = pick_clip(p, track, clip)?;
             // 시작은 클립 안으로 맞춘다. 길이 때문에 끝이 넘치는 실패 사례는 그대로 남는다.
-            let start = start % p.tracks()[track].clip(id)?.length();
+            let start = start % p.track(track)?.clip(id)?.length();
             let note = Note::new(
                 Tick::new(start),
                 length,
@@ -202,7 +201,7 @@ fn to_edits(p: &Project, op: &Op) -> Option<Vec<Edit>> {
         Op::RemoveNote { pick, clip, note } => {
             let track = pick_track(p, pick)?;
             let id = pick_clip(p, track, clip)?;
-            let notes = p.tracks()[track].clip(id)?.notes();
+            let notes = p.track(track)?.clip(id)?.notes();
             let note = notes.get(note % notes.len().max(1))?.clone();
             Edit::RemoveNote {
                 track,
@@ -345,6 +344,7 @@ proptest! {
     ) {
         // 새 편집, undo, redo를 섞는다. 같은 일을 하는 기준 모델(스냅샷 스택)과 매 단계 비교한다.
         let mut p = initial();
+        let start = p.clone();
         let mut h = History::new(usize::MAX);
         let mut past: Vec<Project> = Vec::new();
         let mut future: Vec<Project> = Vec::new();
@@ -384,7 +384,8 @@ proptest! {
         }
         // 끝까지 undo하면 처음 상태.
         while h.undo(&mut p).unwrap() {}
-        prop_assert_eq!(&p, &initial());
+        // initial()은 부를 때마다 새 TrackId를 만드므로 처음 상태의 복제와 비교한다.
+        prop_assert_eq!(&p, &start);
     }
 }
 
@@ -392,12 +393,10 @@ proptest! {
 fn history_errors_are_model_errors() {
     // 없는 트랙을 가리키는 편집은 모델 오류로 거부된다.
     let mut p = initial();
+    let stranger = Track::new("X", Channel::new(2).unwrap(), TrackColor::new(0).unwrap()).id();
     let mut h = History::new(usize::MAX);
     let err = h
-        .apply(&mut p, vec![Edit::RemoveTrack { index: 3 }], None)
+        .apply(&mut p, vec![Edit::RemoveTrack { track: stranger }], None)
         .unwrap_err();
-    assert!(
-        matches!(err, ModelError::TrackIndexOutOfRange { .. }),
-        "{err:?}"
-    );
+    assert!(matches!(err, ModelError::UnknownTrack), "{err:?}");
 }
