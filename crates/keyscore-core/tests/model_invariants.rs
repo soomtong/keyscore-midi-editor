@@ -11,6 +11,14 @@ use proptest::prelude::*;
 /// 테스트가 다루는 시간 범위. 작게 잡아야 겹침·맞닿음·경계 사례가 자주 나온다.
 const SPAN: u64 = 20_000;
 
+/// 0 근처와 u64 끝 근처의 틱. 끝 근처가 없으면 오버플로 검사(숨김 꼬리의 절대 끝 등)가
+/// 한 번도 발동하지 않는다(S0-T2 리뷰 2 제안 3).
+fn tick() -> impl Strategy<Value = u64> {
+    // 끝 근처는 클립 길이(최대 4,000)와 비슷한 폭으로 좁혀야 「길이는 들어가지만 꼬리는 넘치는」
+    // 위치가 자주 나온다.
+    prop_oneof![3 => 0..SPAN, 1 => (u64::MAX - 6_000)..=u64::MAX]
+}
+
 #[derive(Debug, Clone)]
 enum Op {
     InsertClip {
@@ -24,9 +32,10 @@ enum Op {
         pick: usize,
         new_start: u64,
     },
+    /// 분할 지점은 클립 시작 기준이다. 절대 틱으로 뽑으면 끝 근처 클립이 분할되지 않는다.
     SplitClip {
         pick: usize,
-        at: u64,
+        offset: u64,
     },
     InsertNote {
         pick: usize,
@@ -43,10 +52,10 @@ enum Op {
 
 fn op() -> impl Strategy<Value = Op> {
     prop_oneof![
-        3 => (0..SPAN, 0..4_000u64).prop_map(|(start, length)| Op::InsertClip { start, length }),
+        3 => (tick(), 0..4_000u64).prop_map(|(start, length)| Op::InsertClip { start, length }),
         1 => any::<usize>().prop_map(|pick| Op::RemoveClip { pick }),
-        2 => (any::<usize>(), 0..SPAN).prop_map(|(pick, new_start)| Op::MoveClip { pick, new_start }),
-        2 => (any::<usize>(), 0..SPAN + 4_000).prop_map(|(pick, at)| Op::SplitClip { pick, at }),
+        2 => (any::<usize>(), tick()).prop_map(|(pick, new_start)| Op::MoveClip { pick, new_start }),
+        2 => (any::<usize>(), 0..4_500u64).prop_map(|(pick, offset)| Op::SplitClip { pick, offset }),
         4 => (any::<usize>(), 0..4_000u64, 0..2_000u32, 0..=127u8, any::<bool>())
             .prop_map(|(pick, start, length, pitch, lyric)| Op::InsertNote { pick, start, length, pitch, lyric }),
         1 => (any::<usize>(), any::<usize>()).prop_map(|(pick, note_pick)| Op::RemoveNote { pick, note_pick }),
@@ -86,8 +95,11 @@ fn apply(track: &mut Track, op: &Op) -> Result<(), ModelError> {
             Some(id) => track.move_clip(id, Tick::new(new_start)),
             None => Ok(()),
         },
-        Op::SplitClip { pick, at } => match pick_clip(track, pick) {
-            Some(id) => track.split_clip(id, Tick::new(at)).map(|_| ()),
+        Op::SplitClip { pick, offset } => match pick_clip(track, pick) {
+            Some(id) => {
+                let at = track.clip(id).unwrap().start().get().saturating_add(offset);
+                track.split_clip(id, Tick::new(at)).map(|_| ())
+            }
             None => Ok(()),
         },
         Op::InsertNote {

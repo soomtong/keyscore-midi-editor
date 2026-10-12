@@ -97,7 +97,7 @@ fn hidden_tail_cannot_be_created_by_insert_note_after_split() {
 /// 시도 4: 리뷰 1 당시 `ClipId`는 트랙마다 0부터 발급되어 다른 트랙의 식별자가 이 트랙의
 /// 엉뚱한 클립을 가리켰다. 제안 4를 받아 식별자를 전역으로 유일하게 발급하므로 이제 지워지지 않는다.
 #[test]
-fn clip_id_from_another_track_addresses_unrelated_clip() {
+fn clip_id_from_another_track_addresses_nothing() {
     let mut a = new_track();
     let mut b = new_track();
     let id_a = a.insert_clip(Clip::new(Tick::ZERO, 10).unwrap()).unwrap();
