@@ -41,6 +41,20 @@ pub enum ModelError {
     TempoOutOfRange(u32),
     #[error("박자표 {0}/{1}: 분자는 1 이상, 분모는 1–256 사이의 2의 거듭제곱이어야 한다")]
     TimeSignatureInvalid(u8, u16),
+    #[error("트랙 인덱스 {index}가 범위 밖이다(트랙 {len}개)")]
+    TrackIndexOutOfRange { index: usize, len: usize },
+    #[error("프로젝트에 이미 있는 트랙 식별자다")]
+    DuplicateTrackId,
+    #[error("프로젝트에 없는 트랙이다")]
+    UnknownTrack,
+    #[error("같은 트랙에 이미 있는 클립 식별자다")]
+    DuplicateClipId,
+    #[error("클립에 그 노트가 없다")]
+    NoteNotFound,
+    #[error("틱 {0}에 지울 변화가 없다")]
+    NoChangeAt(u64),
+    #[error("되돌리기 중 역편집이 맞지 않아 원래 상태로 돌리지 못했다")]
+    HistoryInconsistent,
     #[error("틱 0의 템포·박자표는 지울 수 없다")]
     RemoveInitialChange,
     #[error("분할 지점 {at}은 클립 [{start}, {end}) 안쪽이어야 한다")]

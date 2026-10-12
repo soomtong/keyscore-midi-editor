@@ -23,7 +23,7 @@ impl ClipId {
 /// - 길이 ≥ 1틱이고 `start + length`가 u64 안이다.
 /// - 모든 노트의 시작은 `0 ≤ start < length`다. 끝이 길이를 넘는 노트(숨김 꼬리)는
 ///   분할로만 생긴다(`docs/decisions/2026-10-12-clip-split-and-velocity.md` Q1).
-/// - 노트는 `(시작, 음높이)` 순으로 정렬되어 있다.
+/// - 노트는 [`Note`]의 전체 순서(시작, 음높이, 그다음 나머지 필드)로 정렬되어 있다.
 ///
 /// 시작·길이를 바꾸는 공개 메서드는 없다. 트랙 안의 겹침 검사를 우회하지 못하게
 /// [`crate::Track`]의 메서드로만 바뀐다.
@@ -111,11 +111,27 @@ impl Clip {
                 clip_length: self.length,
             });
         }
-        let key = (note.start(), note.pitch());
-        // 같은 키 뒤에 넣어 삽입 순서를 안정적으로 유지한다.
-        let at = self
-            .notes
-            .partition_point(|n| (n.start(), n.pitch()) <= key);
+        // 전체 순서로 넣는다. 삽입 순서와 상관없이 같은 내용이면 같은 클립이 되고, 지웠다
+        // 되살린 노트도 원래 자리로 돌아간다.
+        let at = self.notes.partition_point(|n| n <= &note);
+        self.notes.insert(at, note);
+        Ok(())
+    }
+
+    /// 지웠던 노트를 되살린다(undo 전용). 숨김 꼬리 노트도 되살려야 하므로 `insert_note`와 달리
+    /// 시작만 클립 안이면 받는다. 꼬리를 새로 만드는 공개 경로가 되지 않도록 crate 안에서만 쓴다.
+    pub(crate) fn restore_note(&mut self, note: Note) -> Result<(), ModelError> {
+        if note.start().get() >= self.length {
+            return Err(ModelError::NoteOutsideClip {
+                start: note.start().get(),
+                end: note.end(),
+                clip_length: self.length,
+            });
+        }
+        self.start.checked_add(note.end())?;
+        // 전체 순서로 넣는다. 삽입 순서와 상관없이 같은 내용이면 같은 클립이 되고, 지웠다
+        // 되살린 노트도 원래 자리로 돌아간다.
+        let at = self.notes.partition_point(|n| n <= &note);
         self.notes.insert(at, note);
         Ok(())
     }
@@ -236,6 +252,27 @@ mod tests {
             .map(|n| (n.start().get(), n.pitch().get()))
             .collect();
         assert_eq!(order, vec![(0, 67), (240, 62), (480, 60), (480, 64)]);
+    }
+
+    #[test]
+    fn clip_note_order_is_total_so_remove_and_restore_round_trip() {
+        // 같은 (시작, 음높이)에 길이만 다른 노트: 어떤 순서로 넣어도 같은 순서로 정렬되고,
+        // 지웠다가 되살리면 원래 자리로 돌아온다(S0-T4 리뷰 1 지적 4).
+        let long = note(0, 50, 60);
+        let short = note(0, 10, 60);
+        let mut a = Clip::new(Tick::ZERO, 960).unwrap();
+        a.insert_note(long.clone()).unwrap();
+        a.insert_note(short.clone()).unwrap();
+        let mut b = Clip::new(Tick::ZERO, 960).unwrap();
+        b.insert_note(short.clone()).unwrap();
+        b.insert_note(long.clone()).unwrap();
+        assert_eq!(a, b);
+        let before = a.clone();
+        for n in [&short, &long] {
+            assert!(a.remove_note(n));
+            a.restore_note(n.clone()).unwrap();
+            assert_eq!(a, before);
+        }
     }
 
     #[test]

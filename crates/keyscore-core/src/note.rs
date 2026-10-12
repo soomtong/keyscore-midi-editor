@@ -129,6 +129,37 @@ pub struct Note {
     lyric: Option<String>,
 }
 
+/// 노트의 전체 순서: 시작, 음높이, 그다음 나머지 필드. 클립 안 노트는 이 순서로 정렬된다.
+///
+/// (시작, 음높이)만으로 정렬하면 같은 키의 노트를 지웠다 되살릴 때 자리가 바뀐다(S0-T4 리뷰 1 지적 4).
+/// 전체 순서라서 어떤 삽입 순서로도 같은 클립이 되고, 같은 값의 노트끼리만 순서가 의미 없다.
+impl Ord for Note {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        (
+            self.start,
+            self.pitch,
+            self.length,
+            self.offset,
+            self.velocity,
+            &self.lyric,
+        )
+            .cmp(&(
+                other.start,
+                other.pitch,
+                other.length,
+                other.offset,
+                other.velocity,
+                &other.lyric,
+            ))
+    }
+}
+
+impl PartialOrd for Note {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
 impl Note {
     /// # Errors
     ///

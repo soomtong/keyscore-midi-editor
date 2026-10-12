@@ -1,4 +1,4 @@
-use crate::{Key, MeterMap, TempoMap, Track};
+use crate::{Key, MeterMap, ModelError, TempoMap, Track, TrackId};
 
 /// 곡 하나(REQ SEQ-1): 템포 맵 + 박자표 맵 + 트랙 목록, 그리고 전역 조성.
 ///
@@ -53,13 +53,56 @@ impl Project {
         &self.tracks
     }
 
-    /// 트랙은 자기 불변식을 스스로 지키므로 `&mut Track`을 내줘도 된다.
+    /// 트랙은 자기 불변식을 스스로 지키므로 `&mut Track`을 내줘도 된다. 다만 트랙을 통째로
+    /// 바꾸면(복제본 대입) 프로젝트 안에서 `TrackId`가 겹칠 수 있다. `Project`는 파일 읽기 등의
+    /// 구성 단계용이고, 편집은 [`crate::Document`]로 한다. `Document::new`가 중복을 거부한다.
     pub fn track_mut(&mut self, index: usize) -> Option<&mut Track> {
         self.tracks.get_mut(index)
     }
 
-    pub fn push_track(&mut self, track: Track) {
-        self.tracks.push(track);
+    /// 맨 뒤에 트랙을 넣는다.
+    ///
+    /// # Errors
+    ///
+    /// 같은 [`TrackId`]의 트랙이 이미 있으면 [`ModelError::DuplicateTrackId`].
+    pub fn push_track(&mut self, track: Track) -> Result<(), ModelError> {
+        self.insert_track(self.tracks.len(), track)
+    }
+
+    #[must_use]
+    pub fn track(&self, id: TrackId) -> Option<&Track> {
+        self.tracks.iter().find(|t| t.id() == id)
+    }
+
+    pub fn track_by_id_mut(&mut self, id: TrackId) -> Option<&mut Track> {
+        self.tracks.iter_mut().find(|t| t.id() == id)
+    }
+
+    #[must_use]
+    pub fn track_index(&self, id: TrackId) -> Option<usize> {
+        self.tracks.iter().position(|t| t.id() == id)
+    }
+
+    /// `index` 자리에 트랙을 넣는다. `index == 트랙 수`이면 맨 뒤에 넣는다.
+    ///
+    /// 트랙 id가 프로젝트 안에서 유일해야, 트랙을 id로 가리키는 편집·undo가 한 트랙만 가리킨다.
+    ///
+    /// # Errors
+    ///
+    /// `index`가 트랙 수보다 크면 [`ModelError::TrackIndexOutOfRange`], 같은 [`TrackId`]의 트랙이
+    /// 이미 있으면 [`ModelError::DuplicateTrackId`].
+    pub fn insert_track(&mut self, index: usize, track: Track) -> Result<(), ModelError> {
+        if index > self.tracks.len() {
+            return Err(ModelError::TrackIndexOutOfRange {
+                index,
+                len: self.tracks.len(),
+            });
+        }
+        if self.track_index(track.id()).is_some() {
+            return Err(ModelError::DuplicateTrackId);
+        }
+        self.tracks.insert(index, track);
+        Ok(())
     }
 
     pub fn remove_track(&mut self, index: usize) -> Option<Track> {
@@ -71,6 +114,42 @@ impl Project {
 mod tests {
     use super::*;
     use crate::{Tempo, Tick, TimeSignature};
+
+    fn track(name: &str) -> Track {
+        Track::new(
+            name,
+            crate::Channel::new(1).unwrap(),
+            crate::TrackColor::new(0).unwrap(),
+        )
+    }
+
+    #[test]
+    fn project_tracks_are_found_by_id_after_reorder() {
+        let mut p = Project::new();
+        let (a, b) = (track("A"), track("B"));
+        let (ia, ib) = (a.id(), b.id());
+        assert_ne!(ia, ib);
+        p.push_track(a).unwrap();
+        p.push_track(b).unwrap();
+        assert_eq!(p.track_index(ib), Some(1));
+        let moved = p.remove_track(0).unwrap();
+        p.push_track(moved).unwrap();
+        assert_eq!(p.track_index(ia), Some(1));
+        assert_eq!(p.track(ia).map(Track::name), Some("A"));
+        p.track_by_id_mut(ib).unwrap().set_name("B2");
+        assert_eq!(p.tracks()[0].name(), "B2");
+    }
+
+    #[test]
+    fn project_rejects_clone_of_existing_track() {
+        let mut p = Project::new();
+        let a = track("A");
+        p.push_track(a.clone()).unwrap();
+        let before = p.clone();
+        assert_eq!(p.push_track(a.clone()), Err(ModelError::DuplicateTrackId));
+        assert_eq!(p.insert_track(0, a), Err(ModelError::DuplicateTrackId));
+        assert_eq!(p, before);
+    }
 
     #[test]
     fn project_new_has_default_tempo_and_meter() {
