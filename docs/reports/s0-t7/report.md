@@ -8,7 +8,7 @@
 
 - `src/transform.rs`
   - `NoteRef`, `Grid`, `QuantizeSettings`, `PitchRange`와 `quantize`·`transpose`·`shift`·`scale`.
-  - 공통 `plan`이 노트마다 새 노트를 계산한다. 끝이 클립을 넘으면 마디 경계까지 늘릴 길이를 정하고, 다음 클립과의 겹침을 검사한다. 결과 묶음은 `ExtendClip…`, `RemoveNote…`, `InsertNote…` 순서다.
+  - 공통 `plan`이 노트마다 새 노트를 계산한다. 끝이 클립을 넘으면 마디 경계까지 늘릴 길이를 정하고, 다음 클립과의 겹침을 검사한다. 결과 묶음은 클립마다 `ReplaceNotes` 하나다(리뷰 2 뒤 개정, 처음에는 `ExtendClip…`, `RemoveNote…`, `InsertNote…` 순서였다).
   - `snap`은 마디 기준 그리드 점(스윙 적용)과 다음 마디 시작 가운데 가장 가까운 점을 고른다. 거리가 같으면 앞쪽이다.
 - `src/edit.rs`: `Edit::ExtendClip`(늘리기만)과 내부 `Op::ShrinkClip`(그 undo).
 - `src/track.rs`·`src/clip.rs`(crate 내부): `resize_clip`(겹침 검사), `set_length`(줄일 때도 노트 시작은 클립 안).
@@ -55,7 +55,7 @@ transform 속성 테스트(각 256사례) 임시 계측: 퀀타이즈 511회 중
 ## 리뷰어에게
 
 - `snap`의 후보 선택(스윙 점, 마디 끝, 거리 동점)과 강도 계산의 반올림 방향이 결정 문서와 계획의 해석에 맞는지 봐 달라.
-- `plan`이 만든 묶음이 원자적으로 적용되는지 봐 달라. `ExtendClip`이 먼저 오고, 그 뒤 노트 삭제·삽입이다. 클립 경계 거부(앞쪽, 다음 클립과 겹침)도 함께 봐 달라.
+- `plan`이 만든 묶음이 원자적으로 적용되는지 봐 달라. (리뷰 2 뒤) 클립마다 `ReplaceNotes` 하나가 길이 늘리기와 노트 바꾸기를 함께 한다. 클립 경계 거부(앞쪽, 다음 클립과 겹침)도 함께 봐 달라.
 - 여러 클립·여러 트랙에 걸친 선택과, 같은 노트를 두 번 고른 선택을 봐 달라.
 
 ## 리뷰 대응 (review-1, 판정: 수정 후 재리뷰)
@@ -91,4 +91,18 @@ cargo test --workspace: 206 passed (리뷰어 테스트 18개 포함)
 
 ~~~
 cargo test --workspace: 227 passed, clippy 경고 0
+~~~
+
+## 리뷰 대응 (review-3, 판정: 수정 후 재리뷰)
+
+| # | 지적 | 대응 | 커밋 |
+| --- | --- | --- | --- |
+| 1 | `ReplaceNotes`의 차례 적용으로 앞 pair의 `to`를 뒤 pair의 `from`으로 써서 분할 없이 꼬리 생성 (차단) | 동시 치환으로 바꿨다. 모든 `from`을 편집 직전 노트에서 찾아 꼬리 여부와 함께 먼저 지운 뒤 `to`를 넣는다. pair 순서와 무관하고, 앞 pair의 결과는 `from`이 될 수 없다(`NoteNotFound`). 리뷰어 테스트 2개가 통과한다 | `core: Replace notes simultaneously in ReplaceNotes` |
+| 2 | 보고서의 옛 묶음 모양 | 고쳤다 | `plan:` |
+| 3 | 「`Ok`면 적용 성공」 속성 테스트를 구현자 테스트로 (제안) | 기록만 함. 리뷰어 3회차 속성 테스트(각 2000건)가 그 역할을 하며 저장소에 남는다 | |
+
+이번에는 게이트를 모두 돌린 뒤 커밋했다.
+
+~~~
+cargo test --workspace: 238 passed, clippy 경고 0
 ~~~
