@@ -66,3 +66,27 @@ check-deps.test 11, bench-check.test 8 통과
 - 원자성(`apply_all`의 되돌리기)과 「실패한 `Edit::apply`는 상태 불변」 가정을 봐 달라. 특히 `SetTempo`·`SetMeter`의 `None`(삭제) 경로, `UnsplitClip`이 엉뚱한 `original`을 받는 경우를 봐 달라.
 - `NoteRestore`가 정말 밖에서 만들 수 없는지, 다른 공개 경로로 숨김 꼬리를 새로 만들 수 있는지 봐 달라. 예를 들어 `UnsplitClip`의 `original`에 꼬리가 있는 클립을 넣는 경우다.
 - 묶기 규칙(`sealed`)이 REQ 5.7 「같은 조작을 연속으로 누른 것」과 맞는지 봐 달라.
+
+## 리뷰 대응 (review-1, 판정: 수정 후 재리뷰)
+
+| # | 지적 | 대응 |
+| --- | --- | --- |
+| 1 | `RestoreNote`를 보관했다 같은 id의 짧은 새 클립에 적용하면 분할 없이 꼬리가 생김 (차단) | 역편집 전용 연산을 공개 `Edit`에서 빼서 crate 내부 `Op`에 두고, `History` 안에만 보관한다. `Edit::apply`도 공개하지 않는다. 공개 `InsertClip`은 id를 지정할 수 없다. 그래서 역편집을 밖에서 만들거나 보관할 수 없고, 지운 클립의 id를 다시 쓸 공개 경로도 없다. `Edit` 문서에 `compile_fail` 예 2개를 넣었다 |
+| 2 | 손으로 만든 `UnsplitClip`과 실패 편집을 묶으면 원자성이 깨짐 (차단) | 1과 같은 수정으로 위조할 수 없다. `apply_all`의 되돌리기는 방금 적용한 연산의 역만 쓰므로 실패하지 않는다 |
+| 3 | 맞붙지 않은 두 클립을 받는 `UnsplitClip` 뒤 undo 불가 (차단) | 1에 더해, crate 내부 `unsplit_clip`이 「두 클립이 맞붙어 있고, 원본의 시작·끝이 두 클립의 시작·끝과 같다」를 검사한다. 단위 테스트 `unsplit_rejects_clips_that_were_not_split_from_original` |
+| 4 | 같은 (시작, 음높이) 노트를 지웠다 undo하면 순서가 바뀜 (차단) | `Note`에 전체 순서(시작, 음높이, 길이, 오프셋, 벨로시티, 가사)를 정의하고, 클립은 이 순서로 넣는다. 리뷰어 테스트가 이제 통과한다 |
+| 5 | 다른 트랙의 `ClipId`를 받아 전역 유일성이 깨짐 | id를 지정하는 삽입·분할은 내부 연산뿐이고, 히스토리가 만든 역연산으로만 쓰인다 |
+| 6 | 히스토리 밖 트랙 순서 변경 뒤 undo가 `Ok`이지만 아무것도 안 함 | 트랙을 `TrackId`로 가리킨다. `Project`는 같은 `TrackId`의 트랙(복제본)을 거부한다. 그래서 undo는 올바른 트랙을 찾거나 `Err(UnknownTrack)`를 돌려준다 |
+| 7 | 실패한 `apply`가 묶기를 끊지 않음 (제안) | 의도다. 실패한 `apply`는 히스토리를 바꾸지 않으므로, 이어지는 조작을 둘로 나누지 않는다. 문서에 적고 테스트 `history_failed_apply_does_not_break_coalescing`를 더했다 |
+| 8 | undo가 상한을 적용하지 않음 (제안) | 받음. undo 뒤에도 `enforce_limit`를 부른다. 테스트 `history_undo_enforces_limit` |
+
+리뷰어 테스트 처리: 시도 1–3은 역편집을 손으로 만들거나 다시 적용하는 코드였다. 이제는 그런 값을 만들 수 없어서 컴파일되지 않는다. 그래서 각 시도를 같은 목표를 공개 API(History)로 노리는 테스트로 바꿨고, 파일 머리와 커밋 `936c5ea` 본문에 이유를 적었다. 시도 4는 `TrackId` 표기만 바꿨다.
+
+테스트를 먼저 썼다. 리뷰어의 실패 테스트 4개를 그대로 커밋했고, `TrackId`·노트 전체 순서 테스트도 `todo!()` 뼈대(`29fd5e8`)에서 실패하는 것을 확인했다.
+
+`tests/history.rs`에서 또 하나 고쳤다. `initial()`이 부를 때마다 새 `TrackId`를 만들어서, 「끝까지 undo하면 `initial()`과 같다」 비교가 항상 실패한다. 처음 상태를 복제해 두고 그것과 비교한다.
+
+~~~
+cargo test --workspace: 102 passed (doc-test 2개 포함, compile_fail 2개)
+check-deps.test 11, bench-check.test 8 통과
+~~~

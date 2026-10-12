@@ -18,47 +18,43 @@
 
 ## 공개 인터페이스 초안
 
+리뷰 1 뒤 개정했다. 처음 초안은 역편집 전용 변형과 `Edit::apply`를 공개했고, 트랙을 인덱스로 가리켰다(리뷰 1 지적 1–6).
+
 ~~~rust
+// track.rs
+pub struct TrackId(u64);              // 프로세스 안에서 유일. Track::id()
+// project.rs: push_track/insert_track -> Result (같은 TrackId 거부), track(id), track_by_id_mut(id), track_index(id)
 // edit.rs
 pub enum TrackProp { Name(String), Color(TrackColor), Port(OutputPort), Channel(Channel),
                      Bank(Option<Bank>), Program(Option<Program>), DefaultVelocity(Velocity),
                      Mute(bool), Solo(bool), LyricLang(Option<String>) }
-pub enum Edit {
+pub enum Edit {                        // 정방향 편집만. apply는 공개하지 않는다
     InsertTrack { index: usize, track: Box<Track> },
-    RemoveTrack { index: usize },
-    SetTrackProp { track: usize, prop: TrackProp },
-    InsertClip { track: usize, clip: Clip, id: Option<ClipId> },   // None이면 새로 발급, 적용 뒤 역편집에 기록
-    RemoveClip { track: usize, id: ClipId },
-    MoveClip { track: usize, id: ClipId, to: Tick },
-    SplitClip { track: usize, id: ClipId, at: Tick, right_id: Option<ClipId> },
-    SetClipName { track: usize, id: ClipId, name: Option<String> },
-    SetClipColor { track: usize, id: ClipId, color: Option<TrackColor> },
-    InsertNote { track: usize, clip: ClipId, note: Note },
-    RemoveNote { track: usize, clip: ClipId, note: Note },
-    SetTempo { at: Tick, tempo: Option<Tempo> },                   // None = 그 틱의 변화 삭제
-    SetMeter { at: Tick, signature: Option<TimeSignature> },
+    RemoveTrack { track: TrackId },
+    SetTrackProp { track: TrackId, prop: TrackProp },
+    InsertClip { track: TrackId, clip: Box<Clip> },              // id는 새로 발급
+    RemoveClip { track: TrackId, id: ClipId },
+    MoveClip { track: TrackId, id: ClipId, to: Tick },
+    SplitClip { track: TrackId, id: ClipId, at: Tick },           // 오른쪽 id는 새로 발급
+    SetClipName { .. }, SetClipColor { .. },
+    InsertNote { track: TrackId, clip: ClipId, note: Note },
+    RemoveNote { track: TrackId, clip: ClipId, note: Note },
+    SetTempo { at: Tick, tempo: Option<Tempo> }, SetMeter { at: Tick, signature: Option<TimeSignature> },
     SetKey(Key),
 }
-impl Edit {
-    /// 적용하고 역편집을 돌려준다. 실패하면 프로젝트는 바뀌지 않는다.
-    pub fn apply(self, project: &mut Project) -> Result<Edit, ModelError>;
-}
+pub(crate) enum Op { /* Edit + InsertClipWithId, SplitClipWithId, UnsplitClip, RestoreNote */ }
 // history.rs
-pub struct CoalesceKey(u64);           // 호출자(앱의 Action)가 정한다
-pub struct History { undo: VecDeque<Entry>, redo: Vec<Entry>, limit_bytes: usize, used_bytes: usize, sealed: bool }
+pub struct CoalesceKey(pub u64);
+pub struct History { .. }               // Entry는 Vec<Op>를 보관
 impl History {
     pub fn new(limit_bytes: usize) -> Self;
     pub fn apply(&mut self, project: &mut Project, edits: Vec<Edit>, coalesce: Option<CoalesceKey>) -> Result<(), ModelError>;
-    pub fn undo(&mut self, project: &mut Project) -> Result<bool, ModelError>;   // 되돌릴 것이 없으면 Ok(false)
+    pub fn undo(&mut self, project: &mut Project) -> Result<bool, ModelError>;
     pub fn redo(&mut self, project: &mut Project) -> Result<bool, ModelError>;
-    pub fn seal(&mut self);            // 다음 apply가 직전 단위와 묶이지 않게 한다
-    pub fn can_undo/can_redo/undo_len/redo_len/used_bytes;
+    pub fn seal(&mut self);
+    pub fn undo_len/redo_len/used_bytes;
 }
-// track.rs (crate 내부): insert_clip_with_id, split_clip_with_id, restore_split
-// project.rs: insert_track(index, track) -> Result
 ~~~
-
-undo가 실패하는 경우는 히스토리 밖에서 프로젝트를 고쳐 역편집이 맞지 않을 때뿐이다. 그때는 프로젝트를 바꾸지 않고 `Err`를 돌려주며, 그 단위는 undo 스택에 남는다.
 
 ## 테스트 목록
 

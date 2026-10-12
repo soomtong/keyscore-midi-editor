@@ -10,7 +10,8 @@
 - `Track`: SEQ-7 속성과 클립. 클립의 삽입·삭제·이동·분할과 클립 안 노트 삽입·삭제는 `Track`의 메서드로만 한다.
 - `Project`: 조성과 트랙 목록(템포·박자표 맵은 S0-T3).
 - `TempoMap`·`MeterMap`·`MusicTime`·`TimeSignature`: 템포·박자표 맵과 정확한 틱↔시각 변환(1/960 ns 단위).
-- `Edit`·`TrackProp`·`NoteRestore`: 모델을 바꾸는 원시 편집. `apply`가 역편집을 돌려준다.
+- `TrackId`: 트랙 식별자. 프로젝트 안에서 유일하다(복제본은 같은 프로젝트에 넣을 수 없다).
+- `Edit`·`TrackProp`: 모델을 바꾸는 정방향 편집. `History`로만 적용하며, 역편집은 히스토리 안에만 있다.
 - `History`·`CoalesceKey`: undo/redo 스택. 묶음 적용은 원자적이고, 같은 키의 연속 편집은 한 단위로 묶인다.
 - `ModelError`: 불변식을 깨뜨리는 입력의 거부 사유.
 
