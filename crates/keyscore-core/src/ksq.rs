@@ -799,14 +799,22 @@ pub fn write_file(
 }
 
 fn write_then_rename(temp: &Path, path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    let mut file = fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(temp)?;
+    let original = fs::metadata(path).ok();
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    // 처음부터 원본 권한으로 만든다. 기본 권한(0644)으로 만든 뒤 바꾸면 그 사이 다른 사용자가
+    // 빈 파일을 열어 쥐고, 나중에 쓰인 내용을 읽을 수 있다(S0-T6 리뷰 3 지적 1).
+    #[cfg(unix)]
+    if let Some(meta) = &original {
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+        options.mode(meta.permissions().mode() & 0o777);
+    }
+    let mut file = options.open(temp)?;
     // 원래 파일의 권한을 유지한다(리뷰 1 제안 7). 내용을 쓰기 전에 맞춰야, 쓰는 동안 임시 파일이
     // 원본보다 넓은 권한(예: 0600 원본에 0644)으로 열려 있지 않다(리뷰 2 지적 1). 새 파일이면
     // 기본 권한 그대로다. 이미 연 핸들로 쓰므로 원본이 읽기 전용이어도 쓰기는 된다.
-    if let Ok(meta) = fs::metadata(path) {
+    // umask가 만들 때의 권한을 더 좁혔을 수 있어, 원본 권한을 정확히 다시 맞춘다(좁은 쪽에서 넓히는 것뿐이다).
+    if let Some(meta) = original {
         file.set_permissions(meta.permissions())?;
     }
     file.write_all(bytes)?;
