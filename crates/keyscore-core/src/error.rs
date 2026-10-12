@@ -39,8 +39,8 @@ pub enum ModelError {
     UnknownClip,
     #[error("템포는 4분음표당 1–16777215 µs여야 한다: {0}")]
     TempoOutOfRange(u32),
-    #[error("박자표 {0}/{1}: 분자는 1 이상, 분모는 1·2·4·8·16·32·64여야 한다")]
-    TimeSignatureInvalid(u8, u8),
+    #[error("박자표 {0}/{1}: 분자는 1 이상, 분모는 1–256 사이의 2의 거듭제곱이어야 한다")]
+    TimeSignatureInvalid(u8, u16),
     #[error("틱 0의 템포·박자표는 지울 수 없다")]
     RemoveInitialChange,
     #[error("분할 지점 {at}은 클립 [{start}, {end}) 안쪽이어야 한다")]

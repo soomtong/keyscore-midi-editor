@@ -4,7 +4,7 @@ use crate::{ModelError, PPQ, Tick};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TimeSignature {
     numerator: u8,
-    denominator: u8,
+    denominator: u16,
 }
 
 impl TimeSignature {
@@ -14,20 +14,14 @@ impl TimeSignature {
         denominator: 4,
     };
 
-    /// 분모는 1·2·4·8·16·32·64만 받는다. 그보다 짧은 박은 온음표(3840틱)를 나누어떨어지게
-    /// 하지 못하거나(512 이상) 실용 범위를 넘는다.
+    /// 분모는 1–256 사이의 2의 거듭제곱만 받는다. SMF는 x/128·x/256도 합법으로 담고(REQ 2
+    /// 「SMF의 변화는 보존」), 박 길이 3840/분모가 정수인 것은 256(15틱)까지다.
     ///
     /// # Errors
     ///
-    /// 분자가 0이거나 분모가 위 목록 밖이면 [`ModelError::TimeSignatureInvalid`].
-    pub fn new(numerator: u8, denominator: u8) -> Result<Self, ModelError> {
-        if numerator == 0 || !matches!(denominator, 1 | 2 | 4 | 8 | 16 | 32 | 64) {
-            return Err(ModelError::TimeSignatureInvalid(numerator, denominator));
-        }
-        Ok(TimeSignature {
-            numerator,
-            denominator,
-        })
+    /// 분자가 0이거나 분모가 위 범위 밖이면 [`ModelError::TimeSignatureInvalid`].
+    pub fn new(numerator: u8, denominator: u16) -> Result<Self, ModelError> {
+        todo!("{numerator} {denominator}")
     }
 
     #[must_use]
@@ -36,7 +30,7 @@ impl TimeSignature {
     }
 
     #[must_use]
-    pub const fn denominator(self) -> u8 {
+    pub const fn denominator(self) -> u16 {
         self.denominator
     }
 
@@ -166,16 +160,10 @@ impl MeterMap {
         }
     }
 
-    /// 마디 `bar`(0부터)가 시작하는 틱. u64를 넘으면 `u64::MAX`로 자른다.
+    /// 마디 `bar`(0부터)가 시작하는 틱. 그 마디가 u64 틱 범위 안에서 시작하지 않으면 `None`.
     #[must_use]
-    pub fn bar_start(&self, bar: u64) -> Tick {
-        // 시작 마디 번호는 변화마다 1 이상 늘어나므로 엄격히 증가한다.
-        let (start, sig, start_bar) =
-            self.changes[self.changes.partition_point(|c| c.2 <= bar) - 1];
-        (bar - start_bar)
-            .checked_mul(sig.bar_ticks())
-            .and_then(|span| start.get().checked_add(span))
-            .map_or(Tick::new(u64::MAX), Tick::new)
+    pub fn bar_start(&self, bar: u64) -> Option<Tick> {
+        todo!("{bar}")
     }
 }
 
@@ -183,7 +171,7 @@ impl MeterMap {
 mod tests {
     use super::*;
 
-    fn sig(n: u8, d: u8) -> TimeSignature {
+    fn sig(n: u8, d: u16) -> TimeSignature {
         TimeSignature::new(n, d).unwrap()
     }
 
@@ -198,19 +186,22 @@ mod tests {
             TimeSignature::new(0, 4),
             Err(ModelError::TimeSignatureInvalid(0, 4))
         );
-        for d in [0, 3, 5, 12, 128] {
+        for d in [0, 3, 5, 12, 255, 512, 1024] {
             assert_eq!(
                 TimeSignature::new(4, d),
                 Err(ModelError::TimeSignatureInvalid(4, d))
             );
         }
-        for d in [1, 2, 4, 8, 16, 32, 64] {
+        for d in [1, 2, 4, 8, 16, 32, 64, 128, 256] {
             assert!(TimeSignature::new(4, d).is_ok(), "{d}");
         }
         assert_eq!(sig(4, 4).bar_ticks(), 3840);
         assert_eq!(sig(6, 8).bar_ticks(), 2880);
         assert_eq!(sig(6, 8).beat_ticks(), 480);
         assert_eq!(sig(255, 64).bar_ticks(), 255 * 60);
+        // SMF는 x/128·x/256을 합법으로 담는다(리뷰 1 지적 2). 3840 / 256 = 15틱.
+        assert_eq!(sig(3, 256).beat_ticks(), 15);
+        assert_eq!(sig(7, 128).bar_ticks(), 7 * 30);
     }
 
     #[test]
@@ -225,8 +216,8 @@ mod tests {
         let seven_eight = 7680 + 3 * 2880;
         assert_eq!(pos(&map, seven_eight), (5, 0, 0));
         assert_eq!(pos(&map, seven_eight + 3360 + 480 * 6), (6, 6, 0));
-        assert_eq!(map.bar_start(5), Tick::new(seven_eight));
-        assert_eq!(map.bar_start(7), Tick::new(seven_eight + 2 * 3360));
+        assert_eq!(map.bar_start(5), Some(Tick::new(seven_eight)));
+        assert_eq!(map.bar_start(7), Some(Tick::new(seven_eight + 2 * 3360)));
         assert_eq!(map.signature_at(Tick::new(seven_eight - 1)), sig(6, 8));
     }
 
@@ -236,8 +227,8 @@ mod tests {
         map.set(Tick::new(3840 + 1920), sig(3, 4)); // 마디 1의 절반에서 변화
         assert_eq!(pos(&map, 3840 + 1919), (1, 1, 959));
         assert_eq!(pos(&map, 3840 + 1920), (2, 0, 0));
-        assert_eq!(map.bar_start(2), Tick::new(5760));
-        assert_eq!(map.bar_start(3), Tick::new(5760 + 2880));
+        assert_eq!(map.bar_start(2), Some(Tick::new(5760)));
+        assert_eq!(map.bar_start(3), Some(Tick::new(5760 + 2880)));
     }
 
     #[test]
@@ -260,9 +251,14 @@ mod tests {
     }
 
     #[test]
-    fn meter_map_bar_start_saturates() {
+    fn meter_map_bar_start_beyond_u64_is_none() {
         let map = MeterMap::default();
-        assert_eq!(map.bar_start(u64::MAX), Tick::new(u64::MAX));
+        assert_eq!(map.bar_start(u64::MAX), None);
+        assert_eq!(
+            map.bar_start(u64::MAX / 3840),
+            Some(Tick::new(u64::MAX / 3840 * 3840))
+        );
+        assert_eq!(map.bar_start(u64::MAX / 3840 + 1), None);
         let last = map.position(Tick::new(u64::MAX));
         assert_eq!(last.bar(), u64::MAX / 3840);
     }

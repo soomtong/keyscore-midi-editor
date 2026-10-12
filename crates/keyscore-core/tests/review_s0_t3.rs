@@ -300,7 +300,7 @@ proptest! {
         burst_at in 1..5_000u64,
         burst in prop::collection::vec(any_sig(), 0..5),
     ) {
-        let mut map = MeterMap::new(TimeSignature::new(initial.0, initial.1).unwrap());
+        let mut map = MeterMap::new(TimeSignature::new(initial.0, u16::from(initial.1)).unwrap());
         let mut model = BTreeMap::from([(0u64, initial)]);
         let mut ops: Vec<(u64, (u8, u8))> = changes;
         // 1틱 간격 연속 변화
@@ -308,7 +308,7 @@ proptest! {
             ops.push((burst_at + i as u64, s));
         }
         for (t, s) in ops {
-            map.set(Tick::new(t), TimeSignature::new(s.0, s.1).unwrap());
+            map.set(Tick::new(t), TimeSignature::new(s.0, u16::from(s.1)).unwrap());
             model.insert(t, s);
         }
         let upto = 8_000u64;
@@ -320,7 +320,7 @@ proptest! {
             bar_starts.entry(bar).or_insert(bar_start);
         }
         for (&bar, &start) in &bar_starts {
-            prop_assert_eq!(map.bar_start(bar).get(), start, "bar_start({})", bar);
+            prop_assert_eq!(map.bar_start(bar).unwrap().get(), start, "bar_start({})", bar);
         }
     }
 }
@@ -345,7 +345,7 @@ fn review_meter_map_u64_end_is_consistent() {
         u64::MAX,
     ] {
         let p = map.position(Tick::new(t));
-        let start = map.bar_start(p.bar()).get();
+        let start = map.bar_start(p.bar()).unwrap().get();
         let sig = map.signature_at(Tick::new(t));
         assert_eq!(
             start + u64::from(p.beat()) * sig.beat_ticks() + p.tick(),
@@ -359,8 +359,9 @@ fn review_meter_map_u64_end_is_consistent() {
     // 마지막 변화(u64::MAX)는 새 마디를 시작한다.
     let last = map.position(Tick::new(u64::MAX));
     assert_eq!((last.beat(), last.tick()), (0, 0));
-    assert_eq!(map.bar_start(last.bar()), Tick::new(u64::MAX));
-    // 그 뒤 마디는 존재하지 않으므로 u64::MAX로 자른다.
-    assert_eq!(map.bar_start(last.bar() + 1), Tick::new(u64::MAX));
-    assert_eq!(map.bar_start(u64::MAX), Tick::new(u64::MAX));
+    assert_eq!(map.bar_start(last.bar()), Some(Tick::new(u64::MAX)));
+    // 그 뒤 마디는 존재하지 않는다. 리뷰 1 당시에는 u64::MAX로 잘랐으나, 제안 6을 받아
+    // 실제 마디와 구분되도록 None을 돌려준다.
+    assert_eq!(map.bar_start(last.bar() + 1), None);
+    assert_eq!(map.bar_start(u64::MAX), None);
 }

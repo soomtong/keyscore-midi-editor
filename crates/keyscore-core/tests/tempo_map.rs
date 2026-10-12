@@ -77,15 +77,15 @@ proptest! {
         for (tick, (n, dpow)) in changes {
             map.set(Tick::new(tick), TimeSignature::new(n, 1 << dpow).unwrap());
         }
-        let start = map.bar_start(bar);
+        let start = map.bar_start(bar).unwrap();
         let p = map.position(start);
         prop_assert_eq!((p.bar(), p.beat(), p.tick()), (bar, 0, 0));
         let p = map.position(Tick::new(t));
-        prop_assert!(map.bar_start(p.bar()) <= Tick::new(t));
-        prop_assert!(Tick::new(t) < map.bar_start(p.bar() + 1));
+        prop_assert!(map.bar_start(p.bar()).unwrap() <= Tick::new(t));
+        prop_assert!(Tick::new(t) < map.bar_start(p.bar() + 1).unwrap());
         let sig = map.signature_at(Tick::new(t));
         prop_assert_eq!(
-            map.bar_start(p.bar()).get() + u64::from(p.beat()) * sig.beat_ticks() + p.tick(),
+            map.bar_start(p.bar()).unwrap().get() + u64::from(p.beat()) * sig.beat_ticks() + p.tick(),
             t
         );
     }
