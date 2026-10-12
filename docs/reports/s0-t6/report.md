@@ -117,3 +117,11 @@ cargo test --workspace: 160 passed
 ~~~
 cargo test --workspace: 164 passed
 ~~~
+
+## 리뷰 대응 (review-4, 판정: 병합 가능)
+
+제안 세 개는 기록만 한다.
+
+1. `fs::metadata` 오류를 NotFound와 구분하자는 제안이다. 뒤의 `open`·`rename`이 어차피 실패하므로 실해가 없다.
+2. setuid·sticky 비트를 문서에 적자는 제안이다. 생성할 때는 떼고 `set_permissions`가 원본대로 되돌리는데, 이는 「원본 권한 유지」와 같은 동작이다.
+3. 비유닉스 빌드 확인은 S8-T5(서명 빌드·CI)에서 다룬다. 제품은 macOS 전용이다(REQ 8.3).
