@@ -1,0 +1,3 @@
+# 제품명·고유명사는 코드 식별자가 아니므로 문서에서 백틱 없이 쓴다.
+# ".."은 clippy 기본 목록을 유지한다는 뜻이다.
+doc-valid-idents = ["KeyScore", "CoreMIDI", "OpenRouter", "GPUI", ".."]

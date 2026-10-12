@@ -1,0 +1,15 @@
+KeyScore
+Copyright (c) 2026, the KeyScore authors
+
+이 소프트웨어의 소스는 BSD-3-Clause(LICENSE)로 배포된다.
+
+이 파일은 배포물에 포함되는 제3자 구성요소의 고지를 모은다(REQ 8.4).
+Apache-2.0 구성요소는 각자의 NOTICE 내용을 아래에 옮긴다.
+구성요소를 의존성으로 추가하는 Task가 해당 항목을 함께 추가한다.
+
+현재 포함된 제3자 구성요소: 없음
+
+추가 예정(REQ 9.1, 9.4)
+- gpui-kit (Apache-2.0)
+- GPUI, gpui-pre 스냅샷 (Apache-2.0)
+- Ely GPUI Components (Apache-2.0)

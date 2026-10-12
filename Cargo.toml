@@ -1,0 +1,33 @@
+[workspace]
+resolver = "3"
+members = [
+  "crates/keyscore-core",
+  "crates/keyscore-text",
+  "crates/keyscore-midi",
+  "crates/keyscore-ai",
+  "crates/keyscore-app",
+]
+# 스파이크는 제품 빌드에 섞이지 않는다(plan/02-spikes.md 게이트).
+exclude = ["spikes"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+license = "BSD-3-Clause"
+publish = false
+
+# 내부 crate는 여기서만 경로를 정하고, 각 crate는 workspace = true로 가져온다.
+# 의존 방향 자체는 각 crate의 [dependencies]와 scripts/check-deps.sh가 지킨다.
+[workspace.dependencies]
+keyscore-core = { path = "crates/keyscore-core" }
+keyscore-text = { path = "crates/keyscore-text" }
+keyscore-midi = { path = "crates/keyscore-midi" }
+keyscore-ai = { path = "crates/keyscore-ai" }
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
