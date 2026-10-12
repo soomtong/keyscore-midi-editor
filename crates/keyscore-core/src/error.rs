@@ -9,10 +9,10 @@ pub enum ModelError {
     ChannelOutOfRange(u8),
     #[error("음높이는 0–127이어야 한다: {0}")]
     PitchOutOfRange(u8),
-    #[error("피치 오프셋은 ±1200센트(±1옥타브)여야 한다: {0}")]
-    PitchOffsetOutOfRange(i16),
-    #[error("v1 벨로시티는 0–127이어야 한다: {0}")]
-    VelocityOutOfRange(u16),
+    #[error("피치 오프셋은 ±1옥타브(반음 1/2^25 단위 ±402653184)여야 한다: {0}")]
+    PitchOffsetOutOfRange(i32),
+    #[error("MIDI 1.0 벨로시티는 0–127이어야 한다: {0}")]
+    Midi1VelocityOutOfRange(u8),
     #[error("프로그램은 0–127이어야 한다: {0}")]
     ProgramOutOfRange(u8),
     #[error("뱅크는 0–16383이어야 한다: {0}")]

@@ -165,7 +165,7 @@ mod tests {
             Tick::new(start),
             length,
             Pitch::new(pitch).unwrap(),
-            Velocity::new(100).unwrap(),
+            Velocity::from_midi1(100).unwrap(),
         )
         .unwrap()
     }

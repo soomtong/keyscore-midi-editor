@@ -24,61 +24,69 @@ impl Pitch {
 
 /// 음높이에 더하는 미세 조정(REQ SEQ-3 「피치 오프셋 ±1옥타브 소수」).
 ///
-/// 모델은 정수만 다룬다(REQ 9.5)는 원칙에 맞춰 센트(반음의 1/100) 단위 정수로 담는다.
+/// MIDI 2.0 노트별 피치(반음 7.25 고정소수)와 같은 해상도인 반음의 1/2^25 단위 정수로 담는다.
+/// MIDI 2.0을 붙일 때 모델·파일 포맷을 바꾸지 않기 위해서다
+/// (REQ M2-1, `docs/decisions/2026-10-12-clip-split-and-velocity.md` Q3).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
-pub struct PitchOffset(i16);
+pub struct PitchOffset(i32);
 
 impl PitchOffset {
     pub const ZERO: PitchOffset = PitchOffset(0);
-    /// 1옥타브 = 1200센트.
-    pub const MAX_CENTS: i16 = 1200;
+    /// 반음 하나의 단위 수(2^25).
+    pub const SEMITONE: i32 = 1 << 25;
+    /// 1옥타브 = 12반음.
+    pub const MAX: i32 = 12 * Self::SEMITONE;
 
     /// # Errors
     ///
-    /// ±1200센트를 넘으면 [`ModelError::PitchOffsetOutOfRange`].
-    pub fn new(cents: i16) -> Result<Self, ModelError> {
-        if (-Self::MAX_CENTS..=Self::MAX_CENTS).contains(&cents) {
-            Ok(PitchOffset(cents))
-        } else {
-            Err(ModelError::PitchOffsetOutOfRange(cents))
-        }
+    /// ±1옥타브를 넘으면 [`ModelError::PitchOffsetOutOfRange`].
+    pub fn new(units: i32) -> Result<Self, ModelError> {
+        todo!("{units}")
     }
 
+    /// 반음의 1/2^25 단위 값.
     #[must_use]
-    pub const fn cents(self) -> i16 {
+    pub const fn units(self) -> i32 {
         self.0
     }
 }
 
-/// 노트 벨로시티.
+/// 노트 벨로시티. MIDI 2.0 해상도(16비트)로 담는다(REQ SEQ-3, M2-1).
 ///
-/// 타입은 MIDI 2.0 해상도(u16)를 담을 수 있지만, v1은 0–127 값만 쓴다
-/// (`docs/decisions/2026-10-12-clip-split-and-velocity.md` Q2).
-/// `.ksq`·계이름 텍스트의 숫자와 같은 값이다.
+/// 계이름 텍스트의 `v<0–127>`, UI, MIDI 1.0 송신은 [`Velocity::from_midi1`]·[`Velocity::to_midi1`]로
+/// 변환한다. 변환은 MIDI 2.0 명세의 규칙(7→16 min-center-max 확장, 16→7 오른쪽 시프트)을 따르며
+/// 7→16→7 왕복은 무손실이다(`docs/decisions/2026-10-12-clip-split-and-velocity.md` Q2).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Velocity(u16);
 
 impl Velocity {
-    /// v1이 담는 최댓값.
-    pub const V1_MAX: u16 = 127;
+    /// 새 트랙의 기본 벨로시티. MIDI 1.0 값 100을 16비트로 올린 것이다.
+    /// 숫자 100은 REQ에 없고 흔한 시퀀서 기본값을 따른다.
+    pub(crate) const TRACK_DEFAULT: Velocity = Velocity(0xC924);
 
-    /// 새 트랙의 기본 벨로시티. 숫자 자체는 REQ에 없고 흔한 시퀀서 기본값을 따른다.
-    pub(crate) const TRACK_DEFAULT: Velocity = Velocity(100);
-
-    /// # Errors
-    ///
-    /// 127을 넘으면 [`ModelError::VelocityOutOfRange`].
-    pub fn new(value: u16) -> Result<Self, ModelError> {
-        if value <= Self::V1_MAX {
-            Ok(Velocity(value))
-        } else {
-            Err(ModelError::VelocityOutOfRange(value))
-        }
+    #[must_use]
+    pub const fn new(value: u16) -> Self {
+        Velocity(value)
     }
 
     #[must_use]
     pub const fn get(self) -> u16 {
         self.0
+    }
+
+    /// MIDI 1.0 7비트 값을 16비트로 올린다.
+    ///
+    /// # Errors
+    ///
+    /// 127을 넘으면 [`ModelError::Midi1VelocityOutOfRange`].
+    pub fn from_midi1(value: u8) -> Result<Self, ModelError> {
+        todo!("{value}")
+    }
+
+    /// 16비트 값을 MIDI 1.0 7비트로 내린다(상위 7비트).
+    #[must_use]
+    pub const fn to_midi1(self) -> u8 {
+        todo!()
     }
 }
 
@@ -214,8 +222,8 @@ mod tests {
         Pitch::new(v).unwrap()
     }
 
-    fn v(x: u16) -> Velocity {
-        Velocity::new(x).unwrap()
+    fn v(x: u8) -> Velocity {
+        Velocity::from_midi1(x).unwrap()
     }
 
     #[test]
@@ -227,27 +235,52 @@ mod tests {
 
     #[test]
     fn pitch_offset_beyond_one_octave_is_rejected() {
+        let max = 12 << 25;
+        assert_eq!(PitchOffset::MAX, max);
         assert_eq!(
-            PitchOffset::new(1201),
-            Err(ModelError::PitchOffsetOutOfRange(1201))
+            PitchOffset::new(max + 1),
+            Err(ModelError::PitchOffsetOutOfRange(max + 1))
         );
         assert_eq!(
-            PitchOffset::new(-1201),
-            Err(ModelError::PitchOffsetOutOfRange(-1201))
+            PitchOffset::new(-max - 1),
+            Err(ModelError::PitchOffsetOutOfRange(-max - 1))
         );
         assert_eq!(
-            PitchOffset::new(i16::MIN),
-            Err(ModelError::PitchOffsetOutOfRange(i16::MIN))
+            PitchOffset::new(i32::MIN),
+            Err(ModelError::PitchOffsetOutOfRange(i32::MIN))
         );
-        assert_eq!(PitchOffset::new(1200).map(PitchOffset::cents), Ok(1200));
-        assert_eq!(PitchOffset::new(-1200).map(PitchOffset::cents), Ok(-1200));
+        assert_eq!(PitchOffset::new(max).map(PitchOffset::units), Ok(max));
+        assert_eq!(PitchOffset::new(-max).map(PitchOffset::units), Ok(-max));
     }
 
     #[test]
-    fn velocity_new_above_127_is_rejected_in_v1() {
-        assert_eq!(Velocity::new(128), Err(ModelError::VelocityOutOfRange(128)));
-        assert_eq!(Velocity::new(0).map(Velocity::get), Ok(0));
-        assert_eq!(Velocity::new(127).map(Velocity::get), Ok(127));
+    fn velocity_from_midi1_above_127_is_rejected() {
+        assert_eq!(
+            Velocity::from_midi1(128),
+            Err(ModelError::Midi1VelocityOutOfRange(128))
+        );
+    }
+
+    #[test]
+    fn velocity_from_midi1_follows_midi2_min_center_max_scaling() {
+        // MIDI 2.0 명세의 7→16 변환: 0과 중앙 64는 시프트만, 그 위는 하위 비트를 반복해 127 → 0xFFFF.
+        assert_eq!(v(0).get(), 0);
+        assert_eq!(v(1).get(), 1 << 9);
+        assert_eq!(v(64).get(), 0x8000);
+        assert_eq!(v(65).get(), 0x8208);
+        assert_eq!(v(100).get(), 0xC924);
+        assert_eq!(v(127).get(), 0xFFFF);
+    }
+
+    #[test]
+    fn velocity_midi1_round_trip_is_lossless() {
+        for x in 0..=127u8 {
+            assert_eq!(v(x).to_midi1(), x, "{x}");
+        }
+        // 16→7은 상위 7비트(오른쪽 시프트)이며 하위 비트를 버린다. 상위 비트 절삭이 아니다(M2-1).
+        assert_eq!(Velocity::new(0xFFFF).to_midi1(), 127);
+        assert_eq!(Velocity::new(0x01FF).to_midi1(), 0);
+        assert_eq!(Velocity::new(0x0200).to_midi1(), 1);
     }
 
     #[test]

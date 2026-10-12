@@ -17,7 +17,7 @@ fn note(start: u64, length: u32, pitch: u8) -> Note {
         Tick::new(start),
         length,
         Pitch::new(pitch).unwrap(),
-        Velocity::new(100).unwrap(),
+        Velocity::from_midi1(100).unwrap(),
     )
     .unwrap()
 }
@@ -94,8 +94,8 @@ fn hidden_tail_cannot_be_created_by_insert_note_after_split() {
     assert!(b.insert_note(bid, note(40, 20, 62)).is_err());
 }
 
-/// 시도 4(깨지지 않음, 위험 기록): `ClipId`는 트랙마다 0부터 발급되므로 다른 트랙의 식별자가
-/// 이 트랙의 엉뚱한 클립을 가리킨다. 불변식은 지켜지지만 잘못된 클립을 지운다.
+/// 시도 4: 리뷰 1 당시 `ClipId`는 트랙마다 0부터 발급되어 다른 트랙의 식별자가 이 트랙의
+/// 엉뚱한 클립을 가리켰다. 제안 4를 받아 식별자를 전역으로 유일하게 발급하므로 이제 지워지지 않는다.
 #[test]
 fn clip_id_from_another_track_addresses_unrelated_clip() {
     let mut a = new_track();
@@ -104,9 +104,8 @@ fn clip_id_from_another_track_addresses_unrelated_clip() {
     let _id_b = b
         .insert_clip(Clip::new(Tick::new(1000), 10).unwrap())
         .unwrap();
-    // a의 식별자로 b의 클립이 지워진다. 현재 동작을 기록한다(지적 사항 참고).
     let removed = b.remove_clip(id_a);
-    assert_eq!(removed.map(|c| c.start().get()), Some(1000));
+    assert_eq!(removed.map(|c| c.start().get()), None);
 }
 
 #[derive(Debug, Clone)]

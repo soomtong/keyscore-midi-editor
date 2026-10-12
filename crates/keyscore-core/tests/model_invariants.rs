@@ -102,7 +102,7 @@ fn apply(track: &mut Track, op: &Op) -> Result<(), ModelError> {
                     Tick::new(start),
                     length,
                     Pitch::new(pitch).unwrap(),
-                    Velocity::new(100).unwrap(),
+                    Velocity::from_midi1(100).unwrap(),
                 )?;
                 if lyric {
                     note = note.with_lyric("라");

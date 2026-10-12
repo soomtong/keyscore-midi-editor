@@ -300,6 +300,28 @@ impl Track {
         Ok(id)
     }
 
+    /// 클립 이름을 바꾼다. 빈 문자열은 「이름 없음」이다. 식별자는 그대로다.
+    ///
+    /// # Errors
+    ///
+    /// 없는 클립이면 [`ModelError::UnknownClip`].
+    pub fn set_clip_name(&mut self, id: ClipId, name: impl Into<String>) -> Result<(), ModelError> {
+        todo!("{id:?} {}", name.into())
+    }
+
+    /// 클립 색을 바꾼다. `None`이면 트랙 색을 따른다(REQ 5.10).
+    ///
+    /// # Errors
+    ///
+    /// 없는 클립이면 [`ModelError::UnknownClip`].
+    pub fn set_clip_color(
+        &mut self,
+        id: ClipId,
+        color: Option<TrackColor>,
+    ) -> Result<(), ModelError> {
+        todo!("{id:?} {color:?}")
+    }
+
     pub fn remove_clip(&mut self, id: ClipId) -> Option<Clip> {
         self.index_of(id).map(|i| self.clips.remove(i).1)
     }
@@ -393,7 +415,7 @@ mod tests {
             Tick::new(start),
             length,
             Pitch::new(60).unwrap(),
-            Velocity::new(100).unwrap(),
+            Velocity::from_midi1(100).unwrap(),
         )
         .unwrap()
     }
@@ -429,7 +451,7 @@ mod tests {
         let t = track();
         assert_eq!(t.name(), "Lead");
         assert_eq!(t.port(), &OutputPort::Virtual);
-        assert_eq!(t.default_velocity().get(), 100);
+        assert_eq!(t.default_velocity().to_midi1(), 100);
         assert!(!t.mute() && !t.solo());
         assert_eq!((t.bank(), t.program(), t.lyric_lang()), (None, None, None));
         assert_eq!(t.clips().count(), 0);
@@ -473,7 +495,7 @@ mod tests {
             Err(ModelError::TickOverflow)
         );
         assert_eq!(
-            t.move_clip(ClipId(999), Tick::ZERO),
+            t.move_clip(ClipId(u64::MAX), Tick::ZERO),
             Err(ModelError::UnknownClip)
         );
         assert_eq!(t, before);
@@ -533,21 +555,55 @@ mod tests {
             );
         }
         assert_eq!(
-            t.split_clip(ClipId(999), Tick::new(1000)),
+            t.split_clip(ClipId(u64::MAX), Tick::new(1000)),
             Err(ModelError::UnknownClip)
         );
         assert_eq!(t, before);
     }
 
     #[test]
-    fn track_note_ops_on_unknown_clip_are_rejected() {
+    fn track_set_clip_name_and_color_keep_clip_id() {
         let mut t = track();
+        let id = t.insert_clip(clip(0, 960)).unwrap();
+        t.set_clip_name(id, "후렴").unwrap();
+        t.set_clip_color(id, Some(TrackColor::new(3).unwrap()))
+            .unwrap();
+        let c = t.clip(id).unwrap();
         assert_eq!(
-            t.insert_note(ClipId(0), note(0, 1)),
+            (c.name(), c.color()),
+            (Some("후렴"), Some(TrackColor::new(3).unwrap()))
+        );
+        t.set_clip_name(id, "").unwrap();
+        assert_eq!(t.clip(id).unwrap().name(), None);
+        assert_eq!(
+            t.set_clip_name(ClipId(u64::MAX), "x"),
             Err(ModelError::UnknownClip)
         );
         assert_eq!(
-            t.remove_note(ClipId(0), &note(0, 1)),
+            t.set_clip_color(ClipId(u64::MAX), None),
+            Err(ModelError::UnknownClip)
+        );
+    }
+
+    #[test]
+    fn track_clip_id_from_another_track_is_unknown() {
+        let mut a = track();
+        let mut b = track();
+        let id_a = a.insert_clip(clip(0, 10)).unwrap();
+        b.insert_clip(clip(1000, 10)).unwrap();
+        assert!(b.clip(id_a).is_none());
+        assert!(b.remove_clip(id_a).is_none());
+    }
+
+    #[test]
+    fn track_note_ops_on_unknown_clip_are_rejected() {
+        let mut t = track();
+        assert_eq!(
+            t.insert_note(ClipId(u64::MAX), note(0, 1)),
+            Err(ModelError::UnknownClip)
+        );
+        assert_eq!(
+            t.remove_note(ClipId(u64::MAX), &note(0, 1)),
             Err(ModelError::UnknownClip)
         );
     }
