@@ -24,6 +24,8 @@ keyscore-core = { path = "crates/keyscore-core" }
 keyscore-text = { path = "crates/keyscore-text" }
 keyscore-midi = { path = "crates/keyscore-midi" }
 keyscore-ai = { path = "crates/keyscore-ai" }
+thiserror = "2"
+proptest = "1"
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
