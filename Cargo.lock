@@ -401,7 +401,10 @@ dependencies = [
 name = "keyscore-text"
 version = "0.1.0"
 dependencies = [
+ "insta",
  "keyscore-core",
+ "proptest",
+ "thiserror",
 ]
 
 [[package]]
