@@ -81,10 +81,46 @@ fn note_spec() -> impl Strategy<Value = NoteSpec> {
         })
 }
 
+/// 이어 붙은 악구: 앞 노트 끝에서 다음 노트가 시작한다. 셋잇단·타이·마디선 경로는 무작위로 흩은
+/// 노트로는 거의 생기지 않아 따로 만든다(계측: 흩은 노트만으로는 셋잇단이 2만 사례 중 1건).
+fn phrase() -> impl Strategy<Value = Vec<NoteSpec>> {
+    let len = prop_oneof![
+        3 => prop::sample::select(notated()),
+        3 => prop::sample::select(notated()).prop_map(|l| l * 2 / 3),
+        1 => length(),
+    ];
+    (
+        (0u64..16).prop_map(|k| k * 240),
+        prop::collection::vec((len, 0u8..128, lyric()), 1..16),
+    )
+        .prop_map(|(mut at, items)| {
+            items
+                .into_iter()
+                .map(|(length, pitch, lyric)| {
+                    let n = NoteSpec {
+                        start: at,
+                        length,
+                        pitch,
+                        velocity: 100,
+                        offset: 0,
+                        lyric,
+                    };
+                    at += u64::from(length);
+                    n
+                })
+                .collect()
+        })
+}
+
 /// 같은 시작·길이의 화음을 더 자주 만든다.
 fn notes_spec() -> impl Strategy<Value = Vec<NoteSpec>> {
+    let scattered = prop::collection::vec(note_spec(), 0..24);
+    let mixed = (phrase(), prop::collection::vec(note_spec(), 0..4)).prop_map(|(mut a, b)| {
+        a.extend(b);
+        a
+    });
     (
-        prop::collection::vec(note_spec(), 0..24),
+        prop_oneof![2 => scattered, 2 => phrase(), 1 => mixed],
         prop::collection::vec((0usize..24, 0u8..128, lyric()), 0..6),
     )
         .prop_map(|(mut ns, extra)| {
