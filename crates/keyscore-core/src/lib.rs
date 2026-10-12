@@ -11,15 +11,19 @@
 mod clip;
 mod error;
 mod key;
+mod meter;
 mod note;
 mod project;
+mod tempo;
 mod tick;
 mod track;
 
 pub use clip::{Clip, ClipId};
 pub use error::ModelError;
 pub use key::{Key, PitchClass};
+pub use meter::{BarPosition, MeterMap, TimeSignature};
 pub use note::{CcPoint, Note, Pitch, PitchOffset, Velocity};
 pub use project::Project;
+pub use tempo::{MusicTime, Tempo, TempoMap};
 pub use tick::{PPQ, Tick};
 pub use track::{Bank, Channel, OutputPort, Program, Track, TrackColor};
