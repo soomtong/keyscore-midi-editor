@@ -468,12 +468,23 @@ fn set_track_prop(t: &mut Track, prop: TrackProp) -> TrackProp {
 }
 
 fn note_heap_bytes(note: &Note) -> usize {
-    note.lyric().map_or(0, str::len)
+    note.lyric().map_or(0, str::len) + note.extra().map_or(0, str::len)
+}
+
+/// `.ksq` 모르는 키의 추정 크기. 메모리 상한이 이것을 세지 않으면 큰 모르는 키가 든 클립을
+/// 분할·삭제할 때 히스토리가 상한을 넘는다(S0-T6 리뷰 2 지적 2). 직렬화 길이로 어림한다.
+fn map_bytes(map: &serde_json::Map<String, serde_json::Value>) -> usize {
+    if map.is_empty() {
+        0
+    } else {
+        serde_json::to_string(map).map_or(0, |s| s.len())
+    }
 }
 
 fn clip_bytes(clip: &Clip) -> usize {
     std::mem::size_of::<Clip>()
         + clip.name().map_or(0, str::len)
+        + map_bytes(clip.extra())
         + clip
             .notes()
             .iter()
@@ -484,6 +495,8 @@ fn clip_bytes(clip: &Clip) -> usize {
 fn track_bytes(track: &Track) -> usize {
     std::mem::size_of::<Track>()
         + track.name().len()
+        + map_bytes(track.extra())
+        + map_bytes(track.port_extra())
         + track.clips().map(|(_, c)| clip_bytes(c)).sum::<usize>()
 }
 

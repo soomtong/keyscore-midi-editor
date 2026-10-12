@@ -1,0 +1,57 @@
+---
+source: crates/keyscore-core/src/ksq.rs
+assertion_line: 662
+expression: to_string(&sample())
+---
+{
+  "format_version": 1,
+  "key": {"tonic": 9, "mode": "minor"},
+  "tempo": [
+    [0, 500000],
+    [7680, 666667]
+  ],
+  "meter": [
+    [0, 4, 4],
+    [7680, 6, 8]
+  ],
+  "tracks": [
+    {
+      "name": "Lead",
+      "color": 3,
+      "port": "virtual",
+      "channel": 1,
+      "bank": null,
+      "program": 73,
+      "default_velocity": 51492,
+      "mute": false,
+      "solo": false,
+      "lyric_lang": "ko",
+      "clips": [
+        {
+          "start": 0,
+          "length": 3840,
+          "name": "후렴",
+          "color": null,
+          "notes": [
+            [0, 480, 60, 51492],
+            [480, 480, 62, 51492, {"lyric": "사"}],
+            [480, 960, 64, 51492, {"offset": 16777216, "lyric": "랑"}]
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Drums \"GM\"",
+      "color": 11,
+      "port": {"named": "IAC Bus 1"},
+      "channel": 10,
+      "bank": null,
+      "program": null,
+      "default_velocity": 51492,
+      "mute": true,
+      "solo": false,
+      "lyric_lang": null,
+      "clips": []
+    }
+  ]
+}

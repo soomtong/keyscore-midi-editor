@@ -125,6 +125,22 @@ impl TempoMap {
         }
     }
 
+    /// 틱 0부터 엄격히 늘어나는 변화 열로 만든다(파일 읽기 전용). 항목마다 `set`하면 매번 전체를
+    /// 다시 계산해 O(n²)이 된다(S0-T6 리뷰 1 지적 3). 순서는 호출자가 검사했다.
+    pub(crate) fn from_sorted(changes: Vec<(Tick, Tempo)>) -> Self {
+        let mut map = TempoMap {
+            changes: changes
+                .into_iter()
+                .map(|(t, v)| (t, v, MusicTime::ZERO))
+                .collect(),
+        };
+        if map.changes.first().is_none_or(|c| c.0 != Tick::ZERO) {
+            return TempoMap::default();
+        }
+        map.rebuild();
+        map
+    }
+
     /// `at`에서 템포를 바꾼다. 같은 틱에 변화가 있으면 교체한다.
     pub fn set(&mut self, at: Tick, tempo: Tempo) {
         match self.changes.binary_search_by_key(&at, |c| c.0) {

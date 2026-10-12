@@ -34,6 +34,8 @@ pub struct Clip {
     name: Option<String>,
     color: Option<TrackColor>,
     notes: Vec<Note>,
+    /// `.ksq` 클립 객체의 모르는 키. 다시 쓸 때 보존한다(REQ IO-1).
+    extra: serde_json::Map<String, serde_json::Value>,
 }
 
 impl Clip {
@@ -52,6 +54,7 @@ impl Clip {
             name: None,
             color: None,
             notes: Vec::new(),
+            extra: serde_json::Map::new(),
         })
     }
 
@@ -136,6 +139,28 @@ impl Clip {
         Ok(())
     }
 
+    /// 지웠던·저장된 노트를 한꺼번에 되살린다(파일 읽기 전용). 노트마다 `restore_note`로 넣으면
+    /// 역순 입력에서 매번 앞쪽에 끼워 넣어 O(n²)이 된다(S0-T6 리뷰 1 지적 4). 모두 검사한 뒤
+    /// 붙이고 한 번 정렬한다. 실패하면 클립은 바뀌지 않고, 어긋난 노트의 번호를 돌려준다.
+    pub(crate) fn restore_notes(&mut self, notes: Vec<Note>) -> Result<(), (usize, ModelError)> {
+        for (i, note) in notes.iter().enumerate() {
+            if note.start().get() >= self.length {
+                return Err((
+                    i,
+                    ModelError::NoteOutsideClip {
+                        start: note.start().get(),
+                        end: note.end(),
+                        clip_length: self.length,
+                    },
+                ));
+            }
+            self.start.checked_add(note.end()).map_err(|e| (i, e))?;
+        }
+        self.notes.extend(notes);
+        self.notes.sort();
+        Ok(())
+    }
+
     /// 같은 값의 노트 하나를 지운다. 지웠으면 `true`.
     pub fn remove_note(&mut self, note: &Note) -> bool {
         match self.notes.iter().position(|n| n == note) {
@@ -155,6 +180,14 @@ impl Clip {
 
     /// 꼬리까지 포함해 오버플로를 검사한다. 길이만 보면 숨김 꼬리의 절대 끝이 u64를
     /// 넘을 수 있다(S0-T2 리뷰 1 지적 1).
+    pub(crate) fn extra(&self) -> &serde_json::Map<String, serde_json::Value> {
+        &self.extra
+    }
+
+    pub(crate) fn set_extra(&mut self, extra: serde_json::Map<String, serde_json::Value>) {
+        self.extra = extra;
+    }
+
     pub(crate) fn set_start(&mut self, start: Tick) -> Result<(), ModelError> {
         start.checked_add(self.extent())?;
         self.start = start;
@@ -185,6 +218,8 @@ impl Clip {
             name: self.name.clone(),
             color: self.color,
             notes: right_notes,
+            // 이름·색처럼 모르는 키도 두 클립에 그대로 둔다.
+            extra: self.extra.clone(),
         };
         self.notes.truncate(cut);
         self.length = offset;

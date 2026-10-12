@@ -57,7 +57,8 @@ expected_internal() {
 # insta, criterion)가 출발점이다. 새 crate가 필요한 Task는 여기에 추가하고 PR에서 리뷰받는다.
 allowed_external() {
   case "$1" in
-    keyscore-core) echo "serde serde_json thiserror proptest insta criterion" ;;
+    # flate2: .ksqz gzip 저장(REQ IO-1, S0-T6).
+    keyscore-core) echo "serde serde_json thiserror flate2 proptest insta criterion" ;;
     keyscore-text) echo "thiserror proptest insta criterion" ;;
   esac
 }
