@@ -219,23 +219,15 @@ fn write_track(out: &mut String, t: &ExportTrack<'_>, bar: u64) {
     let length = t.clip.length();
     if length != max_end {
         let c0 = writers[0].cursor;
-        let in_voice = (length > c0)
-            .then(|| lengths::largest_restable(length - c0))
-            .filter(|&r| r > 0)
-            .map(|r| c0 + r);
-        let alone = Some(lengths::largest_restable(length)).filter(|&r| r > 0);
-        let target = max_end.max(in_voice.unwrap_or(0)).max(alone.unwrap_or(0));
-        if target == 0 {
-            writers[0].rests(&[lengths::NOTATIONS[20].ticks]);
-        } else if target == max_end {
-            // 노트 끝이 닿는 가장 긴 길이다.
-        } else if in_voice == Some(target) {
-            writers[0].rests(&lengths::rests_of(target - c0));
-        } else {
-            // 첫 성부의 커서가 너무 늦어 닿지 않는다. 쉼표만 있는 성부를 더한다.
-            let mut w = VoiceWriter::new(drum, bar);
-            w.rests(&lengths::rests_of(target));
-            writers.push(w);
+        match nearest_reachable(length, max_end, c0) {
+            (_, Fill::None) => {}
+            (target, Fill::FirstVoice) => writers[0].rests(&lengths::rests_of(target - c0)),
+            (target, Fill::RestVoice) => {
+                // 첫 성부의 커서로는 닿지 않는다. 쉼표만 있는 성부를 더한다.
+                let mut w = VoiceWriter::new(drum, bar);
+                w.rests(&lengths::rests_of(target));
+                writers.push(w);
+            }
         }
     }
 
@@ -251,6 +243,48 @@ fn write_track(out: &mut String, t: &ExportTrack<'_>, bar: u64) {
             out.push('\n');
         }
     }
+}
+
+/// 클립 끝에 닿게 하는 방법. 순서는 같은 길이일 때의 우선순위다.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Fill {
+    /// 노트 끝이 그 길이다.
+    None,
+    /// 첫 성부의 커서 뒤에 쉼표를 쓴다.
+    FirstVoice,
+    /// 쉼표만 있는 성부를 더한다.
+    RestVoice,
+}
+
+/// `length`에 가장 가까운, 다시 읽었을 때 나오는 클립 길이와 그 방법. 같은 거리면 짧은 쪽이다
+/// (긴 쪽은 다음 클립과 겹칠 수 있다). 아래쪽만 보면 쉼표로 만들 수 없는 135틱, 60틱 미만의 짧은
+/// 클립에서 차이가 커지므로 위쪽도 본다(S0-T5 리뷰 1 지적 1).
+///
+/// 고른 길이는 다시 내보낼 때 거리 0인 후보라서 같은 방법이 다시 뽑힌다(재내보내기 안정).
+fn nearest_reachable(length: u64, max_end: u64, c0: u64) -> (u64, Fill) {
+    let mut candidates = vec![(max_end, Fill::None)];
+    for (base, fill) in [(c0, Fill::FirstVoice), (0, Fill::RestVoice)] {
+        let x = length.saturating_sub(base);
+        let below = lengths::largest_restable(x);
+        let above = lengths::smallest_restable_from(x);
+        for r in [below, above] {
+            if r == 0 {
+                continue;
+            }
+            let end = base + r;
+            // 노트 끝보다 일찍 끝나는 쉼표는 길이를 바꾸지 않으므로 쓰지 않는다.
+            if end <= max_end {
+                candidates.push((max_end, Fill::None));
+            } else {
+                candidates.push((end, fill));
+            }
+        }
+    }
+    candidates
+        .into_iter()
+        .filter(|&(end, _)| end > 0)
+        .min_by_key(|&(end, fill)| (end.abs_diff(length), end, fill))
+        .unwrap_or((lengths::NOTATIONS[20].ticks, Fill::RestVoice))
 }
 
 /// 성부 블록 하나의 본문을 적는다. 커서는 파서와 같이 명목 길이로 나아간다.

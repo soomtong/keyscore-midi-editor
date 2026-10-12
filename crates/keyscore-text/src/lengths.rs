@@ -123,6 +123,15 @@ pub(crate) fn largest_restable(ticks: u64) -> u64 {
     t
 }
 
+/// `ticks` 이상에서 쉼표로 채울 수 있는 가장 짧은 길이(0보다 큼).
+pub(crate) fn smallest_restable_from(ticks: u64) -> u64 {
+    let mut t = ticks.max(1).div_ceil(15) * 15;
+    while !restable(t) {
+        t += 15;
+    }
+    t
+}
+
 /// `ticks`(쉼표로 채울 수 있는 길이)를 쉼표들로 나눈다. 같은 길이면 늘 같은 결과다.
 /// 60틱 배수가 아닌 나머지는 점 64분(90)·겹점 64분(105)으로 끝에 붙인다.
 pub(crate) fn rests_of(ticks: u64) -> Vec<u64> {
@@ -163,6 +172,11 @@ mod tests {
             }
             assert!(largest_restable(t) <= t);
             assert!(restable(largest_restable(t)));
+            let above = smallest_restable_from(t);
+            assert!(
+                above >= t.max(1) && restable(above) && above - t.max(1) < 60,
+                "{t}"
+            );
         }
     }
 
