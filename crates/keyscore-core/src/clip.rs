@@ -188,6 +188,57 @@ impl Clip {
         Ok(())
     }
 
+    /// 길이를 `length`로 정하고 노트들을 차례로 바꾼다(`Edit::ReplaceNotes`). 꼬리 여부는 바꾸기 전
+    /// 길이로 판정한다. `restoring`(undo)이면 줄이기와 꼬리를 허용한다. 복사본에서 모두 검사한 뒤
+    /// 반영하므로 실패하면 클립은 그대로다.
+    pub(crate) fn replace_notes(
+        &mut self,
+        length: u64,
+        pairs: &[(Note, Note)],
+        restoring: bool,
+    ) -> Result<(), ModelError> {
+        if length == 0 {
+            return Err(ModelError::ZeroClipLength);
+        }
+        if !restoring && length < self.length {
+            return Err(ModelError::ClipWouldShrink {
+                current: self.length,
+                requested: length,
+            });
+        }
+        self.start.checked_add(length)?;
+        let before = self.length;
+        let mut notes = self.notes.clone();
+        for (from, to) in pairs {
+            let index = notes
+                .iter()
+                .position(|n| n == from)
+                .ok_or(ModelError::NoteNotFound)?;
+            let tail_allowed = restoring || from.end() > before;
+            if to.start().get() >= length || (!tail_allowed && to.end() > length) {
+                return Err(ModelError::NoteOutsideClip {
+                    start: to.start().get(),
+                    end: to.end(),
+                    clip_length: length,
+                });
+            }
+            self.start.checked_add(to.end())?;
+            notes.remove(index);
+            let at = notes.partition_point(|n| n <= to);
+            notes.insert(at, to.clone());
+        }
+        if let Some(n) = notes.iter().find(|n| n.start().get() >= length) {
+            return Err(ModelError::NoteOutsideClip {
+                start: n.start().get(),
+                end: n.end(),
+                clip_length: length,
+            });
+        }
+        self.notes = notes;
+        self.length = length;
+        Ok(())
+    }
+
     /// 같은 값의 노트 하나를 지운다. 지웠으면 `true`.
     pub fn remove_note(&mut self, note: &Note) -> bool {
         match self.notes.iter().position(|n| n == note) {

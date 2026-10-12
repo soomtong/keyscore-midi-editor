@@ -513,6 +513,27 @@ impl Track {
         self.clips[index].1.replace_note(from, to, restoring)
     }
 
+    /// 클립 길이를 정하고 노트들을 바꾼다(`Edit::ReplaceNotes`와 그 undo). 늘어난 구간이 다른 클립과
+    /// 겹치면 거부한다. 실패하면 트랙은 그대로다.
+    pub(crate) fn replace_notes(
+        &mut self,
+        id: ClipId,
+        length: u64,
+        pairs: &[(Note, Note)],
+        restoring: bool,
+    ) -> Result<(), ModelError> {
+        let index = self.index_of(id).ok_or(ModelError::UnknownClip)?;
+        let clip = &self.clips[index].1;
+        if length > clip.length() {
+            let start = clip.start().get();
+            let end = start.checked_add(length).ok_or(ModelError::TickOverflow)?;
+            if self.overlaps(start, end, Some(id)) {
+                return Err(ModelError::ClipOverlap { start, end });
+            }
+        }
+        self.clips[index].1.replace_notes(length, pairs, restoring)
+    }
+
     /// 지웠던 노트를 되살린다(undo 전용). 숨김 꼬리 노트도 받는다.
     pub(crate) fn restore_note(&mut self, id: ClipId, note: Note) -> Result<(), ModelError> {
         let index = self.index_of(id).ok_or(ModelError::UnknownClip)?;

@@ -458,7 +458,20 @@ impl Op {
                 length,
                 pairs,
             } => {
-                todo!("{track:?} {clip:?} {length} {}", pairs.len())
+                let t = track_mut(project, track)?;
+                let before = t.clip(clip).ok_or(ModelError::UnknownClip)?.length();
+                t.replace_notes(clip, length, &pairs, false)?;
+                let back = pairs
+                    .into_iter()
+                    .rev()
+                    .map(|(from, to)| (to, from))
+                    .collect();
+                Ok(Op::RestoreNotes {
+                    track,
+                    clip,
+                    length: before,
+                    pairs: back,
+                })
             }
             Op::RestoreNotes {
                 track,
@@ -466,7 +479,20 @@ impl Op {
                 length,
                 pairs,
             } => {
-                todo!("{track:?} {clip:?} {length} {}", pairs.len())
+                let t = track_mut(project, track)?;
+                let before = t.clip(clip).ok_or(ModelError::UnknownClip)?.length();
+                t.replace_notes(clip, length, &pairs, true)?;
+                let back = pairs
+                    .into_iter()
+                    .rev()
+                    .map(|(from, to)| (to, from))
+                    .collect();
+                Ok(Op::ReplaceNotes {
+                    track,
+                    clip,
+                    length: before,
+                    pairs: back,
+                })
             }
             Op::ReplaceNote {
                 track,
