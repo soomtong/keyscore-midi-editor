@@ -23,7 +23,7 @@ impl ClipId {
 /// - 길이 ≥ 1틱이고 `start + length`가 u64 안이다.
 /// - 모든 노트의 시작은 `0 ≤ start < length`다. 끝이 길이를 넘는 노트(숨김 꼬리)는
 ///   분할로만 생긴다(`docs/decisions/2026-10-12-clip-split-and-velocity.md` Q1).
-/// - 노트는 `(시작, 음높이)` 순으로 정렬되어 있다.
+/// - 노트는 [`Note`]의 전체 순서(시작, 음높이, 그다음 나머지 필드)로 정렬되어 있다.
 ///
 /// 시작·길이를 바꾸는 공개 메서드는 없다. 트랙 안의 겹침 검사를 우회하지 못하게
 /// [`crate::Track`]의 메서드로만 바뀐다.
@@ -111,11 +111,9 @@ impl Clip {
                 clip_length: self.length,
             });
         }
-        let key = (note.start(), note.pitch());
-        // 같은 키 뒤에 넣어 삽입 순서를 안정적으로 유지한다.
-        let at = self
-            .notes
-            .partition_point(|n| (n.start(), n.pitch()) <= key);
+        // 전체 순서로 넣는다. 삽입 순서와 상관없이 같은 내용이면 같은 클립이 되고, 지웠다
+        // 되살린 노트도 원래 자리로 돌아간다.
+        let at = self.notes.partition_point(|n| n <= &note);
         self.notes.insert(at, note);
         Ok(())
     }
@@ -131,10 +129,9 @@ impl Clip {
             });
         }
         self.start.checked_add(note.end())?;
-        let key = (note.start(), note.pitch());
-        let at = self
-            .notes
-            .partition_point(|n| (n.start(), n.pitch()) <= key);
+        // 전체 순서로 넣는다. 삽입 순서와 상관없이 같은 내용이면 같은 클립이 되고, 지웠다
+        // 되살린 노트도 원래 자리로 돌아간다.
+        let at = self.notes.partition_point(|n| n <= &note);
         self.notes.insert(at, note);
         Ok(())
     }
