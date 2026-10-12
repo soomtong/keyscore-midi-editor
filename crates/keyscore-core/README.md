@@ -13,6 +13,7 @@
 - `TrackId`: 트랙 식별자. 문서(`Document`) 안에서 유일하다. `Project`는 구성 단계에서 `track_mut` 대입으로 중복을 만들 수 있으나 `Document::new`가 거부한다.
 - `Edit`·`TrackProp`: 모델을 바꾸는 정방향 편집. 역편집은 히스토리 안에만 있다.
 - `Document`·`CoalesceKey`: 편집 중인 곡(프로젝트 + undo 히스토리). 편집의 유일한 진입점이며 `&mut Project`를 내주지 않는다. 묶음 적용은 원자적이고, 같은 키의 연속 편집은 한 단위로 묶인다.
+- `transform`: 선택한 노트의 퀀타이즈·조옮김·시간 이동·길이 스케일. 프로젝트를 바꾸지 않고 `Edit` 묶음을 돌려준다.
 - `ksq`: `.ksq` 읽기·쓰기(`to_string`, `from_str`, `to_bytes`, `from_bytes`, `write_file`, `read_file`). 쓰기는 결정적이고, 파일 쓰기는 임시 파일 + rename이다.
 - `ModelError`: 불변식을 깨뜨리는 입력의 거부 사유.
 
