@@ -30,4 +30,4 @@ pub use note::{CcPoint, Note, Pitch, PitchOffset, Velocity};
 pub use project::Project;
 pub use tempo::{MusicTime, Tempo, TempoMap};
 pub use tick::{PPQ, Tick};
-pub use track::{Bank, Channel, OutputPort, Program, Track, TrackColor};
+pub use track::{Bank, Channel, OutputPort, Program, Track, TrackColor, TrackId};

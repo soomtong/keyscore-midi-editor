@@ -43,6 +43,10 @@ pub enum ModelError {
     TimeSignatureInvalid(u8, u16),
     #[error("트랙 인덱스 {index}가 범위 밖이다(트랙 {len}개)")]
     TrackIndexOutOfRange { index: usize, len: usize },
+    #[error("프로젝트에 이미 있는 트랙 식별자다")]
+    DuplicateTrackId,
+    #[error("프로젝트에 없는 트랙이다")]
+    UnknownTrack,
     #[error("같은 트랙에 이미 있는 클립 식별자다")]
     DuplicateClipId,
     #[error("클립에 그 노트가 없다")]

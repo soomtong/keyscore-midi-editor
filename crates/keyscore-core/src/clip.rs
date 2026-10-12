@@ -258,6 +258,27 @@ mod tests {
     }
 
     #[test]
+    fn clip_note_order_is_total_so_remove_and_restore_round_trip() {
+        // 같은 (시작, 음높이)에 길이만 다른 노트: 어떤 순서로 넣어도 같은 순서로 정렬되고,
+        // 지웠다가 되살리면 원래 자리로 돌아온다(S0-T4 리뷰 1 지적 4).
+        let long = note(0, 50, 60);
+        let short = note(0, 10, 60);
+        let mut a = Clip::new(Tick::ZERO, 960).unwrap();
+        a.insert_note(long.clone()).unwrap();
+        a.insert_note(short.clone()).unwrap();
+        let mut b = Clip::new(Tick::ZERO, 960).unwrap();
+        b.insert_note(short.clone()).unwrap();
+        b.insert_note(long.clone()).unwrap();
+        assert_eq!(a, b);
+        let before = a.clone();
+        for n in [&short, &long] {
+            assert!(a.remove_note(n));
+            a.restore_note(n.clone()).unwrap();
+            assert_eq!(a, before);
+        }
+    }
+
+    #[test]
     fn clip_remove_note_removes_only_one_equal_note() {
         let mut clip = Clip::new(Tick::ZERO, 960).unwrap();
         clip.insert_note(note(0, 10, 60)).unwrap();

@@ -112,12 +112,26 @@ pub enum OutputPort {
     Named(String),
 }
 
+/// 트랙 식별자. 프로세스 안에서 유일하게 발급한다.
+///
+/// 편집·undo는 트랙을 인덱스가 아니라 이 id로 가리킨다. 인덱스로 가리키면 히스토리 밖에서 트랙
+/// 순서가 바뀐 뒤 undo가 엉뚱한 트랙에 적용된다(S0-T4 리뷰 1 지적 6).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct TrackId(u64);
+
+impl TrackId {
+    fn allocate() -> TrackId {
+        todo!()
+    }
+}
+
 /// 하나의 MIDI 목적지(포트·채널)에 묶인 선형 타임라인(REQ 3, SEQ-2, SEQ-7).
 ///
 /// 불변식: 클립 구간 `[start, end)`는 서로 겹치지 않는다. 맞닿는 것(`end == start`)은 허용한다.
 /// `&mut Clip`을 내주지 않으므로 이 불변식은 이 타입의 메서드로만 바뀐다.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Track {
+    id: TrackId,
     name: String,
     color: TrackColor,
     port: OutputPort,
@@ -137,6 +151,7 @@ impl Track {
     #[must_use]
     pub fn new(name: impl Into<String>, channel: Channel, color: TrackColor) -> Self {
         Track {
+            id: TrackId::allocate(),
             name: name.into(),
             color,
             port: OutputPort::Virtual,
@@ -149,6 +164,12 @@ impl Track {
             lyric_lang: None,
             clips: Vec::new(),
         }
+    }
+
+    /// 트랙 식별자. `clone`은 같은 id를 복사하므로, 복제본은 같은 프로젝트에 넣을 수 없다.
+    #[must_use]
+    pub const fn id(&self) -> TrackId {
+        self.id
     }
 
     #[must_use]
