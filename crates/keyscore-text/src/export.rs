@@ -1,5 +1,5 @@
 use std::cmp::Reverse;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet, BinaryHeap};
 use std::fmt::Write as _;
 
 use keyscore_core::{Bank, Channel, Clip, Key, Program, Tempo, TimeSignature};
@@ -158,25 +158,34 @@ fn events(clip: &Clip) -> Vec<Event<'_>> {
     }
     let mut out = Vec::new();
     for ((start, length), mut notes) in groups {
-        // 높은 음부터, 같은 음이면 가사 있는 것부터.
+        // 높은 음부터, 같은 음이면 가사 있는 것부터. 가장 높은 음이 가사 없는 음 모두와 화음이 되고,
+        // 남은 가사 있는 음은 하나씩 따로 선다. 한 번 훑어 나눈다(같은 시작 노트가 많아도 선형).
         notes.sort_by_key(|&(p, l)| (Reverse(p), l.is_none(), l));
-        while !notes.is_empty() {
-            let (top, lyric) = notes.remove(0);
-            let mut pitches = vec![top];
-            notes.retain(|&(p, l)| {
-                if l.is_none() {
-                    pitches.push(p);
-                    false
-                } else {
-                    true
-                }
-            });
-            pitches.sort_unstable();
+        let mut rest = notes.into_iter();
+        let Some((top, lyric)) = rest.next() else {
+            continue;
+        };
+        let mut pitches = vec![top];
+        let mut singles = Vec::new();
+        for (p, l) in rest {
+            match l {
+                None => pitches.push(p),
+                Some(_) => singles.push((p, l)),
+            }
+        }
+        pitches.sort_unstable();
+        out.push(Event {
+            start,
+            length,
+            pitches,
+            lyric,
+        });
+        for (p, l) in singles {
             out.push(Event {
                 start,
                 length,
-                pitches,
-                lyric,
+                pitches: vec![p],
+                lyric: l,
             });
         }
     }
@@ -191,27 +200,37 @@ const MAX_DRIFT: u64 = 480;
 const _: () = assert!(MAX_DRIFT <= crate::parse::MAX_START_OFFSET.unsigned_abs());
 
 /// 겹치지 않게 성부로 나눈다. 시작 순으로, 이전 사건이 끝났고 커서가 `MAX_DRIFT` 넘게 앞지르지
-/// 않을 첫 성부에 넣는다(구간 분할 탐욕).
+/// 않을 첫 성부(가장 앞 번호)에 넣는다(구간 분할 탐욕). 가장 일찍 비는 성부가 아니라 앞 번호를
+/// 고르는 것은 악구가 한 성부에 이어지게 하려는 것이다. 사건이 시작 순이라 한 번 빈 성부는
+/// 계속 비어 있으므로, 바쁜 성부는 빌 시각의 힙에, 빈 성부는 번호의 순서 집합에 두면 n log n이다.
 ///
 /// `busy`는 성부 커서의 위쪽 한계다. 쉼표는 다음 시작을 넘지 않으므로 사건 앞의 커서는
 /// `max(busy, 시작)` 이하이고, 사건은 커서를 표기 길이(단음) 또는 실제 길이(타이·셋잇단)만큼
 /// 옮긴다. 그래서 내보낸 시작 보정은 −`MAX_DRIFT` 이상이다.
 fn voices(events: Vec<Event<'_>>) -> Vec<Vec<Event<'_>>> {
     let mut voices: Vec<Vec<Event<'_>>> = Vec::new();
-    // (실제 끝, busy)
-    let mut state: Vec<(u64, u64)> = Vec::new();
+    let mut busy: Vec<u64> = Vec::new();
+    // (빌 시각, 성부 번호). 빌 시각 = max(실제 끝, busy − MAX_DRIFT).
+    let mut pending: BinaryHeap<Reverse<(u64, usize)>> = BinaryHeap::new();
+    let mut free: BTreeSet<usize> = BTreeSet::new();
     for ev in events {
-        let advance = lengths::nearest(ev.length).ticks.max(ev.length);
-        let free = state
-            .iter()
-            .position(|&(end, busy)| end <= ev.start && busy <= ev.start + MAX_DRIFT);
-        if let Some(i) = free {
-            state[i] = (ev.end(), state[i].1.max(ev.start) + advance);
-            voices[i].push(ev);
-        } else {
-            state.push((ev.end(), ev.start + advance));
-            voices.push(vec![ev]);
+        while let Some(&Reverse((at, i))) = pending.peek() {
+            if at > ev.start {
+                break;
+            }
+            pending.pop();
+            free.insert(i);
         }
+        let i = free.pop_first().unwrap_or_else(|| {
+            voices.push(Vec::new());
+            busy.push(0);
+            voices.len() - 1
+        });
+        let advance = lengths::nearest(ev.length).ticks.max(ev.length);
+        busy[i] = busy[i].max(ev.start) + advance;
+        let at = ev.end().max(busy[i].saturating_sub(MAX_DRIFT));
+        pending.push(Reverse((at, i)));
+        voices[i].push(ev);
     }
     voices
 }
