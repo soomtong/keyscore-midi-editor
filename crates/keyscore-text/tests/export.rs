@@ -197,3 +197,23 @@ fn export_clip_length_error_is_bounded() {
         }
     }
 }
+
+#[test]
+fn export_start_offsets_stay_within_parser_cap() {
+    // 1틱 노트가 이어지면 노트마다 커서가 59틱씩 앞지른다. 앞지름이 쌓여 파서의 시작 보정
+    // 한도(3840)를 넘지 않게 성부를 나눈다.
+    let ns: Vec<NoteView> = (0..500).map(|i| n(i, 1, 60)).collect();
+    let c = clip(500, &ns);
+    let text = export(&Header::default(), &[track("T", 1, &c)]);
+    let worst = text
+        .split('~')
+        .skip(1)
+        .filter_map(|s| {
+            let end = s.find([':', ' ', '\n', '"']).unwrap_or(s.len());
+            s[..end].parse::<i64>().ok()
+        })
+        .min()
+        .unwrap_or(0);
+    assert!(worst >= -480, "가장 작은 시작 보정 {worst}");
+    assert_eq!(reparse(&text), (notes(&c), 500));
+}

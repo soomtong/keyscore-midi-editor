@@ -14,6 +14,14 @@ const START_OCTAVE: i32 = 4;
 const START_LENGTH: u64 = WHOLE / 4;
 const START_VELOCITY: u8 = 100;
 
+/// `~` 시작 보정의 한도(온음표). 한도가 없으면 몇십 바이트 입력이 10^18틱 클립을 만들고, 그
+/// 클립은 쉼표를 틱에 비례해 써야 해서 다시 내보낼 수 없다(S0-T5 리뷰 1 지적 3). 내보내기는
+/// −`export::MAX_DRIFT`(480)부터 +59까지만 쓴다.
+pub(crate) const MAX_START_OFFSET: i64 = 3840;
+/// `~` 길이 보정의 한도. 노트 길이가 u32라 내보내기는 u32 끝 근처 길이에 큰 보정을 쓴다.
+/// 길이 보정은 노트 하나의 끝만 늘리고 커서는 옮기지 않으므로 증폭이 생기지 않는다.
+pub(crate) const MAX_LENGTH_OFFSET: i64 = u32::MAX as i64;
+
 /// `@tempo`의 정수부·소수부 자릿수 한도. 내보내기가 쓰는 자릿수(최대 12)를 받고,
 /// 60,000,000 × 10^12이 u128에 들어가게 한다.
 const TEMPO_DIGITS: usize = 12;
@@ -793,6 +801,18 @@ impl Parser {
             if self.s.peek() == Some(':') {
                 self.s.bump();
                 length = self.signed(pos)?;
+            }
+            if start.abs() > MAX_START_OFFSET {
+                return Err(error(
+                    pos,
+                    format!("~ 시작 보정은 ±{MAX_START_OFFSET}틱(온음표) 안이어야 한다: {start:+}"),
+                ));
+            }
+            if length.abs() > MAX_LENGTH_OFFSET {
+                return Err(error(
+                    pos,
+                    format!("~ 길이 보정은 ±{MAX_LENGTH_OFFSET}틱 안이어야 한다: {length:+}"),
+                ));
             }
             sfx.offset = Some((pos, start, length));
         }

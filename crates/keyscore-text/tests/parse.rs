@@ -466,3 +466,30 @@ fn headers_and_track_attributes() {
     assert_eq!(at("c d e"), (1, 1));
     assert_eq!(at("@track a ch1\n"), (1, 1));
 }
+
+#[test]
+fn offset_suffix_is_capped_in_both_modes() {
+    // 시작 보정은 ±3840틱, 길이 보정은 ±u32::MAX틱까지(S0-T5 리뷰 1 지적 3).
+    assert_eq!(notes(&melody("r1 c~-3840")), vec![n(0, 960, 60)]);
+    assert_eq!(notes(&melody("c~+3840")), vec![n(3840, 960, 60)]);
+    assert_eq!(
+        notes(&melody("c64~+0:+4294967235")),
+        vec![n(0, u32::MAX, 60)]
+    );
+    for text in [
+        "@track T ch1\nc~+3841",
+        "@track T ch1\nr1 r1 c~-3841",
+        "@track T ch1\nc~+9000000000000000000",
+        "@track T ch1\nc~+0:+4294967296",
+        "@track T ch1\nc~+0:-4294967296",
+    ] {
+        let (line, column, _) = err(text, Mode::Lenient);
+        assert_eq!(line, 2, "{text}");
+        assert!(
+            text.lines().nth(1).unwrap().chars().nth(column - 1) == Some('~'),
+            "{text}"
+        );
+        // 엄격 모드는 ~ 자체를 거부한다.
+        assert!(parse(text, Mode::Strict).is_err());
+    }
+}

@@ -183,16 +183,33 @@ fn events(clip: &Clip) -> Vec<Event<'_>> {
     out
 }
 
-/// 겹치지 않게 성부로 나눈다. 시작 순으로 끝이 그 시작 이하인 첫 성부에 넣는다(구간 분할 탐욕).
+/// 한 성부 안에서 커서가 실제 시각을 앞지를 수 있는 양의 한도. 가장 가까운 표기가 실제보다
+/// 길면(예: 1틱 노트를 64분음표로) 다음 음은 음수 시작 보정을 받는데, 짧은 노트가 이어지면 이
+/// 보정이 쌓여 파서의 한도(`MAX_START_OFFSET`)를 넘을 수 있다. 한도를 넘을 사건은 다른 성부로
+/// 보낸다. 480은 표기 길이 사이 가장 큰 간격(960)의 절반이라, 녹음된 레가토 노트가 한 성부에 남는다.
+const MAX_DRIFT: u64 = 480;
+const _: () = assert!(MAX_DRIFT <= crate::parse::MAX_START_OFFSET.unsigned_abs());
+
+/// 겹치지 않게 성부로 나눈다. 시작 순으로, 이전 사건이 끝났고 커서가 `MAX_DRIFT` 넘게 앞지르지
+/// 않을 첫 성부에 넣는다(구간 분할 탐욕).
+///
+/// `busy`는 성부 커서의 위쪽 한계다. 쉼표는 다음 시작을 넘지 않으므로 사건 앞의 커서는
+/// `max(busy, 시작)` 이하이고, 사건은 커서를 표기 길이(단음) 또는 실제 길이(타이·셋잇단)만큼
+/// 옮긴다. 그래서 내보낸 시작 보정은 −`MAX_DRIFT` 이상이다.
 fn voices(events: Vec<Event<'_>>) -> Vec<Vec<Event<'_>>> {
     let mut voices: Vec<Vec<Event<'_>>> = Vec::new();
-    let mut ends: Vec<u64> = Vec::new();
+    // (실제 끝, busy)
+    let mut state: Vec<(u64, u64)> = Vec::new();
     for ev in events {
-        if let Some(i) = ends.iter().position(|&e| e <= ev.start) {
-            ends[i] = ev.end();
+        let advance = lengths::nearest(ev.length).ticks.max(ev.length);
+        let free = state
+            .iter()
+            .position(|&(end, busy)| end <= ev.start && busy <= ev.start + MAX_DRIFT);
+        if let Some(i) = free {
+            state[i] = (ev.end(), state[i].1.max(ev.start) + advance);
             voices[i].push(ev);
         } else {
-            ends.push(ev.end());
+            state.push((ev.end(), ev.start + advance));
             voices.push(vec![ev]);
         }
     }
