@@ -21,7 +21,13 @@ impl TimeSignature {
     ///
     /// 분자가 0이거나 분모가 위 목록 밖이면 [`ModelError::TimeSignatureInvalid`].
     pub fn new(numerator: u8, denominator: u8) -> Result<Self, ModelError> {
-        todo!("{numerator} {denominator}")
+        if numerator == 0 || !matches!(denominator, 1 | 2 | 4 | 8 | 16 | 32 | 64) {
+            return Err(ModelError::TimeSignatureInvalid(numerator, denominator));
+        }
+        Ok(TimeSignature {
+            numerator,
+            denominator,
+        })
     }
 
     #[must_use]
@@ -99,7 +105,11 @@ impl MeterMap {
 
     /// `at`에서 박자표를 바꾼다. 같은 틱에 변화가 있으면 교체한다.
     pub fn set(&mut self, at: Tick, sig: TimeSignature) {
-        todo!("{at:?} {sig:?}")
+        match self.changes.binary_search_by_key(&at, |c| c.0) {
+            Ok(i) => self.changes[i].1 = sig,
+            Err(i) => self.changes.insert(i, (at, sig, 0)),
+        }
+        self.rebuild();
     }
 
     /// `at`의 변화를 지운다.
@@ -108,7 +118,30 @@ impl MeterMap {
     ///
     /// 틱 0은 지울 수 없다([`ModelError::RemoveInitialChange`]).
     pub fn remove(&mut self, at: Tick) -> Result<bool, ModelError> {
-        todo!("{at:?}")
+        if at == Tick::ZERO {
+            return Err(ModelError::RemoveInitialChange);
+        }
+        match self.changes.binary_search_by_key(&at, |c| c.0) {
+            Ok(i) => {
+                self.changes.remove(i);
+                self.rebuild();
+                Ok(true)
+            }
+            Err(_) => Ok(false),
+        }
+    }
+
+    /// 시작 마디 번호 캐시를 다시 계산한다. 마디 중간에서 끊긴 짧은 마디도 한 마디로 센다(올림).
+    fn rebuild(&mut self) {
+        for i in 1..self.changes.len() {
+            let (prev_tick, prev_sig, prev_bar) = self.changes[i - 1];
+            let span = self.changes[i].0.get() - prev_tick.get();
+            self.changes[i].2 = prev_bar + span.div_ceil(prev_sig.bar_ticks());
+        }
+    }
+
+    fn segment_of_tick(&self, at: Tick) -> usize {
+        self.changes.partition_point(|c| c.0 <= at) - 1
     }
 
     pub fn changes(&self) -> impl Iterator<Item = (Tick, TimeSignature)> + '_ {
@@ -117,18 +150,32 @@ impl MeterMap {
 
     #[must_use]
     pub fn signature_at(&self, at: Tick) -> TimeSignature {
-        todo!("{at:?}")
+        self.changes[self.segment_of_tick(at)].1
     }
 
     #[must_use]
     pub fn position(&self, at: Tick) -> BarPosition {
-        todo!("{at:?}")
+        let (start, sig, start_bar) = self.changes[self.segment_of_tick(at)];
+        let offset = at.get() - start.get();
+        let within = offset % sig.bar_ticks();
+        BarPosition {
+            bar: start_bar + offset / sig.bar_ticks(),
+            // 분자 ≤ 255라 박 번호는 u32에 들어간다.
+            beat: u32::try_from(within / sig.beat_ticks()).unwrap_or(u32::MAX),
+            tick: within % sig.beat_ticks(),
+        }
     }
 
     /// 마디 `bar`(0부터)가 시작하는 틱. u64를 넘으면 `u64::MAX`로 자른다.
     #[must_use]
     pub fn bar_start(&self, bar: u64) -> Tick {
-        todo!("{bar}")
+        // 시작 마디 번호는 변화마다 1 이상 늘어나므로 엄격히 증가한다.
+        let (start, sig, start_bar) =
+            self.changes[self.changes.partition_point(|c| c.2 <= bar) - 1];
+        (bar - start_bar)
+            .checked_mul(sig.bar_ticks())
+            .and_then(|span| start.get().checked_add(span))
+            .map_or(Tick::new(u64::MAX), Tick::new)
     }
 }
 

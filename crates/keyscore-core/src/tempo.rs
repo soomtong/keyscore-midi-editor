@@ -17,7 +17,11 @@ impl Tempo {
     ///
     /// 0이거나 24비트를 넘으면 [`ModelError::TempoOutOfRange`].
     pub fn from_micros_per_quarter(us: u32) -> Result<Self, ModelError> {
-        todo!("{us}")
+        if (1..=Self::MAX_MICROS).contains(&us) {
+            Ok(Tempo(us))
+        } else {
+            Err(ModelError::TempoOutOfRange(us))
+        }
     }
 
     /// 정수 BPM에서 만든다. 60,000,000을 나누어떨어지게 하지 않으면 가장 가까운 µs로 반올림한다.
@@ -26,7 +30,13 @@ impl Tempo {
     ///
     /// 0이거나 결과가 µs 범위(1..=24비트) 밖이면 [`ModelError::TempoOutOfRange`].
     pub fn from_bpm(bpm: u32) -> Result<Self, ModelError> {
-        todo!("{bpm}")
+        if bpm == 0 {
+            return Err(ModelError::TempoOutOfRange(0));
+        }
+        let bpm = u64::from(bpm);
+        let us = (60_000_000 + bpm / 2) / bpm;
+        // us ≤ 60,000,000이라 u32에 들어간다.
+        Self::from_micros_per_quarter(u32::try_from(us).unwrap_or(u32::MAX))
     }
 
     #[must_use]
@@ -117,7 +127,11 @@ impl TempoMap {
 
     /// `at`에서 템포를 바꾼다. 같은 틱에 변화가 있으면 교체한다.
     pub fn set(&mut self, at: Tick, tempo: Tempo) {
-        todo!("{at:?} {tempo:?}")
+        match self.changes.binary_search_by_key(&at, |c| c.0) {
+            Ok(i) => self.changes[i].1 = tempo,
+            Err(i) => self.changes.insert(i, (at, tempo, MusicTime::ZERO)),
+        }
+        self.rebuild();
     }
 
     /// `at`의 변화를 지운다. 지웠으면 `Ok(true)`, 없으면 `Ok(false)`.
@@ -126,7 +140,32 @@ impl TempoMap {
     ///
     /// 틱 0은 지울 수 없다([`ModelError::RemoveInitialChange`]). 곡 시작의 템포는 항상 있어야 한다.
     pub fn remove(&mut self, at: Tick) -> Result<bool, ModelError> {
-        todo!("{at:?}")
+        if at == Tick::ZERO {
+            return Err(ModelError::RemoveInitialChange);
+        }
+        match self.changes.binary_search_by_key(&at, |c| c.0) {
+            Ok(i) => {
+                self.changes.remove(i);
+                self.rebuild();
+                Ok(true)
+            }
+            Err(_) => Ok(false),
+        }
+    }
+
+    /// 구간 시작 시각 캐시를 다시 계산한다. 앞 구간의 끝 = 다음 구간의 시작이며, 모두 정수다.
+    /// u64 틱 전 범위 × 최대 템포(16,777,215,000 단위/틱)도 u128 안이다.
+    fn rebuild(&mut self) {
+        for i in 1..self.changes.len() {
+            let (prev_tick, prev_tempo, prev_start) = self.changes[i - 1];
+            let span = u128::from(self.changes[i].0.get() - prev_tick.get());
+            self.changes[i].2 = MusicTime(prev_start.0 + span * prev_tempo.units_per_tick());
+        }
+    }
+
+    /// `at`이 속한 구간의 인덱스. 첫 항목이 틱 0이라 항상 있다.
+    fn segment_of_tick(&self, at: Tick) -> usize {
+        self.changes.partition_point(|c| c.0 <= at) - 1
     }
 
     /// 틱 순서의 변화.
@@ -136,20 +175,27 @@ impl TempoMap {
 
     #[must_use]
     pub fn tempo_at(&self, at: Tick) -> Tempo {
-        todo!("{at:?}")
+        self.changes[self.segment_of_tick(at)].1
     }
 
     /// 틱의 시각. 정확하다(반올림 없음).
     #[must_use]
     pub fn tick_to_time(&self, at: Tick) -> MusicTime {
-        todo!("{at:?}")
+        let (start_tick, tempo, start_time) = self.changes[self.segment_of_tick(at)];
+        let span = u128::from(at.get() - start_tick.get());
+        MusicTime(start_time.0 + span * tempo.units_per_tick())
     }
 
     /// 시각이 속한 틱(내림). `tick_to_time(k) ≤ time < tick_to_time(k + 1)`인 k다.
     /// u64 틱 범위를 넘는 시각은 `u64::MAX` 틱으로 자른다.
     #[must_use]
     pub fn time_to_tick(&self, time: MusicTime) -> Tick {
-        todo!("{time:?}")
+        // 구간 시작 시각은 틱이 서로 다르고 템포가 0이 아니라서 엄격히 증가한다.
+        let i = self.changes.partition_point(|c| c.2 <= time) - 1;
+        let (start_tick, tempo, start_time) = self.changes[i];
+        let span = (time.0 - start_time.0) / tempo.units_per_tick();
+        let span = u64::try_from(span).unwrap_or(u64::MAX);
+        Tick::new(start_tick.get().saturating_add(span))
     }
 }
 
@@ -198,10 +244,20 @@ mod tests {
 
     #[test]
     fn tempo_map_one_hour_at_120_is_exact() {
+        // 120 BPM에서 1시간 = 7,200 4분음표 = 6,912,000틱. 단계 파일의 「1시간 = 3,456,000틱」은
+        // 60 BPM 기준이라 120 BPM에서는 30분이다(보고서 참고). 둘 다 정확히 떨어져야 한다.
         let map = TempoMap::default();
-        let hour = map.tick_to_time(Tick::new(3_456_000));
+        let hour = map.tick_to_time(Tick::new(6_912_000));
         assert_eq!(hour, MusicTime::from_nanos(3_600_000_000_000));
-        assert_eq!(map.time_to_tick(hour), Tick::new(3_456_000));
+        assert_eq!(map.time_to_tick(hour), Tick::new(6_912_000));
+        let half = map.tick_to_time(Tick::new(3_456_000));
+        assert_eq!(half, MusicTime::from_nanos(1_800_000_000_000));
+
+        let sixty = TempoMap::new(Tempo::from_bpm(60).unwrap());
+        assert_eq!(
+            sixty.tick_to_time(Tick::new(3_456_000)),
+            MusicTime::from_nanos(3_600_000_000_000)
+        );
     }
 
     #[test]
