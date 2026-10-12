@@ -231,3 +231,81 @@ fn export_tie_chain_is_capped_at_16_pieces() {
     assert!(text.contains("c1..~+0:+58560"), "{text}");
     assert_eq!(reparse(&text), (notes(&long), 3840 * 17));
 }
+
+#[test]
+fn export_folds_overlaps_after_long_rest_and_stays_linear() {
+    // 긴 쉼표 뒤의 겹친 노트를 성부마다 쉼표로 다시 채우지 않고 커서가 늦은 성부에 겹쳐 적는다
+    // (S0-T5 리뷰 3 지적 1). 왕복, 경고 없음, 클립 길이, 시작 보정 −480..+59, 재내보내기 안정,
+    // 노트 수와 마디 수에 선형인 크기를 본다.
+    struct Lcg(u64);
+    impl Lcg {
+        fn below(&mut self, n: u64) -> u64 {
+            self.0 = self
+                .0
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            (self.0 >> 33) % n.max(1)
+        }
+    }
+    let mut r = Lcg(5);
+    for case in 0..60 {
+        let gap = (50 + r.below(400)) * 3840 + r.below(3840);
+        let count = 20 + r.below(200);
+        let ch = if case % 4 == 0 { 10 } else { 1 };
+        let mut ns: Vec<NoteView> = (0..r.below(8)).map(|i| n(i * 480, 480, 60)).collect();
+        let mut at = gap;
+        for _ in 0..count {
+            at += r.below(200);
+            let len = u32::try_from(1 + r.below(30_000)).unwrap();
+            let pitch = u8::try_from(r.below(128)).unwrap();
+            ns.push(if r.below(4) == 0 {
+                nl(at, len, pitch, "가")
+            } else {
+                n(at, len, pitch)
+            });
+        }
+        let max_end = ns.iter().map(|x| x.0 + u64::from(x.1)).max().unwrap();
+        let length = max_end + r.below(100);
+        let mut c = Clip::new(Tick::ZERO, length).unwrap();
+        for (s, l, p, y) in &ns {
+            let note = Note::new(
+                Tick::new(*s),
+                *l,
+                Pitch::new(*p).unwrap(),
+                Velocity::from_midi1(80).unwrap(),
+            )
+            .unwrap();
+            let _ = c.insert_note(match y {
+                Some(t) => note.with_lyric(t.clone()),
+                None => note,
+            });
+        }
+        let text = export(&Header::default(), &[track("T", ch, &c)]);
+        let p = ok(&text, Mode::Lenient);
+        assert!(p.warnings().is_empty(), "사례 {case}");
+        let back = p.tracks()[0].clip();
+        let mut want = notes(&c);
+        want.sort();
+        let mut got = notes(back);
+        got.sort();
+        assert_eq!(got, want, "사례 {case}");
+        assert!(back.length().abs_diff(length) <= 7, "사례 {case}");
+        for s in text.split('~').skip(1) {
+            let e = s.find([':', ' ', '\n', '"']).unwrap_or(s.len());
+            let so: i64 = s[..e].parse().unwrap();
+            assert!((-480..=59).contains(&so), "사례 {case}: 시작 보정 {so}");
+        }
+        assert_eq!(export(&Header::default(), &[track("T", ch, back)]), text);
+        let units = ns.len() + usize::try_from(length / 3840).unwrap();
+        assert!(
+            text.len() <= 200 * units,
+            "사례 {case}: {}바이트, 단위 {units}",
+            text.len()
+        );
+        assert!(
+            text.matches("@track").count() < 40,
+            "사례 {case}: 성부 {}",
+            text.matches("@track").count()
+        );
+    }
+}

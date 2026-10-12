@@ -134,6 +134,9 @@ struct Event<'a> {
     length: u64,
     pitches: Vec<u8>,
     lyric: Option<&'a str>,
+    /// 앞 사건이 아직 울리는 성부에 겹쳐 적는다(`voices`의 쉼표 예산). 커서를 64분음표만큼만
+    /// 옮기고 나머지 길이는 `~+…:+차이`로 적는다.
+    folded: bool,
 }
 
 impl Event<'_> {
@@ -181,6 +184,7 @@ fn events(clip: &Clip) -> Vec<Event<'_>> {
             length,
             pitches,
             lyric,
+            folded: false,
         });
         for (p, l) in singles {
             out.push(Event {
@@ -188,6 +192,7 @@ fn events(clip: &Clip) -> Vec<Event<'_>> {
                 length,
                 pitches: vec![p],
                 lyric: l,
+                folded: false,
             });
         }
     }
@@ -201,6 +206,11 @@ fn events(clip: &Clip) -> Vec<Event<'_>> {
 const MAX_DRIFT: u64 = 480;
 const _: () = assert!(MAX_DRIFT <= crate::parse::MAX_START_OFFSET.unsigned_abs());
 
+/// 성부 앞 쉼표 예산(온음표 쉼표 수): 사건 하나당, 그리고 마지막 노트 끝까지의 마디(온음표)
+/// 하나당 이만큼과 기본량. 평범한 곡은 닿지 않는다.
+const REST_BUDGET_PER_UNIT: u64 = 4;
+const REST_BUDGET_BASE: u64 = 64;
+
 /// 겹치지 않게 성부로 나눈다. 시작 순으로, 이전 사건이 끝났고 커서가 `MAX_DRIFT` 넘게 앞지르지
 /// 않을 첫 성부(가장 앞 번호)에 넣는다(구간 분할 탐욕). 가장 일찍 비는 성부가 아니라 앞 번호를
 /// 고르는 것은 악구가 한 성부에 이어지게 하려는 것이다. 사건이 시작 순이라 한 번 빈 성부는
@@ -210,34 +220,105 @@ const _: () = assert!(MAX_DRIFT <= crate::parse::MAX_START_OFFSET.unsigned_abs()
 /// `max(busy, 시작)` 이하이고, 사건은 커서를 표기 길이(단음) 또는 실제 길이(타이·셋잇단)만큼
 /// 옮긴다. 그래서 내보낸 시작 보정은 −`MAX_DRIFT` 이상이다.
 ///
+/// 쉼표 예산: 성부 블록은 모두 클립 시작에서 시작하므로, 새 성부나 오래 쉰 성부에 사건을 넣으면
+/// 그 사이를 쉼표로 다시 채운다. 긴 쉼표 뒤에 겹친 노트가 많으면 이 비용이 겹침 수 × 클립 길이가
+/// 된다(S0-T5 리뷰 3 지적 1: 7.5 KB 입력 → 1.4 MB). 그래서 채울 온음표 쉼표 수를 예산(사건 수와
+/// 마디 수에 비례)에서 빼고, 예산을 넘으면 커서를 가장 늦게 둘 수 있는 성부에 넣는다. 그 성부의
+/// 앞 사건이 아직 울리면 겹쳐 적는다(`folded`: 커서는 64분음표만큼, 나머지는 `~+…:+차이`). 그 성부의
+/// 커서가 한도보다 앞서 있으면 마지막 사건도 거슬러 접어 커서를 되돌린다. 가져오기가 이미 받는
+/// 표기이고, 결정 Q2의 「한 성부로 적을 수 없을 때만 나눈다」에도 맞는다. 평범한 곡은 예산에
+/// 닿지 않아 이 경로를 타지 않는다.
+///
+/// 크기: 예산 안의 쉼표는 사건 수와 마디 수에 선형이다. 예산 밖에서 고른 성부는 커서가 가장 늦은
+/// 성부라 그 쉼표는 이미 다른 성부가 지난 구간을 다시 채우지 않는다. 남는 경우는 모든 성부의
+/// 커서가 (마지막 사건을 접어도) 시작보다 `MAX_DRIFT` 넘게 앞서 새 성부를 열 수밖에 없을 때다.
+/// 접은 사건은 커서를 60틱 옮기므로, 이는 약 540틱 안에 사건이 성부 수 × 9개 넘게 몰릴 때뿐이다.
+/// 텍스트로 그런 밀도를 적으려면 가져오기 쪽 시작 보정 한도(±3840) 때문에 입력에도 블록이
+/// 비슷한 수만큼 있어야 하므로, 텍스트에서 온 클립의 출력은 입력에 선형이다(측정: 긴 쉼표 뒤 겹친
+/// 노트에서 입력 1.8–30 KB → 출력 3.5–3.7배). core API로 만든 클립은 「몰린 사건 수 × 클립
+/// 길이」까지 갈 수 있다.
+///
 /// 성부 수의 상한: 64분음표(60틱)보다 짧은 노트도 커서를 60틱 옮기므로, 앞지름이 한도에 닿은
 /// 성부는 60틱마다 사건 하나만 받는다. 그래서 짧은 노트가 촘촘하면 성부 수가 겹침 수 ×
 /// (60 / 가장 짧은 노트 길이) 근처까지, 최대 약 60배로 는다(1틱 노트 겹침 3 → 176성부,
-/// S0-T5 리뷰 2 지적 3). 64분음표 이상 노트에서는 앞지름이 표기 간격의 절반 이하라 거의 늘지 않는다.
-/// 출력은 노트 수와 클립 길이에 선형이다. 읽기 좋은 출력이 필요해지면(S3) 다시 본다.
-fn voices(events: Vec<Event<'_>>) -> Vec<Vec<Event<'_>>> {
+/// S0-T5 리뷰 2 지적 3). 읽기 좋은 출력이 필요해지면(S3) 다시 본다.
+fn voices(events: Vec<Event<'_>>, max_end: u64) -> Vec<Vec<Event<'_>>> {
+    let units = u64::try_from(events.len()).unwrap_or(u64::MAX) + max_end / WHOLE;
+    let mut budget = units
+        .saturating_mul(REST_BUDGET_PER_UNIT)
+        .saturating_add(REST_BUDGET_BASE);
     let mut voices: Vec<Vec<Event<'_>>> = Vec::new();
     let mut busy: Vec<u64> = Vec::new();
-    // (빌 시각, 성부 번호). 빌 시각 = max(실제 끝, busy − MAX_DRIFT).
+    // 마지막 사건을 접어 적었다면의 busy. 예산 밖에서 그 사건을 거슬러 접을 수 있다.
+    let mut low: Vec<u64> = Vec::new();
+    let mut end: Vec<u64> = Vec::new();
+    let mut free_at: Vec<u64> = Vec::new();
+    // (빌 시각, 성부 번호). 빌 시각 = max(실제 끝, busy − MAX_DRIFT). 바뀐 성부의 옛 항목은
+    // 꺼낼 때 `free_at`과 비교해 버린다.
     let mut pending: BinaryHeap<Reverse<(u64, usize)>> = BinaryHeap::new();
     let mut free: BTreeSet<usize> = BTreeSet::new();
-    for ev in events {
+    // 모든 성부의 (low, 번호). 예산 밖에서 커서를 가장 늦게 둘 수 있는 성부를 찾는다.
+    let mut by_low: BTreeSet<(u64, usize)> = BTreeSet::new();
+    let fold_advance = lengths::NOTATIONS[20].ticks;
+    for mut ev in events {
         while let Some(&Reverse((at, i))) = pending.peek() {
             if at > ev.start {
                 break;
             }
             pending.pop();
-            free.insert(i);
+            if free_at[i] == at {
+                free.insert(i);
+            }
         }
-        let i = free.pop_first().unwrap_or_else(|| {
+        // 성부 커서 `b`에서 시작까지 채울 온음표 쉼표 수.
+        let cost = |b: u64| ev.start.saturating_sub(b) / WHOLE;
+        let first = free.first().copied();
+        let fits = match first {
+            Some(f) => cost(busy[f]) <= budget,
+            None => cost(0) <= budget,
+        };
+        let chosen = if fits {
+            first
+        } else {
+            let latest = by_low
+                .range(..=(ev.start + MAX_DRIFT, usize::MAX))
+                .next_back()
+                .map(|&(_, g)| g);
+            if let Some(g) = latest
+                && busy[g] > ev.start + MAX_DRIFT
+            {
+                // 마지막 사건을 접어 적으면 커서가 한도 안으로 돌아온다.
+                if let Some(last) = voices[g].last_mut() {
+                    last.folded = true;
+                }
+                busy[g] = low[g];
+            }
+            latest.or(first)
+        };
+        let i = chosen.unwrap_or_else(|| {
             voices.push(Vec::new());
             busy.push(0);
+            low.push(0);
+            end.push(0);
+            free_at.push(0);
             voices.len() - 1
         });
-        let advance = lengths::nearest(ev.length).ticks.max(ev.length);
-        busy[i] = busy[i].max(ev.start) + advance;
-        let at = ev.end().max(busy[i].saturating_sub(MAX_DRIFT));
-        pending.push(Reverse((at, i)));
+        free.remove(&i);
+        by_low.remove(&(low[i], i));
+        budget = budget.saturating_sub(cost(busy[i]));
+        ev.folded = end[i] > ev.start;
+        let advance = if ev.folded {
+            fold_advance
+        } else {
+            lengths::nearest(ev.length).ticks.max(ev.length)
+        };
+        let base = busy[i].max(ev.start);
+        busy[i] = base + advance;
+        low[i] = base + fold_advance;
+        end[i] = end[i].max(ev.end());
+        free_at[i] = end[i].max(busy[i].saturating_sub(MAX_DRIFT));
+        by_low.insert((low[i], i));
+        pending.push(Reverse((free_at[i], i)));
         voices[i].push(ev);
     }
     voices
@@ -247,7 +328,7 @@ fn write_track(out: &mut String, t: &ExportTrack<'_>, bar: u64) {
     let drum = t.channel.is_drum();
     let evs = events(t.clip);
     let max_end = evs.iter().map(Event::end).max().unwrap_or(0);
-    let mut writers: Vec<VoiceWriter> = voices(evs)
+    let mut writers: Vec<VoiceWriter> = voices(evs, max_end)
         .into_iter()
         .map(|v| {
             let mut w = VoiceWriter::new(drum, bar);
@@ -465,6 +546,7 @@ impl VoiceWriter {
         let gap = i128::from(g[0].start) - i128::from(self.cursor);
         gap >= 0
             && gap % 60 == 0
+            && g.iter().all(|e| !e.folded)
             && g[1].start == g[0].end()
             && g[2].start == g[1].end()
             && g.iter()
@@ -505,6 +587,7 @@ impl VoiceWriter {
         let rem = len % WHOLE;
         let pieces_count = len / WHOLE + u64::from(rem > 0);
         if so == 0
+            && !ev.folded
             && len > WHOLE
             && pieces_count <= MAX_TIE_PIECES
             && lengths::exact(len).is_none()
@@ -527,9 +610,14 @@ impl VoiceWriter {
             }
             return;
         }
-        let notation = match lengths::exact(len) {
-            Some(n) => n,
-            None => lengths::nearest(len),
+        let notation = if ev.folded {
+            // 겹쳐 적는 음은 커서를 가장 적게 옮긴다(`voices`의 busy 계산과 같다).
+            lengths::NOTATIONS[20]
+        } else {
+            match lengths::exact(len) {
+                Some(n) => n,
+                None => lengths::nearest(len),
+            }
         };
         // 길이 차이는 u32 노트 길이와 표기 길이(≤ 6720) 사이라 i64에 들어간다.
         let lo = i64::try_from(i128::from(len) - i128::from(notation.ticks)).unwrap_or(i64::MAX);
