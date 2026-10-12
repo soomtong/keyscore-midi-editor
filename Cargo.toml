@@ -25,7 +25,8 @@ keyscore-text = { path = "crates/keyscore-text" }
 keyscore-midi = { path = "crates/keyscore-midi" }
 keyscore-ai = { path = "crates/keyscore-ai" }
 thiserror = "2"
-serde_json = "1"
+# float_roundtrip: 모르는 키의 실수가 저장할 때마다 바뀌지 않게 한다(S0-T6 리뷰 1 지적 2).
+serde_json = { version = "1", features = ["float_roundtrip"] }
 flate2 = "1"
 insta = "1"
 proptest = "1"
