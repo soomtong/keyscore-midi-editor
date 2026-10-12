@@ -100,3 +100,7 @@ check-deps.test: 11 passed
 bench-check.test: 8 passed
 bench-check(실측): tick_to_time_1000 +0.5%, time_to_tick_1000 +0.8%
 ~~~
+
+## 리뷰 대응 (review-2, 판정: 병합 가능)
+
+제안 9–12(`bench-check.py`의 `CRITERION_HOME` 전달 테스트, NaN 처리, 실패 메시지, 테스트의 `$RANDOM` 접미사)는 받되, 이 PR에서는 고치지 않는다. 벤치 게이트를 CI에서 실제로 켜는 S8-T3으로 이월했다(`plan/stages/18-S8-release.md`). 「병합 가능」 판정 뒤에 코드를 바꾸면 다시 리뷰해야 하고, 지금은 이 스크립트가 CI 게이트가 아니라 로컬 도구이기 때문이다.
