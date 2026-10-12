@@ -28,7 +28,18 @@ impl Clip {
     ///
     /// 길이가 0이면 [`ModelError::ZeroClipLength`], 끝이 u64를 넘으면 [`ModelError::TickOverflow`].
     pub fn new(start: Tick, length: u64) -> Result<Self, ModelError> {
-        todo!("{start:?} {length}")
+        if length == 0 {
+            return Err(ModelError::ZeroClipLength);
+        }
+        // end()가 덧셈을 검사 없이 하므로 여기서 오버플로를 막는다.
+        start.checked_add(length)?;
+        Ok(Clip {
+            start,
+            length,
+            name: None,
+            color: None,
+            notes: Vec::new(),
+        })
     }
 
     #[must_use]
@@ -79,22 +90,68 @@ impl Clip {
     ///
     /// 노트 끝이 클립 길이를 넘으면 [`ModelError::NoteOutsideClip`]. 이때 클립은 바뀌지 않는다.
     pub fn insert_note(&mut self, note: Note) -> Result<(), ModelError> {
-        todo!("{note:?}")
+        let end = note.end();
+        if end > self.length {
+            return Err(ModelError::NoteOutsideClip {
+                start: note.start().get(),
+                end,
+                clip_length: self.length,
+            });
+        }
+        let key = (note.start(), note.pitch());
+        // 같은 키 뒤에 넣어 삽입 순서를 안정적으로 유지한다.
+        let at = self
+            .notes
+            .partition_point(|n| (n.start(), n.pitch()) <= key);
+        self.notes.insert(at, note);
+        Ok(())
     }
 
     /// 같은 값의 노트 하나를 지운다. 지웠으면 `true`.
     pub fn remove_note(&mut self, note: &Note) -> bool {
-        todo!("{note:?}")
+        match self.notes.iter().position(|n| n == note) {
+            Some(i) => {
+                self.notes.remove(i);
+                true
+            }
+            None => false,
+        }
     }
 
     pub(crate) fn set_start(&mut self, start: Tick) -> Result<(), ModelError> {
-        todo!("{start:?}")
+        start.checked_add(self.length)?;
+        self.start = start;
+        Ok(())
     }
 
     /// 클립 기준 `offset`에서 둘로 나눈다. `self`는 왼쪽이 되고 오른쪽을 돌려준다.
     /// 분할점을 가로지르는 노트는 왼쪽에 숨김 꼬리로 남는다(결정 Q1).
     pub(crate) fn split_at(&mut self, offset: u64) -> Result<Clip, ModelError> {
-        todo!("{offset}")
+        if offset == 0 || offset >= self.length {
+            let start = self.start.get();
+            return Err(ModelError::SplitOutsideClip {
+                at: start.saturating_add(offset),
+                start,
+                end: self.end(),
+            });
+        }
+        // 노트가 시작 순으로 정렬되어 있으므로 경계 하나로 나뉜다.
+        let cut = self.notes.partition_point(|n| n.start().get() < offset);
+        // 실패할 수 있는 계산을 모두 끝낸 뒤에 self를 바꾼다(실패 시 상태 불변).
+        let right_notes = self.notes[cut..]
+            .iter()
+            .map(|n| n.with_start(Tick::new(n.start().get() - offset)))
+            .collect::<Result<Vec<_>, _>>()?;
+        let right = Clip {
+            start: self.start.checked_add(offset)?,
+            length: self.length - offset,
+            name: self.name.clone(),
+            color: self.color,
+            notes: right_notes,
+        };
+        self.notes.truncate(cut);
+        self.length = offset;
+        Ok(right)
     }
 }
 
@@ -104,14 +161,22 @@ mod tests {
     use crate::{Pitch, Velocity};
 
     fn note(start: u64, length: u32, pitch: u8) -> Note {
-        Note::new(Tick::new(start), length, Pitch::new(pitch).unwrap(), Velocity::new(100).unwrap())
-            .unwrap()
+        Note::new(
+            Tick::new(start),
+            length,
+            Pitch::new(pitch).unwrap(),
+            Velocity::new(100).unwrap(),
+        )
+        .unwrap()
     }
 
     #[test]
     fn clip_new_zero_length_or_overflowing_end_is_rejected() {
         assert_eq!(Clip::new(Tick::ZERO, 0), Err(ModelError::ZeroClipLength));
-        assert_eq!(Clip::new(Tick::new(u64::MAX), 1), Err(ModelError::TickOverflow));
+        assert_eq!(
+            Clip::new(Tick::new(u64::MAX), 1),
+            Err(ModelError::TickOverflow)
+        );
         let clip = Clip::new(Tick::new(u64::MAX - 1), 1).unwrap();
         assert_eq!(clip.end(), u64::MAX);
     }
@@ -122,9 +187,13 @@ mod tests {
         let before = clip.clone();
         assert_eq!(
             clip.insert_note(note(900, 61, 60)),
-            Err(ModelError::NoteOutsideClip { start: 900, end: 961, clip_length: 960 })
+            Err(ModelError::NoteOutsideClip {
+                start: 900,
+                end: 961,
+                clip_length: 960
+            })
         );
-        assert_eq!(clip.insert_note(note(960, 1, 60)).is_err(), true);
+        assert!(clip.insert_note(note(960, 1, 60)).is_err());
         assert_eq!(clip, before);
         assert_eq!(clip.insert_note(note(900, 60, 60)), Ok(()));
     }
@@ -132,11 +201,19 @@ mod tests {
     #[test]
     fn clip_insert_note_keeps_notes_sorted() {
         let mut clip = Clip::new(Tick::ZERO, 960).unwrap();
-        for n in [note(480, 10, 64), note(0, 10, 67), note(480, 10, 60), note(240, 10, 62)] {
+        for n in [
+            note(480, 10, 64),
+            note(0, 10, 67),
+            note(480, 10, 60),
+            note(240, 10, 62),
+        ] {
             clip.insert_note(n).unwrap();
         }
-        let order: Vec<(u64, u8)> =
-            clip.notes().iter().map(|n| (n.start().get(), n.pitch().get())).collect();
+        let order: Vec<(u64, u8)> = clip
+            .notes()
+            .iter()
+            .map(|n| (n.start().get(), n.pitch().get()))
+            .collect();
         assert_eq!(order, vec![(0, 67), (240, 62), (480, 60), (480, 64)]);
     }
 

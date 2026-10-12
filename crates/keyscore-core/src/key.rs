@@ -9,7 +9,11 @@ impl PitchClass {
     ///
     /// 11을 넘으면 [`ModelError::PitchClassOutOfRange`].
     pub fn new(value: u8) -> Result<Self, ModelError> {
-        todo!("{value}")
+        if value < 12 {
+            Ok(PitchClass(value))
+        } else {
+            Err(ModelError::PitchClassOutOfRange(value))
+        }
     }
 
     #[must_use]
@@ -33,7 +37,10 @@ mod tests {
 
     #[test]
     fn pitch_class_new_above_11_is_rejected() {
-        assert_eq!(PitchClass::new(12), Err(ModelError::PitchClassOutOfRange(12)));
+        assert_eq!(
+            PitchClass::new(12),
+            Err(ModelError::PitchClassOutOfRange(12))
+        );
         assert_eq!(PitchClass::new(11).map(PitchClass::get), Ok(11));
     }
 

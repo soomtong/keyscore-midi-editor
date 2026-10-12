@@ -12,7 +12,11 @@ impl Channel {
     ///
     /// 1–16 밖이면 [`ModelError::ChannelOutOfRange`].
     pub fn new(value: u8) -> Result<Self, ModelError> {
-        todo!("{value}")
+        if (1..=16).contains(&value) {
+            Ok(Channel(value))
+        } else {
+            Err(ModelError::ChannelOutOfRange(value))
+        }
     }
 
     #[must_use]
@@ -22,7 +26,7 @@ impl Channel {
 
     #[must_use]
     pub fn is_drum(self) -> bool {
-        todo!()
+        self == Self::DRUMS
     }
 }
 
@@ -37,7 +41,11 @@ impl TrackColor {
     ///
     /// 0–11 밖이면 [`ModelError::ColorOutOfRange`].
     pub fn new(index: u8) -> Result<Self, ModelError> {
-        todo!("{index}")
+        if index < Self::PALETTE_LEN {
+            Ok(TrackColor(index))
+        } else {
+            Err(ModelError::ColorOutOfRange(index))
+        }
     }
 
     #[must_use]
@@ -55,7 +63,11 @@ impl Program {
     ///
     /// 127을 넘으면 [`ModelError::ProgramOutOfRange`].
     pub fn new(value: u8) -> Result<Self, ModelError> {
-        todo!("{value}")
+        if value <= 127 {
+            Ok(Program(value))
+        } else {
+            Err(ModelError::ProgramOutOfRange(value))
+        }
     }
 
     #[must_use]
@@ -75,7 +87,11 @@ impl Bank {
     ///
     /// 16383을 넘으면 [`ModelError::BankOutOfRange`].
     pub fn new(value: u16) -> Result<Self, ModelError> {
-        todo!("{value}")
+        if value <= Self::MAX {
+            Ok(Bank(value))
+        } else {
+            Err(ModelError::BankOutOfRange(value))
+        }
     }
 
     #[must_use]
@@ -121,7 +137,20 @@ impl Track {
     /// 기본 벨로시티 100, 가상 포트, 뮤트·솔로 꺼짐, 뱅크·프로그램 없음.
     #[must_use]
     pub fn new(name: impl Into<String>, channel: Channel, color: TrackColor) -> Self {
-        todo!("{} {channel:?} {color:?}", name.into())
+        Track {
+            name: name.into(),
+            color,
+            port: OutputPort::Virtual,
+            channel,
+            bank: None,
+            program: None,
+            default_velocity: Velocity::TRACK_DEFAULT,
+            mute: false,
+            solo: false,
+            lyric_lang: None,
+            clips: Vec::new(),
+            next_clip_id: 0,
+        }
     }
 
     #[must_use]
@@ -229,18 +258,50 @@ impl Track {
 
     #[must_use]
     pub fn clip(&self, id: ClipId) -> Option<&Clip> {
-        todo!("{id:?}")
+        self.index_of(id).map(|i| &self.clips[i].1)
+    }
+
+    fn index_of(&self, id: ClipId) -> Option<usize> {
+        self.clips.iter().position(|(cid, _)| *cid == id)
+    }
+
+    /// `[start, end)`가 `ignore`를 뺀 다른 클립과 겹치는가.
+    fn overlaps(&self, start: u64, end: u64, ignore: Option<ClipId>) -> bool {
+        self.clips
+            .iter()
+            .filter(|(id, _)| Some(*id) != ignore)
+            .any(|(_, c)| c.start().get() < end && start < c.end())
+    }
+
+    /// 시작 순서를 지키는 위치에 넣는다. 겹침 검사는 호출자가 끝냈다.
+    fn place(&mut self, id: ClipId, clip: Clip) {
+        let at = self
+            .clips
+            .partition_point(|(_, c)| c.start() < clip.start());
+        self.clips.insert(at, (id, clip));
+    }
+
+    fn allocate_id(&mut self) -> ClipId {
+        let id = ClipId(self.next_clip_id);
+        self.next_clip_id += 1;
+        id
     }
 
     /// # Errors
     ///
     /// 다른 클립과 겹치면 [`ModelError::ClipOverlap`]. 이때 트랙은 바뀌지 않는다.
     pub fn insert_clip(&mut self, clip: Clip) -> Result<ClipId, ModelError> {
-        todo!("{clip:?}")
+        let (start, end) = (clip.start().get(), clip.end());
+        if self.overlaps(start, end, None) {
+            return Err(ModelError::ClipOverlap { start, end });
+        }
+        let id = self.allocate_id();
+        self.place(id, clip);
+        Ok(id)
     }
 
     pub fn remove_clip(&mut self, id: ClipId) -> Option<Clip> {
-        todo!("{id:?}")
+        self.index_of(id).map(|i| self.clips.remove(i).1)
     }
 
     /// 클립을 새 시작 틱으로 옮긴다. 노트는 클립 기준이라 함께 움직인다.
@@ -250,7 +311,20 @@ impl Track {
     /// 없는 클립이면 [`ModelError::UnknownClip`], 다른 클립과 겹치면 [`ModelError::ClipOverlap`],
     /// 끝이 u64를 넘으면 [`ModelError::TickOverflow`]. 실패하면 트랙은 바뀌지 않는다.
     pub fn move_clip(&mut self, id: ClipId, new_start: Tick) -> Result<(), ModelError> {
-        todo!("{id:?} {new_start:?}")
+        let index = self.index_of(id).ok_or(ModelError::UnknownClip)?;
+        let length = self.clips[index].1.length();
+        let end = new_start.checked_add(length)?.get();
+        if self.overlaps(new_start.get(), end, Some(id)) {
+            return Err(ModelError::ClipOverlap {
+                start: new_start.get(),
+                end,
+            });
+        }
+        let (_, mut clip) = self.clips.remove(index);
+        // 오버플로는 위에서 검사했으므로 set_start는 실패하지 않는다.
+        clip.set_start(new_start)?;
+        self.place(id, clip);
+        Ok(())
     }
 
     /// 트랙 기준 `at`에서 클립을 둘로 나누고 오른쪽 클립의 식별자를 돌려준다.
@@ -261,14 +335,29 @@ impl Track {
     /// 없는 클립이면 [`ModelError::UnknownClip`], `at`이 클립 안쪽(`start < at < end`)이 아니면
     /// [`ModelError::SplitOutsideClip`]. 실패하면 트랙은 바뀌지 않는다.
     pub fn split_clip(&mut self, id: ClipId, at: Tick) -> Result<ClipId, ModelError> {
-        todo!("{id:?} {at:?}")
+        let index = self.index_of(id).ok_or(ModelError::UnknownClip)?;
+        let clip = &self.clips[index].1;
+        let (start, end) = (clip.start().get(), clip.end());
+        if at.get() <= start || at.get() >= end {
+            return Err(ModelError::SplitOutsideClip {
+                at: at.get(),
+                start,
+                end,
+            });
+        }
+        let right = self.clips[index].1.split_at(at.get() - start)?;
+        let right_id = self.allocate_id();
+        // 오른쪽 클립은 왼쪽 바로 뒤에 놓인다. 원래 구간 안이므로 겹침이 생기지 않는다.
+        self.clips.insert(index + 1, (right_id, right));
+        Ok(right_id)
     }
 
     /// # Errors
     ///
     /// 없는 클립이면 [`ModelError::UnknownClip`], 노트가 클립 밖이면 [`ModelError::NoteOutsideClip`].
     pub fn insert_note(&mut self, id: ClipId, note: Note) -> Result<(), ModelError> {
-        todo!("{id:?} {note:?}")
+        let index = self.index_of(id).ok_or(ModelError::UnknownClip)?;
+        self.clips[index].1.insert_note(note)
     }
 
     /// 같은 값의 노트 하나를 지운다. 지웠으면 `Ok(true)`.
@@ -277,7 +366,8 @@ impl Track {
     ///
     /// 없는 클립이면 [`ModelError::UnknownClip`].
     pub fn remove_note(&mut self, id: ClipId, note: &Note) -> Result<bool, ModelError> {
-        todo!("{id:?} {note:?}")
+        let index = self.index_of(id).ok_or(ModelError::UnknownClip)?;
+        Ok(self.clips[index].1.remove_note(note))
     }
 }
 
@@ -299,8 +389,13 @@ mod tests {
     }
 
     fn note(start: u64, length: u32) -> Note {
-        Note::new(Tick::new(start), length, Pitch::new(60).unwrap(), Velocity::new(100).unwrap())
-            .unwrap()
+        Note::new(
+            Tick::new(start),
+            length,
+            Pitch::new(60).unwrap(),
+            Velocity::new(100).unwrap(),
+        )
+        .unwrap()
     }
 
     #[test]
@@ -347,7 +442,10 @@ mod tests {
         let before = t.clone();
         assert_eq!(
             t.insert_clip(clip(1919, 10)),
-            Err(ModelError::ClipOverlap { start: 1919, end: 1929 })
+            Err(ModelError::ClipOverlap {
+                start: 1919,
+                end: 1929
+            })
         );
         assert!(t.insert_clip(clip(0, 961)).is_err());
         assert!(t.insert_clip(clip(1000, 10)).is_err());
@@ -366,9 +464,18 @@ mod tests {
         let a = t.insert_clip(clip(0, 960)).unwrap();
         let b = t.insert_clip(clip(1920, 960)).unwrap();
         let before = t.clone();
-        assert!(matches!(t.move_clip(a, Tick::new(1000)), Err(ModelError::ClipOverlap { .. })));
-        assert_eq!(t.move_clip(a, Tick::new(u64::MAX - 10)), Err(ModelError::TickOverflow));
-        assert_eq!(t.move_clip(ClipId(999), Tick::ZERO), Err(ModelError::UnknownClip));
+        assert!(matches!(
+            t.move_clip(a, Tick::new(1000)),
+            Err(ModelError::ClipOverlap { .. })
+        ));
+        assert_eq!(
+            t.move_clip(a, Tick::new(u64::MAX - 10)),
+            Err(ModelError::TickOverflow)
+        );
+        assert_eq!(
+            t.move_clip(ClipId(999), Tick::ZERO),
+            Err(ModelError::UnknownClip)
+        );
         assert_eq!(t, before);
         // 자기 자신과는 겹침으로 보지 않는다.
         t.move_clip(b, Tick::new(1900)).unwrap();
@@ -389,15 +496,24 @@ mod tests {
 
         let left = t.clip(id).unwrap();
         assert_eq!((left.start().get(), left.length()), (960, 960));
-        let left_notes: Vec<(u64, u32)> =
-            left.notes().iter().map(|n| (n.start().get(), n.length())).collect();
+        let left_notes: Vec<(u64, u32)> = left
+            .notes()
+            .iter()
+            .map(|n| (n.start().get(), n.length()))
+            .collect();
         assert_eq!(left_notes, vec![(0, 100), (900, 200)]);
-        assert!(left.notes()[1].end() > left.length(), "꼬리가 클립 끝을 넘는다");
+        assert!(
+            left.notes()[1].end() > left.length(),
+            "꼬리가 클립 끝을 넘는다"
+        );
 
         let right = t.clip(right).unwrap();
         assert_eq!((right.start().get(), right.length()), (1920, 960));
-        let right_notes: Vec<(u64, u32)> =
-            right.notes().iter().map(|n| (n.start().get(), n.length())).collect();
+        let right_notes: Vec<(u64, u32)> = right
+            .notes()
+            .iter()
+            .map(|n| (n.start().get(), n.length()))
+            .collect();
         assert_eq!(right_notes, vec![(0, 100), (540, 420)]);
     }
 
@@ -409,18 +525,31 @@ mod tests {
         for at in [0, 960, 1920, 5000] {
             assert_eq!(
                 t.split_clip(id, Tick::new(at)),
-                Err(ModelError::SplitOutsideClip { at, start: 960, end: 1920 })
+                Err(ModelError::SplitOutsideClip {
+                    at,
+                    start: 960,
+                    end: 1920
+                })
             );
         }
-        assert_eq!(t.split_clip(ClipId(999), Tick::new(1000)), Err(ModelError::UnknownClip));
+        assert_eq!(
+            t.split_clip(ClipId(999), Tick::new(1000)),
+            Err(ModelError::UnknownClip)
+        );
         assert_eq!(t, before);
     }
 
     #[test]
     fn track_note_ops_on_unknown_clip_are_rejected() {
         let mut t = track();
-        assert_eq!(t.insert_note(ClipId(0), note(0, 1)), Err(ModelError::UnknownClip));
-        assert_eq!(t.remove_note(ClipId(0), &note(0, 1)), Err(ModelError::UnknownClip));
+        assert_eq!(
+            t.insert_note(ClipId(0), note(0, 1)),
+            Err(ModelError::UnknownClip)
+        );
+        assert_eq!(
+            t.remove_note(ClipId(0), &note(0, 1)),
+            Err(ModelError::UnknownClip)
+        );
     }
 
     #[test]

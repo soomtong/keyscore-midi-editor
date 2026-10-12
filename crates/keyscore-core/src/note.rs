@@ -9,7 +9,11 @@ impl Pitch {
     ///
     /// 127을 넘으면 [`ModelError::PitchOutOfRange`].
     pub fn new(value: u8) -> Result<Self, ModelError> {
-        todo!("{value}")
+        if value <= 127 {
+            Ok(Pitch(value))
+        } else {
+            Err(ModelError::PitchOutOfRange(value))
+        }
     }
 
     #[must_use]
@@ -33,7 +37,11 @@ impl PitchOffset {
     ///
     /// ±1200센트를 넘으면 [`ModelError::PitchOffsetOutOfRange`].
     pub fn new(cents: i16) -> Result<Self, ModelError> {
-        todo!("{cents}")
+        if (-Self::MAX_CENTS..=Self::MAX_CENTS).contains(&cents) {
+            Ok(PitchOffset(cents))
+        } else {
+            Err(ModelError::PitchOffsetOutOfRange(cents))
+        }
     }
 
     #[must_use]
@@ -54,11 +62,18 @@ impl Velocity {
     /// v1이 담는 최댓값.
     pub const V1_MAX: u16 = 127;
 
+    /// 새 트랙의 기본 벨로시티. 숫자 자체는 REQ에 없고 흔한 시퀀서 기본값을 따른다.
+    pub(crate) const TRACK_DEFAULT: Velocity = Velocity(100);
+
     /// # Errors
     ///
     /// 127을 넘으면 [`ModelError::VelocityOutOfRange`].
     pub fn new(value: u16) -> Result<Self, ModelError> {
-        todo!("{value}")
+        if value <= Self::V1_MAX {
+            Ok(Velocity(value))
+        } else {
+            Err(ModelError::VelocityOutOfRange(value))
+        }
     }
 
     #[must_use]
@@ -85,8 +100,25 @@ impl Note {
     /// # Errors
     ///
     /// 길이가 0이면 [`ModelError::ZeroNoteLength`], 끝 틱이 u64를 넘으면 [`ModelError::TickOverflow`].
-    pub fn new(start: Tick, length: u32, pitch: Pitch, velocity: Velocity) -> Result<Self, ModelError> {
-        todo!("{start:?} {length} {pitch:?} {velocity:?}")
+    pub fn new(
+        start: Tick,
+        length: u32,
+        pitch: Pitch,
+        velocity: Velocity,
+    ) -> Result<Self, ModelError> {
+        if length == 0 {
+            return Err(ModelError::ZeroNoteLength);
+        }
+        // end()가 덧셈을 검사 없이 하므로 여기서 오버플로를 막는다.
+        start.checked_add(u64::from(length))?;
+        Ok(Note {
+            start,
+            length,
+            pitch,
+            offset: PitchOffset::ZERO,
+            velocity,
+            lyric: None,
+        })
     }
 
     #[must_use]
@@ -97,7 +129,11 @@ impl Note {
     /// 가사 음절을 붙인다. 빈 문자열은 「가사 없음」이다(LYR-1).
     #[must_use]
     pub fn with_lyric(self, lyric: impl Into<String>) -> Self {
-        todo!("{}", lyric.into())
+        let lyric = lyric.into();
+        Note {
+            lyric: if lyric.is_empty() { None } else { Some(lyric) },
+            ..self
+        }
     }
 
     #[must_use]
@@ -138,7 +174,11 @@ impl Note {
 
     /// 같은 내용을 다른 시작 틱에 둔 노트. 클립 분할·이동에서 기준점을 바꿀 때 쓴다.
     pub(crate) fn with_start(&self, start: Tick) -> Result<Self, ModelError> {
-        todo!("{start:?}")
+        start.checked_add(u64::from(self.length))?;
+        Ok(Note {
+            start,
+            ..self.clone()
+        })
     }
 }
 
@@ -187,9 +227,18 @@ mod tests {
 
     #[test]
     fn pitch_offset_beyond_one_octave_is_rejected() {
-        assert_eq!(PitchOffset::new(1201), Err(ModelError::PitchOffsetOutOfRange(1201)));
-        assert_eq!(PitchOffset::new(-1201), Err(ModelError::PitchOffsetOutOfRange(-1201)));
-        assert_eq!(PitchOffset::new(i16::MIN), Err(ModelError::PitchOffsetOutOfRange(i16::MIN)));
+        assert_eq!(
+            PitchOffset::new(1201),
+            Err(ModelError::PitchOffsetOutOfRange(1201))
+        );
+        assert_eq!(
+            PitchOffset::new(-1201),
+            Err(ModelError::PitchOffsetOutOfRange(-1201))
+        );
+        assert_eq!(
+            PitchOffset::new(i16::MIN),
+            Err(ModelError::PitchOffsetOutOfRange(i16::MIN))
+        );
         assert_eq!(PitchOffset::new(1200).map(PitchOffset::cents), Ok(1200));
         assert_eq!(PitchOffset::new(-1200).map(PitchOffset::cents), Ok(-1200));
     }
@@ -203,14 +252,20 @@ mod tests {
 
     #[test]
     fn note_new_zero_length_is_rejected() {
-        assert_eq!(Note::new(Tick::ZERO, 0, p(60), v(100)), Err(ModelError::ZeroNoteLength));
+        assert_eq!(
+            Note::new(Tick::ZERO, 0, p(60), v(100)),
+            Err(ModelError::ZeroNoteLength)
+        );
         let note = Note::new(Tick::new(10), 5, p(60), v(100)).unwrap();
         assert_eq!(note.end(), 15);
     }
 
     #[test]
     fn note_new_end_overflowing_u64_is_rejected() {
-        assert_eq!(Note::new(Tick::new(u64::MAX), 1, p(60), v(100)), Err(ModelError::TickOverflow));
+        assert_eq!(
+            Note::new(Tick::new(u64::MAX), 1, p(60), v(100)),
+            Err(ModelError::TickOverflow)
+        );
     }
 
     #[test]

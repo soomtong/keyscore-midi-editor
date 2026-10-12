@@ -24,7 +24,10 @@ impl Tick {
     ///
     /// 합이 u64를 넘으면 [`ModelError::TickOverflow`].
     pub fn checked_add(self, delta: u64) -> Result<Tick, ModelError> {
-        todo!("{delta}")
+        self.0
+            .checked_add(delta)
+            .map(Tick)
+            .ok_or(ModelError::TickOverflow)
     }
 }
 
@@ -34,7 +37,10 @@ mod tests {
 
     #[test]
     fn tick_checked_add_overflow_is_rejected() {
-        assert_eq!(Tick::new(u64::MAX).checked_add(1), Err(ModelError::TickOverflow));
+        assert_eq!(
+            Tick::new(u64::MAX).checked_add(1),
+            Err(ModelError::TickOverflow)
+        );
         assert_eq!(Tick::new(1).checked_add(2), Ok(Tick::new(3)));
     }
 }

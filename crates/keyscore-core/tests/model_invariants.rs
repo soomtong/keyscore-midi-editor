@@ -13,12 +13,32 @@ const SPAN: u64 = 20_000;
 
 #[derive(Debug, Clone)]
 enum Op {
-    InsertClip { start: u64, length: u64 },
-    RemoveClip { pick: usize },
-    MoveClip { pick: usize, new_start: u64 },
-    SplitClip { pick: usize, at: u64 },
-    InsertNote { pick: usize, start: u64, length: u32, pitch: u8, lyric: bool },
-    RemoveNote { pick: usize, note_pick: usize },
+    InsertClip {
+        start: u64,
+        length: u64,
+    },
+    RemoveClip {
+        pick: usize,
+    },
+    MoveClip {
+        pick: usize,
+        new_start: u64,
+    },
+    SplitClip {
+        pick: usize,
+        at: u64,
+    },
+    InsertNote {
+        pick: usize,
+        start: u64,
+        length: u32,
+        pitch: u8,
+        lyric: bool,
+    },
+    RemoveNote {
+        pick: usize,
+        note_pick: usize,
+    },
 }
 
 fn op() -> impl Strategy<Value = Op> {
@@ -34,20 +54,28 @@ fn op() -> impl Strategy<Value = Op> {
 }
 
 fn new_track() -> Track {
-    Track::new("Lead", Channel::new(1).unwrap(), TrackColor::new(0).unwrap())
+    Track::new(
+        "Lead",
+        Channel::new(1).unwrap(),
+        TrackColor::new(0).unwrap(),
+    )
 }
 
 fn pick_clip(track: &Track, pick: usize) -> Option<ClipId> {
     let ids: Vec<ClipId> = track.clips().map(|(id, _)| id).collect();
-    if ids.is_empty() { None } else { Some(ids[pick % ids.len()]) }
+    if ids.is_empty() {
+        None
+    } else {
+        Some(ids[pick % ids.len()])
+    }
 }
 
 /// 연산을 적용한다. 생성자 단계에서 거부된 입력(길이 0 등)은 `Err`로 본다.
 fn apply(track: &mut Track, op: &Op) -> Result<(), ModelError> {
     match *op {
-        Op::InsertClip { start, length } => {
-            track.insert_clip(Clip::new(Tick::new(start), length)?).map(|_| ())
-        }
+        Op::InsertClip { start, length } => track
+            .insert_clip(Clip::new(Tick::new(start), length)?)
+            .map(|_| ()),
         Op::RemoveClip { pick } => {
             if let Some(id) = pick_clip(track, pick) {
                 track.remove_clip(id);
@@ -62,7 +90,13 @@ fn apply(track: &mut Track, op: &Op) -> Result<(), ModelError> {
             Some(id) => track.split_clip(id, Tick::new(at)).map(|_| ()),
             None => Ok(()),
         },
-        Op::InsertNote { pick, start, length, pitch, lyric } => match pick_clip(track, pick) {
+        Op::InsertNote {
+            pick,
+            start,
+            length,
+            pitch,
+            lyric,
+        } => match pick_clip(track, pick) {
             Some(id) => {
                 let mut note = Note::new(
                     Tick::new(start),
@@ -81,7 +115,11 @@ fn apply(track: &mut Track, op: &Op) -> Result<(), ModelError> {
             if let Some(id) = pick_clip(track, pick) {
                 let notes = track.clip(id).unwrap().notes().to_vec();
                 if !notes.is_empty() {
-                    assert!(track.remove_note(id, &notes[note_pick % notes.len()]).unwrap());
+                    assert!(
+                        track
+                            .remove_note(id, &notes[note_pick % notes.len()])
+                            .unwrap()
+                    );
                 }
             }
             Ok(())
@@ -107,15 +145,21 @@ fn check_invariants(track: &Track) -> Result<(), String> {
                 return Err(format!("길이 0 노트: {note:?}"));
             }
         }
-        let keys: Vec<(u64, u8)> =
-            clip.notes().iter().map(|n| (n.start().get(), n.pitch().get())).collect();
+        let keys: Vec<(u64, u8)> = clip
+            .notes()
+            .iter()
+            .map(|n| (n.start().get(), n.pitch().get()))
+            .collect();
         if !keys.windows(2).all(|w| w[0] <= w[1]) {
             return Err(format!("노트 정렬 깨짐: {keys:?}"));
         }
     }
     for pair in clips.windows(2) {
         if pair[0].end() > pair[1].start().get() {
-            return Err(format!("클립 겹침 또는 정렬 깨짐: {:?} / {:?}", pair[0], pair[1]));
+            return Err(format!(
+                "클립 겹침 또는 정렬 깨짐: {:?} / {:?}",
+                pair[0], pair[1]
+            ));
         }
     }
     let ids: Vec<ClipId> = track.clips().map(|(id, _)| id).collect();

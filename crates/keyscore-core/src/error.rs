@@ -28,7 +28,11 @@ pub enum ModelError {
     #[error("틱 계산이 u64 범위를 넘는다")]
     TickOverflow,
     #[error("노트(시작 {start}, 끝 {end})가 클립 길이 {clip_length} 밖이다")]
-    NoteOutsideClip { start: u64, end: u64, clip_length: u64 },
+    NoteOutsideClip {
+        start: u64,
+        end: u64,
+        clip_length: u64,
+    },
     #[error("클립 구간 [{start}, {end})이 같은 트랙의 다른 클립과 겹친다")]
     ClipOverlap { start: u64, end: u64 },
     #[error("트랙에 없는 클립이다")]
