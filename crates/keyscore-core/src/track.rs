@@ -146,6 +146,8 @@ pub struct Track {
     lyric_lang: Option<String>,
     /// 시작 틱 순으로 정렬. 겹침이 없으므로 끝 틱 순서도 같다.
     clips: Vec<(ClipId, Clip)>,
+    /// `.ksq` 트랙 객체의 모르는 키. 다시 쓸 때 보존한다(REQ IO-1).
+    extra: serde_json::Map<String, serde_json::Value>,
 }
 
 impl Track {
@@ -165,6 +167,7 @@ impl Track {
             solo: false,
             lyric_lang: None,
             clips: Vec::new(),
+            extra: serde_json::Map::new(),
         }
     }
 
@@ -270,6 +273,14 @@ impl Track {
     /// 빈 문자열은 「지정 안 함」이다.
     pub fn set_lyric_lang(&mut self, lang: Option<String>) {
         self.lyric_lang = lang.filter(|l| !l.is_empty());
+    }
+
+    pub(crate) fn extra(&self) -> &serde_json::Map<String, serde_json::Value> {
+        &self.extra
+    }
+
+    pub(crate) fn set_extra(&mut self, extra: serde_json::Map<String, serde_json::Value>) {
+        self.extra = extra;
     }
 
     /// 시작 틱 순서의 클립.

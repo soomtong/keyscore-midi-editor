@@ -127,6 +127,9 @@ pub struct Note {
     offset: PitchOffset,
     velocity: Velocity,
     lyric: Option<String>,
+    /// `.ksq` 노트 선택 속성 객체의 모르는 키(정규화한 JSON 객체 문자열). 다시 쓸 때 보존한다
+    /// (REQ IO-1 「모르는 키는 보존」). 편집 API로는 바꾸지 않는다.
+    extra: Option<Box<str>>,
 }
 
 /// 노트의 전체 순서: 시작, 음높이, 그다음 나머지 필드. 클립 안 노트는 이 순서로 정렬된다.
@@ -142,6 +145,7 @@ impl Ord for Note {
             self.offset,
             self.velocity,
             &self.lyric,
+            &self.extra,
         )
             .cmp(&(
                 other.start,
@@ -150,6 +154,7 @@ impl Ord for Note {
                 other.offset,
                 other.velocity,
                 &other.lyric,
+                &other.extra,
             ))
     }
 }
@@ -182,12 +187,27 @@ impl Note {
             offset: PitchOffset::ZERO,
             velocity,
             lyric: None,
+            extra: None,
         })
     }
 
-    #[must_use]
-    pub fn with_offset(self, offset: PitchOffset) -> Self {
-        Note { offset, ..self }
+    /// 피치 오프셋을 붙인다.
+    ///
+    /// # Errors
+    ///
+    /// 음높이 + 오프셋이 0 이상 128반음 미만이 아니면 [`ModelError::AbsolutePitchOutOfRange`].
+    /// MIDI 2.0 노트별 피치(7.25 고정소수)가 담을 수 있는 값만 받는다
+    /// (`docs/decisions/2026-10-12-absolute-pitch-range.md` B).
+    pub fn with_offset(self, offset: PitchOffset) -> Result<Self, ModelError> {
+        todo!("{offset:?}")
+    }
+
+    pub(crate) fn extra(&self) -> Option<&str> {
+        self.extra.as_deref()
+    }
+
+    pub(crate) fn with_extra(self, extra: Option<Box<str>>) -> Self {
+        Note { extra, ..self }
     }
 
     /// 가사 음절을 붙인다. 빈 문자열은 「가사 없음」이다(LYR-1).
@@ -337,6 +357,30 @@ mod tests {
         assert_eq!(Velocity::new(0xFFFF).to_midi1(), 127);
         assert_eq!(Velocity::new(0x01FF).to_midi1(), 0);
         assert_eq!(Velocity::new(0x0200).to_midi1(), 1);
+    }
+
+    #[test]
+    fn note_offset_outside_midi2_range_is_rejected() {
+        let semis = |n: i32| PitchOffset::new(n * PitchOffset::SEMITONE).unwrap();
+        let at =
+            |p: u8| Note::new(Tick::ZERO, 1, Pitch::new(p).unwrap(), Velocity::new(1)).unwrap();
+        // 127 + 1반음 = 128반음: 범위 밖. 127 + (1반음 − 1단위)는 범위 안.
+        assert_eq!(
+            at(127).with_offset(semis(1)).unwrap_err(),
+            ModelError::AbsolutePitchOutOfRange
+        );
+        let just_below = PitchOffset::new(PitchOffset::SEMITONE - 1).unwrap();
+        assert!(at(127).with_offset(just_below).is_ok());
+        // 0 − 1단위: 음수라서 범위 밖. 0 + 0은 범위 안.
+        assert_eq!(
+            at(0)
+                .with_offset(PitchOffset::new(-1).unwrap())
+                .unwrap_err(),
+            ModelError::AbsolutePitchOutOfRange
+        );
+        assert!(at(0).with_offset(PitchOffset::ZERO).is_ok());
+        assert_eq!(at(60).with_offset(semis(12)).unwrap().offset(), semis(12));
+        assert!(at(60).with_offset(semis(-12)).is_ok());
     }
 
     #[test]

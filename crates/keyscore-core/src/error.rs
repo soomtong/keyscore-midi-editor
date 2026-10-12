@@ -11,6 +11,8 @@ pub enum ModelError {
     PitchOutOfRange(u8),
     #[error("피치 오프셋은 ±1옥타브(반음 1/2^25 단위 ±402653184)여야 한다: {0}")]
     PitchOffsetOutOfRange(i32),
+    #[error("음높이 + 피치 오프셋이 MIDI 2.0 범위(0 이상 128반음 미만) 밖이다")]
+    AbsolutePitchOutOfRange,
     #[error("MIDI 1.0 벨로시티는 0–127이어야 한다: {0}")]
     Midi1VelocityOutOfRange(u8),
     #[error("프로그램은 0–127이어야 한다: {0}")]

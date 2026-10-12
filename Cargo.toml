@@ -25,6 +25,9 @@ keyscore-text = { path = "crates/keyscore-text" }
 keyscore-midi = { path = "crates/keyscore-midi" }
 keyscore-ai = { path = "crates/keyscore-ai" }
 thiserror = "2"
+serde_json = "1"
+flate2 = "1"
+insta = "1"
 proptest = "1"
 # 그래프(plotters)·병렬(rayon)을 빼서 의존 트리를 줄인다. 수치 비교만 쓴다.
 criterion = { version = "0.7", default-features = false, features = ["cargo_bench_support"] }

@@ -12,12 +12,22 @@ pub struct Project {
     meter_map: MeterMap,
     key: Key,
     tracks: Vec<Track>,
+    /// `.ksq` 최상위 객체의 모르는 키. 다시 쓸 때 보존한다(REQ IO-1).
+    extra: serde_json::Map<String, serde_json::Value>,
 }
 
 impl Project {
     #[must_use]
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub(crate) fn extra(&self) -> &serde_json::Map<String, serde_json::Value> {
+        &self.extra
+    }
+
+    pub(crate) fn set_extra(&mut self, extra: serde_json::Map<String, serde_json::Value>) {
+        self.extra = extra;
     }
 
     #[must_use]

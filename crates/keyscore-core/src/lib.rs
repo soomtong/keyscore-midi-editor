@@ -14,6 +14,7 @@ mod edit;
 mod error;
 mod history;
 mod key;
+pub mod ksq;
 mod meter;
 mod note;
 mod project;
