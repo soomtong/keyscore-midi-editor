@@ -323,6 +323,12 @@ fn nearest_reachable(length: u64, max_end: u64, c0: u64) -> (u64, Fill) {
         .unwrap_or((lengths::NOTATIONS[20].ticks, Fill::RestVoice))
 }
 
+/// 타이 사슬의 조각 수 한도. 넘으면 가장 가까운 표기에 `~+0:+<차이>`를 붙인다. 사슬은 길이에
+/// 비례해 커지므로, 한도가 없으면 길이 보정 토큰 하나(`c4~+0:+4294963200`, 18바이트)가 온음표
+/// 1,118,481개(약 5 MB)로 내보내진다(S0-T5 리뷰 2 지적 1). 16조각(4/4 16마디)이면 실제 곡의 긴
+/// 지속음은 타이로 읽기 좋게 남고, 노트 하나의 출력은 상수로 묶인다.
+const MAX_TIE_PIECES: u64 = 16;
+
 /// 성부 블록 하나의 본문을 적는다. 커서는 파서와 같이 명목 길이로 나아간다.
 struct VoiceWriter {
     drum: bool,
@@ -489,8 +495,10 @@ impl VoiceWriter {
         let lyric = ev.lyric.map(quote).unwrap_or_default();
         let len = ev.length;
         let rem = len % WHOLE;
+        let pieces_count = len / WHOLE + u64::from(rem > 0);
         if so == 0
             && len > WHOLE
+            && pieces_count <= MAX_TIE_PIECES
             && lengths::exact(len).is_none()
             && (rem == 0 || lengths::exact(rem).is_some())
         {

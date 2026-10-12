@@ -19,7 +19,8 @@ const START_VELOCITY: u8 = 100;
 /// −`export::MAX_DRIFT`(480)부터 +59까지만 쓴다.
 pub(crate) const MAX_START_OFFSET: i64 = 3840;
 /// `~` 길이 보정의 한도. 노트 길이가 u32라 내보내기는 u32 끝 근처 길이에 큰 보정을 쓴다.
-/// 길이 보정은 노트 하나의 끝만 늘리고 커서는 옮기지 않으므로 증폭이 생기지 않는다.
+/// 길이 보정은 커서를 옮기지 않지만 노트 하나를 u32 끝까지 늘릴 수 있다. 그런 노트가 내보내기에서
+/// 커지지 않는 것은 내보내기가 타이 사슬 조각 수를 묶기 때문이다(`export::MAX_TIE_PIECES`).
 pub(crate) const MAX_LENGTH_OFFSET: i64 = u32::MAX as i64;
 
 /// `@tempo`의 정수부·소수부 자릿수 한도. 내보내기가 쓰는 자릿수(최대 12)를 받고,

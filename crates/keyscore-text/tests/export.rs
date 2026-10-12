@@ -217,3 +217,17 @@ fn export_start_offsets_stay_within_parser_cap() {
     assert!(worst >= -480, "가장 작은 시작 보정 {worst}");
     assert_eq!(reparse(&text), (notes(&c), 500));
 }
+
+#[test]
+fn export_tie_chain_is_capped_at_16_pieces() {
+    // 16조각(온음표 15개 + 2분음표)까지는 타이, 넘으면 가장 가까운 표기 + 길이 보정 하나.
+    let tied = clip(3840 * 15 + 1920, &[n(0, 3840 * 15 + 1920, 60)]);
+    let text = export(&Header::default(), &[track("T", 1, &tied)]);
+    assert_eq!(text.matches('&').count(), 15, "{text}");
+    assert_eq!(reparse(&text), (notes(&tied), 3840 * 15 + 1920));
+    let long = clip(3840 * 17, &[n(0, 3840 * 17, 60)]);
+    let text = export(&Header::default(), &[track("T", 1, &long)]);
+    assert!(!text.contains('&'), "{text}");
+    assert!(text.contains("c1..~+0:+58560"), "{text}");
+    assert_eq!(reparse(&text), (notes(&long), 3840 * 17));
+}
