@@ -66,6 +66,13 @@ pub enum Edit {
         id: ClipId,
         at: Tick,
     },
+    /// 클립 길이를 `length`로 늘린다(REQ 5.10 「입력이 끝을 넘으면 클립이 늘어남」). 줄이기는 받지
+    /// 않는다. 비파괴 트림은 S4-T2이고, undo가 쓰는 줄이기는 crate 내부에만 있다.
+    ExtendClip {
+        track: TrackId,
+        id: ClipId,
+        length: u64,
+    },
     SetClipName {
         track: TrackId,
         id: ClipId,
@@ -145,6 +152,17 @@ pub(crate) enum Op {
         at: Tick,
         right: ClipId,
     },
+    ExtendClip {
+        track: TrackId,
+        id: ClipId,
+        length: u64,
+    },
+    /// `ExtendClip`의 역. 늘리기 전 길이로 되돌린다.
+    ShrinkClip {
+        track: TrackId,
+        id: ClipId,
+        length: u64,
+    },
     UnsplitClip {
         track: TrackId,
         left: ClipId,
@@ -197,6 +215,7 @@ impl From<Edit> for Op {
             Edit::RemoveClip { track, id } => Op::RemoveClip { track, id },
             Edit::MoveClip { track, id, to } => Op::MoveClip { track, id, to },
             Edit::SplitClip { track, id, at } => Op::SplitClip { track, id, at },
+            Edit::ExtendClip { track, id, length } => Op::ExtendClip { track, id, length },
             Edit::SetClipName { track, id, name } => Op::SetClipName { track, id, name },
             Edit::SetClipColor { track, id, color } => Op::SetClipColor { track, id, color },
             Edit::InsertNote { track, clip, note } => Op::InsertNote { track, clip, note },
@@ -289,6 +308,12 @@ impl Op {
                     right,
                     original: Box::new(original),
                 })
+            }
+            Op::ExtendClip { track, id, length } => {
+                todo!("{track:?} {id:?} {length}")
+            }
+            Op::ShrinkClip { track, id, length } => {
+                todo!("{track:?} {id:?} {length}")
             }
             Op::UnsplitClip {
                 track,
@@ -733,6 +758,58 @@ mod tests {
         assert!(
             forged.apply(&mut p).is_err(),
             "맞붙지 않은 두 클립은 되돌릴 분할이 아니다"
+        );
+        assert_eq!(p, before);
+    }
+
+    #[test]
+    fn extend_clip_edit_round_trip_and_rejects_shrink() {
+        let (mut p, t, a, b) = fixture();
+        round_trip(
+            &mut p,
+            Op::ExtendClip {
+                track: t,
+                id: a,
+                length: 1920,
+            },
+        );
+        assert_eq!(p.track(t).unwrap().clip(a).unwrap().length(), 1920);
+        let before = p.clone();
+        // 줄이기 거부, 다음 클립(b, 1920부터)과 겹치기 거부.
+        assert_eq!(
+            Op::ExtendClip {
+                track: t,
+                id: a,
+                length: 100
+            }
+            .apply(&mut p)
+            .unwrap_err(),
+            ModelError::ClipWouldShrink {
+                current: 1920,
+                requested: 100
+            }
+        );
+        assert!(matches!(
+            Op::ExtendClip {
+                track: t,
+                id: a,
+                length: 1921
+            }
+            .apply(&mut p),
+            Err(ModelError::ClipOverlap { .. })
+        ));
+        assert_eq!(
+            Op::ExtendClip {
+                track: t,
+                id: b,
+                length: 0
+            }
+            .apply(&mut p)
+            .unwrap_err(),
+            ModelError::ClipWouldShrink {
+                current: 960,
+                requested: 0
+            }
         );
         assert_eq!(p, before);
     }

@@ -21,6 +21,7 @@ mod project;
 mod tempo;
 mod tick;
 mod track;
+pub mod transform;
 
 pub use clip::{Clip, ClipId};
 pub use document::Document;
