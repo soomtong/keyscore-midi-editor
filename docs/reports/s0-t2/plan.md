@@ -3,7 +3,7 @@
 - 브랜치: `s0/t2-core-model`
 - 관련 REQ: 2(조성 결정 행, 트랙 색 12색), 3(용어), 5.10(클립 규칙), 5.15(LYR-1 모델 부분), 6.1 SEQ-1·SEQ-2·SEQ-3·SEQ-4·SEQ-7
 - 선행 Task: S0-T1
-- 관련 결정: `docs/decisions/2026-10-12-clip-split-and-velocity.md`(분할 시 숨김 꼬리, 벨로시티 0–127), `docs/decisions/2026-10-11-license-allowlist.md`(thiserror의 Unicode-3.0)
+- 관련 결정: `docs/decisions/2026-10-12-clip-split-and-velocity.md`(Q1 분할 시 숨김 꼬리, Q2 벨로시티 16비트, Q3 피치 오프셋 MIDI 2.0 해상도), `docs/decisions/2026-10-11-license-allowlist.md`(thiserror의 Unicode-3.0)
 
 ## 끝의 정의 (내 말로)
 
@@ -99,7 +99,7 @@ impl Project {
 | 1 | `channel_new_zero_or_seventeen_is_rejected` | 단위 | 채널 0·17 생성 불가, 1·16 가능 |
 | 2 | `channel_ten_is_drum` | 단위 | 10만 드럼 |
 | 3 | `pitch_new_above_127_is_rejected` | 단위 | 음높이 범위 |
-| 4 | `pitch_offset_beyond_one_octave_is_rejected` | 단위 | ±1200 센트 |
+| 4 | `pitch_offset_beyond_one_octave_is_rejected` | 단위 | ±12반음(반음 1/2^25 단위, 결정 Q3) |
 | 5 | `velocity_from_midi1_*`, `velocity_midi1_round_trip_is_lossless` | 단위 | 결정 Q2(리뷰 1 뒤 개정): 7→16 스케일링, 7→16→7 무손실 |
 | 6 | `note_new_zero_length_is_rejected` | 단위 | 노트 길이 ≥ 1 |
 | 7 | `note_with_empty_lyric_has_no_lyric` | 단위 | LYR-1 「비어 있으면 가사 없음」 |

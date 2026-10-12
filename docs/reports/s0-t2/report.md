@@ -10,7 +10,7 @@
 ## 구현 요약
 
 - `src/tick.rs`: `Tick`, `PPQ`, 오버플로를 검사하는 `checked_add`.
-- `src/note.rs`: `Pitch`, `PitchOffset`(센트), `Velocity`(v1 0–127), `Note`(생성자에서 길이 ≥ 1과 끝 오버플로를 검사하고, 빈 가사는 `None`), `CcPoint`.
+- `src/note.rs`: `Pitch`, `PitchOffset`(반음 1/2^25 단위, 리뷰 1 뒤), `Velocity`(MIDI 2.0 16비트, 리뷰 1 뒤), `Note`(생성자에서 길이 ≥ 1과 끝 오버플로를 검사하고, 빈 가사는 `None`), `CcPoint`.
 - `src/clip.rs`: `Clip`, `ClipId`. `insert_note`는 노트 끝까지 클립 안이어야 받고, `(시작, 음높이)` 정렬을 유지한다. crate 내부의 `split_at`은 실패할 수 있는 계산을 모두 끝낸 뒤에 상태를 바꾼다.
 - `src/track.rs`: `Channel`, `TrackColor`, `Program`, `Bank`, `OutputPort`, `Track`. 클립은 시작 순으로 정렬해 둔다. 삽입·이동은 겹침을 검사하고, 분할하면 오른쪽 클립을 바로 뒤에 놓는다. 클립 식별자는 재사용하지 않는다.
 - `src/key.rs`: `PitchClass`, `Key`. `src/project.rs`: `Project`(조성과 트랙). `src/error.rs`: `ModelError`.
@@ -73,7 +73,7 @@ check-deps.test:   11 passed, 0 failed
 
 - 불변식의 핵심은 `Track::move_clip`·`split_clip`과 `Clip::split_at`이다. 실패할 때 상태가 불변인지(계산을 끝낸 뒤 변경하는지) 봐 달라.
 - `Track`은 `&mut Clip`을 내주지 않는다. `Project::track_mut`는 `&mut Track`을 내주는데, `Track`이 스스로 불변식을 지키므로 괜찮다고 판단했다.
-- `PitchOffset`을 정수 센트로 둔 해석(계획의 「리스크」)이 SEQ-3의 「소수」와 맞는지 봐 달라.
+- (리뷰 1 전 문구) `PitchOffset`을 정수 센트로 둔 해석이 SEQ-3과 맞는지 봐 달라. 리뷰 1 뒤 결정 Q3으로 바뀌었다.
 - `scripts/check-deps.test.sh` 수정(`d11e520`)은 S0-T1 파일을 건드린다. 이 Task가 `core`에 dev 의존을 처음 넣으면서 드러난 결함이라 이 PR에서 고쳤다. 고치기 전에는 「직접 의존」 사례 일부가 dev 의존으로 바뀐 채 통과하고 있었다.
 
 ## 리뷰 대응 (review-1, 판정: 수정 후 재리뷰)
@@ -96,3 +96,23 @@ check-deps.test:   11 passed
 ~~~
 
 벨로시티 변환 값은 MIDI 2.0 명세의 min-center-max 확장으로 손으로 계산해 고정했다(64 → 0x8000, 65 → 0x8208, 100 → 0xC924, 127 → 0xFFFF). 0–127 전체의 왕복 무손실도 테스트한다. 새 트랙 기본 벨로시티는 MIDI 1.0 100에 해당하는 0xC924다.
+
+## 리뷰 대응 (review-2, 판정: 수정 후 재리뷰)
+
+| # | 지적 | 대응 |
+| --- | --- | --- |
+| 1 | README·계획·보고서에 개정 전 결정 표기(센트, v1 0–127)가 남음 | 고쳤다. 보고서의 리뷰 1 이전 문구는 시점 기록으로 두되, 개정되었다고 표시했다 |
+| 2 | `move_clip`이 빼낸 뒤 실패할 수 있는 호출을 함 (제안) | 받음. 제자리에서 `set_start`를 먼저 부르고 그다음 재정렬한다 |
+| 3 | 공용 속성 테스트가 꼬리 오버플로 퇴화를 못 잡음 (제안) | 받음. 틱에 u64 끝 근처 좁은 구간을 섞고, 분할 지점을 클립 기준으로 바꿨다. `extent` 검사를 빼면 세 번 실행 모두 실패하고(실패 시드가 `.proptest-regressions`에 기록됨), 원래 코드에서는 통과한다 |
+| 4 | `Track::clone`이 id를 복사해 복제 트랙 사이에서 id가 섞임 (제안) | 기록만 함. 트랙 복제는 S4(트랙 관리)에서 생기며, 그때 id를 다시 발급하는 복제 API를 만든다. `Clone`은 undo 스냅샷(S0-T4)에 원본과 같아야 하므로 바꾸지 않는다 |
+| 5 | `ClipId`와 `PartialEq`·직렬화 (제안) | 기록만 함. S0-T6에서 id를 저장하지 않고 읽을 때 새로 발급한다. 왕복 비교는 id를 뺀 내용으로 한다. 저장한다면 복원 때 카운터를 `fetch_max`로 올리고 중복을 검증해야 한다. S0-T6 계획의 리스크로 넘긴다 |
+| 6 | 음높이 + 오프셋 절대 범위 (제안) | 결정 요청 `docs/decisions/2026-10-12-absolute-pitch-range.md`. v1은 노트별 피치를 송신하지 않아 이 병합을 막지 않는다 |
+| 7 | `to_midi1`의 0 (제안) | 받음. 문서 주석에 S1 처리를 경고했다 |
+| 8 | 리뷰 테스트 이름이 단언과 반대 (제안) | 받음. `clip_id_from_another_track_addresses_nothing`으로 바꿨다 |
+
+리뷰어가 기록한 「같은 연산의 두 트랙이 한 번 `==`」는 무작위 연산 뒤 두 트랙 모두 클립이 0개인 경우로 보인다. 빈 트랙끼리는 id를 비교할 것이 없어 같다.
+
+~~~
+keyscore-core lib 28, model_invariants 4, review_s0_t2 5, review_s0_t2_r2 5 — 모두 통과
+check-deps.test: 11 passed
+~~~
