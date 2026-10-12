@@ -107,6 +107,7 @@ fn pick_clip(p: &Project, track: usize, pick: usize) -> Option<ClipId> {
 
 /// 현재 상태에서 연산을 편집 묶음으로 바꾼다. 대상이 없으면 `None`.
 /// 생성자에서 거부되는 값(길이 0 등)도 `None`으로 둔다(편집 이전 단계의 실패라서).
+#[allow(clippy::too_many_lines, reason = "연산 변형마다 한 갈래인 변환 표")]
 fn to_edits(p: &Project, op: &Op) -> Option<Vec<Edit>> {
     let edit = match *op {
         Op::AddTrack { at, channel } => Edit::InsertTrack {
@@ -117,9 +118,11 @@ fn to_edits(p: &Project, op: &Op) -> Option<Vec<Edit>> {
                 TrackColor::new(1).unwrap(),
             )),
         },
-        Op::RemoveTrack { pick } => Edit::RemoveTrack {
+        // 트랙을 하나는 남겨야 나머지 연산이 대상을 찾는다(대상 없음이 많으면 시험이 약해진다).
+        Op::RemoveTrack { pick } if p.tracks().len() > 1 => Edit::RemoveTrack {
             index: pick_track(p, pick)?,
         },
+        Op::RemoveTrack { .. } => return None,
         Op::Prop { pick, mute, name } => {
             let track = pick_track(p, pick)?;
             let prop = if name % 2 == 0 {
@@ -180,6 +183,9 @@ fn to_edits(p: &Project, op: &Op) -> Option<Vec<Edit>> {
             pitch,
         } => {
             let track = pick_track(p, pick)?;
+            let id = pick_clip(p, track, clip)?;
+            // 시작은 클립 안으로 맞춘다. 길이 때문에 끝이 넘치는 실패 사례는 그대로 남는다.
+            let start = start % p.tracks()[track].clip(id)?.length();
             let note = Note::new(
                 Tick::new(start),
                 length,
@@ -189,7 +195,7 @@ fn to_edits(p: &Project, op: &Op) -> Option<Vec<Edit>> {
             .ok()?;
             Edit::InsertNote {
                 track,
-                clip: pick_clip(p, track, clip)?,
+                clip: id,
                 note,
             }
         }
@@ -221,7 +227,7 @@ fn to_edits(p: &Project, op: &Op) -> Option<Vec<Edit>> {
     Some(vec![edit])
 }
 
-/// S0-T2 불변식을 공개 API로 검사한다(tests/model_invariants.rs와 같은 기준).
+/// S0-T2 불변식을 공개 API로 검사한다(`tests/model_invariants.rs`와 같은 기준).
 fn check_invariants(p: &Project) -> Result<(), String> {
     for track in p.tracks() {
         let clips: Vec<&Clip> = track.clips().map(|(_, c)| c).collect();
@@ -260,10 +266,10 @@ fn check_invariants(p: &Project) -> Result<(), String> {
 fn run(p: &mut Project, h: &mut History, ops: &[Op]) -> usize {
     let mut applied = 0;
     for op in ops {
-        if let Some(edits) = to_edits(p, op) {
-            if h.apply(p, edits, None).is_ok() {
-                applied += 1;
-            }
+        if let Some(edits) = to_edits(p, op)
+            && h.apply(p, edits, None).is_ok()
+        {
+            applied += 1;
         }
     }
     applied
@@ -319,16 +325,17 @@ proptest! {
         run(&mut p, &mut h, &setup);
         // 묶음은 모두 지금 상태 기준으로 만든다. 앞 편집이 상태를 바꾸면 뒤 편집이 실패할 수 있다.
         let edits: Vec<Edit> = batch.iter().filter_map(|op| to_edits(&p, op)).flatten().collect();
+        if edits.is_empty() {
+            // 빈 묶음은 undo 단위를 만들지 않는다(history_empty_apply_adds_nothing).
+            return Ok(());
+        }
         let (before, undo_len) = (p.clone(), h.undo_len());
-        match h.apply(&mut p, edits, Some(CoalesceKey(7))) {
-            Ok(()) => {
-                prop_assert!(h.undo(&mut p).unwrap());
-                prop_assert_eq!(&p, &before);
-            }
-            Err(_) => {
-                prop_assert_eq!(&p, &before);
-                prop_assert_eq!(h.undo_len(), undo_len);
-            }
+        if h.apply(&mut p, edits, Some(CoalesceKey(7))).is_ok() {
+            prop_assert!(h.undo(&mut p).unwrap());
+            prop_assert_eq!(&p, &before);
+        } else {
+            prop_assert_eq!(&p, &before);
+            prop_assert_eq!(h.undo_len(), undo_len);
         }
     }
 
