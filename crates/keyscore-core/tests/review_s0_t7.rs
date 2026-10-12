@@ -505,13 +505,15 @@ fn review_scale_overflow_reports_tick_overflow() {
     assert_eq!(r, Err(ModelError::TickOverflow));
 }
 
-/// `ExtendClip`이 먼저 성공하고 뒤의 노트 삭제가 실패하는 묶음도 원자적이다.
+/// 클립을 늘리는 묶음이 낡아(선택 노트가 이미 지워짐) 실패해도 원자적이다. 리뷰 1 당시에는
+/// `ExtendClip`이 먼저 성공하고 노트 삭제가 실패하는 모양이었다.
 #[test]
 fn review_stale_transform_after_extend_is_atomic() {
     let (mut d, t, c) = doc_with_meter(&[], 3840, &[note(3000, 500, 60), note(10, 10, 62)]);
     let refs = refs_of(d.project(), t, c);
     let edits = transform::shift(d.project(), &refs, 500).unwrap();
-    assert!(matches!(edits[0], Edit::ExtendClip { .. }));
+    // 리뷰 2 뒤 연산은 클립마다 `ReplaceNotes` 하나를 낸다. 늘리기도 그 안에 들어 있다.
+    assert!(matches!(edits[0], Edit::ReplaceNotes { length, .. } if length > 3840));
     // 선택한 노트 하나를 먼저 지워 묶음을 낡게 만든다.
     d.apply(
         vec![Edit::RemoveNote {
