@@ -189,8 +189,8 @@ impl Clip {
         Ok(())
     }
 
-    /// 길이를 `length`로 정하고 노트들을 차례로 바꾼다(`Edit::ReplaceNotes`). 꼬리 여부는 바꾸기 전
-    /// 길이로 판정한다. `restoring`(undo)이면 줄이기와 꼬리를 허용한다. 복사본에서 모두 검사한 뒤
+    /// 길이를 `length`로 정하고 노트들을 동시에 바꾼다(`Edit::ReplaceNotes`). `from`은 모두 편집 직전의
+    /// 노트에서 찾고, 꼬리 여부는 바꾸기 전 길이로 판정한다. `restoring`(undo)이면 줄이기와 꼬리를 허용한다. 복사본에서 모두 검사한 뒤
     /// 반영하므로 실패하면 클립은 그대로다.
     pub(crate) fn replace_notes(
         &mut self,
@@ -209,13 +209,20 @@ impl Clip {
         }
         self.start.checked_add(length)?;
         let before = self.length;
+        // 동시 치환: 모든 `from`을 편집 직전의 노트에서만 찾아 먼저 지우고, 그때 꼬리였는지 기록한 뒤
+        // `to`를 넣는다. 차례로 바꾸면 앞 pair가 넣은 `to`를 뒤 pair의 `from`으로 써서, 늘어난 구간에
+        // 걸친 일반 노트를 꼬리로 판정하게 된다(분할 없이 꼬리 생성, S0-T7 리뷰 3 지적 1).
         let mut notes = self.notes.clone();
-        for (from, to) in pairs {
+        let mut tails = Vec::with_capacity(pairs.len());
+        for (from, _) in pairs {
             let index = notes
                 .iter()
                 .position(|n| n == from)
                 .ok_or(ModelError::NoteNotFound)?;
-            let tail_allowed = restoring || from.end() > before;
+            tails.push(restoring || from.end() > before);
+            notes.remove(index);
+        }
+        for ((_, to), tail_allowed) in pairs.iter().zip(tails) {
             if to.start().get() >= length || (!tail_allowed && to.end() > length) {
                 return Err(ModelError::NoteOutsideClip {
                     start: to.start().get(),
@@ -224,7 +231,6 @@ impl Clip {
                 });
             }
             self.start.checked_add(to.end())?;
-            notes.remove(index);
             let at = notes.partition_point(|n| n <= to);
             notes.insert(at, to.clone());
         }
