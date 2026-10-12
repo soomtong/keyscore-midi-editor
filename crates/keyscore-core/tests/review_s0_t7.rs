@@ -483,11 +483,17 @@ fn review_scale_half_across_two_clips_uses_per_clip_anchor() {
     let mut refs = refs_of(&p, tid, a);
     refs.extend(refs_of(&p, tid, b));
     let edits = transform::scale(&p, &refs, 1, 2).unwrap();
-    let mut d = keyscore_core::Document::new(p, usize::MAX).unwrap();
-    d.apply(edits, None).unwrap();
-    for c in [a, b] {
-        let n = &d.project().track(tid).unwrap().clip(c).unwrap().notes()[0];
-        assert_eq!((n.start().get(), n.length()), (0, 240));
+    let mut doc = keyscore_core::Document::new(p, usize::MAX).unwrap();
+    doc.apply(edits, None).unwrap();
+    for clip_id in [a, b] {
+        let first = &doc
+            .project()
+            .track(tid)
+            .unwrap()
+            .clip(clip_id)
+            .unwrap()
+            .notes()[0];
+        assert_eq!((first.start().get(), first.length()), (0, 240));
     }
 }
 
