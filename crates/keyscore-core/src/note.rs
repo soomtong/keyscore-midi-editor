@@ -41,7 +41,11 @@ impl PitchOffset {
     ///
     /// ±1옥타브를 넘으면 [`ModelError::PitchOffsetOutOfRange`].
     pub fn new(units: i32) -> Result<Self, ModelError> {
-        todo!("{units}")
+        if (-Self::MAX..=Self::MAX).contains(&units) {
+            Ok(PitchOffset(units))
+        } else {
+            Err(ModelError::PitchOffsetOutOfRange(units))
+        }
     }
 
     /// 반음의 1/2^25 단위 값.
@@ -80,13 +84,31 @@ impl Velocity {
     ///
     /// 127을 넘으면 [`ModelError::Midi1VelocityOutOfRange`].
     pub fn from_midi1(value: u8) -> Result<Self, ModelError> {
-        todo!("{value}")
+        if value > 127 {
+            return Err(ModelError::Midi1VelocityOutOfRange(value));
+        }
+        // MIDI 2.0 명세의 min-center-max 확장. 중앙(64) 이하는 시프트만 하고, 그 위는
+        // 중앙 아래 6비트를 빈 하위 비트에 반복해 채워 127이 0xFFFF가 되게 한다.
+        let src = u16::from(value);
+        let mut out = src << 9;
+        if src > 64 {
+            let mut repeat = (src & 0x3F) << 3;
+            while repeat != 0 {
+                out |= repeat;
+                repeat >>= 6;
+            }
+        }
+        Ok(Velocity(out))
     }
 
     /// 16비트 값을 MIDI 1.0 7비트로 내린다(상위 7비트).
     #[must_use]
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "u16 >> 9는 0–127이라 u8에 들어간다"
+    )]
     pub const fn to_midi1(self) -> u8 {
-        todo!()
+        (self.0 >> 9) as u8
     }
 }
 

@@ -144,6 +144,10 @@ fn check_invariants(track: &Track) -> Result<(), String> {
             if note.length() == 0 {
                 return Err(format!("길이 0 노트: {note:?}"));
             }
+            // 숨김 꼬리까지 포함한 절대 끝이 u64 안이어야 한다(S0-T2 리뷰 1 지적 1).
+            if clip.start().get().checked_add(note.end()).is_none() {
+                return Err(format!("노트 절대 끝 오버플로: {note:?} in {clip:?}"));
+            }
         }
         let keys: Vec<(u64, u8)> = clip
             .notes()

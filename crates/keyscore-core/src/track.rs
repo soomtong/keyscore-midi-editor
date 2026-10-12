@@ -130,7 +130,6 @@ pub struct Track {
     lyric_lang: Option<String>,
     /// 시작 틱 순으로 정렬. 겹침이 없으므로 끝 틱 순서도 같다.
     clips: Vec<(ClipId, Clip)>,
-    next_clip_id: u64,
 }
 
 impl Track {
@@ -149,7 +148,6 @@ impl Track {
             solo: false,
             lyric_lang: None,
             clips: Vec::new(),
-            next_clip_id: 0,
         }
     }
 
@@ -281,12 +279,6 @@ impl Track {
         self.clips.insert(at, (id, clip));
     }
 
-    fn allocate_id(&mut self) -> ClipId {
-        let id = ClipId(self.next_clip_id);
-        self.next_clip_id += 1;
-        id
-    }
-
     /// # Errors
     ///
     /// 다른 클립과 겹치면 [`ModelError::ClipOverlap`]. 이때 트랙은 바뀌지 않는다.
@@ -295,7 +287,7 @@ impl Track {
         if self.overlaps(start, end, None) {
             return Err(ModelError::ClipOverlap { start, end });
         }
-        let id = self.allocate_id();
+        let id = ClipId::allocate();
         self.place(id, clip);
         Ok(id)
     }
@@ -306,7 +298,9 @@ impl Track {
     ///
     /// 없는 클립이면 [`ModelError::UnknownClip`].
     pub fn set_clip_name(&mut self, id: ClipId, name: impl Into<String>) -> Result<(), ModelError> {
-        todo!("{id:?} {}", name.into())
+        let index = self.index_of(id).ok_or(ModelError::UnknownClip)?;
+        self.clips[index].1.set_name(name);
+        Ok(())
     }
 
     /// 클립 색을 바꾼다. `None`이면 트랙 색을 따른다(REQ 5.10).
@@ -319,7 +313,9 @@ impl Track {
         id: ClipId,
         color: Option<TrackColor>,
     ) -> Result<(), ModelError> {
-        todo!("{id:?} {color:?}")
+        let index = self.index_of(id).ok_or(ModelError::UnknownClip)?;
+        self.clips[index].1.set_color(color);
+        Ok(())
     }
 
     pub fn remove_clip(&mut self, id: ClipId) -> Option<Clip> {
@@ -334,8 +330,10 @@ impl Track {
     /// 끝이 u64를 넘으면 [`ModelError::TickOverflow`]. 실패하면 트랙은 바뀌지 않는다.
     pub fn move_clip(&mut self, id: ClipId, new_start: Tick) -> Result<(), ModelError> {
         let index = self.index_of(id).ok_or(ModelError::UnknownClip)?;
-        let length = self.clips[index].1.length();
-        let end = new_start.checked_add(length)?.get();
+        let clip = &self.clips[index].1;
+        let end = new_start.checked_add(clip.length())?.get();
+        // 숨김 꼬리까지 u64 안인지 클립을 빼내기 전에 검사한다(실패 시 상태 불변).
+        new_start.checked_add(clip.extent())?;
         if self.overlaps(new_start.get(), end, Some(id)) {
             return Err(ModelError::ClipOverlap {
                 start: new_start.get(),
@@ -368,7 +366,7 @@ impl Track {
             });
         }
         let right = self.clips[index].1.split_at(at.get() - start)?;
-        let right_id = self.allocate_id();
+        let right_id = ClipId::allocate();
         // 오른쪽 클립은 왼쪽 바로 뒤에 놓인다. 원래 구간 안이므로 겹침이 생기지 않는다.
         self.clips.insert(index + 1, (right_id, right));
         Ok(right_id)

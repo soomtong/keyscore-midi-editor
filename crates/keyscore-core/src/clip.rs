@@ -1,8 +1,21 @@
 use crate::{ModelError, Note, Tick, TrackColor};
 
-/// 트랙 안에서 클립을 가리키는 식별자. 트랙이 발급하며 같은 트랙 안에서만 의미가 있다.
+use std::sync::atomic::{AtomicU64, Ordering};
+
+/// 클립 식별자. 프로세스 안에서 유일하게 발급한다.
+///
+/// 트랙마다 0부터 세면 다른 트랙의 식별자로 무관한 클립을 지울 수 있고(S0-T2 리뷰 1 제안 4),
+/// 트랙이 카운터를 가지면 undo로 되돌린 트랙이 카운터 때문에 원본과 달라진다(제안 5).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ClipId(pub(crate) u64);
+
+impl ClipId {
+    pub(crate) fn allocate() -> ClipId {
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        // 유일성만 필요하고 다른 메모리와의 순서는 필요 없다.
+        ClipId(NEXT.fetch_add(1, Ordering::Relaxed))
+    }
+}
 
 /// 트랙 타임라인 위의 연속 구간 `[start, start + length)`. 노트를 담는 유일한 그릇이다(REQ 3, 5.10).
 ///
@@ -118,8 +131,16 @@ impl Clip {
         }
     }
 
+    /// 클립 기준으로 내용이 차지하는 끝: 길이와 가장 늦은 노트 끝(숨김 꼬리 포함) 중 큰 값.
+    /// 클립 시작에 더해도 u64를 넘지 않는다는 것이 이 타입의 불변식이다.
+    pub(crate) fn extent(&self) -> u64 {
+        self.notes.iter().map(Note::end).fold(self.length, u64::max)
+    }
+
+    /// 꼬리까지 포함해 오버플로를 검사한다. 길이만 보면 숨김 꼬리의 절대 끝이 u64를
+    /// 넘을 수 있다(S0-T2 리뷰 1 지적 1).
     pub(crate) fn set_start(&mut self, start: Tick) -> Result<(), ModelError> {
-        start.checked_add(self.length)?;
+        start.checked_add(self.extent())?;
         self.start = start;
         Ok(())
     }
