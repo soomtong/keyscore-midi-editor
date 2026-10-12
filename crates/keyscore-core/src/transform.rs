@@ -669,6 +669,91 @@ mod tests {
         assert!(scale(d.project(), &[], 1, 0).is_err());
     }
 
+    /// 왼쪽 클립(0..3840)에 숨김 꼬리 노트 `tail`을 남긴 문서. 오른쪽 클립은 지운다.
+    fn doc_with_tail(tail: &Note, others: &[Note]) -> (Document, TrackId, ClipId) {
+        let mut p = Project::new();
+        let mut t = Track::new("T", Channel::new(1).unwrap(), TrackColor::new(0).unwrap());
+        let tid = t.id();
+        let c = t
+            .insert_clip(Clip::new(Tick::ZERO, 2 * 3840).unwrap())
+            .unwrap();
+        t.insert_note(c, tail.clone()).unwrap();
+        for n in others {
+            t.insert_note(c, n.clone()).unwrap();
+        }
+        let right = t.split_clip(c, Tick::new(3840)).unwrap();
+        t.remove_clip(right);
+        p.push_track(t).unwrap();
+        (Document::new(p, usize::MAX).unwrap(), tid, c)
+    }
+
+    #[test]
+    fn tail_note_keeps_clip_length_when_start_stays_inside() {
+        // 결정 개정: 원래 꼬리였던 노트는 끝으로 클립을 늘리지 않는다.
+        let tail = note(3000, 2000, 60);
+        let (mut d, t, c) = doc_with_tail(&tail, &[]);
+        let refs = refs(&d, t, c);
+        for edits in [
+            transpose(d.project(), &refs, 5, PitchRange::full()).unwrap(),
+            shift(d.project(), &refs, 0).unwrap(),
+            shift(d.project(), &refs, 500).unwrap(),
+        ] {
+            let mut copy = d.clone();
+            copy.apply(edits, None).unwrap();
+            assert_eq!(
+                copy.project().track(t).unwrap().clip(c).unwrap().length(),
+                3840
+            );
+        }
+        // 시작이 밖으로 나가면 시작을 덮는 마디까지만 늘리고, 노트는 꼬리로 남는다.
+        let edits = shift(d.project(), &refs, 1000).unwrap();
+        d.apply(edits, None).unwrap();
+        let clip = d.project().track(t).unwrap().clip(c).unwrap();
+        assert_eq!((clip.length(), clip.notes()[0].start().get()), (7680, 4000));
+        assert_eq!(clip.notes()[0].end(), 6000);
+    }
+
+    #[test]
+    fn tail_start_beyond_extended_length_still_applies() {
+        // 리뷰 2 지적 1: 늘린 길이가 원래 꼬리 끝 이상이어도, 묶음은 적용되어야 한다.
+        let tail = note(1920, 3840, 64);
+        let (mut d, t, c) = doc_with_tail(&tail, &[]);
+        let edits = shift(d.project(), &refs(&d, t, c), 4000).unwrap();
+        d.apply(edits, None).unwrap();
+        let clip = d.project().track(t).unwrap().clip(c).unwrap();
+        assert_eq!(
+            (
+                clip.length(),
+                clip.notes()[0].start().get(),
+                clip.notes()[0].end()
+            ),
+            (7680, 5920, 9760)
+        );
+    }
+
+    #[test]
+    fn scale_anchors_each_clip_at_its_first_selected_note() {
+        // 결정 개정: 클립마다 그 클립 안의 가장 이른 선택 노트가 기준이다. 클립 시작이 아니다.
+        let mut p = Project::new();
+        let mut t = Track::new("T", Channel::new(1).unwrap(), TrackColor::new(0).unwrap());
+        let tid = t.id();
+        let a = t.insert_clip(Clip::new(Tick::ZERO, 3840).unwrap()).unwrap();
+        let b = t
+            .insert_clip(Clip::new(Tick::new(7680), 3840).unwrap())
+            .unwrap();
+        for (c, s) in [(a, 480), (a, 960), (b, 1000), (b, 1600)] {
+            t.insert_note(c, note(s, 100, 60)).unwrap();
+        }
+        p.push_track(t).unwrap();
+        let mut d = Document::new(p, usize::MAX).unwrap();
+        let mut sel = refs(&d, tid, a);
+        sel.extend(refs(&d, tid, b));
+        d.apply(scale(d.project(), &sel, 1, 2).unwrap(), None)
+            .unwrap();
+        assert_eq!(starts(&d, tid, a), vec![480, 720]);
+        assert_eq!(starts(&d, tid, b), vec![1000, 1300]);
+    }
+
     #[test]
     fn stale_reference_is_rejected_on_apply() {
         let (mut d, t, a, _) = doc_with(0, &[note(100, 10, 60)]);
