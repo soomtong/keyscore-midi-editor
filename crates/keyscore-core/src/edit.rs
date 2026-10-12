@@ -66,6 +66,13 @@ pub enum Edit {
         id: ClipId,
         at: Tick,
     },
+    /// 클립 길이를 `length`로 늘린다(REQ 5.10 「입력이 끝을 넘으면 클립이 늘어남」). 줄이기는 받지
+    /// 않는다. 비파괴 트림은 S4-T2이고, undo가 쓰는 줄이기는 crate 내부에만 있다.
+    ExtendClip {
+        track: TrackId,
+        id: ClipId,
+        length: u64,
+    },
     SetClipName {
         track: TrackId,
         id: ClipId,
@@ -85,6 +92,26 @@ pub enum Edit {
         track: TrackId,
         clip: ClipId,
         note: Note,
+    },
+    /// 노트 하나를 다른 노트로 바꾼다(일괄 연산의 이동·조옮김). 새 노트의 시작은 클립 안이어야 하고,
+    /// 끝은 클립 안이어야 한다. 다만 원래 노트가 숨김 꼬리(끝 > 클립 길이)였으면 새 노트도 꼬리일 수
+    /// 있다. 꼬리는 분할로 생긴 것에서만 이어지므로 「꼬리는 분할로만 생긴다」가 유지된다.
+    ReplaceNote {
+        track: TrackId,
+        clip: ClipId,
+        from: Note,
+        to: Note,
+    },
+    /// 클립 하나의 길이를 `length`(늘리기만)로 정하고 노트들을 동시에 바꾼다(일괄 연산 전용). 모든
+    /// `from`은 편집 직전의 노트에서 찾는다. 앞 pair의 `to`를 뒤 pair의 `from`으로 쓸 수 없다.
+    /// 꼬리 여부는 이 편집 직전의 길이로 판정한다: 원래 꼬리였던 노트만 새 길이를 넘는 꼬리일 수
+    /// 있다. `ExtendClip` 뒤에 `ReplaceNote`를 따로 두면 늘린 길이로 꼬리를 판정해, 늘림 때문에
+    /// 꼬리가 아니게 된 노트가 거부된다(S0-T7 리뷰 2 지적 1).
+    ReplaceNotes {
+        track: TrackId,
+        clip: ClipId,
+        length: u64,
+        pairs: Vec<(Note, Note)>,
     },
     /// `tempo`가 `None`이면 그 틱의 변화를 지운다.
     SetTempo {
@@ -145,6 +172,17 @@ pub(crate) enum Op {
         at: Tick,
         right: ClipId,
     },
+    ExtendClip {
+        track: TrackId,
+        id: ClipId,
+        length: u64,
+    },
+    /// `ExtendClip`의 역. 늘리기 전 길이로 되돌린다.
+    ShrinkClip {
+        track: TrackId,
+        id: ClipId,
+        length: u64,
+    },
     UnsplitClip {
         track: TrackId,
         left: ClipId,
@@ -170,6 +208,32 @@ pub(crate) enum Op {
         track: TrackId,
         clip: ClipId,
         note: Note,
+    },
+    ReplaceNote {
+        track: TrackId,
+        clip: ClipId,
+        from: Note,
+        to: Note,
+    },
+    ReplaceNotes {
+        track: TrackId,
+        clip: ClipId,
+        length: u64,
+        pairs: Vec<(Note, Note)>,
+    },
+    /// `ReplaceNotes`의 역. 노트를 되돌리고 원래 길이로 줄인다.
+    RestoreNotes {
+        track: TrackId,
+        clip: ClipId,
+        length: u64,
+        pairs: Vec<(Note, Note)>,
+    },
+    /// `ReplaceNote`의 역. 원래 노트(꼬리였을 수 있다)를 그대로 되돌린다.
+    UnreplaceNote {
+        track: TrackId,
+        clip: ClipId,
+        from: Note,
+        to: Note,
     },
     RestoreNote {
         track: TrackId,
@@ -197,10 +261,33 @@ impl From<Edit> for Op {
             Edit::RemoveClip { track, id } => Op::RemoveClip { track, id },
             Edit::MoveClip { track, id, to } => Op::MoveClip { track, id, to },
             Edit::SplitClip { track, id, at } => Op::SplitClip { track, id, at },
+            Edit::ExtendClip { track, id, length } => Op::ExtendClip { track, id, length },
             Edit::SetClipName { track, id, name } => Op::SetClipName { track, id, name },
             Edit::SetClipColor { track, id, color } => Op::SetClipColor { track, id, color },
             Edit::InsertNote { track, clip, note } => Op::InsertNote { track, clip, note },
             Edit::RemoveNote { track, clip, note } => Op::RemoveNote { track, clip, note },
+            Edit::ReplaceNote {
+                track,
+                clip,
+                from,
+                to,
+            } => Op::ReplaceNote {
+                track,
+                clip,
+                from,
+                to,
+            },
+            Edit::ReplaceNotes {
+                track,
+                clip,
+                length,
+                pairs,
+            } => Op::ReplaceNotes {
+                track,
+                clip,
+                length,
+                pairs,
+            },
             Edit::SetTempo { at, tempo } => Op::SetTempo { at, tempo },
             Edit::SetMeter { at, signature } => Op::SetMeter { at, signature },
             Edit::SetKey(key) => Op::SetKey(key),
@@ -290,6 +377,32 @@ impl Op {
                     original: Box::new(original),
                 })
             }
+            Op::ExtendClip { track, id, length } => {
+                let t = track_mut(project, track)?;
+                let current = t.clip(id).ok_or(ModelError::UnknownClip)?.length();
+                if length < current {
+                    return Err(ModelError::ClipWouldShrink {
+                        current,
+                        requested: length,
+                    });
+                }
+                t.resize_clip(id, length)?;
+                Ok(Op::ShrinkClip {
+                    track,
+                    id,
+                    length: current,
+                })
+            }
+            Op::ShrinkClip { track, id, length } => {
+                let t = track_mut(project, track)?;
+                let current = t.clip(id).ok_or(ModelError::UnknownClip)?.length();
+                t.resize_clip(id, length)?;
+                Ok(Op::ExtendClip {
+                    track,
+                    id,
+                    length: current,
+                })
+            }
             Op::UnsplitClip {
                 track,
                 left,
@@ -339,6 +452,76 @@ impl Op {
                     return Err(ModelError::NoteNotFound);
                 }
                 Ok(Op::RestoreNote { track, clip, note })
+            }
+            Op::ReplaceNotes {
+                track,
+                clip,
+                length,
+                pairs,
+            } => {
+                let t = track_mut(project, track)?;
+                let before = t.clip(clip).ok_or(ModelError::UnknownClip)?.length();
+                t.replace_notes(clip, length, &pairs, false)?;
+                let back = pairs
+                    .into_iter()
+                    .rev()
+                    .map(|(from, to)| (to, from))
+                    .collect();
+                Ok(Op::RestoreNotes {
+                    track,
+                    clip,
+                    length: before,
+                    pairs: back,
+                })
+            }
+            Op::RestoreNotes {
+                track,
+                clip,
+                length,
+                pairs,
+            } => {
+                let t = track_mut(project, track)?;
+                let before = t.clip(clip).ok_or(ModelError::UnknownClip)?.length();
+                t.replace_notes(clip, length, &pairs, true)?;
+                let back = pairs
+                    .into_iter()
+                    .rev()
+                    .map(|(from, to)| (to, from))
+                    .collect();
+                Ok(Op::ReplaceNotes {
+                    track,
+                    clip,
+                    length: before,
+                    pairs: back,
+                })
+            }
+            Op::ReplaceNote {
+                track,
+                clip,
+                from,
+                to,
+            } => {
+                track_mut(project, track)?.replace_note(clip, &from, to.clone(), false)?;
+                Ok(Op::UnreplaceNote {
+                    track,
+                    clip,
+                    from: to,
+                    to: from,
+                })
+            }
+            Op::UnreplaceNote {
+                track,
+                clip,
+                from,
+                to,
+            } => {
+                track_mut(project, track)?.replace_note(clip, &from, to.clone(), true)?;
+                Ok(Op::ReplaceNote {
+                    track,
+                    clip,
+                    from: to,
+                    to: from,
+                })
             }
             Op::RestoreNote { track, clip, note } => {
                 track_mut(project, track)?.restore_note(clip, note.clone())?;
@@ -401,6 +584,15 @@ impl Op {
             Op::InsertNote { note, .. }
             | Op::RemoveNote { note, .. }
             | Op::RestoreNote { note, .. } => note_heap_bytes(note),
+            Op::ReplaceNote { from, to, .. } | Op::UnreplaceNote { from, to, .. } => {
+                note_heap_bytes(from) + note_heap_bytes(to)
+            }
+            Op::ReplaceNotes { pairs, .. } | Op::RestoreNotes { pairs, .. } => pairs
+                .iter()
+                .map(|(from, to)| {
+                    2 * std::mem::size_of::<Note>() + note_heap_bytes(from) + note_heap_bytes(to)
+                })
+                .sum(),
             _ => 0,
         };
         std::mem::size_of::<Op>() + heap
@@ -733,6 +925,200 @@ mod tests {
         assert!(
             forged.apply(&mut p).is_err(),
             "맞붙지 않은 두 클립은 되돌릴 분할이 아니다"
+        );
+        assert_eq!(p, before);
+    }
+
+    #[test]
+    fn replace_notes_judges_tails_by_length_before_the_edit() {
+        // 왼쪽 클립 0..960(분할 전 0..1920)에 꼬리 노트 900..1100. 오른쪽 클립은 지운다.
+        let mut q = Project::new();
+        let mut tr = new_track("Q", 5);
+        let qt = tr.id();
+        let qc = tr
+            .insert_clip(Clip::new(Tick::ZERO, 1920).unwrap())
+            .unwrap();
+        let tail = Note::new(
+            Tick::new(900),
+            200,
+            Pitch::new(60).unwrap(),
+            Velocity::new(1000),
+        )
+        .unwrap();
+        tr.insert_note(qc, tail.clone()).unwrap();
+        let right = tr.split_clip(qc, Tick::new(960)).unwrap();
+        tr.remove_clip(right);
+        q.push_track(tr).unwrap();
+        // 꼬리를 3700으로 옮기며 3840까지 늘린다. 늘린 길이로 보면 원래 노트(끝 1100)는 꼬리가 아니지만,
+        // 편집 직전 길이(960)로 판정하므로 새 노트(끝 4000 > 3840)는 꼬리로 남는다.
+        let far = Note::new(
+            Tick::new(3700),
+            300,
+            Pitch::new(60).unwrap(),
+            Velocity::new(1000),
+        )
+        .unwrap();
+        round_trip(
+            &mut q,
+            Op::ReplaceNotes {
+                track: qt,
+                clip: qc,
+                length: 3840,
+                pairs: vec![(tail, far)],
+            },
+        );
+        let clip = q.track(qt).unwrap().clip(qc).unwrap();
+        assert_eq!((clip.length(), clip.notes()[0].end()), (3840, 4000));
+
+        // 꼬리가 아니던 노트는 새 길이를 넘을 수 없다. 줄이기와 이웃 겹침도 거부한다.
+        let (mut p, t, a, _) = fixture();
+        let before = p.clone();
+        let over = Op::ReplaceNotes {
+            track: t,
+            clip: a,
+            length: 960,
+            pairs: vec![(note(0), note(955))],
+        };
+        assert!(matches!(
+            over.apply(&mut p),
+            Err(ModelError::NoteOutsideClip { .. })
+        ));
+        let shrink = Op::ReplaceNotes {
+            track: t,
+            clip: a,
+            length: 100,
+            pairs: vec![],
+        };
+        assert!(matches!(
+            shrink.apply(&mut p),
+            Err(ModelError::ClipWouldShrink { .. })
+        ));
+        let into_b = Op::ReplaceNotes {
+            track: t,
+            clip: a,
+            length: 1921,
+            pairs: vec![],
+        };
+        assert!(matches!(
+            into_b.apply(&mut p),
+            Err(ModelError::ClipOverlap { .. })
+        ));
+        assert_eq!(p, before);
+    }
+
+    #[test]
+    fn replace_note_keeps_tails_only_from_tails() {
+        let (mut p, t, a, _) = fixture();
+        // 꼬리가 아닌 노트를 꼬리로 바꿀 수 없다(분할 없이 꼬리가 생기는 경로가 된다).
+        let before = p.clone();
+        let into_tail = Op::ReplaceNote {
+            track: t,
+            clip: a,
+            from: note(0),
+            to: note(955),
+        };
+        assert!(matches!(
+            into_tail.apply(&mut p),
+            Err(ModelError::NoteOutsideClip { .. })
+        ));
+        assert_eq!(p, before);
+        // 클립 안의 이동은 왕복한다.
+        round_trip(
+            &mut p,
+            Op::ReplaceNote {
+                track: t,
+                clip: a,
+                from: note(0),
+                to: note(100),
+            },
+        );
+        // 분할로 꼬리를 만든 뒤에는 꼬리 노트를 꼬리로 옮길 수 있고, undo로 돌아온다.
+        let tail = Note::new(
+            Tick::new(900),
+            200,
+            Pitch::new(60).unwrap(),
+            Velocity::new(1000),
+        )
+        .unwrap();
+        p.track_by_id_mut(t)
+            .unwrap()
+            .insert_note(a, note(800))
+            .unwrap();
+        let mut q = Project::new();
+        let mut tr = new_track("Q", 5);
+        let qt = tr.id();
+        let qc = tr
+            .insert_clip(Clip::new(Tick::ZERO, 1920).unwrap())
+            .unwrap();
+        tr.insert_note(qc, tail.clone()).unwrap();
+        tr.split_clip(qc, Tick::new(960)).unwrap();
+        q.push_track(tr).unwrap();
+        let moved = Note::new(
+            Tick::new(910),
+            200,
+            Pitch::new(62).unwrap(),
+            Velocity::new(1000),
+        )
+        .unwrap();
+        round_trip(
+            &mut q,
+            Op::ReplaceNote {
+                track: qt,
+                clip: qc,
+                from: tail,
+                to: moved,
+            },
+        );
+    }
+
+    #[test]
+    fn extend_clip_edit_round_trip_and_rejects_shrink() {
+        let (mut p, t, a, b) = fixture();
+        round_trip(
+            &mut p,
+            Op::ExtendClip {
+                track: t,
+                id: a,
+                length: 1920,
+            },
+        );
+        assert_eq!(p.track(t).unwrap().clip(a).unwrap().length(), 1920);
+        let before = p.clone();
+        // 줄이기 거부, 다음 클립(b, 1920부터)과 겹치기 거부.
+        assert_eq!(
+            Op::ExtendClip {
+                track: t,
+                id: a,
+                length: 100
+            }
+            .apply(&mut p)
+            .unwrap_err(),
+            ModelError::ClipWouldShrink {
+                current: 1920,
+                requested: 100
+            }
+        );
+        assert!(matches!(
+            Op::ExtendClip {
+                track: t,
+                id: a,
+                length: 1921
+            }
+            .apply(&mut p),
+            Err(ModelError::ClipOverlap { .. })
+        ));
+        assert_eq!(
+            Op::ExtendClip {
+                track: t,
+                id: b,
+                length: 0
+            }
+            .apply(&mut p)
+            .unwrap_err(),
+            ModelError::ClipWouldShrink {
+                current: 960,
+                requested: 0
+            }
         );
         assert_eq!(p, before);
     }

@@ -22,7 +22,8 @@ impl ClipId {
 /// 불변식(공개 API로 깨뜨릴 수 없다):
 /// - 길이 ≥ 1틱이고 `start + length`가 u64 안이다.
 /// - 모든 노트의 시작은 `0 ≤ start < length`다. 끝이 길이를 넘는 노트(숨김 꼬리)는
-///   분할로만 생긴다(`docs/decisions/2026-10-12-clip-split-and-velocity.md` Q1).
+///   분할로만 생긴다(`docs/decisions/2026-10-12-clip-split-and-velocity.md` Q1). 꼬리의 개수는
+///   분할로만 늘지만, 기존 꼬리의 모양(시작·길이)은 편집(`ReplaceNote(s)`)으로 바뀔 수 있다.
 /// - 노트는 [`Note`]의 전체 순서(시작, 음높이, 그다음 나머지 필드)로 정렬되어 있다.
 ///
 /// 시작·길이를 바꾸는 공개 메서드는 없다. 트랙 안의 겹침 검사를 우회하지 못하게
@@ -161,6 +162,90 @@ impl Clip {
         Ok(())
     }
 
+    /// 노트 하나를 바꾼다. 검사를 모두 끝낸 뒤 바꾼다(실패 시 상태 불변).
+    pub(crate) fn replace_note(
+        &mut self,
+        from: &Note,
+        to: Note,
+        restoring: bool,
+    ) -> Result<(), ModelError> {
+        let index = self
+            .notes
+            .iter()
+            .position(|n| n == from)
+            .ok_or(ModelError::NoteNotFound)?;
+        let tail_allowed = restoring || from.end() > self.length;
+        if to.start().get() >= self.length || (!tail_allowed && to.end() > self.length) {
+            return Err(ModelError::NoteOutsideClip {
+                start: to.start().get(),
+                end: to.end(),
+                clip_length: self.length,
+            });
+        }
+        self.start.checked_add(to.end())?;
+        self.notes.remove(index);
+        let at = self.notes.partition_point(|n| n <= &to);
+        self.notes.insert(at, to);
+        Ok(())
+    }
+
+    /// 길이를 `length`로 정하고 노트들을 동시에 바꾼다(`Edit::ReplaceNotes`). `from`은 모두 편집 직전의
+    /// 노트에서 찾고, 꼬리 여부는 바꾸기 전 길이로 판정한다. `restoring`(undo)이면 줄이기와 꼬리를 허용한다. 복사본에서 모두 검사한 뒤
+    /// 반영하므로 실패하면 클립은 그대로다.
+    pub(crate) fn replace_notes(
+        &mut self,
+        length: u64,
+        pairs: &[(Note, Note)],
+        restoring: bool,
+    ) -> Result<(), ModelError> {
+        if length == 0 {
+            return Err(ModelError::ZeroClipLength);
+        }
+        if !restoring && length < self.length {
+            return Err(ModelError::ClipWouldShrink {
+                current: self.length,
+                requested: length,
+            });
+        }
+        self.start.checked_add(length)?;
+        let before = self.length;
+        // 동시 치환: 모든 `from`을 편집 직전의 노트에서만 찾아 먼저 지우고, 그때 꼬리였는지 기록한 뒤
+        // `to`를 넣는다. 차례로 바꾸면 앞 pair가 넣은 `to`를 뒤 pair의 `from`으로 써서, 늘어난 구간에
+        // 걸친 일반 노트를 꼬리로 판정하게 된다(분할 없이 꼬리 생성, S0-T7 리뷰 3 지적 1).
+        let mut notes = self.notes.clone();
+        let mut tails = Vec::with_capacity(pairs.len());
+        for (from, _) in pairs {
+            let index = notes
+                .iter()
+                .position(|n| n == from)
+                .ok_or(ModelError::NoteNotFound)?;
+            tails.push(restoring || from.end() > before);
+            notes.remove(index);
+        }
+        for ((_, to), tail_allowed) in pairs.iter().zip(tails) {
+            if to.start().get() >= length || (!tail_allowed && to.end() > length) {
+                return Err(ModelError::NoteOutsideClip {
+                    start: to.start().get(),
+                    end: to.end(),
+                    clip_length: length,
+                });
+            }
+            self.start.checked_add(to.end())?;
+            let at = notes.partition_point(|n| n <= to);
+            notes.insert(at, to.clone());
+        }
+        if let Some(n) = notes.iter().find(|n| n.start().get() >= length) {
+            return Err(ModelError::NoteOutsideClip {
+                start: n.start().get(),
+                end: n.end(),
+                clip_length: length,
+            });
+        }
+        self.notes = notes;
+        self.length = length;
+        Ok(())
+    }
+
     /// 같은 값의 노트 하나를 지운다. 지웠으면 `true`.
     pub fn remove_note(&mut self, note: &Note) -> bool {
         match self.notes.iter().position(|n| n == note) {
@@ -186,6 +271,24 @@ impl Clip {
 
     pub(crate) fn set_extra(&mut self, extra: serde_json::Map<String, serde_json::Value>) {
         self.extra = extra;
+    }
+
+    /// 길이를 바꾼다(늘리기는 `ExtendClip`, 줄이기는 그 undo). 줄일 때도 노트 시작은 클립 안에
+    /// 남아야 한다. 겹침 검사는 트랙이 한다.
+    pub(crate) fn set_length(&mut self, length: u64) -> Result<(), ModelError> {
+        if length == 0 {
+            return Err(ModelError::ZeroClipLength);
+        }
+        self.start.checked_add(length)?;
+        if let Some(n) = self.notes.iter().find(|n| n.start().get() >= length) {
+            return Err(ModelError::NoteOutsideClip {
+                start: n.start().get(),
+                end: n.end(),
+                clip_length: length,
+            });
+        }
+        self.length = length;
+        Ok(())
     }
 
     pub(crate) fn set_start(&mut self, start: Tick) -> Result<(), ModelError> {

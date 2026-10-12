@@ -43,6 +43,16 @@ pub enum ModelError {
     TempoOutOfRange(u32),
     #[error("박자표 {0}/{1}: 분자는 1 이상, 분모는 1–256 사이의 2의 거듭제곱이어야 한다")]
     TimeSignatureInvalid(u8, u16),
+    #[error("클립을 늘리는 편집으로는 줄일 수 없다(지금 {current}, 요청 {requested})")]
+    ClipWouldShrink { current: u64, requested: u64 },
+    #[error("노트가 클립 시작 앞으로 나간다")]
+    NoteBeforeClipStart,
+    #[error("음역은 한 옥타브(12반음) 이상이어야 한다: {low}–{high}")]
+    PitchRangeTooNarrow { low: u8, high: u8 },
+    #[error("퀀타이즈 설정이 범위 밖이다: 강도 0–100, 스윙 0–75 (강도 {strength}, 스윙 {swing})")]
+    QuantizeSettingOutOfRange { strength: u8, swing: u8 },
+    #[error("길이 스케일 비율은 0보다 커야 한다: {numerator}/{denominator}")]
+    ScaleRatioInvalid { numerator: u32, denominator: u32 },
     #[error("트랙 인덱스 {index}가 범위 밖이다(트랙 {len}개)")]
     TrackIndexOutOfRange { index: usize, len: usize },
     #[error("프로젝트에 이미 있는 트랙 식별자다")]

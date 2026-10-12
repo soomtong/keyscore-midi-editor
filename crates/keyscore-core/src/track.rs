@@ -489,6 +489,51 @@ impl Track {
         Ok(())
     }
 
+    /// 클립 길이를 바꾼다. 늘어난 구간이 다른 클립과 겹치면 거부한다. 실패하면 트랙은 그대로다.
+    pub(crate) fn resize_clip(&mut self, id: ClipId, length: u64) -> Result<(), ModelError> {
+        let index = self.index_of(id).ok_or(ModelError::UnknownClip)?;
+        let start = self.clips[index].1.start().get();
+        let end = start.checked_add(length).ok_or(ModelError::TickOverflow)?;
+        if self.overlaps(start, end, Some(id)) {
+            return Err(ModelError::ClipOverlap { start, end });
+        }
+        self.clips[index].1.set_length(length)
+    }
+
+    /// 노트 `from`을 `to`로 바꾼다. `to`의 시작은 클립 안이어야 한다. 끝은 클립 안이어야 하되,
+    /// `from`이 숨김 꼬리였거나 `restoring`(undo)이면 꼬리를 허용한다. 실패하면 트랙은 그대로다.
+    pub(crate) fn replace_note(
+        &mut self,
+        id: ClipId,
+        from: &Note,
+        to: Note,
+        restoring: bool,
+    ) -> Result<(), ModelError> {
+        let index = self.index_of(id).ok_or(ModelError::UnknownClip)?;
+        self.clips[index].1.replace_note(from, to, restoring)
+    }
+
+    /// 클립 길이를 정하고 노트들을 바꾼다(`Edit::ReplaceNotes`와 그 undo). 늘어난 구간이 다른 클립과
+    /// 겹치면 거부한다. 실패하면 트랙은 그대로다.
+    pub(crate) fn replace_notes(
+        &mut self,
+        id: ClipId,
+        length: u64,
+        pairs: &[(Note, Note)],
+        restoring: bool,
+    ) -> Result<(), ModelError> {
+        let index = self.index_of(id).ok_or(ModelError::UnknownClip)?;
+        let clip = &self.clips[index].1;
+        if length > clip.length() {
+            let start = clip.start().get();
+            let end = start.checked_add(length).ok_or(ModelError::TickOverflow)?;
+            if self.overlaps(start, end, Some(id)) {
+                return Err(ModelError::ClipOverlap { start, end });
+            }
+        }
+        self.clips[index].1.replace_notes(length, pairs, restoring)
+    }
+
     /// 지웠던 노트를 되살린다(undo 전용). 숨김 꼬리 노트도 받는다.
     pub(crate) fn restore_note(&mut self, id: ClipId, note: Note) -> Result<(), ModelError> {
         let index = self.index_of(id).ok_or(ModelError::UnknownClip)?;
