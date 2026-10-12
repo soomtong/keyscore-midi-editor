@@ -19,6 +19,9 @@ struct Content {
     tracks: Vec<TrackContent>,
 }
 
+/// (시작, 길이, 이름, 색, 노트).
+type ClipContent = (Tick, u64, Option<String>, Option<TrackColor>, Vec<Note>);
+
 #[derive(Debug, PartialEq)]
 struct TrackContent {
     name: String,
@@ -31,7 +34,7 @@ struct TrackContent {
     mute: bool,
     solo: bool,
     lyric_lang: Option<String>,
-    clips: Vec<(Tick, u64, Option<String>, Option<TrackColor>, Vec<Note>)>,
+    clips: Vec<ClipContent>,
 }
 
 fn content(p: &Project) -> Content {
@@ -262,7 +265,7 @@ proptest! {
     ) {
         let p = build(&tracks, &tempos, &meters, key);
         let compression = if gzip { Compression::Gzip } else { Compression::None };
-        let bytes = ksq::to_bytes(&p, compression);
+        let bytes = ksq::to_bytes(&p, compression).unwrap();
         let (back, warnings) = ksq::from_bytes(&bytes).unwrap();
         prop_assert!(warnings.is_empty());
         prop_assert_eq!(content(&back), content(&p));

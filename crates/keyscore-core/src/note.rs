@@ -199,7 +199,12 @@ impl Note {
     /// MIDI 2.0 노트별 피치(7.25 고정소수)가 담을 수 있는 값만 받는다
     /// (`docs/decisions/2026-10-12-absolute-pitch-range.md` B).
     pub fn with_offset(self, offset: PitchOffset) -> Result<Self, ModelError> {
-        todo!("{offset:?}")
+        let semitone = i64::from(PitchOffset::SEMITONE);
+        let absolute = i64::from(self.pitch.get()) * semitone + i64::from(offset.units());
+        if !(0..128 * semitone).contains(&absolute) {
+            return Err(ModelError::AbsolutePitchOutOfRange);
+        }
+        Ok(Note { offset, ..self })
     }
 
     pub(crate) fn extra(&self) -> Option<&str> {

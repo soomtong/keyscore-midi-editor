@@ -82,7 +82,7 @@ pub struct Warning(String);                       // 표시용 문장
 }
 pub fn to_string(project: &Project) -> String;
 pub fn from_str(text: &str) -> Result<(Project, Vec<Warning>), KsqError>;
-pub fn to_bytes(project: &Project, compression: Compression) -> Vec<u8>;
+pub fn to_bytes(project: &Project, compression: Compression) -> Result<Vec<u8>, KsqError>;  // gzip 인코더 오류를 패닉 대신 오류로
 pub fn from_bytes(bytes: &[u8]) -> Result<(Project, Vec<Warning>), KsqError>;   // gzip 자동 판별
 pub fn write_file(path: &Path, project: &Project, compression: Compression) -> Result<(), KsqError>;  // 임시 파일 + rename
 pub fn read_file(path: &Path) -> Result<(Project, Vec<Warning>), KsqError>;
