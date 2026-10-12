@@ -120,6 +120,25 @@ impl Clip {
         Ok(())
     }
 
+    /// 지웠던 노트를 되살린다(undo 전용). 숨김 꼬리 노트도 되살려야 하므로 `insert_note`와 달리
+    /// 시작만 클립 안이면 받는다. 꼬리를 새로 만드는 공개 경로가 되지 않도록 crate 안에서만 쓴다.
+    pub(crate) fn restore_note(&mut self, note: Note) -> Result<(), ModelError> {
+        if note.start().get() >= self.length {
+            return Err(ModelError::NoteOutsideClip {
+                start: note.start().get(),
+                end: note.end(),
+                clip_length: self.length,
+            });
+        }
+        self.start.checked_add(note.end())?;
+        let key = (note.start(), note.pitch());
+        let at = self
+            .notes
+            .partition_point(|n| (n.start(), n.pitch()) <= key);
+        self.notes.insert(at, note);
+        Ok(())
+    }
+
     /// 같은 값의 노트 하나를 지운다. 지웠으면 `true`.
     pub fn remove_note(&mut self, note: &Note) -> bool {
         match self.notes.iter().position(|n| n == note) {

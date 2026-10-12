@@ -283,13 +283,35 @@ impl Track {
     ///
     /// 다른 클립과 겹치면 [`ModelError::ClipOverlap`]. 이때 트랙은 바뀌지 않는다.
     pub fn insert_clip(&mut self, clip: Clip) -> Result<ClipId, ModelError> {
-        let (start, end) = (clip.start().get(), clip.end());
-        if self.overlaps(start, end, None) {
-            return Err(ModelError::ClipOverlap { start, end });
-        }
+        self.check_free(&clip, &[])?;
         let id = ClipId::allocate();
         self.place(id, clip);
         Ok(id)
+    }
+
+    /// 정해진 id로 클립을 넣는다. undo·redo가 원래 id를 되살릴 때 쓴다(S0-T4).
+    pub(crate) fn insert_clip_with_id(&mut self, id: ClipId, clip: Clip) -> Result<(), ModelError> {
+        if self.index_of(id).is_some() {
+            return Err(ModelError::DuplicateClipId);
+        }
+        self.check_free(&clip, &[])?;
+        self.place(id, clip);
+        Ok(())
+    }
+
+    /// `clip`의 구간이 `ignore`를 뺀 다른 클립과 겹치지 않는지.
+    fn check_free(&self, clip: &Clip, ignore: &[ClipId]) -> Result<(), ModelError> {
+        let (start, end) = (clip.start().get(), clip.end());
+        let hit = self
+            .clips
+            .iter()
+            .filter(|(id, _)| !ignore.contains(id))
+            .any(|(_, c)| c.start().get() < end && start < c.end());
+        if hit {
+            Err(ModelError::ClipOverlap { start, end })
+        } else {
+            Ok(())
+        }
     }
 
     /// 클립 이름을 바꾼다. 빈 문자열은 「이름 없음」이다. 식별자는 그대로다.
@@ -356,7 +378,22 @@ impl Track {
     /// 없는 클립이면 [`ModelError::UnknownClip`], `at`이 클립 안쪽(`start < at < end`)이 아니면
     /// [`ModelError::SplitOutsideClip`]. 실패하면 트랙은 바뀌지 않는다.
     pub fn split_clip(&mut self, id: ClipId, at: Tick) -> Result<ClipId, ModelError> {
+        self.split_clip_with_id(id, at, None)
+    }
+
+    /// 오른쪽 클립 id를 정해 분할한다. redo가 처음 분할 때와 같은 id를 쓰게 한다(S0-T4).
+    pub(crate) fn split_clip_with_id(
+        &mut self,
+        id: ClipId,
+        at: Tick,
+        right_id: Option<ClipId>,
+    ) -> Result<ClipId, ModelError> {
         let index = self.index_of(id).ok_or(ModelError::UnknownClip)?;
+        if let Some(right) = right_id
+            && self.index_of(right).is_some()
+        {
+            return Err(ModelError::DuplicateClipId);
+        }
         let clip = &self.clips[index].1;
         let (start, end) = (clip.start().get(), clip.end());
         if at.get() <= start || at.get() >= end {
@@ -367,10 +404,37 @@ impl Track {
             });
         }
         let right = self.clips[index].1.split_at(at.get() - start)?;
-        let right_id = ClipId::allocate();
+        let right_id = right_id.unwrap_or_else(ClipId::allocate);
         // 오른쪽 클립은 왼쪽 바로 뒤에 놓인다. 원래 구간 안이므로 겹침이 생기지 않는다.
         self.clips.insert(index + 1, (right_id, right));
         Ok(right_id)
+    }
+
+    /// 분할의 역(undo 전용). 오른쪽 클립을 지우고 왼쪽 클립을 `original`로 바꾼다.
+    /// 검사를 모두 끝낸 뒤에 바꾼다(실패 시 상태 불변).
+    pub(crate) fn unsplit_clip(
+        &mut self,
+        left: ClipId,
+        right: ClipId,
+        original: Clip,
+    ) -> Result<(), ModelError> {
+        let li = self.index_of(left).ok_or(ModelError::UnknownClip)?;
+        let ri = self.index_of(right).ok_or(ModelError::UnknownClip)?;
+        if li == ri {
+            return Err(ModelError::DuplicateClipId);
+        }
+        self.check_free(&original, &[left, right])?;
+        let (first, second) = if li > ri { (li, ri) } else { (ri, li) };
+        self.clips.remove(first);
+        self.clips.remove(second);
+        self.place(left, original);
+        Ok(())
+    }
+
+    /// 지웠던 노트를 되살린다(undo 전용). 숨김 꼬리 노트도 받는다.
+    pub(crate) fn restore_note(&mut self, id: ClipId, note: Note) -> Result<(), ModelError> {
+        let index = self.index_of(id).ok_or(ModelError::UnknownClip)?;
+        self.clips[index].1.restore_note(note)
     }
 
     /// # Errors

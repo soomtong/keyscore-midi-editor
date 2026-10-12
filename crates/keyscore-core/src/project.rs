@@ -1,4 +1,4 @@
-use crate::{Key, MeterMap, TempoMap, Track};
+use crate::{Key, MeterMap, ModelError, TempoMap, Track};
 
 /// 곡 하나(REQ SEQ-1): 템포 맵 + 박자표 맵 + 트랙 목록, 그리고 전역 조성.
 ///
@@ -60,6 +60,22 @@ impl Project {
 
     pub fn push_track(&mut self, track: Track) {
         self.tracks.push(track);
+    }
+
+    /// `index` 자리에 트랙을 넣는다. `index == 트랙 수`이면 맨 뒤에 넣는다.
+    ///
+    /// # Errors
+    ///
+    /// `index`가 트랙 수보다 크면 [`ModelError::TrackIndexOutOfRange`].
+    pub fn insert_track(&mut self, index: usize, track: Track) -> Result<(), ModelError> {
+        if index > self.tracks.len() {
+            return Err(ModelError::TrackIndexOutOfRange {
+                index,
+                len: self.tracks.len(),
+            });
+        }
+        self.tracks.insert(index, track);
+        Ok(())
     }
 
     pub fn remove_track(&mut self, index: usize) -> Option<Track> {

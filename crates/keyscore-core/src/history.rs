@@ -56,7 +56,30 @@ impl History {
         edits: Vec<Edit>,
         coalesce: Option<CoalesceKey>,
     ) -> Result<(), ModelError> {
-        todo!("{} {} {coalesce:?}", project.tracks().len(), edits.len())
+        if edits.is_empty() {
+            return Ok(());
+        }
+        let inverses = apply_all(project, edits)?;
+        let bytes = total_bytes(&inverses);
+        self.used_bytes -= self.redo.drain(..).map(|e| e.bytes).sum::<usize>();
+        match self.undo.back_mut() {
+            Some(top) if !self.sealed && coalesce.is_some() && top.key == coalesce => {
+                // 새 편집을 먼저 되돌려야 하므로 새 역편집을 앞에 붙인다.
+                let mut merged = inverses;
+                merged.append(&mut top.edits);
+                top.edits = merged;
+                top.bytes += bytes;
+            }
+            _ => self.undo.push_back(Entry {
+                edits: inverses,
+                key: coalesce,
+                bytes,
+            }),
+        }
+        self.used_bytes += bytes;
+        self.sealed = false;
+        self.enforce_limit();
+        Ok(())
     }
 
     /// 되돌린다. 되돌릴 것이 없으면 `Ok(false)`.
@@ -66,7 +89,26 @@ impl History {
     /// 역편집이 맞지 않으면(히스토리 밖에서 프로젝트를 고친 경우) 그 오류. 프로젝트와 히스토리는
     /// 바뀌지 않는다.
     pub fn undo(&mut self, project: &mut Project) -> Result<bool, ModelError> {
-        todo!("{}", project.tracks().len())
+        let Some(entry) = self.undo.pop_back() else {
+            return Ok(false);
+        };
+        match apply_all(project, entry.edits.clone()) {
+            Ok(forward) => {
+                let bytes = total_bytes(&forward);
+                self.used_bytes = self.used_bytes - entry.bytes + bytes;
+                self.redo.push(Entry {
+                    edits: forward,
+                    key: None,
+                    bytes,
+                });
+                self.sealed = true;
+                Ok(true)
+            }
+            Err(err) => {
+                self.undo.push_back(entry);
+                Err(err)
+            }
+        }
     }
 
     /// 다시 실행한다. 다시 할 것이 없으면 `Ok(false)`.
@@ -75,7 +117,37 @@ impl History {
     ///
     /// [`History::undo`]와 같다.
     pub fn redo(&mut self, project: &mut Project) -> Result<bool, ModelError> {
-        todo!("{}", project.tracks().len())
+        let Some(entry) = self.redo.pop() else {
+            return Ok(false);
+        };
+        match apply_all(project, entry.edits.clone()) {
+            Ok(inverses) => {
+                let bytes = total_bytes(&inverses);
+                self.used_bytes = self.used_bytes - entry.bytes + bytes;
+                self.undo.push_back(Entry {
+                    edits: inverses,
+                    key: None,
+                    bytes,
+                });
+                self.sealed = true;
+                self.enforce_limit();
+                Ok(true)
+            }
+            Err(err) => {
+                self.redo.push(entry);
+                Err(err)
+            }
+        }
+    }
+
+    /// 상한을 넘으면 가장 오래된 undo 단위부터 버린다. 가장 최근 단위 하나는 상한보다 커도 남긴다
+    /// (방금 한 편집을 되돌릴 수 없으면 안 되기 때문이다).
+    fn enforce_limit(&mut self) {
+        while self.used_bytes > self.limit_bytes && self.undo.len() > 1 {
+            if let Some(oldest) = self.undo.pop_front() {
+                self.used_bytes -= oldest.bytes;
+            }
+        }
     }
 
     /// 다음 `apply`가 직전 단위와 묶이지 않게 한다(모드 전환, 다른 대상 선택 등).
@@ -98,6 +170,32 @@ impl History {
     pub fn used_bytes(&self) -> usize {
         self.used_bytes
     }
+}
+
+/// 편집을 차례로 적용하고, 되돌릴 때 적용할 순서의 역편집을 돌려준다. 하나라도 실패하면
+/// 이미 적용한 것을 거꾸로 되돌려 프로젝트를 호출 전 상태로 둔다.
+fn apply_all(project: &mut Project, edits: Vec<Edit>) -> Result<Vec<Edit>, ModelError> {
+    let mut inverses = Vec::with_capacity(edits.len());
+    for edit in edits {
+        match edit.apply(project) {
+            Ok(inverse) => inverses.push(inverse),
+            Err(err) => {
+                // 직전 상태에 대한 역편집이라 실패하지 않아야 한다. 실패하면 상태가 어긋난 것이다.
+                for inverse in inverses.into_iter().rev() {
+                    if inverse.apply(project).is_err() {
+                        return Err(ModelError::HistoryInconsistent);
+                    }
+                }
+                return Err(err);
+            }
+        }
+    }
+    inverses.reverse();
+    Ok(inverses)
+}
+
+fn total_bytes(edits: &[Edit]) -> usize {
+    edits.iter().map(Edit::approx_bytes).sum()
 }
 
 #[cfg(test)]
@@ -268,6 +366,59 @@ mod tests {
         assert!(h.undo(&mut p).is_err());
         assert_eq!(p, before);
         assert_eq!((h.undo_len(), h.redo_len()), (1, 0));
+    }
+
+    #[test]
+    fn history_remove_tail_note_then_undo_restores_it() {
+        // 분할로 생긴 숨김 꼬리 노트는 insert_note로 다시 넣을 수 없다. 삭제의 역편집은
+        // RestoreNote라서 undo가 되살릴 수 있어야 한다.
+        let (mut p, c) = project();
+        let mut h = History::new(usize::MAX);
+        let tail = Note::new(
+            Tick::new(900),
+            200,
+            Pitch::new(60).unwrap(),
+            Velocity::new(1),
+        )
+        .unwrap();
+        h.apply(
+            &mut p,
+            vec![Edit::InsertNote {
+                track: 0,
+                clip: c,
+                note: tail.clone(),
+            }],
+            None,
+        )
+        .unwrap();
+        h.apply(
+            &mut p,
+            vec![Edit::SplitClip {
+                track: 0,
+                id: c,
+                at: Tick::new(960),
+                right_id: None,
+            }],
+            None,
+        )
+        .unwrap();
+        assert!(
+            p.tracks()[0].clip(c).unwrap().notes()[0].end()
+                > p.tracks()[0].clip(c).unwrap().length()
+        );
+        let before = p.clone();
+        h.apply(
+            &mut p,
+            vec![Edit::RemoveNote {
+                track: 0,
+                clip: c,
+                note: tail,
+            }],
+            None,
+        )
+        .unwrap();
+        assert!(h.undo(&mut p).unwrap());
+        assert_eq!(p, before);
     }
 
     #[test]

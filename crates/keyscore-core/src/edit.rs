@@ -18,6 +18,14 @@ pub enum TrackProp {
     LyricLang(Option<String>),
 }
 
+/// [`Edit::RestoreNote`]의 내용. 필드가 crate 밖에 보이지 않아 노트 삭제의 역편집으로만 얻는다.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NoteRestore {
+    track: usize,
+    clip: ClipId,
+    note: Note,
+}
+
 /// 모델을 바꾸는 원시 편집. 적용하면 역편집이 나온다(EDT-1).
 ///
 /// 모든 변형은 모델의 검사 API를 거쳐 적용된다. 그래서 undo·redo로도 불변식(겹침 없음,
@@ -85,6 +93,9 @@ pub enum Edit {
         clip: ClipId,
         note: Note,
     },
+    /// 노트 삭제의 역. 숨김 꼬리 노트도 되살려야 해서 `InsertNote`보다 검사가 느슨하다.
+    /// 그래서 밖에서 만들 수 없는 [`NoteRestore`]로만 담긴다(꼬리를 새로 만드는 공개 경로 방지).
+    RestoreNote(NoteRestore),
     /// `tempo`가 `None`이면 그 틱의 변화를 지운다.
     SetTempo {
         at: Tick,
@@ -104,15 +115,273 @@ impl Edit {
     /// # Errors
     ///
     /// 대상이 없거나 불변식을 깨뜨리는 편집이면 [`ModelError`]. 이때 프로젝트는 바뀌지 않는다.
+    #[allow(
+        clippy::too_many_lines,
+        reason = "변형마다 한 갈래인 match라서 나누면 역편집 대응을 한눈에 볼 수 없다"
+    )]
     pub fn apply(self, project: &mut Project) -> Result<Edit, ModelError> {
-        todo!("{self:?} {}", project.tracks().len())
+        match self {
+            Edit::InsertTrack { index, track } => {
+                project.insert_track(index, *track)?;
+                Ok(Edit::RemoveTrack { index })
+            }
+            Edit::RemoveTrack { index } => {
+                let len = project.tracks().len();
+                let track = project
+                    .remove_track(index)
+                    .ok_or(ModelError::TrackIndexOutOfRange { index, len })?;
+                Ok(Edit::InsertTrack {
+                    index,
+                    track: Box::new(track),
+                })
+            }
+            Edit::SetTrackProp { track, prop } => {
+                let old = set_track_prop(track_mut(project, track)?, prop);
+                Ok(Edit::SetTrackProp { track, prop: old })
+            }
+            Edit::InsertClip { track, clip, id } => {
+                let t = track_mut(project, track)?;
+                let id = match id {
+                    Some(id) => t.insert_clip_with_id(id, *clip).map(|()| id)?,
+                    None => t.insert_clip(*clip)?,
+                };
+                Ok(Edit::RemoveClip { track, id })
+            }
+            Edit::RemoveClip { track, id } => {
+                let clip = track_mut(project, track)?
+                    .remove_clip(id)
+                    .ok_or(ModelError::UnknownClip)?;
+                Ok(Edit::InsertClip {
+                    track,
+                    clip: Box::new(clip),
+                    id: Some(id),
+                })
+            }
+            Edit::MoveClip { track, id, to } => {
+                let t = track_mut(project, track)?;
+                let from = t.clip(id).ok_or(ModelError::UnknownClip)?.start();
+                t.move_clip(id, to)?;
+                Ok(Edit::MoveClip {
+                    track,
+                    id,
+                    to: from,
+                })
+            }
+            Edit::SplitClip {
+                track,
+                id,
+                at,
+                right_id,
+            } => {
+                let t = track_mut(project, track)?;
+                let original = t.clip(id).ok_or(ModelError::UnknownClip)?.clone();
+                let right = t.split_clip_with_id(id, at, right_id)?;
+                Ok(Edit::UnsplitClip {
+                    track,
+                    left: id,
+                    right,
+                    original: Box::new(original),
+                })
+            }
+            Edit::UnsplitClip {
+                track,
+                left,
+                right,
+                original,
+            } => {
+                let t = track_mut(project, track)?;
+                let at = Tick::new(t.clip(left).ok_or(ModelError::UnknownClip)?.end());
+                t.unsplit_clip(left, right, *original)?;
+                Ok(Edit::SplitClip {
+                    track,
+                    id: left,
+                    at,
+                    right_id: Some(right),
+                })
+            }
+            Edit::SetClipName { track, id, name } => {
+                let t = track_mut(project, track)?;
+                let old = t
+                    .clip(id)
+                    .ok_or(ModelError::UnknownClip)?
+                    .name()
+                    .map(str::to_owned);
+                t.set_clip_name(id, name.unwrap_or_default())?;
+                Ok(Edit::SetClipName {
+                    track,
+                    id,
+                    name: old,
+                })
+            }
+            Edit::SetClipColor { track, id, color } => {
+                let t = track_mut(project, track)?;
+                let old = t.clip(id).ok_or(ModelError::UnknownClip)?.color();
+                t.set_clip_color(id, color)?;
+                Ok(Edit::SetClipColor {
+                    track,
+                    id,
+                    color: old,
+                })
+            }
+            Edit::InsertNote { track, clip, note } => {
+                track_mut(project, track)?.insert_note(clip, note.clone())?;
+                Ok(Edit::RemoveNote { track, clip, note })
+            }
+            Edit::RemoveNote { track, clip, note } => {
+                if !track_mut(project, track)?.remove_note(clip, &note)? {
+                    return Err(ModelError::NoteNotFound);
+                }
+                Ok(Edit::RestoreNote(NoteRestore { track, clip, note }))
+            }
+            Edit::RestoreNote(NoteRestore { track, clip, note }) => {
+                track_mut(project, track)?.restore_note(clip, note.clone())?;
+                Ok(Edit::RemoveNote { track, clip, note })
+            }
+            Edit::SetTempo { at, tempo } => {
+                let old = project
+                    .tempo_map()
+                    .changes()
+                    .find(|&(t, _)| t == at)
+                    .map(|(_, v)| v);
+                match tempo {
+                    Some(tempo) => project.tempo_map_mut().set(at, tempo),
+                    None if project.tempo_map_mut().remove(at)? => {}
+                    None => return Err(ModelError::NoChangeAt(at.get())),
+                }
+                Ok(Edit::SetTempo { at, tempo: old })
+            }
+            Edit::SetMeter { at, signature } => {
+                let old = project
+                    .meter_map()
+                    .changes()
+                    .find(|&(t, _)| t == at)
+                    .map(|(_, v)| v);
+                match signature {
+                    Some(signature) => project.meter_map_mut().set(at, signature),
+                    None if project.meter_map_mut().remove(at)? => {}
+                    None => return Err(ModelError::NoChangeAt(at.get())),
+                }
+                Ok(Edit::SetMeter { at, signature: old })
+            }
+            Edit::SetKey(key) => {
+                let old = project.key();
+                project.set_key(key);
+                Ok(Edit::SetKey(old))
+            }
+        }
     }
 
-    /// 히스토리 메모리 상한 계산용 추정 크기(바이트).
+    /// 히스토리 메모리 상한 계산용 추정 크기(바이트). 힙에 있는 노트·문자열을 더한다.
     #[must_use]
     pub fn approx_bytes(&self) -> usize {
-        todo!()
+        let heap = match self {
+            Edit::InsertTrack { track, .. } => track_bytes(track),
+            Edit::InsertClip { clip, .. } | Edit::UnsplitClip { original: clip, .. } => {
+                clip_bytes(clip)
+            }
+            Edit::SetTrackProp {
+                prop: TrackProp::Name(s),
+                ..
+            }
+            | Edit::SetTrackProp {
+                prop: TrackProp::LyricLang(Some(s)),
+                ..
+            }
+            | Edit::SetTrackProp {
+                prop: TrackProp::Port(OutputPort::Named(s)),
+                ..
+            }
+            | Edit::SetClipName { name: Some(s), .. } => s.len(),
+            Edit::InsertNote { note, .. }
+            | Edit::RemoveNote { note, .. }
+            | Edit::RestoreNote(NoteRestore { note, .. }) => note_heap_bytes(note),
+            _ => 0,
+        };
+        std::mem::size_of::<Edit>() + heap
     }
+}
+
+fn track_mut(project: &mut Project, index: usize) -> Result<&mut Track, ModelError> {
+    let len = project.tracks().len();
+    project
+        .track_mut(index)
+        .ok_or(ModelError::TrackIndexOutOfRange { index, len })
+}
+
+/// 속성을 바꾸고 이전 값을 돌려준다.
+fn set_track_prop(t: &mut Track, prop: TrackProp) -> TrackProp {
+    match prop {
+        TrackProp::Name(v) => {
+            let old = t.name().to_owned();
+            t.set_name(v);
+            TrackProp::Name(old)
+        }
+        TrackProp::Color(v) => {
+            let old = t.color();
+            t.set_color(v);
+            TrackProp::Color(old)
+        }
+        TrackProp::Port(v) => {
+            let old = t.port().clone();
+            t.set_port(v);
+            TrackProp::Port(old)
+        }
+        TrackProp::Channel(v) => {
+            let old = t.channel();
+            t.set_channel(v);
+            TrackProp::Channel(old)
+        }
+        TrackProp::Bank(v) => {
+            let old = t.bank();
+            t.set_bank(v);
+            TrackProp::Bank(old)
+        }
+        TrackProp::Program(v) => {
+            let old = t.program();
+            t.set_program(v);
+            TrackProp::Program(old)
+        }
+        TrackProp::DefaultVelocity(v) => {
+            let old = t.default_velocity();
+            t.set_default_velocity(v);
+            TrackProp::DefaultVelocity(old)
+        }
+        TrackProp::Mute(v) => {
+            let old = t.mute();
+            t.set_mute(v);
+            TrackProp::Mute(old)
+        }
+        TrackProp::Solo(v) => {
+            let old = t.solo();
+            t.set_solo(v);
+            TrackProp::Solo(old)
+        }
+        TrackProp::LyricLang(v) => {
+            let old = t.lyric_lang().map(str::to_owned);
+            t.set_lyric_lang(v);
+            TrackProp::LyricLang(old)
+        }
+    }
+}
+
+fn note_heap_bytes(note: &Note) -> usize {
+    note.lyric().map_or(0, str::len)
+}
+
+fn clip_bytes(clip: &Clip) -> usize {
+    std::mem::size_of::<Clip>()
+        + clip.name().map_or(0, str::len)
+        + clip
+            .notes()
+            .iter()
+            .map(|n| std::mem::size_of::<Note>() + note_heap_bytes(n))
+            .sum::<usize>()
+}
+
+fn track_bytes(track: &Track) -> usize {
+    std::mem::size_of::<Track>()
+        + track.name().len()
+        + track.clips().map(|(_, c)| clip_bytes(c)).sum::<usize>()
 }
 
 #[cfg(test)]
