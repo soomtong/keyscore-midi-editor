@@ -57,3 +57,21 @@ transform 속성 테스트(각 256사례) 임시 계측: 퀀타이즈 511회 중
 - `snap`의 후보 선택(스윙 점, 마디 끝, 거리 동점)과 강도 계산의 반올림 방향이 결정 문서와 계획의 해석에 맞는지 봐 달라.
 - `plan`이 만든 묶음이 원자적으로 적용되는지 봐 달라. `ExtendClip`이 먼저 오고, 그 뒤 노트 삭제·삽입이다. 클립 경계 거부(앞쪽, 다음 클립과 겹침)도 함께 봐 달라.
 - 여러 클립·여러 트랙에 걸친 선택과, 같은 노트를 두 번 고른 선택을 봐 달라.
+
+## 리뷰 대응 (review-1, 판정: 수정 후 재리뷰)
+
+| # | 지적 | 대응 | 커밋 |
+| --- | --- | --- | --- |
+| 1 | 숨김 꼬리 때문에 조옮김·`shift(0)`이 클립을 늘리거나 거부됨 (차단) | 사람에게 물어 결정을 개정했다(꼬리는 꼬리로 둔다). 원래 꼬리였던 노트는 시작만 클립 안이면 되고, 시작이 밖으로 나갈 때만 늘린다. 연산은 `Edit::ReplaceNote`로 바꿨다. 새 노트는 원래 노트가 꼬리였을 때만 꼬리일 수 있어, 「꼬리는 분할로만」이 유지된다. 역편집은 내부 `Op::UnreplaceNote`다 | `core: Keep hidden tails as tails in transforms via ReplaceNote` |
+| 2 | `transpose`의 i32 오버플로와 반음 수에 비례하는 접기 반복 | i64로 계산하고, 접을 옥타브 수를 한 번에 구한다 | `core: Compute transpose folding in i64 without a loop` |
+| 3 | 같은 노트를 두 번 고른 선택이 `Ok` 뒤 적용 실패 | 계산 단계에서 고른 개수와 클립의 개수를 해시로 비교해 거부한다(선택 크기에 선형) | `core: Reject selections that pick a note more often than it exists` |
+| 4 | u64 초과를 「클립 시작 앞」으로 보고 | 음수만 `NoteBeforeClipStart`, u64 초과는 `TickOverflow` | `core: Report tick overflow, not before-start, for oversized transforms` |
+| 5 | 여러 클립에 걸친 반속이 언제나 거부됨 (제안) | 사람에게 물어 결정을 개정했다(클립마다 기준점). 리뷰어 테스트의 기대값을 뒤집고 이름을 바꿨다(커밋 본문에 이유) | `core: Anchor scale at each clip's first selected note`, `core: Expect per-clip scale anchor in review test` |
+| 6 | 구현 해석이 결정 문서에 없음 (제안) | 받음. 결정 문서에 부록으로 옮겼다 | `plan:` |
+| 7 | 1/4보다 긴 그리드와 점음표 그리드 (제안) | 결정 요청 `docs/decisions/2026-10-12-quantize-grid-lengths.md`. S5 전까지 정하면 된다 | `plan:` |
+
+제가 고친 리뷰어 테스트에서 한 글자 변수 이름 때문에 clippy가 실패해 이름을 바꿨다(별도 커밋). 이번에는 지적마다 커밋을 나눴다.
+
+~~~
+cargo test --workspace: 206 passed (리뷰어 테스트 18개 포함)
+~~~
