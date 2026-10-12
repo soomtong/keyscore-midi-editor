@@ -68,7 +68,7 @@ check-deps.test 11, bench-check.test 8 통과
 
 | # | 지적 | 대응 |
 | --- | --- | --- |
-| 1 | `key`·`port` 객체의 모르는 키를 버림 (차단) | `Project`에 `key_extra`, `Track`에 `port_extra`(crate 내부)를 더하고, 쓸 때 알려진 키 뒤에 이름 순으로 붙인다. 조성이 「없음」이거나 포트가 가상 포트면 객체 자리가 없어 쓰지 않는다(그 값으로 바뀐 경우에 한해 버려진다) |
+| 1 | `key`·`port` 객체의 모르는 키를 버림 (차단) | `Project`에 `key_extra`, `Track`에 `port_extra`(crate 내부)를 더하고, 쓸 때 알려진 키 뒤에 이름 순으로 붙인다. 조성이 「없음」이거나 포트가 가상 포트면 객체 자리가 없어 쓰지 않는다. (리뷰 2 정정: 모르는 키는 값과 묶여 있지 않아, 다른 값으로 바뀐 뒤에도 남아 다시 쓰일 수 있다. 결정 요청을 썼다) |
 | 2 | 모르는 키의 실수가 저장마다 바뀜 (차단) | `serde_json`의 `float_roundtrip`을 켰다(`5fea50c`) |
 | 3 | 템포·박자표 읽기 O(n²) | 항목을 모아 `TempoMap::from_sorted`·`MeterMap::from_sorted`(crate 내부)로 한 번에 만든다. 순서 검사는 읽기에서 한다 |
 | 4 | 역순 노트 읽기 O(n²) | `Clip::restore_notes`(crate 내부)가 모두 검사한 뒤 붙이고 한 번 정렬한다 |
@@ -86,4 +86,22 @@ check-deps.test 11, bench-check.test 8 통과
 cargo test --workspace: 149 passed
 bench: ksq/read_100k_notes 14.4 ms(기준 대비 -7.2%), write 15.1 ms
 check-deps.test 11, bench-check.test 8 통과
+~~~
+
+## 리뷰 대응 (review-2, 판정: 수정 후 재리뷰)
+
+| # | 지적 | 대응 | 커밋 |
+| --- | --- | --- | --- |
+| 1 | 0600 원본 저장 중 임시 파일이 0644로 내용을 담음 | 권한을 내용 쓰기 전에 맞춘다 | `core: Set temp file permissions before writing .ksq content` |
+| 2 | 히스토리 크기 추정이 모르는 키를 세지 않음 | 클립·트랙·port·노트의 모르는 키를 직렬화 길이로 더한다 | `core: Count unknown .ksq keys in history size estimates` |
+| 3 | `main`의 `.proptest-regressions` 3개를 지움 | 구현자 실수였다. 뼈대 실패로 생긴 새 시드만 지우려다 `rm -f tests/*.proptest-regressions`로 기존 파일까지 지웠다. `main`에서 되살렸고 사례는 모두 통과한다 | `core: Restore proptest regression files deleted by mistake` |
+| 4 | `key_extra`·`port_extra`가 값과 묶여 있지 않음 (제안) | 결정 요청 `docs/decisions/2026-10-12-ksq-unknown-keys-on-value-change.md`, S2-T5로 이월. 위 리뷰 1 대응 표의 문장을 정정했다 | `plan:` |
+| 5 | `Value` 트리 메모리 팽창 (제안) | S8-T3(NF-7 측정)으로 이월 | `plan:` |
+| 6 | 읽기 전용 파일 저장 (제안) | S2-T7(저장 흐름)로 이월 | `plan:` |
+| 7 | 지적마다 커밋 하나 (제안) | 받음. 이번 대응은 지적마다 커밋을 나눴다 | |
+
+리뷰어가 남긴 재현 테스트 2개(`ksq_write_file_temp_never_wider_than_original_mode`, `history_bytes_count_unknown_keys_of_split_clip`)가 이제 통과한다.
+
+~~~
+cargo test --workspace: 160 passed
 ~~~

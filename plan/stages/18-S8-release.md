@@ -24,6 +24,7 @@
 - 테스트 게이트: 모든 수치가 REQ 8절 목표 안. 넘는 항목은 결정 요청(목표 수정 또는 추가 Task).
 - 이월(S0-T3 리뷰): `scripts/bench-check.py`(10% 회귀)를 CI에 넣는다. 러너에서 `--update`로 기준값을 다시 잡은 뒤에 넣어야 거짓 실패가 없다(`plan/00-conventions.md` 성능 테스트 규칙).
 - 이월(S0-T3 리뷰 2 제안 9–12): 게이트를 켜기 전에 `bench-check.py`를 보강한다. 가짜 `cargo`로 `CRITERION_HOME` 전달을 시험하고, NaN 평균을 실패로 처리하고, `cargo bench` 실패와 기준값 파일 없음을 한 줄 메시지로 알리고, `bench-check.test.sh`의 `$RANDOM` 접미사를 증분 카운터로 바꾼다.
+- 이월(S0-T6 리뷰 2 제안 5): `.ksq` 읽기는 JSON `Value` 트리를 거쳐 메모리가 파일 크기의 약 18배까지 부푼다(31 KB gzip 파일에서 최대 상주 583 MB). NF-7 측정 때 스트리밍 파서나 입력 크기 상한을 검토한다.
 
 ### S8-T4 접근성·테마
 
