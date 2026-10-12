@@ -161,6 +161,33 @@ impl Clip {
         Ok(())
     }
 
+    /// 노트 하나를 바꾼다. 검사를 모두 끝낸 뒤 바꾼다(실패 시 상태 불변).
+    pub(crate) fn replace_note(
+        &mut self,
+        from: &Note,
+        to: Note,
+        restoring: bool,
+    ) -> Result<(), ModelError> {
+        let index = self
+            .notes
+            .iter()
+            .position(|n| n == from)
+            .ok_or(ModelError::NoteNotFound)?;
+        let tail_allowed = restoring || from.end() > self.length;
+        if to.start().get() >= self.length || (!tail_allowed && to.end() > self.length) {
+            return Err(ModelError::NoteOutsideClip {
+                start: to.start().get(),
+                end: to.end(),
+                clip_length: self.length,
+            });
+        }
+        self.start.checked_add(to.end())?;
+        self.notes.remove(index);
+        let at = self.notes.partition_point(|n| n <= &to);
+        self.notes.insert(at, to);
+        Ok(())
+    }
+
     /// 같은 값의 노트 하나를 지운다. 지웠으면 `true`.
     pub fn remove_note(&mut self, note: &Note) -> bool {
         match self.notes.iter().position(|n| n == note) {

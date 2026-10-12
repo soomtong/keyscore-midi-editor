@@ -93,6 +93,15 @@ pub enum Edit {
         clip: ClipId,
         note: Note,
     },
+    /// 노트 하나를 다른 노트로 바꾼다(일괄 연산의 이동·조옮김). 새 노트의 시작은 클립 안이어야 하고,
+    /// 끝은 클립 안이어야 한다. 다만 원래 노트가 숨김 꼬리(끝 > 클립 길이)였으면 새 노트도 꼬리일 수
+    /// 있다. 꼬리는 분할로 생긴 것에서만 이어지므로 「꼬리는 분할로만 생긴다」가 유지된다.
+    ReplaceNote {
+        track: TrackId,
+        clip: ClipId,
+        from: Note,
+        to: Note,
+    },
     /// `tempo`가 `None`이면 그 틱의 변화를 지운다.
     SetTempo {
         at: Tick,
@@ -189,6 +198,19 @@ pub(crate) enum Op {
         clip: ClipId,
         note: Note,
     },
+    ReplaceNote {
+        track: TrackId,
+        clip: ClipId,
+        from: Note,
+        to: Note,
+    },
+    /// `ReplaceNote`의 역. 원래 노트(꼬리였을 수 있다)를 그대로 되돌린다.
+    UnreplaceNote {
+        track: TrackId,
+        clip: ClipId,
+        from: Note,
+        to: Note,
+    },
     RestoreNote {
         track: TrackId,
         clip: ClipId,
@@ -220,6 +242,17 @@ impl From<Edit> for Op {
             Edit::SetClipColor { track, id, color } => Op::SetClipColor { track, id, color },
             Edit::InsertNote { track, clip, note } => Op::InsertNote { track, clip, note },
             Edit::RemoveNote { track, clip, note } => Op::RemoveNote { track, clip, note },
+            Edit::ReplaceNote {
+                track,
+                clip,
+                from,
+                to,
+            } => Op::ReplaceNote {
+                track,
+                clip,
+                from,
+                to,
+            },
             Edit::SetTempo { at, tempo } => Op::SetTempo { at, tempo },
             Edit::SetMeter { at, signature } => Op::SetMeter { at, signature },
             Edit::SetKey(key) => Op::SetKey(key),
@@ -384,6 +417,34 @@ impl Op {
                     return Err(ModelError::NoteNotFound);
                 }
                 Ok(Op::RestoreNote { track, clip, note })
+            }
+            Op::ReplaceNote {
+                track,
+                clip,
+                from,
+                to,
+            } => {
+                track_mut(project, track)?.replace_note(clip, &from, to.clone(), false)?;
+                Ok(Op::UnreplaceNote {
+                    track,
+                    clip,
+                    from: to,
+                    to: from,
+                })
+            }
+            Op::UnreplaceNote {
+                track,
+                clip,
+                from,
+                to,
+            } => {
+                track_mut(project, track)?.replace_note(clip, &from, to.clone(), true)?;
+                Ok(Op::ReplaceNote {
+                    track,
+                    clip,
+                    from: to,
+                    to: from,
+                })
             }
             Op::RestoreNote { track, clip, note } => {
                 track_mut(project, track)?.restore_note(clip, note.clone())?;
@@ -780,6 +841,71 @@ mod tests {
             "맞붙지 않은 두 클립은 되돌릴 분할이 아니다"
         );
         assert_eq!(p, before);
+    }
+
+    #[test]
+    fn replace_note_keeps_tails_only_from_tails() {
+        let (mut p, t, a, _) = fixture();
+        // 꼬리가 아닌 노트를 꼬리로 바꿀 수 없다(분할 없이 꼬리가 생기는 경로가 된다).
+        let before = p.clone();
+        let into_tail = Op::ReplaceNote {
+            track: t,
+            clip: a,
+            from: note(0),
+            to: note(955),
+        };
+        assert!(matches!(
+            into_tail.apply(&mut p),
+            Err(ModelError::NoteOutsideClip { .. })
+        ));
+        assert_eq!(p, before);
+        // 클립 안의 이동은 왕복한다.
+        round_trip(
+            &mut p,
+            Op::ReplaceNote {
+                track: t,
+                clip: a,
+                from: note(0),
+                to: note(100),
+            },
+        );
+        // 분할로 꼬리를 만든 뒤에는 꼬리 노트를 꼬리로 옮길 수 있고, undo로 돌아온다.
+        let tail = Note::new(
+            Tick::new(900),
+            200,
+            Pitch::new(60).unwrap(),
+            Velocity::new(1000),
+        )
+        .unwrap();
+        p.track_by_id_mut(t)
+            .unwrap()
+            .insert_note(a, note(800))
+            .unwrap();
+        let mut q = Project::new();
+        let mut tr = new_track("Q", 5);
+        let qt = tr.id();
+        let qc = tr
+            .insert_clip(Clip::new(Tick::ZERO, 1920).unwrap())
+            .unwrap();
+        tr.insert_note(qc, tail.clone()).unwrap();
+        tr.split_clip(qc, Tick::new(960)).unwrap();
+        q.push_track(tr).unwrap();
+        let moved = Note::new(
+            Tick::new(910),
+            200,
+            Pitch::new(62).unwrap(),
+            Velocity::new(1000),
+        )
+        .unwrap();
+        round_trip(
+            &mut q,
+            Op::ReplaceNote {
+                track: qt,
+                clip: qc,
+                from: tail,
+                to: moved,
+            },
+        );
     }
 
     #[test]

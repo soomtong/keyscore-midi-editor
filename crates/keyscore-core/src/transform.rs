@@ -270,18 +270,25 @@ fn plan(
     for r in notes {
         let (clip, ()) = find(project, r)?;
         let new = f(clip, &r.note)?;
-        if new.end() > clip.length() {
+        // 원래 꼬리였던 노트는 꼬리로 둔다: 끝이 아니라 시작만 클립 안에 있으면 된다
+        // (결정 개정, S0-T7 리뷰 1 지적 1). 그 밖의 노트는 끝까지 클립 안이어야 한다.
+        let needed_end = if r.note.end() > clip.length() {
+            new.start().get() + 1
+        } else {
+            new.end()
+        };
+        if needed_end > clip.length() {
             match needed
                 .iter_mut()
                 .find(|(t, c, _)| *t == r.track && *c == r.clip)
             {
-                Some(entry) => entry.2 = entry.2.max(new.end()),
-                None => needed.push((r.track, r.clip, new.end())),
+                Some(entry) => entry.2 = entry.2.max(needed_end),
+                None => needed.push((r.track, r.clip, needed_end)),
             }
         }
         moved.push((r, new));
     }
-    let mut edits = Vec::with_capacity(needed.len() + moved.len() * 2);
+    let mut edits = Vec::with_capacity(needed.len() + moved.len());
     for (track, id, end) in needed {
         let t = project.track(track).ok_or(ModelError::UnknownTrack)?;
         let clip = t.clip(id).ok_or(ModelError::UnknownClip)?;
@@ -294,15 +301,11 @@ fn plan(
         }
         edits.push(Edit::ExtendClip { track, id, length });
     }
-    edits.extend(moved.iter().map(|(r, _)| Edit::RemoveNote {
+    edits.extend(moved.into_iter().map(|(r, to)| Edit::ReplaceNote {
         track: r.track,
         clip: r.clip,
-        note: r.note.clone(),
-    }));
-    edits.extend(moved.into_iter().map(|(r, n)| Edit::InsertNote {
-        track: r.track,
-        clip: r.clip,
-        note: n,
+        from: r.note.clone(),
+        to,
     }));
     Ok(edits)
 }
