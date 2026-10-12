@@ -22,7 +22,8 @@ impl ClipId {
 /// 불변식(공개 API로 깨뜨릴 수 없다):
 /// - 길이 ≥ 1틱이고 `start + length`가 u64 안이다.
 /// - 모든 노트의 시작은 `0 ≤ start < length`다. 끝이 길이를 넘는 노트(숨김 꼬리)는
-///   분할로만 생긴다(`docs/decisions/2026-10-12-clip-split-and-velocity.md` Q1).
+///   분할로만 생긴다(`docs/decisions/2026-10-12-clip-split-and-velocity.md` Q1). 꼬리의 개수는
+///   분할로만 늘지만, 기존 꼬리의 모양(시작·길이)은 편집(`ReplaceNote(s)`)으로 바뀔 수 있다.
 /// - 노트는 [`Note`]의 전체 순서(시작, 음높이, 그다음 나머지 필드)로 정렬되어 있다.
 ///
 /// 시작·길이를 바꾸는 공개 메서드는 없다. 트랙 안의 겹침 검사를 우회하지 못하게

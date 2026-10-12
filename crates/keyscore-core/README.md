@@ -23,7 +23,7 @@
 - GPUI·CoreMIDI·네트워크 crate에 전이적으로도 의존하지 않는다(`scripts/check-deps.sh`).
 - `unsafe` 금지(`#![deny(unsafe_code)]`).
 - 같은 트랙의 클립 구간 `[start, end)`는 겹치지 않는다(맞닿음은 허용).
-- 클립 안 노트의 시작은 `0 ≤ start < 클립 길이`다. 끝이 클립 길이를 넘는 노트(숨김 꼬리)는 분할로만 생긴다(`docs/decisions/2026-10-12-clip-split-and-velocity.md`).
+- 클립 안 노트의 시작은 `0 ≤ start < 클립 길이`다. 끝이 클립 길이를 넘는 노트(숨김 꼬리)는 분할로만 생긴다(`docs/decisions/2026-10-12-clip-split-and-velocity.md`). 기존 꼬리의 모양은 `ReplaceNote(s)` 편집으로 바뀔 수 있으나 꼬리의 개수는 분할로만 는다.
 - 실패한 편집 메서드는 상태를 바꾸지 않는다.
 - 편집은 `Document`로만 한다. `Project`의 `&mut` API는 구성 단계용이며, 거기서 생긴 id 중복은 `Document::new`가 거부한다.
 - 속성 기반 회귀 테스트: `tests/model_invariants.rs`, `tests/tempo_map.rs`, `tests/history.rs`.
