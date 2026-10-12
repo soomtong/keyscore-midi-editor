@@ -44,6 +44,7 @@
 
 - 범위: IO-5, 7.5의 파일 단축키, 자동 저장본(`~/Library/Application Support/KeyScore/autosave/<경로 해시>.ksq`, 30 s), 크래시 후 복구 제안, 저장 안 된 변경의 닫기 시트, 최근 파일.
 - 테스트 게이트: 저장 중 kill 시뮬레이션 후 원본 보존. 자동 저장본이 프로젝트 폴더에 생기지 않음.
+- 이월(S0-T6 리뷰 1 제안 6): 상위 `format_version` 파일의 저장 정책. 결정 요청 `docs/decisions/2026-10-12-ksq-newer-version-save.md`.
 
 ## 출구 게이트
 
