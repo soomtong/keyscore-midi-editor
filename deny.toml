@@ -1,5 +1,6 @@
-# 의존성 정책. 라이선스 허용 목록은 plan/00-conventions.md를 그대로 따른다.
-# 목록을 넓히는 변경은 docs/decisions/2026-10-11-license-allowlist.md의 결정을 거친다.
+# 의존성 정책. 라이선스 허용 목록은 plan/00-conventions.md와
+# docs/decisions/2026-10-11-license-allowlist.md(결정 B)를 따른다.
+# 목록을 넓히는 변경은 결정 요청을 거친다.
 
 [graph]
 # 제품은 macOS 전용(REQ 8.3)이다. 다른 플랫폼 전용 의존까지 검사하면
@@ -18,6 +19,11 @@ allow = [
   "BSD-3-Clause",
   "Zlib",
   "ISC",
+  # 결정 B: ICU 계열·unicode-ident(Unicode-3.0), libbz2-rs-sys(bzip2-1.0.6),
+  # cbindgen·option-ext(MPL-2.0). MPL crate는 수정 없이 쓴다.
+  "Unicode-3.0",
+  "bzip2-1.0.6",
+  "MPL-2.0",
 ]
 confidence-threshold = 0.9
 # 워크스페이스 crate 자신은 publish = false라 라이선스 검사 대상에서 뺀다.
