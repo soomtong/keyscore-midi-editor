@@ -87,6 +87,8 @@ cargo test --workspace: 206 passed (리뷰어 테스트 18개 포함)
 
 리뷰어 1회차 테스트 `review_stale_transform_after_extend_is_atomic`는 묶음 모양(첫 편집이 `ExtendClip`)을 단언해서 새 모양(`ReplaceNotes`가 길이를 늘림)으로 단언을 바꿨다. 의도(낡은 묶음의 원자적 실패)는 그대로다(`core: Update stale-batch review test …`). `Edit::ReplaceNote`는 리뷰어 2회차 테스트가 직접 공격하므로 남겼다.
 
+과정 기록: 지적 2의 테스트를 커밋한 뒤에야 clippy를 돌려 한 글자 변수 이름 경고를 발견했다. 별도 커밋으로 고쳤다. 게이트는 커밋 전에 돌려야 한다.
+
 ~~~
-cargo test --workspace: 227 passed
+cargo test --workspace: 227 passed, clippy 경고 0
 ~~~
