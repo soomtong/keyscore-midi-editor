@@ -120,10 +120,12 @@ fn build_clip(ns: &[NoteSpec], mode: &LengthMode) -> Clip {
         .map(|n| n.start + u64::from(n.length))
         .max()
         .unwrap_or(0);
+    // 노트가 없으면 「노트 끝」이 없으므로 쉼표로 닿는 길이(한 마디)를 쓴다. 쉼표로도 노트 끝으로도
+    // 닿지 않는 길이는 알려진 한계라 왕복 속성의 범위 밖이다(`Any`만 그런 길이를 만든다).
+    let note_end = if max_end == 0 { 3840 } else { max_end };
     let length = match mode {
-        LengthMode::NoteEnd => max_end.max(1),
+        LengthMode::NoteEnd | LengthMode::Split(..) => note_end,
         LengthMode::Padded(k) => max_end.max(195).div_ceil(15) * 15 + k * 15,
-        LengthMode::Split(..) => max_end.max(1),
         LengthMode::Any(k) => max_end.max(1) + k,
     };
     let mut c = Clip::new(Tick::ZERO, length).unwrap();

@@ -1,0 +1,19 @@
+---
+source: crates/keyscore-text/tests/export.rs
+expression: text
+---
+@tempo 120
+@time 4/4
+@key C major
+
+@track Lead ch1 prog0
+o4 c8"사" d8 e4 [c e g]4"랑" f8~+13:-25 r8 |
+n(c8 d8 e8) r4 > c1&
+c1
+r2
+
+@track Lead ch1 prog0
+o3 c1 |
+
+@track Drums ch10
+[bd ch]16 ch16 sd16 [n75]16 r4

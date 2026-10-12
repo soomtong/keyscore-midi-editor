@@ -114,7 +114,7 @@ fn export_grid_notes_have_no_offset_suffix() {
 fn export_long_note_uses_ties_and_low_pitch_uses_octave_below_zero() {
     let c = clip(12_000, &[nl(0, 7680 + 960, 0, "길"), n(8640, 3360, 127)]);
     let text = export(&Header::default(), &[track("T", 1, &c)]);
-    assert!(text.contains("&"), "{text}");
+    assert!(text.contains('&'), "{text}");
     assert!(text.contains("o0 <"), "{text}");
     assert_eq!(reparse(&text), (notes(&c), 12_000));
 }

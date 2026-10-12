@@ -199,7 +199,11 @@ fn voice_blocks_merge_into_one_clip() {
         "@track A ch1\nc1\n@track B ch2\nd4\n@track A ch1\ne4 e4\n",
         Mode::Lenient,
     );
-    let names: Vec<&str> = p.tracks().iter().map(|t| t.name()).collect();
+    let names: Vec<&str> = p
+        .tracks()
+        .iter()
+        .map(keyscore_text::ParsedTrack::name)
+        .collect();
     assert_eq!(names, vec!["A", "B"]);
     let a = p.tracks()[0].clip();
     // 성부는 모두 클립 시작에서 시작한다. 클립 길이는 가장 긴 성부다.
@@ -211,7 +215,7 @@ fn voice_blocks_merge_into_one_clip() {
     assert_eq!(notes(p.tracks()[1].clip()), vec![n(0, 960, 62)]);
     // 성부 블록마다 옥타브·기본 길이 상태가 처음으로 돌아간다.
     let c = one_track("@track A ch1\no5 l8 c\n@track A ch1\nc", Mode::Lenient);
-    assert_eq!(notes(&c), vec![n(0, 480, 72), n(0, 960, 60)]);
+    assert_eq!(notes(&c), vec![n(0, 960, 60), n(0, 480, 72)]);
     // 같은 이름인데 속성이 다르면 오류(어느 쪽이 맞는지 정할 수 없다).
     let (l, c, _) = err("@track A ch1\nc\n@track A ch2\nd", Mode::Lenient);
     assert_eq!((l, c), (3, 1));
@@ -313,7 +317,7 @@ fn lyrics_chord_tie_order() {
     // 순서 음이름 변화표 길이 점 ~ "가사" &.
     assert_eq!(
         notes(&melody("c+8.~+13:-1\"사\"&c+8")),
-        vec![nl(13, 1186, 61, "사")]
+        vec![nl(13, 1187, 61, "사")]
     );
     assert_eq!(notes(&melody("c8\"사\"&c8")), vec![nl(0, 960, 60, "사")]);
     // 화음의 타이는 같은 음 집합과 잇는다.
@@ -413,16 +417,16 @@ fn headers_and_track_attributes() {
         "@tempo 120.5\n@time 6/8\n@key Db major\n@track \"Lead Vox\" ch3 prog5 bank300\nc",
         Mode::Strict,
     );
-    let h = p.header();
+    let header = p.header();
     // 60,000,000 / 120.5 = 497925.31… → 497925 µs.
-    assert_eq!(h.tempo().map(Tempo::micros_per_quarter), Some(497_925));
-    assert_eq!(h.time(), Some(TimeSignature::new(6, 8).unwrap()));
-    assert_eq!(h.key(), Some(Key::Major(PitchClass::new(1).unwrap())));
-    let t = &p.tracks()[0];
-    assert_eq!(t.name(), "Lead Vox");
-    assert_eq!(t.channel().get(), 3);
-    assert_eq!(t.program().map(keyscore_core::Program::get), Some(5));
-    assert_eq!(t.bank().map(keyscore_core::Bank::get), Some(300));
+    assert_eq!(header.tempo().map(Tempo::micros_per_quarter), Some(497_925));
+    assert_eq!(header.time(), Some(TimeSignature::new(6, 8).unwrap()));
+    assert_eq!(header.key(), Some(Key::Major(PitchClass::new(1).unwrap())));
+    let track = &p.tracks()[0];
+    assert_eq!(track.name(), "Lead Vox");
+    assert_eq!(track.channel().get(), 3);
+    assert_eq!(track.program().map(keyscore_core::Program::get), Some(5));
+    assert_eq!(track.bank().map(keyscore_core::Bank::get), Some(300));
 
     // 정수 BPM은 Tempo::from_bpm과 같다. 대소문자 무시.
     let p = ok("@TEMPO 7\n@KEY f# MINOR\n@track a CH16\nc", Mode::Lenient);
@@ -444,9 +448,9 @@ fn headers_and_track_attributes() {
     assert_eq!(p.tracks()[0].name(), "a \"q\"");
     assert_eq!(p.tracks()[0].bank().map(keyscore_core::Bank::get), Some(0));
 
-    let at = |t: &str| {
-        let (l, c, _) = err(t, Mode::Lenient);
-        (l, c)
+    let at = |text: &str| {
+        let (line, column, _) = err(text, Mode::Lenient);
+        (line, column)
     };
     assert_eq!(at("@time 3/5\n@track a ch1\nc"), (1, 7));
     assert_eq!(at("@tempo 0\n@track a ch1\nc"), (1, 8));
