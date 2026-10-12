@@ -139,6 +139,28 @@ impl Clip {
         Ok(())
     }
 
+    /// 지웠던·저장된 노트를 한꺼번에 되살린다(파일 읽기 전용). 노트마다 `restore_note`로 넣으면
+    /// 역순 입력에서 매번 앞쪽에 끼워 넣어 O(n²)이 된다(S0-T6 리뷰 1 지적 4). 모두 검사한 뒤
+    /// 붙이고 한 번 정렬한다. 실패하면 클립은 바뀌지 않고, 어긋난 노트의 번호를 돌려준다.
+    pub(crate) fn restore_notes(&mut self, notes: Vec<Note>) -> Result<(), (usize, ModelError)> {
+        for (i, note) in notes.iter().enumerate() {
+            if note.start().get() >= self.length {
+                return Err((
+                    i,
+                    ModelError::NoteOutsideClip {
+                        start: note.start().get(),
+                        end: note.end(),
+                        clip_length: self.length,
+                    },
+                ));
+            }
+            self.start.checked_add(note.end()).map_err(|e| (i, e))?;
+        }
+        self.notes.extend(notes);
+        self.notes.sort();
+        Ok(())
+    }
+
     /// 같은 값의 노트 하나를 지운다. 지웠으면 `true`.
     pub fn remove_note(&mut self, note: &Note) -> bool {
         match self.notes.iter().position(|n| n == note) {

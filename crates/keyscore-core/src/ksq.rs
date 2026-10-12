@@ -16,8 +16,9 @@ use serde_json::{Map, Value};
 use thiserror::Error;
 
 use crate::{
-    Bank, Channel, Clip, Key, ModelError, Note, OutputPort, Pitch, PitchClass, PitchOffset,
-    Program, Project, Tempo, Tick, TimeSignature, Track, TrackColor, Velocity,
+    Bank, Channel, Clip, Key, MeterMap, ModelError, Note, OutputPort, Pitch, PitchClass,
+    PitchOffset, Program, Project, Tempo, TempoMap, Tick, TimeSignature, Track, TrackColor,
+    Velocity,
 };
 
 /// 이 코드가 쓰는 형식 버전.
@@ -69,7 +70,10 @@ pub fn to_string(project: &Project) -> String {
             "format_version".to_owned(),
             Item::Inline(FORMAT_VERSION.to_string()),
         ),
-        ("key".to_owned(), Item::Inline(key_text(project.key()))),
+        (
+            "key".to_owned(),
+            Item::Inline(key_text(project.key(), project.key_extra())),
+        ),
         (
             "tempo".to_owned(),
             Item::Lines(
@@ -121,7 +125,15 @@ fn track_fields(t: &Track) -> Vec<(String, Item)> {
             "port".to_owned(),
             Item::Inline(match t.port() {
                 OutputPort::Virtual => "\"virtual\"".to_owned(),
-                OutputPort::Named(name) => format!("{{\"named\": {}}}", json_string(name)),
+                OutputPort::Named(name) => {
+                    let mut parts = vec![format!("\"named\": {}", json_string(name))];
+                    parts.extend(
+                        t.port_extra()
+                            .iter()
+                            .map(|(k, v)| format!("{}: {}", json_string(k), inline(v))),
+                    );
+                    format!("{{{}}}", parts.join(", "))
+                }
             }),
         ),
         (
@@ -289,12 +301,23 @@ fn inline(v: &Value) -> String {
     }
 }
 
-fn key_text(key: Key) -> String {
-    match key {
-        Key::None => "\"none\"".to_owned(),
-        Key::Major(pc) => format!("{{\"tonic\": {}, \"mode\": \"major\"}}", pc.get()),
-        Key::Minor(pc) => format!("{{\"tonic\": {}, \"mode\": \"minor\"}}", pc.get()),
-    }
+/// `key` 값. 객체이면 알려진 키 뒤에 모르는 키를 이름 순으로 붙인다(리뷰 1 지적 1).
+fn key_text(key: Key, extra: &Map<String, Value>) -> String {
+    let (tonic, mode) = match key {
+        Key::None => return "\"none\"".to_owned(),
+        Key::Major(pc) => (pc, "major"),
+        Key::Minor(pc) => (pc, "minor"),
+    };
+    let mut parts = vec![
+        format!("\"tonic\": {}", tonic.get()),
+        format!("\"mode\": \"{mode}\""),
+    ];
+    parts.extend(
+        extra
+            .iter()
+            .map(|(k, v)| format!("{}: {}", json_string(k), inline(v))),
+    );
+    format!("{{{}}}", parts.join(", "))
 }
 
 /// 바이트로 쓴다. `Compression::Gzip`이면 gzip으로 감싼다.
@@ -345,37 +368,38 @@ pub fn from_str(text: &str) -> Result<(Project, Vec<Warning>), KsqError> {
         )));
     }
     if let Some(v) = fields.take("key") {
-        project.set_key(read_key(v, "key")?);
+        let (key, extra) = read_key(v, "key")?;
+        project.set_key(key);
+        project.set_key_extra(extra);
     }
     if let Some(v) = fields.take("tempo") {
+        let mut changes: Vec<(Tick, Tempo)> = Vec::new();
         for (i, entry, path) in array_items(v, "tempo")? {
             let [tick, us] = fixed::<2>(&entry, &path)?;
             let tick = Tick::new(u64_value(tick, &format!("{path}[0]"))?);
-            check_change_order(
-                i,
-                tick,
-                project.tempo_map().changes().last().map(|c| c.0),
-                &path,
-            )?;
+            check_change_order(i, tick, changes.last().map(|c| c.0), &path)?;
             let us = u32_value(us, &format!("{path}[1]"))?;
             let tempo = Tempo::from_micros_per_quarter(us).map_err(model(&path))?;
-            project.tempo_map_mut().set(tick, tempo);
+            changes.push((tick, tempo));
+        }
+        // 항목마다 set하면 매번 전체를 다시 계산해 O(n²)이다(리뷰 1 지적 3).
+        if !changes.is_empty() {
+            *project.tempo_map_mut() = TempoMap::from_sorted(changes);
         }
     }
     if let Some(v) = fields.take("meter") {
+        let mut changes: Vec<(Tick, TimeSignature)> = Vec::new();
         for (i, entry, path) in array_items(v, "meter")? {
             let [tick, num, den] = fixed::<3>(&entry, &path)?;
             let tick = Tick::new(u64_value(tick, &format!("{path}[0]"))?);
-            check_change_order(
-                i,
-                tick,
-                project.meter_map().changes().last().map(|c| c.0),
-                &path,
-            )?;
+            check_change_order(i, tick, changes.last().map(|c| c.0), &path)?;
             let num = small::<u8>(num, &format!("{path}[1]"))?;
             let den = small::<u16>(den, &format!("{path}[2]"))?;
             let sig = TimeSignature::new(num, den).map_err(model(&path))?;
-            project.meter_map_mut().set(tick, sig);
+            changes.push((tick, sig));
+        }
+        if !changes.is_empty() {
+            *project.meter_map_mut() = MeterMap::from_sorted(changes);
         }
     }
     if let Some(v) = fields.take("tracks") {
@@ -410,9 +434,9 @@ fn check_change_order(
     }
 }
 
-fn read_key(v: Value, path: &str) -> Result<Key, KsqError> {
+fn read_key(v: Value, path: &str) -> Result<(Key, Map<String, Value>), KsqError> {
     if v.as_str() == Some("none") {
-        return Ok(Key::None);
+        return Ok((Key::None, Map::new()));
     }
     let mut f = Fields::of(v, path.to_owned())
         .map_err(|_| invalid(path, "\"none\" 또는 {\"tonic\", \"mode\"} 객체여야 한다"))?;
@@ -427,8 +451,8 @@ fn read_key(v: Value, path: &str) -> Result<Key, KsqError> {
         .and_then(Value::as_str)
         .ok_or_else(|| invalid(path, "mode가 없다"))?
     {
-        "major" => Ok(Key::Major(tonic)),
-        "minor" => Ok(Key::Minor(tonic)),
+        "major" => Ok((Key::Major(tonic), f.rest())),
+        "minor" => Ok((Key::Minor(tonic), f.rest())),
         _ => Err(invalid(path, "mode는 \"major\" 또는 \"minor\"여야 한다")),
     }
 }
@@ -454,7 +478,9 @@ fn read_track(v: Value, path: &str) -> Result<Track, KsqError> {
     };
     let mut track = Track::new(name, channel, color);
     if let Some(v) = f.take("port") {
-        track.set_port(read_port(&v, &f.path("port"))?);
+        let (port, extra) = read_port(v, &f.path("port"))?;
+        track.set_port(port);
+        track.set_port_extra(extra);
     }
     if let Some(v) = f.take("bank").filter(|v| !v.is_null()) {
         let bank = Bank::new(f.small_of::<u16>(&v, "bank")?).map_err(model(&f.path("bank")))?;
@@ -487,21 +513,15 @@ fn read_track(v: Value, path: &str) -> Result<Track, KsqError> {
     Ok(track)
 }
 
-fn read_port(v: &Value, path: &str) -> Result<OutputPort, KsqError> {
+fn read_port(v: Value, path: &str) -> Result<(OutputPort, Map<String, Value>), KsqError> {
     if v.as_str() == Some("virtual") {
-        return Ok(OutputPort::Virtual);
+        return Ok((OutputPort::Virtual, Map::new()));
     }
-    match v
-        .as_object()
-        .and_then(|o| o.get("named"))
-        .and_then(Value::as_str)
-    {
-        Some(name) => Ok(OutputPort::Named(name.to_owned())),
-        None => Err(invalid(
-            path,
-            "\"virtual\" 또는 {\"named\": 이름}이어야 한다",
-        )),
-    }
+    let shape = || invalid(path, "\"virtual\" 또는 {\"named\": 이름}이어야 한다");
+    let mut f = Fields::of(v, path.to_owned()).map_err(|_| shape())?;
+    let name = f.take("named").ok_or_else(shape)?;
+    let name = name.as_str().ok_or_else(shape)?.to_owned();
+    Ok((OutputPort::Named(name), f.rest()))
 }
 
 fn read_clip(v: Value, path: &str) -> Result<Clip, KsqError> {
@@ -537,13 +557,14 @@ fn read_clip(v: Value, path: &str) -> Result<Clip, KsqError> {
             TrackColor::new(f.small_of::<u8>(&v, "color")?).map_err(model(&f.path("color")))?;
         clip.set_color(Some(color));
     }
-    for (note, index) in notes {
-        // 저장된 분할 상태를 되살리므로 숨김 꼬리(끝 > 길이)도 받는다. 시작은 클립 안이어야 한다.
-        clip.restore_note(note).map_err(|source| KsqError::Model {
-            path: format!("{notes_path}[{index}]"),
+    // 저장된 분할 상태를 되살리므로 숨김 꼬리(끝 > 길이)도 받는다. 시작은 클립 안이어야 한다.
+    // 한꺼번에 넣어 역순 입력에서도 O(n log n)이다(리뷰 1 지적 4).
+    let indices: Vec<usize> = notes.iter().map(|(_, i)| *i).collect();
+    clip.restore_notes(notes.into_iter().map(|(n, _)| n).collect())
+        .map_err(|(at, source)| KsqError::Model {
+            path: format!("{notes_path}[{}]", indices[at]),
             source,
         })?;
-    }
     clip.set_extra(f.rest());
     Ok(clip)
 }
@@ -724,20 +745,31 @@ fn model(path: &str) -> impl Fn(ModelError) -> KsqError + '_ {
 ///
 /// [`from_str`]와 같고, gzip이 깨졌거나 UTF-8이 아니면 [`KsqError::Invalid`].
 pub fn from_bytes(bytes: &[u8]) -> Result<(Project, Vec<Warning>), KsqError> {
+    from_bytes_limited(bytes, MAX_UNPACKED_BYTES)
+}
+
+/// gzip을 풀었을 때의 최대 크기. 노트 10만 개 파일이 3 MB 남짓이라 넉넉하다. 작은 파일이 거대하게
+/// 풀리는 압축 폭탄으로 메모리를 다 쓰지 않게 한다(리뷰 1 제안 8).
+const MAX_UNPACKED_BYTES: u64 = 512 * 1024 * 1024;
+
+fn from_bytes_limited(bytes: &[u8], limit: u64) -> Result<(Project, Vec<Warning>), KsqError> {
     let text = if bytes.starts_with(&[0x1f, 0x8b]) {
         let mut text = String::new();
         flate2::read::GzDecoder::new(bytes)
+            .take(limit.saturating_add(1))
             .read_to_string(&mut text)
             .map_err(|e| invalid("파일", &format!("gzip을 풀 수 없다: {e}")))?;
+        if text.len() as u64 > limit {
+            return Err(invalid(
+                "파일",
+                &format!("풀린 크기가 상한 {limit}바이트를 넘는다"),
+            ));
+        }
         text
     } else {
         String::from_utf8(bytes.to_vec()).map_err(|_| invalid("파일", "UTF-8 텍스트가 아니다"))?
     };
     from_str(&text)
-}
-
-fn from_bytes_limited(bytes: &[u8], limit: u64) -> Result<(Project, Vec<Warning>), KsqError> {
-    todo!("{} {limit}", bytes.len())
 }
 
 // ---------------------------------------------------------------- 파일
@@ -754,6 +786,9 @@ pub fn write_file(
     compression: Compression,
 ) -> Result<(), KsqError> {
     let bytes = to_bytes(project, compression)?;
+    // 심볼릭 링크면 링크를 일반 파일로 바꾸지 않고 대상 파일을 바꾼다(리뷰 1 지적 5).
+    let path = resolve_symlink(path)?;
+    let path = path.as_path();
     let temp = temp_path(path);
     let result = write_then_rename(&temp, path, &bytes);
     if result.is_err() {
@@ -769,14 +804,44 @@ fn write_then_rename(temp: &Path, path: &Path, bytes: &[u8]) -> std::io::Result<
         .create_new(true)
         .open(temp)?;
     file.write_all(bytes)?;
+    // 원래 파일의 권한을 유지한다(리뷰 1 제안 7). 새 파일이면 기본 권한 그대로다.
+    if let Ok(meta) = fs::metadata(path) {
+        file.set_permissions(meta.permissions())?;
+    }
     file.sync_all()?;
     drop(file);
     fs::rename(temp, path)?;
-    // 이름 바꾸기 자체를 디스크에 남긴다. 디렉터리 fsync가 안 되는 파일 시스템도 있어 실패는 무시한다.
-    if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
-        let _ = fs::File::open(dir).and_then(|d| d.sync_all());
-    }
+    // 이름 바꾸기 자체를 디스크에 남긴다. 상대 경로의 부모는 빈 경로라 "."로 바꾼다(리뷰 1 제안 10).
+    // 디렉터리 fsync가 안 되는 파일 시스템도 있어 실패는 무시한다.
+    let dir = match path.parent() {
+        Some(d) if !d.as_os_str().is_empty() => d,
+        _ => Path::new("."),
+    };
+    let _ = fs::File::open(dir).and_then(|d| d.sync_all());
     Ok(())
+}
+
+/// 심볼릭 링크를 따라간 실제 파일 경로. 링크가 아니거나 경로가 없으면 그대로다. 대상이 없는
+/// 링크(dangling)는 링크가 가리키는 경로에 새로 만든다.
+fn resolve_symlink(path: &Path) -> Result<PathBuf, KsqError> {
+    let mut current = path.to_path_buf();
+    // 링크의 링크도 따라간다. 순환 링크로 끝없이 돌지 않게 횟수를 제한한다.
+    for _ in 0..40 {
+        match fs::symlink_metadata(&current) {
+            Ok(meta) if meta.file_type().is_symlink() => {
+                let target = fs::read_link(&current)?;
+                current = match current.parent() {
+                    Some(parent) if target.is_relative() => parent.join(target),
+                    _ => target,
+                };
+            }
+            _ => return Ok(current),
+        }
+    }
+    Err(invalid(
+        &path.display().to_string(),
+        "심볼릭 링크가 너무 깊거나 순환한다",
+    ))
 }
 
 /// 같은 디렉터리의 임시 파일 경로. 다른 디렉터리면 rename이 원자적이지 않다.

@@ -148,6 +148,8 @@ pub struct Track {
     clips: Vec<(ClipId, Clip)>,
     /// `.ksq` 트랙 객체의 모르는 키. 다시 쓸 때 보존한다(REQ IO-1).
     extra: serde_json::Map<String, serde_json::Value>,
+    /// `.ksq` `port` 객체의 모르는 키. 포트가 가상 포트면 쓸 자리가 없어 쓰지 않는다.
+    port_extra: serde_json::Map<String, serde_json::Value>,
 }
 
 impl Track {
@@ -168,6 +170,7 @@ impl Track {
             lyric_lang: None,
             clips: Vec::new(),
             extra: serde_json::Map::new(),
+            port_extra: serde_json::Map::new(),
         }
     }
 
@@ -281,6 +284,14 @@ impl Track {
 
     pub(crate) fn set_extra(&mut self, extra: serde_json::Map<String, serde_json::Value>) {
         self.extra = extra;
+    }
+
+    pub(crate) fn port_extra(&self) -> &serde_json::Map<String, serde_json::Value> {
+        &self.port_extra
+    }
+
+    pub(crate) fn set_port_extra(&mut self, extra: serde_json::Map<String, serde_json::Value>) {
+        self.port_extra = extra;
     }
 
     /// 시작 틱 순서의 클립.

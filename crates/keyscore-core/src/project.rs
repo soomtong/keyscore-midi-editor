@@ -14,6 +14,8 @@ pub struct Project {
     tracks: Vec<Track>,
     /// `.ksq` 최상위 객체의 모르는 키. 다시 쓸 때 보존한다(REQ IO-1).
     extra: serde_json::Map<String, serde_json::Value>,
+    /// `.ksq` `key` 객체의 모르는 키. 조성이 「없음」이면 쓸 자리가 없어 쓰지 않는다.
+    key_extra: serde_json::Map<String, serde_json::Value>,
 }
 
 impl Project {
@@ -28,6 +30,14 @@ impl Project {
 
     pub(crate) fn set_extra(&mut self, extra: serde_json::Map<String, serde_json::Value>) {
         self.extra = extra;
+    }
+
+    pub(crate) fn key_extra(&self) -> &serde_json::Map<String, serde_json::Value> {
+        &self.key_extra
+    }
+
+    pub(crate) fn set_key_extra(&mut self, extra: serde_json::Map<String, serde_json::Value>) {
+        self.key_extra = extra;
     }
 
     #[must_use]
