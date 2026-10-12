@@ -130,18 +130,23 @@ pub fn transpose(
     range: PitchRange,
 ) -> Result<Vec<Edit>, ModelError> {
     plan(project, notes, |_, note| {
-        let mut pitch = i32::from(note.pitch().get()) + semitones;
-        let (low, high) = (i32::from(range.low.get()), i32::from(range.high.get()));
-        while pitch > high {
-            pitch -= 12;
-        }
-        while pitch < low {
-            pitch += 12;
-        }
+        // i64라 i32 끝의 반음 수도 넘치지 않는다. 접기는 반복 대신 옥타브 수를 한 번에 계산한다
+        // (S0-T7 리뷰 1 지적 2: i32 덧셈 오버플로, 반음 수에 비례하는 반복).
+        let (low, high) = (i64::from(range.low.get()), i64::from(range.high.get()));
+        let raw = i64::from(note.pitch().get()) + i64::from(semitones);
+        let pitch = if raw > high {
+            raw - (raw - high + 11) / 12 * 12
+        } else if raw < low {
+            raw + (low - raw + 11) / 12 * 12
+        } else {
+            raw
+        };
         // 피치 오프셋 때문에 절대 피치가 MIDI 2.0 범위를 넘으면 음역 안에서 한 옥타브 더 접는다.
         for candidate in [pitch, pitch - 12, pitch + 12] {
             if (low..=high).contains(&candidate)
-                && let Ok(p) = Pitch::new(u8::try_from(candidate).unwrap_or(u8::MAX))
+                && let Ok(p) = u8::try_from(candidate)
+                    .map_err(|_| ModelError::PitchOutOfRange(u8::MAX))
+                    .and_then(Pitch::new)
                 && let Ok(n) = note.with_pitch(p)
             {
                 return Ok(n);
