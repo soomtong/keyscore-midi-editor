@@ -27,6 +27,9 @@ jobs:
         run: scripts/check-deps.sh
       - name: dependency check regression
         run: scripts/check-deps.test.sh
+      # 벤치 자체(scripts/bench-check.py)는 러너 기준값이 생길 때까지 넣지 않는다(S8 이월).
+      - name: bench check regression
+        run: scripts/bench-check.test.sh
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-deny
