@@ -41,6 +41,7 @@ pub fn shift(project: &Project, notes: &[NoteRef], delta_ticks: i64) -> Result<V
 pub fn scale(project: &Project, notes: &[NoteRef], numerator: u32, denominator: u32) -> Result<Vec<Edit>, ModelError>;
 // edit.rs: Edit::ExtendClip { track: TrackId, id: ClipId, length: u64 }   // 늘리기만. 내부 Op::ShrinkClip
 //          Edit::ReplaceNote { track, clip, from: Note, to: Note }      // 리뷰 1 뒤: 꼬리는 꼬리에서만. 내부 Op::UnreplaceNote
+//          Edit::ReplaceNotes { track, clip, length: u64, pairs }      // 리뷰 2 뒤: 일괄 연산이 내는 편집. 꼬리는 편집 직전 길이로 판정. 내부 Op::RestoreNotes
 ~~~
 
 `NoteRef`는 공개 필드를 갖는다. 모델 불변식을 담는 타입이 아니라 「무엇을 고를지」를 담는 값이고, 잘못된 참조는 `Edit` 적용에서 거부된다(`NoteNotFound` 등).

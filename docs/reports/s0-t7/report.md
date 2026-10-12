@@ -75,3 +75,18 @@ transform 속성 테스트(각 256사례) 임시 계측: 퀀타이즈 511회 중
 ~~~
 cargo test --workspace: 206 passed (리뷰어 테스트 18개 포함)
 ~~~
+
+## 리뷰 대응 (review-2, 판정: 수정 후 재리뷰)
+
+| # | 지적 | 대응 | 커밋 |
+| --- | --- | --- | --- |
+| 1 | 꼬리 판정 시점이 `plan`(늘리기 전)과 `ReplaceNote` 적용(늘린 뒤)에서 달라 `Ok` 묶음이 적용에서 실패 (차단) | 클립 단위 편집 `Edit::ReplaceNotes { length, pairs }`를 더했다. 길이 늘리기와 노트 바꾸기를 한 편집으로 하고, 꼬리 여부는 편집 직전 길이로 판정한다. 일괄 연산은 클립마다 이것 하나를 낸다. 처음에는 「늘린 뒤 꼬리가 아니게 되면 끝까지 덮을 때까지 반복」으로 고쳤다가, 리뷰어 테스트가 결정(꼬리는 꼬리로)과 어긋남을 보여 되돌렸다 | `core: Add ReplaceNotes clip-level edit skeleton and test`, `core: Implement ReplaceNotes and emit it from transforms` |
+| 2 | 결정 개정 규칙에 구현자 테스트가 없음 | 테스트 3개(`tail_note_keeps_clip_length_when_start_stays_inside`, `tail_start_beyond_extended_length_still_applies`, `scale_anchors_each_clip_at_its_first_selected_note`)를 더했다. 수정 뒤에 썼으므로 대신 확인했다: 셋 모두 최초 구현(`5ad9592`)에서 실패하고, 꼬리 시작 사례는 `ReplaceNotes` 이전에도 실패한다 | `core: Test amended transform rules …` |
+| 3 | 낡은 문서(`scale` 문서, 보고서 「알려진 한계」) | 고쳤다 | `core: Fix stale transform docs …` |
+| 4 | 꼬리 모양은 바뀔 수 있음을 불변식 문구에 (제안) | 받음. `clip.rs` 문서와 README에 「꼬리 개수는 분할로만 늘고, 모양은 편집으로 바뀔 수 있다」를 적었다 | 같음 |
+
+리뷰어 1회차 테스트 `review_stale_transform_after_extend_is_atomic`는 묶음 모양(첫 편집이 `ExtendClip`)을 단언해서 새 모양(`ReplaceNotes`가 길이를 늘림)으로 단언을 바꿨다. 의도(낡은 묶음의 원자적 실패)는 그대로다(`core: Update stale-batch review test …`). `Edit::ReplaceNote`는 리뷰어 2회차 테스트가 직접 공격하므로 남겼다.
+
+~~~
+cargo test --workspace: 227 passed
+~~~
