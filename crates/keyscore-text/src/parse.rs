@@ -56,6 +56,12 @@ fn error(pos: Pos, message: impl Into<String>) -> ParseError {
     ParseError::new(Diagnostic::new(pos.line, pos.column, message))
 }
 
+/// 범위 밖 값의 오류. 쓴 값을 그대로 보인다. 엄격 모드의 메시지는 AI-6 재요청에 들어가므로,
+/// u8·u16으로 자른 값을 보이면 모델에게 틀린 값을 알려 준다(S0-T5 리뷰 1 지적 2).
+fn out_of_range(pos: Pos, what: &str, range: &str, written: u64) -> ParseError {
+    error(pos, format!("{what} 값은 {range}이어야 한다: {written}"))
+}
+
 fn model_error(pos: Pos, e: &ModelError) -> ParseError {
     error(pos, e.to_string())
 }
@@ -447,8 +453,10 @@ impl Parser {
         }
         self.s.skip(2);
         let channel = self.number(ch_pos)?;
-        let channel = Channel::new(u8::try_from(channel).unwrap_or(u8::MAX))
-            .map_err(|e| model_error(ch_pos, &e))?;
+        let channel = u8::try_from(channel)
+            .ok()
+            .and_then(|c| Channel::new(c).ok())
+            .ok_or_else(|| out_of_range(ch_pos, "채널", "1–16", channel))?;
         self.skip_trivia();
         let mut program = None;
         if self.s.word_then_digit("prog") {
@@ -456,8 +464,10 @@ impl Parser {
             self.s.skip(4);
             let v = self.number(at)?;
             program = Some(
-                Program::new(u8::try_from(v).unwrap_or(u8::MAX))
-                    .map_err(|e| model_error(at, &e))?,
+                u8::try_from(v)
+                    .ok()
+                    .and_then(|p| Program::new(p).ok())
+                    .ok_or_else(|| out_of_range(at, "프로그램", "0–127", v))?,
             );
             self.skip_trivia();
         }
@@ -467,7 +477,10 @@ impl Parser {
             self.s.skip(4);
             let v = self.number(at)?;
             bank = Some(
-                Bank::new(u16::try_from(v).unwrap_or(u16::MAX)).map_err(|e| model_error(at, &e))?,
+                u16::try_from(v)
+                    .ok()
+                    .and_then(|b| Bank::new(b).ok())
+                    .ok_or_else(|| out_of_range(at, "뱅크", "0–16383", v))?,
             );
         }
 
