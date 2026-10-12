@@ -10,7 +10,7 @@
 
 `keyscore-text` crate가 계이름 텍스트를 파싱해 클립(들)과 헤더 값을 만들고, 클립을 텍스트로 내보낸다.
 
-- `parse(text, mode)`는 `@tempo`·`@time`·`@key` 헤더와 `@track` 블록들을 읽는다. 블록마다 클립 하나(시작 0, 노트는 클립 기준)를 만든다. 같은 텍스트 안의 같은 이름 블록은 한 클립의 성부로 합친다(결정 Q2). 클립 길이는 내용(가장 긴 성부의 끝)이다.
+- `parse(text, mode)`는 `@tempo`·`@time`·`@key` 헤더와 `@track` 블록들을 읽는다. 블록마다 클립 하나(시작 0, 노트는 클립 기준)를 만든다. 같은 텍스트 안의 같은 이름 블록은 한 클립의 성부로 합친다(결정 Q2). 클립 길이는 내용(가장 긴 성부의 끝)이다. (구현 중 해석) 성부의 끝은 노트의 실제 끝(보정 포함)과 쉼표 끝 가운데 가장 늦은 것이며, 노트 뒤의 명목 커서는 세지 않는다(`c8~+13`의 클립은 493틱). 커서로 세면 64분음표(60틱)보다 짧은 클립을 적을 수 없다.
 - 두 모드가 있다. `Lenient`(파일·클립보드)는 모르는 토큰을 경고하고 건너뛴다. `Strict`(AI 응답)는 모르는 토큰, `~` 접미, 마디 길이 불일치를 오류로 낸다(문법 Q5·Q6).
 - 오류와 경고는 1부터 세는 줄·열을 담는다.
 - `export`는 클립을 문법 표의 토큰만으로 적는다. 결과를 다시 `parse`하면 원본과 같다(아래 「왕복」의 비교 기준).
@@ -30,7 +30,7 @@
 - 드럼 트랙: 5.13 표의 라벨(`bd sd rs cp ch ph oh lt mt ht cr rd rb tb cb sh`)을 최장 일치로 읽는다. `n<번호>`(35–81 밖도 0–127이면 허용)도 받는다. 멜로디 트랙에서 음으로 읽을 수 없는 라벨(예: `ch`, `sd`, `oh`)은 오류다(Q4의 단점: `bd`는 `b`·`d`로 읽힌다).
 - `v<0–127>`: 벨로시티(스티키, MIDI 1.0 값 → `Velocity::from_midi1`). 가져오기만. 기본은 트랙 기본 벨로시티(MIDI 1.0 100).
 - `&` 타이: 다음 같은 음과 이어 한 노트로. 다음이 같은 음이 아니면 경고(Lenient)·오류(Strict).
-- `"가사"`: 음 바로 뒤. 따옴표 안의 공백·기호는 그대로. `\"` 이스케이프는 받는다.
+- `"가사"`: 음 바로 뒤. 따옴표 안의 공백·기호는 그대로. `\"` 이스케이프는 받는다. (구현 중 추가) `\\`도 이스케이프다. 없으면 `\`로 끝나는 가사·이름을 적을 수 없다. 그 밖의 `\`는 글자 그대로다.
 - `~<±시작>[:<±길이>]` 보정(결정 Q3). 커서(다음 토큰의 시작)는 보정 전 명목 길이로 진행한다. 보정 뒤 시작이 0 미만이거나 길이가 1 미만이면 오류. `Strict`에서는 금지.
 - 마디 길이 검사: `|`를 만날 때 지난 마디선 이후의 명목 길이가 마디 길이(`@time`, 없으면 4/4)와 다르면 경고(Lenient)·오류(Strict).
 
@@ -38,7 +38,7 @@
 
 - 문법 표의 토큰만 쓴다(`v`, 피치 오프셋은 쓰지 않는다). 결정적이다: 같은 입력이면 같은 문자열.
 - 한 성부로 적을 수 없으면(시작이나 길이가 다른 겹친 노트) 같은 이름의 블록을 더 써서 성부를 나눈다. 같은 시작·같은 길이의 노트들은 화음 `[ ]`로 묶는다.
-- 그리드에 맞고 표기 가능한 길이의 노트는 접미 없이 쓴다. 그 밖은 `~` 보정을 붙인다. 쉼표로 간격을 채우고, 클립 끝까지 쉼표를 써서 가져온 클립 길이가 원본 길이와 같게 한다.
+- 그리드에 맞고 표기 가능한 길이의 노트는 접미 없이 쓴다. 그 밖은 `~` 보정을 붙인다. 쉼표로 간격을 채우고, 클립 끝까지 쉼표를 써서 가져온 클립 길이가 원본 길이와 같게 한다. (구현 중 확인한 한계) 쉼표 길이는 모두 15틱의 배수라, 클립 길이가 노트 끝도 아니고 쉼표 합으로도 닿지 않으면(15틱 배수가 아니거나 매우 짧음) 정확히 적을 수 없다. 이때는 닿는 가장 긴 길이로 줄이고, 노트가 없어 그 길이가 0이면 60틱으로 늘린다. 테스트 1의 생성기는 닿는 길이만 만들고, 테스트 2가 모든 길이에서 재내보내기 안정을 검사한다.
 - 숨김 꼬리(끝 > 클립 길이)는 클립 끝에서 자른다. 드럼 트랙은 라벨이 있으면 라벨, 없으면 `n<번호>`.
 - 구체 알고리즘은 구현자가 정하되, 아래 테스트를 통과해야 한다.
 
@@ -47,9 +47,9 @@
 ~~~rust
 pub enum Mode { Lenient, Strict }
 pub struct Diagnostic { line: usize, column: usize, message: String }   // 줄·열은 1부터. getter + Display
-#[derive(thiserror::Error)] pub struct ParseError(Diagnostic);
-pub struct Header { tempo: Option<Tempo>, time: Option<TimeSignature>, key: Option<Key> }
-pub struct ParsedTrack { name: String, channel: Channel, program: Option<Program>, bank: Option<Bank>, clip: Clip }
+#[derive(thiserror::Error)] pub struct ParseError(Diagnostic);   // diagnostic() getter
+pub struct Header { tempo: Option<Tempo>, time: Option<TimeSignature>, key: Option<Key> }   // Header::new(tempo, time, key) (구현 중 추가: export 입력용)
+pub struct ParsedTrack { name: String, channel: Channel, program: Option<Program>, bank: Option<Bank>, clip: Clip }   // + into_clip()
 pub struct Parsed { header: Header, tracks: Vec<ParsedTrack>, warnings: Vec<Diagnostic> }
 pub fn parse(text: &str, mode: Mode) -> Result<Parsed, ParseError>;
 pub struct ExportTrack<'a> { pub name: &'a str, pub channel: Channel, pub program: Option<Program>, pub bank: Option<Bank>, pub clip: &'a Clip }
