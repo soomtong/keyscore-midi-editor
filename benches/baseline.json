@@ -1,4 +1,6 @@
 {
-  "tempo_map/tick_to_time_1000": 7087.8,
-  "tempo_map/time_to_tick_1000": 11870.3
+  "ksq/read_100k_notes": 15503982.713,
+  "ksq/write_100k_notes": 15385280.74,
+  "tempo_map/tick_to_time_1000": 7198.842,
+  "tempo_map/time_to_tick_1000": 11932.849
 }
