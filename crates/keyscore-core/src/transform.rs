@@ -5,6 +5,8 @@
 //! 따른다: 퀀타이즈는 시작만 옮기고, 그리드는 곡의 마디 기준이며, 결과가 클립 끝을 넘으면 클립을
 //! 마디 단위로 늘리고(다음 클립과 겹치면 거부), 클립 시작 앞으로 나가면 거부한다.
 
+use std::collections::HashMap;
+
 use crate::{Clip, ClipId, Edit, ModelError, Note, Pitch, Project, Tick, TrackId};
 
 /// 선택 항목 하나. 모델 불변식을 담는 타입이 아니라 「무엇을 고를지」를 담는 값이다. 잘못된
@@ -269,6 +271,24 @@ fn plan(
     notes: &[NoteRef],
     mut f: impl FnMut(&Clip, &Note) -> Result<Note, ModelError>,
 ) -> Result<Vec<Edit>, ModelError> {
+    // 같은 노트를 클립에 있는 개수보다 많이 고르면 적용 단계에서 실패한다. 함수 문서대로 계산
+    // 단계에서 거부한다(S0-T7 리뷰 1 지적 3).
+    // 선택 크기에 선형이도록 개수를 해시로 센다.
+    let mut picked: HashMap<(TrackId, ClipId, &Note), usize> = HashMap::new();
+    for r in notes {
+        *picked.entry((r.track, r.clip, &r.note)).or_default() += 1;
+    }
+    for ((track, clip, note), count) in picked {
+        let r = NoteRef {
+            track,
+            clip,
+            note: note.clone(),
+        };
+        let (clip, ()) = find(project, &r)?;
+        if clip.notes().iter().filter(|n| *n == note).count() < count {
+            return Err(ModelError::NoteNotFound);
+        }
+    }
     let mut moved: Vec<(&NoteRef, Note)> = Vec::with_capacity(notes.len());
     // (트랙, 클립) → 필요한 길이.
     let mut needed: Vec<(TrackId, ClipId, u64)> = Vec::new();
