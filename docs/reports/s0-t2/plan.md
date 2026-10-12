@@ -11,7 +11,7 @@
 
 1. 같은 트랙의 두 클립 구간 `[start, start+length)`가 겹치지 않는다.
 2. 클립 안 모든 노트의 시작은 `0 ≤ start < 클립 길이`다. `insert_note`로 넣는 노트는 끝(`start+length`)까지 클립 안이어야 한다. 끝이 클립 길이를 넘는 노트(숨김 꼬리)는 분할로만 생긴다(결정 Q1).
-3. 채널은 1–16, 음높이는 0–127, 피치 오프셋은 ±1옥타브, v1 벨로시티는 0–127, 노트 길이는 1틱 이상, 클립 길이는 1틱 이상이다. 틱 계산은 u64 오버플로 없이 검사된다.
+3. 채널은 1–16, 음높이는 0–127, 피치 오프셋은 ±1옥타브, 노트 길이는 1틱 이상, 클립 길이는 1틱 이상이다. 틱 계산은 u64 오버플로 없이 검사된다(숨김 꼬리의 절대 끝 포함).
 4. 실패한 연산은 상태를 바꾸지 않는다(`Err`이면 호출 전과 같음).
 
 클립 연산은 삽입·삭제·이동·분할까지 만든다. 원문과 다른 점은 아래와 같다.
@@ -28,8 +28,8 @@ pub const PPQ: u32 = 960;
 pub struct Tick(u64);                 // Copy, Ord. new(u64), get(), checked_add
 // note.rs
 pub struct Pitch(u8);                 // 0..=127. new(u8) -> Result<Self, ModelError>
-pub struct PitchOffset(i16);          // 센트, -1200..=1200. ZERO, new(i16) -> Result
-pub struct Velocity(u16);             // v1: 0..=127. new(u16) -> Result, get()
+pub struct PitchOffset(i32);          // 반음 1/2^25 단위, ±12반음(결정 Q3). ZERO, SEMITONE, MAX, new(i32) -> Result
+pub struct Velocity(u16);             // MIDI 2.0 16비트(결정 Q2, M2-1). new(u16), get(), from_midi1(u8) -> Result, to_midi1()
 pub struct Note { start: Tick, length: u32, pitch: Pitch, offset: PitchOffset,
                   velocity: Velocity, lyric: Option<String> }
 impl Note {
@@ -42,7 +42,7 @@ impl Note {
 }
 pub struct CcPoint { tick: Tick, value: u32 }   // SEQ-4, 32비트 보관
 // clip.rs
-pub struct ClipId(u64);
+pub struct ClipId(u64);               // 프로세스 안에서 유일(전역 원자 카운터)
 pub struct Clip { start: Tick, length: u64, name: Option<String>,
                   color: Option<TrackColor>, notes: Vec<Note> }   // notes: (start, pitch) 정렬
 impl Clip {
@@ -61,7 +61,7 @@ pub struct Bank(u16);                 // 0..=16383 (14비트 MSB/LSB)
 pub enum OutputPort { Virtual, Named(String) }
 pub struct Track { name, color, port, channel, bank: Option<Bank>, program: Option<Program>,
                    default_velocity: Velocity, mute: bool, solo: bool,
-                   lyric_lang: Option<String>, clips: Vec<(ClipId, Clip)>, next_clip_id: u64 }
+                   lyric_lang: Option<String>, clips: Vec<(ClipId, Clip)> }
 impl Track {
     pub fn new(name: impl Into<String>, channel: Channel, color: TrackColor) -> Self;
     // 속성 getter·setter (불변식이 없는 속성만 setter)
@@ -70,6 +70,8 @@ impl Track {
     pub fn insert_note(&mut self, id: ClipId, note: Note) -> Result<(), ModelError>;
     pub fn remove_note(&mut self, id: ClipId, note: &Note) -> Result<bool, ModelError>;
     pub fn insert_clip(&mut self, clip: Clip) -> Result<ClipId, ModelError>;   // 겹치면 Err
+    pub fn set_clip_name(&mut self, id: ClipId, name: impl Into<String>) -> Result<(), ModelError>;
+    pub fn set_clip_color(&mut self, id: ClipId, color: Option<TrackColor>) -> Result<(), ModelError>;
     pub fn remove_clip(&mut self, id: ClipId) -> Option<Clip>;
     pub fn move_clip(&mut self, id: ClipId, new_start: Tick) -> Result<(), ModelError>;
     pub fn split_clip(&mut self, id: ClipId, at: Tick) -> Result<ClipId, ModelError>; // start < at < end
@@ -98,7 +100,7 @@ impl Project {
 | 2 | `channel_ten_is_drum` | 단위 | 10만 드럼 |
 | 3 | `pitch_new_above_127_is_rejected` | 단위 | 음높이 범위 |
 | 4 | `pitch_offset_beyond_one_octave_is_rejected` | 단위 | ±1200 센트 |
-| 5 | `velocity_new_above_127_is_rejected_in_v1` | 단위 | 결정 Q2 |
+| 5 | `velocity_from_midi1_*`, `velocity_midi1_round_trip_is_lossless` | 단위 | 결정 Q2(리뷰 1 뒤 개정): 7→16 스케일링, 7→16→7 무손실 |
 | 6 | `note_new_zero_length_is_rejected` | 단위 | 노트 길이 ≥ 1 |
 | 7 | `note_with_empty_lyric_has_no_lyric` | 단위 | LYR-1 「비어 있으면 가사 없음」 |
 | 8 | `clip_new_zero_length_or_overflowing_end_is_rejected` | 단위 | 클립 길이·오버플로 |
@@ -129,6 +131,6 @@ impl Project {
 
 ## 리스크·결정 요청
 
-- 피치 오프셋 「±1옥타브 소수」를 정수 센트(i16, ±1200)로 담는다. 9.5의 「모델이 정수만 쓴다」에 맞추기 위해서이며, 1센트 해상도는 v1이 송신하지 않는 값이라 충분하다고 본다. 리뷰에서 다른 해석이 나오면 결정 요청으로 돌린다.
+- 피치 오프셋 단위는 처음에 결정 요청 없이 정수 센트로 정했다가, 리뷰 1 지적으로 결정 요청을 거쳐 MIDI 2.0 해상도로 바꿨다(결정 Q3).
 - 같은 클립 안에서 같은 음높이의 노트가 겹치는 것은 막지 않는다(REQ에 규칙 없음). MIDI 1.0 송신 때 Note Off 짝 문제는 S1의 몫이다.
 - 리뷰 초점에 추가(S0-T1 review-3 제안 1): `cargo tree -p keyscore-core --target all`로 `thiserror`·`proptest`의 전이 그래프를 확인한다.
