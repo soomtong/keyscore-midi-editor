@@ -466,10 +466,10 @@ fn review_multi_track_multi_clip_selection() {
     );
 }
 
-/// 결정 문서의 「선택의 가장 이른 시작 기준」과 「클립 앞은 거부」가 겹치면, 두 클립에 걸친 선택의
-/// 반속(1/2)은 언제나 거부된다. 결정대로이지만 결과를 기록한다.
+/// 리뷰 1 당시 결정(선택 전체 기준)에서는 두 클립에 걸친 반속이 언제나 거부되어 그 결과를 기록했다.
+/// 결정 개정(클립마다 기준점) 뒤에는 각 클립이 자기 첫 노트를 기준으로 반속되어 성공한다.
 #[test]
-fn review_scale_half_across_two_clips_is_rejected() {
+fn review_scale_half_across_two_clips_uses_per_clip_anchor() {
     let mut p = Project::new();
     let mut t = new_track();
     let tid = t.id();
@@ -482,10 +482,13 @@ fn review_scale_half_across_two_clips_is_rejected() {
     p.push_track(t).unwrap();
     let mut refs = refs_of(&p, tid, a);
     refs.extend(refs_of(&p, tid, b));
-    assert_eq!(
-        transform::scale(&p, &refs, 1, 2),
-        Err(ModelError::NoteBeforeClipStart)
-    );
+    let edits = transform::scale(&p, &refs, 1, 2).unwrap();
+    let mut d = keyscore_core::Document::new(p, usize::MAX).unwrap();
+    d.apply(edits, None).unwrap();
+    for c in [a, b] {
+        let n = &d.project().track(tid).unwrap().clip(c).unwrap().notes()[0];
+        assert_eq!((n.start().get(), n.length()), (0, 240));
+    }
 }
 
 /// 비율이 커서 결과가 u64를 넘으면 오버플로 오류여야 한다. 「클립 시작 앞」 오류는 원인을 숨긴다.
