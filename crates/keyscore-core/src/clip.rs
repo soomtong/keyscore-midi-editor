@@ -188,6 +188,24 @@ impl Clip {
         self.extra = extra;
     }
 
+    /// 길이를 바꾼다(늘리기는 `ExtendClip`, 줄이기는 그 undo). 줄일 때도 노트 시작은 클립 안에
+    /// 남아야 한다. 겹침 검사는 트랙이 한다.
+    pub(crate) fn set_length(&mut self, length: u64) -> Result<(), ModelError> {
+        if length == 0 {
+            return Err(ModelError::ZeroClipLength);
+        }
+        self.start.checked_add(length)?;
+        if let Some(n) = self.notes.iter().find(|n| n.start().get() >= length) {
+            return Err(ModelError::NoteOutsideClip {
+                start: n.start().get(),
+                end: n.end(),
+                clip_length: length,
+            });
+        }
+        self.length = length;
+        Ok(())
+    }
+
     pub(crate) fn set_start(&mut self, start: Tick) -> Result<(), ModelError> {
         start.checked_add(self.extent())?;
         self.start = start;

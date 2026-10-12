@@ -310,10 +310,30 @@ impl Op {
                 })
             }
             Op::ExtendClip { track, id, length } => {
-                todo!("{track:?} {id:?} {length}")
+                let t = track_mut(project, track)?;
+                let current = t.clip(id).ok_or(ModelError::UnknownClip)?.length();
+                if length < current {
+                    return Err(ModelError::ClipWouldShrink {
+                        current,
+                        requested: length,
+                    });
+                }
+                t.resize_clip(id, length)?;
+                Ok(Op::ShrinkClip {
+                    track,
+                    id,
+                    length: current,
+                })
             }
             Op::ShrinkClip { track, id, length } => {
-                todo!("{track:?} {id:?} {length}")
+                let t = track_mut(project, track)?;
+                let current = t.clip(id).ok_or(ModelError::UnknownClip)?.length();
+                t.resize_clip(id, length)?;
+                Ok(Op::ExtendClip {
+                    track,
+                    id,
+                    length: current,
+                })
             }
             Op::UnsplitClip {
                 track,

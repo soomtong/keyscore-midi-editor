@@ -5,6 +5,9 @@ use crate::{ModelError, Tick};
 pub struct Pitch(u8);
 
 impl Pitch {
+    pub const MIN: Pitch = Pitch(0);
+    pub const MAX: Pitch = Pitch(127);
+
     /// # Errors
     ///
     /// 127을 넘으면 [`ModelError::PitchOutOfRange`].
@@ -205,6 +208,27 @@ impl Note {
             return Err(ModelError::AbsolutePitchOutOfRange);
         }
         Ok(Note { offset, ..self })
+    }
+
+    /// 같은 내용에 길이만 바꾼 노트(길이 스케일).
+    pub(crate) fn with_length(&self, length: u32) -> Result<Self, ModelError> {
+        if length == 0 {
+            return Err(ModelError::ZeroNoteLength);
+        }
+        self.start.checked_add(u64::from(length))?;
+        Ok(Note {
+            length,
+            ..self.clone()
+        })
+    }
+
+    /// 같은 내용에 음높이만 바꾼 노트(조옮김). 절대 피치 범위(결정 B)를 다시 검사한다.
+    pub(crate) fn with_pitch(&self, pitch: Pitch) -> Result<Self, ModelError> {
+        Note {
+            pitch,
+            ..self.clone()
+        }
+        .with_offset(self.offset)
     }
 
     pub(crate) fn extra(&self) -> Option<&str> {

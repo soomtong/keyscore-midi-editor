@@ -5,7 +5,7 @@
 //! 따른다: 퀀타이즈는 시작만 옮기고, 그리드는 곡의 마디 기준이며, 결과가 클립 끝을 넘으면 클립을
 //! 마디 단위로 늘리고(다음 클립과 겹치면 거부), 클립 시작 앞으로 나가면 거부한다.
 
-use crate::{ClipId, Edit, ModelError, Note, Pitch, Project, TrackId};
+use crate::{Clip, ClipId, Edit, ModelError, Note, Pitch, Project, Tick, TrackId};
 
 /// 선택 항목 하나. 모델 불변식을 담는 타입이 아니라 「무엇을 고를지」를 담는 값이다. 잘못된
 /// 참조는 연산에서 거부된다.
@@ -40,13 +40,29 @@ impl QuantizeSettings {
     ///
     /// 강도가 100을, 스윙이 75를 넘으면 [`ModelError::QuantizeSettingOutOfRange`].
     pub fn new(grid: Grid, triplet: bool, strength: u8, swing: u8) -> Result<Self, ModelError> {
-        todo!("{grid:?} {triplet} {strength} {swing}")
+        if strength > 100 || swing > 75 {
+            return Err(ModelError::QuantizeSettingOutOfRange { strength, swing });
+        }
+        Ok(QuantizeSettings {
+            grid,
+            triplet,
+            strength,
+            swing,
+        })
     }
 
     /// 그리드 한 칸의 틱 수. 셋잇단이면 2/3.
     #[must_use]
     pub fn grid_ticks(&self) -> u64 {
-        todo!()
+        let base = match self.grid {
+            Grid::Quarter => 960,
+            Grid::Eighth => 480,
+            Grid::Sixteenth => 240,
+            Grid::ThirtySecond => 120,
+            Grid::SixtyFourth => 60,
+        };
+        // 1/64 셋잇단도 40틱으로 나누어떨어진다.
+        if self.triplet { base * 2 / 3 } else { base }
     }
 }
 
@@ -62,13 +78,22 @@ impl PitchRange {
     ///
     /// `high − low < 11`이면(한 옥타브 미만) [`ModelError::PitchRangeTooNarrow`].
     pub fn new(low: Pitch, high: Pitch) -> Result<Self, ModelError> {
-        todo!("{low:?} {high:?}")
+        if high.get() < low.get().saturating_add(11) || low > high {
+            return Err(ModelError::PitchRangeTooNarrow {
+                low: low.get(),
+                high: high.get(),
+            });
+        }
+        Ok(PitchRange { low, high })
     }
 
     /// MIDI 전체 음역 0–127.
     #[must_use]
     pub fn full() -> Self {
-        todo!()
+        PitchRange {
+            low: Pitch::MIN,
+            high: Pitch::MAX,
+        }
     }
 }
 
@@ -82,7 +107,15 @@ pub fn quantize(
     notes: &[NoteRef],
     settings: &QuantizeSettings,
 ) -> Result<Vec<Edit>, ModelError> {
-    todo!("{} {} {settings:?}", project.tracks().len(), notes.len())
+    let grid = settings.grid_ticks();
+    plan(project, notes, |clip, note| {
+        let abs = clip.start().get() + note.start().get();
+        let target = snap(project, abs, grid, settings.swing);
+        // 강도: 목표 쪽으로 강도만큼만 간다. 0으로 향해 잘라 강도 100%는 목표 그대로다.
+        let moved = i128::from(abs)
+            + (i128::from(target) - i128::from(abs)) * i128::from(settings.strength) / 100;
+        relocate(clip, note, moved)
+    })
 }
 
 /// 조옮김한다(EDT-3). 음역 밖이면 옥타브 단위로 접는다.
@@ -96,11 +129,26 @@ pub fn transpose(
     semitones: i32,
     range: PitchRange,
 ) -> Result<Vec<Edit>, ModelError> {
-    todo!(
-        "{} {} {semitones} {range:?}",
-        project.tracks().len(),
-        notes.len()
-    )
+    plan(project, notes, |_, note| {
+        let mut pitch = i32::from(note.pitch().get()) + semitones;
+        let (low, high) = (i32::from(range.low.get()), i32::from(range.high.get()));
+        while pitch > high {
+            pitch -= 12;
+        }
+        while pitch < low {
+            pitch += 12;
+        }
+        // 피치 오프셋 때문에 절대 피치가 MIDI 2.0 범위를 넘으면 음역 안에서 한 옥타브 더 접는다.
+        for candidate in [pitch, pitch - 12, pitch + 12] {
+            if (low..=high).contains(&candidate)
+                && let Ok(p) = Pitch::new(u8::try_from(candidate).unwrap_or(u8::MAX))
+                && let Ok(n) = note.with_pitch(p)
+            {
+                return Ok(n);
+            }
+        }
+        Err(ModelError::AbsolutePitchOutOfRange)
+    })
 }
 
 /// 시간 이동한다(EDT-3). 노트는 자기 클립 안에서만 움직인다.
@@ -113,7 +161,10 @@ pub fn shift(
     notes: &[NoteRef],
     delta_ticks: i64,
 ) -> Result<Vec<Edit>, ModelError> {
-    todo!("{} {} {delta_ticks}", project.tracks().len(), notes.len())
+    plan(project, notes, |clip, note| {
+        let abs = i128::from(clip.start().get()) + i128::from(note.start().get());
+        relocate(clip, note, abs + i128::from(delta_ticks))
+    })
 }
 
 /// 길이 스케일(EDT-3). 선택의 가장 이른 절대 시작을 기준으로 시작 간격과 길이를 함께
@@ -128,11 +179,152 @@ pub fn scale(
     numerator: u32,
     denominator: u32,
 ) -> Result<Vec<Edit>, ModelError> {
-    todo!(
-        "{} {} {numerator}/{denominator}",
-        project.tracks().len(),
-        notes.len()
-    )
+    if numerator == 0 || denominator == 0 {
+        return Err(ModelError::ScaleRatioInvalid {
+            numerator,
+            denominator,
+        });
+    }
+    let (num, den) = (u128::from(numerator), u128::from(denominator));
+    // 반올림(0.5는 올림): (x × 분자 × 2 + 분모) / (2 × 분모).
+    let ratio = |x: u128| (x * num * 2 + den) / (2 * den);
+    let mut anchor = u64::MAX;
+    for r in notes {
+        let clip = find(project, r)?.0;
+        anchor = anchor.min(clip.start().get() + r.note.start().get());
+    }
+    plan(project, notes, |clip, note| {
+        let abs = clip.start().get() + note.start().get();
+        let moved = u128::from(anchor) + ratio(u128::from(abs - anchor));
+        let length = u32::try_from(ratio(u128::from(note.length())).max(1))
+            .map_err(|_| ModelError::TickOverflow)?;
+        relocate(
+            clip,
+            &note.with_length(length)?,
+            i128::try_from(moved).map_err(|_| ModelError::TickOverflow)?,
+        )
+    })
+}
+
+/// 참조가 가리키는 클립과, 그 클립에 노트가 정말 있는지 확인한다.
+fn find<'a>(project: &'a Project, r: &NoteRef) -> Result<(&'a Clip, ()), ModelError> {
+    let clip = project
+        .track(r.track)
+        .ok_or(ModelError::UnknownTrack)?
+        .clip(r.clip)
+        .ok_or(ModelError::UnknownClip)?;
+    if !clip.notes().contains(&r.note) {
+        return Err(ModelError::NoteNotFound);
+    }
+    Ok((clip, ()))
+}
+
+/// 노트를 절대 위치 `abs`로 옮긴 노트. 클립 시작 앞이면 거부한다(결정: 앞은 거부).
+fn relocate(clip: &Clip, note: &Note, abs: i128) -> Result<Note, ModelError> {
+    let relative = abs - i128::from(clip.start().get());
+    let relative = u64::try_from(relative).map_err(|_| ModelError::NoteBeforeClipStart)?;
+    note.with_start(Tick::new(relative))
+}
+
+/// 절대 위치 `abs`에서 가장 가까운 그리드 점. 그리드는 `abs`가 속한 마디의 시작부터 잰다. 홀수 칸은
+/// `그리드 × 스윙%`만큼 뒤로 민다. 마디 길이가 그리드의 배수가 아니면 다음 마디 시작도 후보다.
+/// 거리가 같으면 앞쪽을 고른다.
+fn snap(project: &Project, abs: u64, grid: u64, swing: u8) -> u64 {
+    let meter = project.meter_map();
+    let bar = meter.position(Tick::new(abs)).bar();
+    let bar_start = meter.bar_start(bar).map_or(abs, Tick::get);
+    let next = meter.bar_start(bar + 1).map_or(u64::MAX, Tick::get);
+    let k = (abs - bar_start) / grid;
+    let point = |k: u64| {
+        let plain = bar_start.saturating_add(k.saturating_mul(grid));
+        if k % 2 == 1 {
+            plain.saturating_add(grid * u64::from(swing) / 100)
+        } else {
+            plain
+        }
+    };
+    let mut candidates: Vec<u64> = [k.checked_sub(1), Some(k), Some(k + 1)]
+        .into_iter()
+        .flatten()
+        // 마디 안의 칸만. 그 칸의 스윙 점은 75% 이하라 다음 칸 앞에 있다.
+        .filter(|&k| bar_start.saturating_add(k.saturating_mul(grid)) < next)
+        .map(point)
+        .collect();
+    candidates.push(next);
+    candidates
+        .into_iter()
+        .min_by_key(|&c| (c.abs_diff(abs), c))
+        .unwrap_or(abs)
+}
+
+/// 노트마다 새 노트를 계산하고, 클립 경계 규칙을 적용한 편집 묶음을 만든다.
+/// 결과 끝이 클립 길이를 넘으면 클립을 마디 단위로 늘리고, 다음 클립과 겹치면 거부한다.
+fn plan(
+    project: &Project,
+    notes: &[NoteRef],
+    mut f: impl FnMut(&Clip, &Note) -> Result<Note, ModelError>,
+) -> Result<Vec<Edit>, ModelError> {
+    let mut moved: Vec<(&NoteRef, Note)> = Vec::with_capacity(notes.len());
+    // (트랙, 클립) → 필요한 길이.
+    let mut needed: Vec<(TrackId, ClipId, u64)> = Vec::new();
+    for r in notes {
+        let (clip, ()) = find(project, r)?;
+        let new = f(clip, &r.note)?;
+        if new.end() > clip.length() {
+            match needed
+                .iter_mut()
+                .find(|(t, c, _)| *t == r.track && *c == r.clip)
+            {
+                Some(entry) => entry.2 = entry.2.max(new.end()),
+                None => needed.push((r.track, r.clip, new.end())),
+            }
+        }
+        moved.push((r, new));
+    }
+    let mut edits = Vec::with_capacity(needed.len() + moved.len() * 2);
+    for (track, id, end) in needed {
+        let t = project.track(track).ok_or(ModelError::UnknownTrack)?;
+        let clip = t.clip(id).ok_or(ModelError::UnknownClip)?;
+        let length = bar_aligned_length(project, clip, end)?;
+        let (start, stop) = (clip.start().get(), clip.start().get() + length);
+        if t.clips()
+            .any(|(other, c)| other != id && c.start().get() < stop && start < c.end())
+        {
+            return Err(ModelError::ClipOverlap { start, end: stop });
+        }
+        edits.push(Edit::ExtendClip { track, id, length });
+    }
+    edits.extend(moved.iter().map(|(r, _)| Edit::RemoveNote {
+        track: r.track,
+        clip: r.clip,
+        note: r.note.clone(),
+    }));
+    edits.extend(moved.into_iter().map(|(r, n)| Edit::InsertNote {
+        track: r.track,
+        clip: r.clip,
+        note: n,
+    }));
+    Ok(edits)
+}
+
+/// 클립 기준 끝 `end`를 덮도록 마디 단위로 늘린 클립 길이(REQ 5.10).
+fn bar_aligned_length(project: &Project, clip: &Clip, end: u64) -> Result<u64, ModelError> {
+    let abs_end = clip
+        .start()
+        .get()
+        .checked_add(end)
+        .ok_or(ModelError::TickOverflow)?;
+    let meter = project.meter_map();
+    let pos = meter.position(Tick::new(abs_end));
+    let boundary = if pos.beat() == 0 && pos.tick() == 0 {
+        abs_end
+    } else {
+        meter
+            .bar_start(pos.bar() + 1)
+            .ok_or(ModelError::TickOverflow)?
+            .get()
+    };
+    Ok(boundary - clip.start().get())
 }
 
 #[cfg(test)]
@@ -214,7 +406,7 @@ mod tests {
     #[test]
     fn quantize_snaps_to_bar_relative_grid() {
         // 클립이 박에서 어긋난 자리(100틱)에 있어도 곡의 마디 그리드에 맞는다.
-        let (mut d, t, a, _) = doc_with(
+        let (d, t, a, _) = doc_with(
             100,
             &[note(0, 10, 60), note(400, 10, 62), note(900, 10, 64)],
         );
@@ -241,7 +433,7 @@ mod tests {
     #[test]
     fn quantize_bar_end_uses_next_bar_start() {
         // 7/8 마디(3360틱)에 4분음표 그리드: 마디 안 점은 0·960·1920·2880, 그다음은 다음 마디 시작 3360.
-        let (mut d, t, a, _) = doc_with(0, &[note(3200, 10, 60)]);
+        let (d, t, a, _) = doc_with(0, &[note(3200, 10, 60)]);
         let mut p = d.into_project();
         p.meter_map_mut()
             .set(Tick::ZERO, TimeSignature::new(7, 8).unwrap());

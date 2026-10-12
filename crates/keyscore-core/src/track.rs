@@ -489,6 +489,17 @@ impl Track {
         Ok(())
     }
 
+    /// 클립 길이를 바꾼다. 늘어난 구간이 다른 클립과 겹치면 거부한다. 실패하면 트랙은 그대로다.
+    pub(crate) fn resize_clip(&mut self, id: ClipId, length: u64) -> Result<(), ModelError> {
+        let index = self.index_of(id).ok_or(ModelError::UnknownClip)?;
+        let start = self.clips[index].1.start().get();
+        let end = start.checked_add(length).ok_or(ModelError::TickOverflow)?;
+        if self.overlaps(start, end, Some(id)) {
+            return Err(ModelError::ClipOverlap { start, end });
+        }
+        self.clips[index].1.set_length(length)
+    }
+
     /// 지웠던 노트를 되살린다(undo 전용). 숨김 꼬리 노트도 받는다.
     pub(crate) fn restore_note(&mut self, id: ClipId, note: Note) -> Result<(), ModelError> {
         let index = self.index_of(id).ok_or(ModelError::UnknownClip)?;
