@@ -35,7 +35,7 @@ keyscore/
 - Rust stable 최신. `rust-toolchain.toml`로 고정한다.
 - macOS 14 이상, Apple Silicon. Intel 빌드는 CI에서만 확인한다.
 - GPUI 버전은 gpui-kit이 고정한 `gpui-pre-*` 스냅샷을 따른다. crates.io의 `gpui`를 따로 추가하지 않는다(REQ 9.1).
-- 의존성 추가는 허용적 라이선스(BSD·MIT·Apache-2.0·Zlib·ISC)만. `cargo deny`로 검사한다.
+- 의존성 추가는 허용 목록의 라이선스(BSD·MIT·Apache-2.0·Zlib·ISC·Unicode-3.0·bzip2-1.0.6·MPL-2.0)만. `cargo deny`로 검사한다. MPL-2.0 crate는 수정 없이 쓴다(`docs/decisions/2026-10-11-license-allowlist.md`).
 
 ## 코딩 규칙
 

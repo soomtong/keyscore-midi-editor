@@ -43,7 +43,7 @@ cargo deny check
 - 실시간 스케줄러 스레드에서 할당·락·로그 금지(`assert_no_alloc`).
 - 모델 불변식(같은 트랙 클립 겹침 없음, 노트는 클립 안, 채널 1–16)은 `core` 타입이 보장한다. `pub` 필드 금지.
 - PPQ 960 고정. 틱↔시각 변환은 정수·유리수 산술.
-- 의존성은 허용적 라이선스(BSD·MIT·Apache-2.0·Zlib·ISC)만. GPUI는 gpui-kit이 고정한 스냅샷만 쓴다.
+- 의존성은 허용적 라이선스(BSD·MIT·Apache-2.0·Zlib·ISC·Unicode-3.0·bzip2-1.0.6·MPL-2.0)만. GPUI는 gpui-kit이 고정한 스냅샷만 쓴다.
 - 테스트 이름은 `동작_조건_기대결과`. `core` 불변식과 `text` 왕복은 `proptest` 필수.
 
 ## 문서 작성

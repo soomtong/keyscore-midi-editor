@@ -3,7 +3,7 @@
 - 관련 REQ: 2(라이선스 BSD-3-Clause), 8.4(「의존성은 BSD와 호환되는 허용적 라이선스(Apache-2.0, MIT, BSD)만」), 9.1(gpui-kit 필수)
 - 관련 규약: `plan/00-conventions.md` 「의존성 추가는 허용적 라이선스(BSD·MIT·Apache-2.0·Zlib·ISC)만」
 - 관련 Task: S0-T2부터(serde·proptest가 `unicode-ident`를 끌어옴), S2-T1(gpui-kit)
-- 상태: 결정 대기
+- 상태: 결정됨 (2026-10-12, B)
 
 ## 상황
 
@@ -30,4 +30,6 @@ A. Unicode-3.0·bzip2-1.0.6은 BSD 앱과 충돌하지 않는 허용적 라이�
 
 결정이 오기 전까지 S0-T1의 `deny.toml`은 규약의 목록 그대로 두고, S0-T2는 외부 의존을 추가하는 시점에 이 결정에 막히면 보류한다.
 
-- 결정:
+- 결정: B. Unicode-3.0, bzip2-1.0.6, MPL-2.0을 허용 목록에 더한다(사람, 2026-10-12).
+- 반영: `deny.toml`의 `[licenses] allow`, `plan/00-conventions.md`의 툴체인 절.
+- 후속(사람): REQ 8.4는 「BSD와 호환되는 허용적 라이선스(Apache-2.0, MIT, BSD)만」이라고 적혀 있다. MPL-2.0은 파일 단위 약한 copyleft라 이 문구와 맞지 않는다. REQ 문구 갱신이 필요하다. MPL-2.0 파일을 수정해 배포하면 그 파일의 소스 공개 의무가 생기므로, MPL crate는 수정 없이 쓴다.
