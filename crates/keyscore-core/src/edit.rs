@@ -102,6 +102,16 @@ pub enum Edit {
         from: Note,
         to: Note,
     },
+    /// 클립 하나의 길이를 `length`(늘리기만)로 정하고 노트들을 차례로 바꾼다(일괄 연산 전용).
+    /// 꼬리 여부는 이 편집 직전의 길이로 판정한다: 원래 꼬리였던 노트만 새 길이를 넘는 꼬리일 수
+    /// 있다. `ExtendClip` 뒤에 `ReplaceNote`를 따로 두면 늘린 길이로 꼬리를 판정해, 늘림 때문에
+    /// 꼬리가 아니게 된 노트가 거부된다(S0-T7 리뷰 2 지적 1).
+    ReplaceNotes {
+        track: TrackId,
+        clip: ClipId,
+        length: u64,
+        pairs: Vec<(Note, Note)>,
+    },
     /// `tempo`가 `None`이면 그 틱의 변화를 지운다.
     SetTempo {
         at: Tick,
@@ -204,6 +214,19 @@ pub(crate) enum Op {
         from: Note,
         to: Note,
     },
+    ReplaceNotes {
+        track: TrackId,
+        clip: ClipId,
+        length: u64,
+        pairs: Vec<(Note, Note)>,
+    },
+    /// `ReplaceNotes`의 역. 노트를 되돌리고 원래 길이로 줄인다.
+    RestoreNotes {
+        track: TrackId,
+        clip: ClipId,
+        length: u64,
+        pairs: Vec<(Note, Note)>,
+    },
     /// `ReplaceNote`의 역. 원래 노트(꼬리였을 수 있다)를 그대로 되돌린다.
     UnreplaceNote {
         track: TrackId,
@@ -252,6 +275,17 @@ impl From<Edit> for Op {
                 clip,
                 from,
                 to,
+            },
+            Edit::ReplaceNotes {
+                track,
+                clip,
+                length,
+                pairs,
+            } => Op::ReplaceNotes {
+                track,
+                clip,
+                length,
+                pairs,
             },
             Edit::SetTempo { at, tempo } => Op::SetTempo { at, tempo },
             Edit::SetMeter { at, signature } => Op::SetMeter { at, signature },
@@ -418,6 +452,22 @@ impl Op {
                 }
                 Ok(Op::RestoreNote { track, clip, note })
             }
+            Op::ReplaceNotes {
+                track,
+                clip,
+                length,
+                pairs,
+            } => {
+                todo!("{track:?} {clip:?} {length} {}", pairs.len())
+            }
+            Op::RestoreNotes {
+                track,
+                clip,
+                length,
+                pairs,
+            } => {
+                todo!("{track:?} {clip:?} {length} {}", pairs.len())
+            }
             Op::ReplaceNote {
                 track,
                 clip,
@@ -507,6 +557,15 @@ impl Op {
             Op::InsertNote { note, .. }
             | Op::RemoveNote { note, .. }
             | Op::RestoreNote { note, .. } => note_heap_bytes(note),
+            Op::ReplaceNote { from, to, .. } | Op::UnreplaceNote { from, to, .. } => {
+                note_heap_bytes(from) + note_heap_bytes(to)
+            }
+            Op::ReplaceNotes { pairs, .. } | Op::RestoreNotes { pairs, .. } => pairs
+                .iter()
+                .map(|(from, to)| {
+                    2 * std::mem::size_of::<Note>() + note_heap_bytes(from) + note_heap_bytes(to)
+                })
+                .sum(),
             _ => 0,
         };
         std::mem::size_of::<Op>() + heap
@@ -840,6 +899,83 @@ mod tests {
             forged.apply(&mut p).is_err(),
             "맞붙지 않은 두 클립은 되돌릴 분할이 아니다"
         );
+        assert_eq!(p, before);
+    }
+
+    #[test]
+    fn replace_notes_judges_tails_by_length_before_the_edit() {
+        // 왼쪽 클립 0..960(분할 전 0..1920)에 꼬리 노트 900..1100. 오른쪽 클립은 지운다.
+        let mut q = Project::new();
+        let mut tr = new_track("Q", 5);
+        let qt = tr.id();
+        let qc = tr
+            .insert_clip(Clip::new(Tick::ZERO, 1920).unwrap())
+            .unwrap();
+        let tail = Note::new(
+            Tick::new(900),
+            200,
+            Pitch::new(60).unwrap(),
+            Velocity::new(1000),
+        )
+        .unwrap();
+        tr.insert_note(qc, tail.clone()).unwrap();
+        let right = tr.split_clip(qc, Tick::new(960)).unwrap();
+        tr.remove_clip(right);
+        q.push_track(tr).unwrap();
+        // 꼬리를 3700으로 옮기며 3840까지 늘린다. 늘린 길이로 보면 원래 노트(끝 1100)는 꼬리가 아니지만,
+        // 편집 직전 길이(960)로 판정하므로 새 노트(끝 4000 > 3840)는 꼬리로 남는다.
+        let far = Note::new(
+            Tick::new(3700),
+            300,
+            Pitch::new(60).unwrap(),
+            Velocity::new(1000),
+        )
+        .unwrap();
+        round_trip(
+            &mut q,
+            Op::ReplaceNotes {
+                track: qt,
+                clip: qc,
+                length: 3840,
+                pairs: vec![(tail, far)],
+            },
+        );
+        let clip = q.track(qt).unwrap().clip(qc).unwrap();
+        assert_eq!((clip.length(), clip.notes()[0].end()), (3840, 4000));
+
+        // 꼬리가 아니던 노트는 새 길이를 넘을 수 없다. 줄이기와 이웃 겹침도 거부한다.
+        let (mut p, t, a, _) = fixture();
+        let before = p.clone();
+        let over = Op::ReplaceNotes {
+            track: t,
+            clip: a,
+            length: 960,
+            pairs: vec![(note(0), note(955))],
+        };
+        assert!(matches!(
+            over.apply(&mut p),
+            Err(ModelError::NoteOutsideClip { .. })
+        ));
+        let shrink = Op::ReplaceNotes {
+            track: t,
+            clip: a,
+            length: 100,
+            pairs: vec![],
+        };
+        assert!(matches!(
+            shrink.apply(&mut p),
+            Err(ModelError::ClipWouldShrink { .. })
+        ));
+        let into_b = Op::ReplaceNotes {
+            track: t,
+            clip: a,
+            length: 1921,
+            pairs: vec![],
+        };
+        assert!(matches!(
+            into_b.apply(&mut p),
+            Err(ModelError::ClipOverlap { .. })
+        ));
         assert_eq!(p, before);
     }
 

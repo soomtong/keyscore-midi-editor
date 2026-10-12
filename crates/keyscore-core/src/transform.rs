@@ -324,25 +324,42 @@ fn plan(
         }
         moved.push((r, new));
     }
-    let mut edits = Vec::with_capacity(needed.len() + moved.len());
-    for (track, id, end) in needed {
+    // 클립마다 편집 하나: 새 길이(늘리기만)와 노트 바꾸기를 한꺼번에. 꼬리 여부를 편집 직전 길이로
+    // 판정해야 위의 계산(원래 길이 기준)과 어긋나지 않는다(S0-T7 리뷰 2 지적 1).
+    let mut clips: Vec<(TrackId, ClipId)> = Vec::new();
+    for (r, _) in &moved {
+        if !clips.contains(&(r.track, r.clip)) {
+            clips.push((r.track, r.clip));
+        }
+    }
+    let mut edits = Vec::with_capacity(clips.len());
+    for (track, id) in clips {
         let t = project.track(track).ok_or(ModelError::UnknownTrack)?;
         let clip = t.clip(id).ok_or(ModelError::UnknownClip)?;
-        let length = bar_aligned_length(project, clip, end)?;
-        let (start, stop) = (clip.start().get(), clip.start().get() + length);
-        if t.clips()
-            .any(|(other, c)| other != id && c.start().get() < stop && start < c.end())
-        {
-            return Err(ModelError::ClipOverlap { start, end: stop });
+        let length = match needed.iter().find(|(nt, nc, _)| *nt == track && *nc == id) {
+            Some(&(_, _, end)) => bar_aligned_length(project, clip, end)?,
+            None => clip.length(),
+        };
+        if length > clip.length() {
+            let (start, stop) = (clip.start().get(), clip.start().get() + length);
+            if t.clips()
+                .any(|(other, c)| other != id && c.start().get() < stop && start < c.end())
+            {
+                return Err(ModelError::ClipOverlap { start, end: stop });
+            }
         }
-        edits.push(Edit::ExtendClip { track, id, length });
+        let pairs = moved
+            .iter()
+            .filter(|(r, _)| r.track == track && r.clip == id)
+            .map(|(r, to)| (r.note.clone(), to.clone()))
+            .collect();
+        edits.push(Edit::ReplaceNotes {
+            track,
+            clip: id,
+            length,
+            pairs,
+        });
     }
-    edits.extend(moved.into_iter().map(|(r, to)| Edit::ReplaceNote {
-        track: r.track,
-        clip: r.clip,
-        from: r.note.clone(),
-        to,
-    }));
     Ok(edits)
 }
 
