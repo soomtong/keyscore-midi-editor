@@ -229,7 +229,12 @@ fn find<'a>(project: &'a Project, r: &NoteRef) -> Result<(&'a Clip, ()), ModelEr
 /// 노트를 절대 위치 `abs`로 옮긴 노트. 클립 시작 앞이면 거부한다(결정: 앞은 거부).
 fn relocate(clip: &Clip, note: &Note, abs: i128) -> Result<Note, ModelError> {
     let relative = abs - i128::from(clip.start().get());
-    let relative = u64::try_from(relative).map_err(|_| ModelError::NoteBeforeClipStart)?;
+    // 음수만 「클립 시작 앞」이다. u64를 넘는 것은 오버플로라 원인을 가리지 않게 따로 알린다
+    // (S0-T7 리뷰 1 지적 4).
+    if relative < 0 {
+        return Err(ModelError::NoteBeforeClipStart);
+    }
+    let relative = u64::try_from(relative).map_err(|_| ModelError::TickOverflow)?;
     note.with_start(Tick::new(relative))
 }
 
