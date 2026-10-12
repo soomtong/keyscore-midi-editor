@@ -1,0 +1,127 @@
+# Task 보고: S0-T2 핵심 모델 타입
+
+- PR: 로컬 브랜치 `s0/t2-core-model` (remote 없음)
+- 계획 파일: docs/reports/s0-t2/plan.md
+- 계획 대비 달라진 점
+  - 트랙 안 클립의 노트 편집은 `ClipNotesMut` 핸들 대신 `Track::insert_note`/`remove_note`로 했다. 계획 파일의 인터페이스도 함께 고쳤다.
+  - `Velocity::TRACK_DEFAULT`(crate 내부, 100)를 더했다. 새 트랙 기본 벨로시티의 숫자는 REQ에 없어서 흔한 시퀀서 기본값을 따랐다.
+  - S0-T1의 `scripts/check-deps.test.sh`를 고쳤다(`d11e520`). `core`에 `[dev-dependencies]`가 생기자 기존 주입 방식이 의도와 다르게 동작했다. 아래 「리뷰어에게」 참고.
+
+## 구현 요약
+
+- `src/tick.rs`: `Tick`, `PPQ`, 오버플로를 검사하는 `checked_add`.
+- `src/note.rs`: `Pitch`, `PitchOffset`(반음 1/2^25 단위, 리뷰 1 뒤), `Velocity`(MIDI 2.0 16비트, 리뷰 1 뒤), `Note`(생성자에서 길이 ≥ 1과 끝 오버플로를 검사하고, 빈 가사는 `None`), `CcPoint`.
+- `src/clip.rs`: `Clip`, `ClipId`. `insert_note`는 노트 끝까지 클립 안이어야 받고, `(시작, 음높이)` 정렬을 유지한다. crate 내부의 `split_at`은 실패할 수 있는 계산을 모두 끝낸 뒤에 상태를 바꾼다.
+- `src/track.rs`: `Channel`, `TrackColor`, `Program`, `Bank`, `OutputPort`, `Track`. 클립은 시작 순으로 정렬해 둔다. 삽입·이동은 겹침을 검사하고, 분할하면 오른쪽 클립을 바로 뒤에 놓는다. 클립 식별자는 재사용하지 않는다.
+- `src/key.rs`: `PitchClass`, `Key`. `src/project.rs`: `Project`(조성과 트랙). `src/error.rs`: `ModelError`.
+- `tests/model_invariants.rs`: 공개 API만 쓰는 proptest 4개.
+- 의존 추가: `thiserror`(normal), `proptest`(dev). 둘 다 `check-deps.sh`의 `core` 허용 목록에 있다.
+
+## 테스트 결과
+
+~~~
+keyscore-core lib: test result: ok. 24 passed; 0 failed
+model_invariants:  test result: ok. 4 passed; 0 failed (각 512 사례)
+check-deps.test:   11 passed, 0 failed
+~~~
+
+테스트를 먼저 썼고, 몸체가 `todo!()`인 뼈대에서 단위 23개와 통합 4개가 모두 실패하는 것을 확인했다(`95699cd`). 실패하지 않은 단위 테스트는 `key_default_is_none` 하나다. `#[derive(Default)]`라서 처음부터 구현되어 있었다.
+
+속성 테스트가 실제 상태 변화를 검사하는지 보려고, 연산별 성공·실패 횟수를 임시로 계측했다(확인 후 되돌림). 클립 삽입 2,877/1,905, 노트 삽입 2,211/3,941, 이동 2,308/827, 분할 644/2,501(성공/실패)로 고르게 섞였다. 분할 보존 속성은 460개 사례 중 242개가 노트가 있는 클립을 분할했다.
+
+| 계획의 테스트 # | 실제 테스트 이름 | 상태 |
+| --- | --- | --- |
+| 1 | `channel_new_zero_or_seventeen_is_rejected` | 통과 |
+| 2 | `channel_ten_is_drum` | 통과 |
+| 3 | `pitch_new_above_127_is_rejected` | 통과 |
+| 4 | `pitch_offset_beyond_one_octave_is_rejected` | 통과 |
+| 5 | `velocity_new_above_127_is_rejected_in_v1` | 통과 |
+| 6 | `note_new_zero_length_is_rejected` (+ `note_new_end_overflowing_u64_is_rejected`) | 통과 |
+| 7 | `note_with_empty_lyric_has_no_lyric` | 통과 |
+| 8 | `clip_new_zero_length_or_overflowing_end_is_rejected` | 통과 |
+| 9 | `clip_insert_note_past_end_is_rejected` | 통과 |
+| 10 | `clip_insert_note_keeps_notes_sorted` | 통과 |
+| 11 | `track_insert_overlapping_clip_is_rejected` | 통과 |
+| 12 | `track_move_clip_onto_neighbor_is_rejected_and_state_unchanged` | 통과 |
+| 13 | `track_split_clip_keeps_crossing_note_in_left_as_tail` | 통과 |
+| 14 | `track_split_clip_at_boundary_is_rejected` | 통과 |
+| 15 | `track_ops_random_sequence_preserve_invariants` | 통과 |
+| 16 | `track_ops_failed_op_leaves_track_unchanged` | 통과 |
+| 17 | `track_split_clip_preserves_absolute_notes` | 통과 |
+| 18 | `track_move_clip_moves_notes_with_it` | 통과 |
+| 추가 | `tick_checked_add_overflow_is_rejected`, `clip_remove_note_removes_only_one_equal_note`, `clip_set_empty_name_has_no_name`, `small_value_types_reject_out_of_range`, `track_new_has_documented_defaults`, `track_note_ops_on_unknown_clip_are_rejected`, `track_clip_ids_are_not_reused_after_remove`, `pitch_class_new_above_11_is_rejected`, `key_default_is_none` | 통과 |
+
+계획에 있었지만 쓰지 않은 테스트: 없음.
+
+## 자동 게이트
+
+- [x] fmt
+- [x] clippy -D warnings (pedantic 포함)
+- [x] test
+- [x] deny: `advisories ok, bans ok, licenses ok, sources ok`. 쓰이지 않은 허용 라이선스에 대한 경고만 있다.
+- [x] `scripts/check-deps.sh` ok, `scripts/check-deps.test.sh` 11/11
+- [x] 전이 그래프 확인(S0-T1 review-3 제안 1): `cargo tree -p keyscore-core --target all -e normal,build,dev`에 UI·MIDI·네트워크 crate가 없다. `windows-sys`, `linux-raw-sys`, `r-efi`는 proptest(tempfile·getrandom)가 다른 OS용으로 끌어오는 것이고, 라이선스는 모두 허용 목록과 OR로 묶인다.
+
+## 알려진 한계
+
+- 분할로 생긴 숨김 꼬리를 재생·내보내기에서 클립 끝에서 자르는 일은 S1·S0-T5·S0-T6이 맡는다. 모델은 꼬리를 보존만 한다.
+- 비파괴 트림, 합치기, 복제, 트랙 간 이동은 S4-T2의 범위다. 합치기를 만들면 「분할 → 합치기 = 원본」 속성 테스트를 그 Task에 넣어야 한다(결정 Q1의 약속).
+- 클립 검색과 겹침 검사는 클립 수에 선형이다. 트랙당 클립은 수백 개 수준이라 문제없다고 보지만, 성능 게이트는 없다.
+- 같은 음높이 노트의 겹침과 벨로시티 0 노트는 허용한다. MIDI 1.0 송신 규칙은 S1에서 정한다.
+
+## 리뷰어에게
+
+- 불변식의 핵심은 `Track::move_clip`·`split_clip`과 `Clip::split_at`이다. 실패할 때 상태가 불변인지(계산을 끝낸 뒤 변경하는지) 봐 달라.
+- `Track`은 `&mut Clip`을 내주지 않는다. `Project::track_mut`는 `&mut Track`을 내주는데, `Track`이 스스로 불변식을 지키므로 괜찮다고 판단했다.
+- (리뷰 1 전 문구) `PitchOffset`을 정수 센트로 둔 해석이 SEQ-3과 맞는지 봐 달라. 리뷰 1 뒤 결정 Q3으로 바뀌었다.
+- `scripts/check-deps.test.sh` 수정(`d11e520`)은 S0-T1 파일을 건드린다. 이 Task가 `core`에 dev 의존을 처음 넣으면서 드러난 결함이라 이 PR에서 고쳤다. 고치기 전에는 「직접 의존」 사례 일부가 dev 의존으로 바뀐 채 통과하고 있었다.
+
+## 리뷰 대응 (review-1, 판정: 수정 후 재리뷰)
+
+| # | 지적 | 대응 |
+| --- | --- | --- |
+| 1 | 숨김 꼬리 클립을 u64 끝으로 옮기면 노트의 절대 끝이 넘침 | `Clip::extent()`(길이와 가장 늦은 노트 끝 중 큰 값)로 `move_clip`·`set_start`를 검사한다. 검사는 클립을 빼내기 전에 한다. 공용 불변식 검사기(`model_invariants.rs`)에 절대 끝 검사를 추가했다. 리뷰어의 깨뜨리는 테스트가 이제 통과한다 |
+| 2 | 트랙 안 클립의 이름·색 API 없음 | `Track::set_clip_name`, `Track::set_clip_color`를 추가했다. 식별자는 유지된다 |
+| 3 | 피치 오프셋 단위를 결정 요청 없이 확정 | 받음. 사람에게 물어 MIDI 2.0 해상도(i32, 반음 1/2^25)로 정했다(결정 Q3). 같은 검토에서 REQ M2-1(16비트 벨로시티 보관)이 드러났다. 앞선 벨로시티 질문이 M2-1을 빠뜨렸던 것이라, 다시 물어 16비트 보관으로 바꿨다(결정 Q2 개정) |
+| 4 | 트랙마다 0부터 발급한 `ClipId` | 받음. 프로세스 전역 원자 카운터로 발급한다. 리뷰어가 「현재 동작 기록」으로 남긴 테스트는 기대값을 `None`으로 바꿨다(커밋 `256adcb` 본문에 이유) |
+| 5 | `next_clip_id`가 `PartialEq`에 들어감 | 4로 해결했다. `Track`에 카운터 필드가 없다 |
+
+테스트를 먼저 바꿨고(`256adcb`), `todo!()` 뼈대에서 새 테스트 15개와 속성 테스트가 실패하는 것을 확인했다. 수정은 파일이 겹쳐서 커밋 하나로 묶었다.
+
+~~~
+keyscore-core lib: 28 passed
+model_invariants:  4 passed
+review_s0_t2:      5 passed
+check-deps.test:   11 passed
+~~~
+
+벨로시티 변환 값은 MIDI 2.0 명세의 min-center-max 확장으로 손으로 계산해 고정했다(64 → 0x8000, 65 → 0x8208, 100 → 0xC924, 127 → 0xFFFF). 0–127 전체의 왕복 무손실도 테스트한다. 새 트랙 기본 벨로시티는 MIDI 1.0 100에 해당하는 0xC924다.
+
+## 리뷰 대응 (review-2, 판정: 수정 후 재리뷰)
+
+| # | 지적 | 대응 |
+| --- | --- | --- |
+| 1 | README·계획·보고서에 개정 전 결정 표기(센트, v1 0–127)가 남음 | 고쳤다. 보고서의 리뷰 1 이전 문구는 시점 기록으로 두되, 개정되었다고 표시했다 |
+| 2 | `move_clip`이 빼낸 뒤 실패할 수 있는 호출을 함 (제안) | 받음. 제자리에서 `set_start`를 먼저 부르고 그다음 재정렬한다 |
+| 3 | 공용 속성 테스트가 꼬리 오버플로 퇴화를 못 잡음 (제안) | 받음. 틱에 u64 끝 근처 좁은 구간을 섞고, 분할 지점을 클립 기준으로 바꿨다. `extent` 검사를 빼면 구현자 실행 세 번 모두 실패했고, 원래 코드에서는 통과한다. 리뷰 3이 확인한 바로는 시드 파일 없이 6회 중 5회 실패이고, 커밋된 `.proptest-regressions` 시드가 있으면 매번 실패한다. 「매번 잡는다」는 시드 파일이 있을 때에 한한다 |
+| 4 | `Track::clone`이 id를 복사해 복제 트랙 사이에서 id가 섞임 (제안) | 기록만 함. 트랙 복제는 S4(트랙 관리)에서 생기며, 그때 id를 다시 발급하는 복제 API를 만든다. `Clone`은 undo 스냅샷(S0-T4)에 원본과 같아야 하므로 바꾸지 않는다 |
+| 5 | `ClipId`와 `PartialEq`·직렬화 (제안) | 기록만 함. S0-T6에서 id를 저장하지 않고 읽을 때 새로 발급한다. 왕복 비교는 id를 뺀 내용으로 한다. 저장한다면 복원 때 카운터를 `fetch_max`로 올리고 중복을 검증해야 한다. S0-T6 계획의 리스크로 넘긴다 |
+| 6 | 음높이 + 오프셋 절대 범위 (제안) | 결정 요청 `docs/decisions/2026-10-12-absolute-pitch-range.md`. v1은 노트별 피치를 송신하지 않아 이 병합을 막지 않는다 |
+| 7 | `to_midi1`의 0 (제안) | 받음. 문서 주석에 S1 처리를 경고했다 |
+| 8 | 리뷰 테스트 이름이 단언과 반대 (제안) | 받음. `clip_id_from_another_track_addresses_nothing`으로 바꿨다 |
+
+리뷰어가 기록한 「같은 연산의 두 트랙이 한 번 `==`」는 무작위 연산 뒤 두 트랙 모두 클립이 0개인 경우로 보인다. 빈 트랙끼리는 id를 비교할 것이 없어 같다.
+
+~~~
+keyscore-core lib 28, model_invariants 4, review_s0_t2 5, review_s0_t2_r2 5 — 모두 통과
+check-deps.test: 11 passed
+~~~
+
+## 리뷰 대응 (review-3, 판정: 병합 가능)
+
+| # | 제안 | 대응 |
+| --- | --- | --- |
+| 1 | 「매번 잡는다」는 과장 | 받음. 위 review-2 대응 표의 문구를 실측(시드 없이 5/6)으로 고쳤다 |
+| 2 | 「기록만 함」 항목이 보고서에만 있음 | 받음. `plan/stages/10-S0-foundation.md`의 S0-T4·S0-T6과 `plan/stages/14-S4-clips-and-arrangement.md`의 S4-T2·S4-T3에 「이월」 줄로 옮겼다 |
+| 3 | 절대 피치 결정 요청에 `.ksq` 읽기 규칙 | 받음. 「함께 정할 것」에 더했다 |
+| 4 | 시도 1 테스트가 결과를 단언하지 않음 | 기록용으로 둔다. r3 시도 2가 같은 경로를 단언한다 |
