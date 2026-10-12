@@ -1,7 +1,7 @@
-//! undo 엔진의 속성 기반 테스트(S0-T4 게이트). 공개 API만 쓴다.
+//! undo 엔진의 속성 기반 테스트(S0-T4 게이트). 공개 API(`Document`)만 쓴다.
 
 use keyscore_core::{
-    Channel, Clip, ClipId, CoalesceKey, Edit, History, Key, ModelError, Note, Pitch, PitchClass,
+    Channel, Clip, ClipId, CoalesceKey, Document, Edit, Key, ModelError, Note, Pitch, PitchClass,
     Project, Tempo, Tick, TimeSignature, Track, TrackColor, TrackId, TrackProp, Velocity,
 };
 use proptest::prelude::*;
@@ -262,11 +262,11 @@ fn check_invariants(p: &Project) -> Result<(), String> {
 }
 
 /// 연산 열을 히스토리로 적용하고 성공한 단위 수를 돌려준다.
-fn run(p: &mut Project, h: &mut History, ops: &[Op]) -> usize {
+fn run(d: &mut Document, ops: &[Op]) -> usize {
     let mut applied = 0;
     for op in ops {
-        if let Some(edits) = to_edits(p, op)
-            && h.apply(p, edits, None).is_ok()
+        if let Some(edits) = to_edits(d.project(), op)
+            && d.apply(edits, None).is_ok()
         {
             applied += 1;
         }
@@ -279,39 +279,37 @@ proptest! {
 
     #[test]
     fn history_random_edits_undo_all_restores_initial(ops in prop::collection::vec(op(), 0..60)) {
-        let mut p = initial();
-        let start = p.clone();
-        let mut h = History::new(usize::MAX);
-        let n = run(&mut p, &mut h, &ops);
-        prop_assert_eq!(h.undo_len(), n);
+        let mut d = Document::new(initial(), usize::MAX).unwrap();
+        let start = d.project().clone();
+        let n = run(&mut d, &ops);
+        prop_assert_eq!(d.undo_len(), n);
         for _ in 0..n {
-            prop_assert!(h.undo(&mut p).unwrap());
-            if let Err(why) = check_invariants(&p) {
+            prop_assert!(d.undo().unwrap());
+            if let Err(why) = check_invariants(d.project()) {
                 prop_assert!(false, "undo 뒤 불변식 깨짐: {}", why);
             }
         }
-        prop_assert!(!h.undo(&mut p).unwrap());
-        prop_assert_eq!(&p, &start);
+        prop_assert!(!d.undo().unwrap());
+        prop_assert_eq!(d.project(), &start);
     }
 
     #[test]
     fn history_undo_then_redo_all_restores_final(ops in prop::collection::vec(op(), 0..60)) {
-        let mut p = initial();
-        let mut h = History::new(usize::MAX);
-        let n = run(&mut p, &mut h, &ops);
-        let end = p.clone();
+        let mut d = Document::new(initial(), usize::MAX).unwrap();
+        let n = run(&mut d, &ops);
+        let end = d.project().clone();
         for _ in 0..n {
-            h.undo(&mut p).unwrap();
+            d.undo().unwrap();
         }
         for _ in 0..n {
-            prop_assert!(h.redo(&mut p).unwrap());
-            if let Err(why) = check_invariants(&p) {
+            prop_assert!(d.redo().unwrap());
+            if let Err(why) = check_invariants(d.project()) {
                 prop_assert!(false, "redo 뒤 불변식 깨짐: {}", why);
             }
         }
-        prop_assert!(!h.redo(&mut p).unwrap());
+        prop_assert!(!d.redo().unwrap());
         // ClipId까지 같아야 한다(S0-T4 이월 조건).
-        prop_assert_eq!(&p, &end);
+        prop_assert_eq!(d.project(), &end);
     }
 
     #[test]
@@ -319,22 +317,21 @@ proptest! {
         setup in prop::collection::vec(op(), 0..30),
         batch in prop::collection::vec(op(), 1..6),
     ) {
-        let mut p = initial();
-        let mut h = History::new(usize::MAX);
-        run(&mut p, &mut h, &setup);
+        let mut d = Document::new(initial(), usize::MAX).unwrap();
+        run(&mut d, &setup);
         // 묶음은 모두 지금 상태 기준으로 만든다. 앞 편집이 상태를 바꾸면 뒤 편집이 실패할 수 있다.
-        let edits: Vec<Edit> = batch.iter().filter_map(|op| to_edits(&p, op)).flatten().collect();
+        let edits: Vec<Edit> = batch.iter().filter_map(|op| to_edits(d.project(), op)).flatten().collect();
         if edits.is_empty() {
             // 빈 묶음은 undo 단위를 만들지 않는다(history_empty_apply_adds_nothing).
             return Ok(());
         }
-        let (before, undo_len) = (p.clone(), h.undo_len());
-        if h.apply(&mut p, edits, Some(CoalesceKey(7))).is_ok() {
-            prop_assert!(h.undo(&mut p).unwrap());
-            prop_assert_eq!(&p, &before);
+        let (before, undo_len) = (d.project().clone(), d.undo_len());
+        if d.apply(edits, Some(CoalesceKey(7))).is_ok() {
+            prop_assert!(d.undo().unwrap());
+            prop_assert_eq!(d.project(), &before);
         } else {
-            prop_assert_eq!(&p, &before);
-            prop_assert_eq!(h.undo_len(), undo_len);
+            prop_assert_eq!(d.project(), &before);
+            prop_assert_eq!(d.undo_len(), undo_len);
         }
     }
 
@@ -343,60 +340,58 @@ proptest! {
         steps in prop::collection::vec((op(), 0..4u8), 0..80),
     ) {
         // 새 편집, undo, redo를 섞는다. 같은 일을 하는 기준 모델(스냅샷 스택)과 매 단계 비교한다.
-        let mut p = initial();
-        let start = p.clone();
-        let mut h = History::new(usize::MAX);
+        let mut d = Document::new(initial(), usize::MAX).unwrap();
+        let start = d.project().clone();
         let mut past: Vec<Project> = Vec::new();
         let mut future: Vec<Project> = Vec::new();
         for (op, action) in &steps {
             match action {
                 0 => {
-                    let current = p.clone();
-                    if h.undo(&mut p).unwrap() {
+                    let current = d.project().clone();
+                    if d.undo().unwrap() {
                         let previous = past.pop().unwrap();
-                        prop_assert_eq!(&p, &previous);
+                        prop_assert_eq!(d.project(), &previous);
                         future.push(current);
                     }
                 }
                 1 => {
-                    let current = p.clone();
-                    if h.redo(&mut p).unwrap() {
+                    let current = d.project().clone();
+                    if d.redo().unwrap() {
                         let next = future.pop().unwrap();
-                        prop_assert_eq!(&p, &next);
+                        prop_assert_eq!(d.project(), &next);
                         past.push(current);
                     }
                 }
                 _ => {
-                    if let Some(edits) = to_edits(&p, op) {
-                        let snapshot = p.clone();
-                        if h.apply(&mut p, edits, None).is_ok() {
+                    if let Some(edits) = to_edits(d.project(), op) {
+                        let snapshot = d.project().clone();
+                        if d.apply(edits, None).is_ok() {
                             past.push(snapshot);
                             future.clear();
                         }
                     }
                 }
             }
-            prop_assert_eq!(h.undo_len(), past.len());
-            prop_assert_eq!(h.redo_len(), future.len());
-            if let Err(why) = check_invariants(&p) {
+            prop_assert_eq!(d.undo_len(), past.len());
+            prop_assert_eq!(d.redo_len(), future.len());
+            if let Err(why) = check_invariants(d.project()) {
                 prop_assert!(false, "불변식 깨짐: {}", why);
             }
         }
         // 끝까지 undo하면 처음 상태.
-        while h.undo(&mut p).unwrap() {}
+        while d.undo().unwrap() {}
         // initial()은 부를 때마다 새 TrackId를 만드므로 처음 상태의 복제와 비교한다.
-        prop_assert_eq!(&p, &start);
+        prop_assert_eq!(d.project(), &start);
     }
 }
 
 #[test]
 fn history_errors_are_model_errors() {
     // 없는 트랙을 가리키는 편집은 모델 오류로 거부된다.
-    let mut p = initial();
+    let mut d = Document::new(initial(), usize::MAX).unwrap();
     let stranger = Track::new("X", Channel::new(2).unwrap(), TrackColor::new(0).unwrap()).id();
-    let mut h = History::new(usize::MAX);
-    let err = h
-        .apply(&mut p, vec![Edit::RemoveTrack { track: stranger }], None)
+    let err = d
+        .apply(vec![Edit::RemoveTrack { track: stranger }], None)
         .unwrap_err();
     assert!(matches!(err, ModelError::UnknownTrack), "{err:?}");
 }

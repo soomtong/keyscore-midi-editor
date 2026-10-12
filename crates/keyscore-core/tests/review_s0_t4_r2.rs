@@ -3,10 +3,16 @@
 //! 리뷰 1 뒤 역편집은 `History` 안에만 있고 트랙은 `TrackId`로 가리킨다. 이 파일은 그 설계가
 //! 기대는 두 전제를 노린다: 「프로젝트 안의 `TrackId`는 유일하다」와 「역편집은 그것을 만든
 //! 맥락에만 적용된다」.
+//!
+//! 리뷰 2 뒤 개정: 시도 1–5는 프로젝트를 히스토리 밖에서 고치거나(`&mut Project`), 히스토리를
+//! 복제·교체해 두 전제를 깨뜨렸다. 수정 뒤 공개 API는 프로젝트와 히스토리를 한 값에 묶은
+//! `Document`이고, `&mut Project`를 내주지 않으며 히스토리를 따로 꺼낼 수 없다(`Document` 문서의
+//! `compile_fail` 예). 그래서 각 시도를 같은 목표를 `Document`로 노리는 테스트로 바꿨다.
+//! 시도 1의 `Project` 수준 중복은 여전히 만들 수 있다(구성 단계). 그 중복은 `Document::new`가 막는다.
 
 use keyscore_core::{
-    Channel, Clip, ClipId, Edit, History, Note, Pitch, Project, Tick, Track, TrackColor, TrackId,
-    Velocity,
+    Channel, Clip, ClipId, Document, Edit, ModelError, Note, Pitch, Project, Tick, Track,
+    TrackColor, TrackId, Velocity,
 };
 
 fn note(start: u64, length: u32, pitch: u8) -> Note {
@@ -60,54 +66,53 @@ fn clip_ids_unique(p: &Project) -> bool {
     ids.windows(2).all(|w| w[0] != w[1])
 }
 
-/// 시도 1. `Project::track_mut`가 내주는 `&mut Track`에 다른 트랙의 복제본을 대입하면
-/// `insert_track`의 중복 검사를 거치지 않는다. 프로젝트 안에서 `TrackId`와 `ClipId`가 겹친다.
+/// 시도 1(개정). `track_mut`로 복제본을 대입하면 `Project` 안에서는 중복이 생긴다(구성 단계).
+/// 그 프로젝트로는 편집을 시작할 수 없다.
 #[test]
-fn track_mut_assignment_cannot_duplicate_track_id() {
+fn track_mut_assignment_duplicate_is_rejected_by_document() {
     let (mut p, ..) = fixture();
     let copy = p.tracks()[0].clone();
     *p.track_mut(1).unwrap() = copy;
     assert!(
-        track_ids_unique(&p),
-        "같은 TrackId의 트랙 둘: {:?}",
-        p.tracks().iter().map(Track::id).collect::<Vec<_>>()
+        !track_ids_unique(&p),
+        "구성 단계에서는 중복을 만들 수 있다(전제 확인)"
     );
-    assert!(clip_ids_unique(&p), "같은 ClipId의 클립이 두 트랙에 있다");
+    assert_eq!(
+        Document::new(p, usize::MAX).unwrap_err(),
+        ModelError::DuplicateTrackId
+    );
 }
 
-/// 시도 2. 시도 1의 상태에서 `RemoveTrack` 뒤 실패하는 편집을 묶는다. 되돌리기의
-/// `InsertTrack`이 남은 복제본 때문에 `DuplicateTrackId`로 실패해, `apply`가
-/// `Err(HistoryInconsistent)`를 돌려주면서 트랙 A를 지운 채로 둔다(원자성 위반, 데이터 손실).
+/// 시도 2(개정). 문서 안에서 복제 트랙을 넣어 중복을 만들려 하면, 그 편집이 실패하고 묶음 전체가
+/// 되돌려진다(원자성). 트랙 A를 지운 채로 남지 않는다.
 #[test]
 fn duplicated_track_id_breaks_batch_atomicity() {
-    let (mut p, ia, ..) = fixture();
-    let mut copy = p.tracks()[0].clone();
-    std::mem::swap(p.track_mut(1).unwrap(), &mut copy);
-    let before = p.clone();
-    let stranger = new_track("X").id();
-    let mut h = History::new(usize::MAX);
-    let result = h.apply(
-        &mut p,
+    let (p, ia, ..) = fixture();
+    let copy_of_b = p.tracks()[1].clone();
+    let mut d = Document::new(p, usize::MAX).unwrap();
+    let before = d.project().clone();
+    let result = d.apply(
         vec![
             Edit::RemoveTrack { track: ia },
-            Edit::RemoveTrack { track: stranger },
+            Edit::InsertTrack {
+                index: 0,
+                track: Box::new(copy_of_b),
+            },
         ],
         None,
     );
-    assert!(result.is_err());
-    assert_eq!(p, before, "실패한 apply가 프로젝트를 바꿨다: {result:?}");
+    assert_eq!(result, Err(ModelError::DuplicateTrackId));
+    assert_eq!(d.project(), &before, "실패한 apply가 프로젝트를 바꿨다");
+    assert!(track_ids_unique(d.project()) && clip_ids_unique(d.project()));
 }
 
-/// 시도 3. 리뷰 1 시도 1의 의도(보관한 역편집을 다른 맥락에 적용)를 `History::clone`으로
-/// 다시 노린다. 모든 편집은 히스토리로 적용한다. 노트를 지운 뒤 히스토리를 복제하고, 원본
-/// 히스토리로 클립을 분할해 짧게 만든 다음, 복제본으로 undo하면 그 분할을 한 번도 가로지르지
-/// 않은 노트가 숨김 꼬리로 되살아난다(결정 Q1).
+/// 시도 3(개정). 히스토리를 따로 복제할 수 없다. 문서를 복제하면 프로젝트와 히스토리가 함께
+/// 복제되어, 복제본의 undo는 복제본의 프로젝트에만 맞게 적용된다. 분할 없이 꼬리가 생기지 않는다.
 #[test]
 fn cloned_history_undo_does_not_create_tail_without_split() {
-    let (mut p, ia, _, a) = fixture();
-    let mut h = History::new(usize::MAX);
-    h.apply(
-        &mut p,
+    let (p, ia, _, a) = fixture();
+    let mut d = Document::new(p, usize::MAX).unwrap();
+    d.apply(
         vec![Edit::RemoveNote {
             track: ia,
             clip: a,
@@ -116,9 +121,8 @@ fn cloned_history_undo_does_not_create_tail_without_split() {
         None,
     )
     .unwrap();
-    let mut stale = h.clone();
-    h.apply(
-        &mut p,
+    let mut stale = d.clone();
+    d.apply(
         vec![Edit::SplitClip {
             track: ia,
             id: a,
@@ -127,25 +131,26 @@ fn cloned_history_undo_does_not_create_tail_without_split() {
         None,
     )
     .unwrap();
-    assert_eq!(tails(&p), 0, "분할 시점에 노트가 없었으므로 꼬리도 없다");
-    let before = p.clone();
-    let result = stale.undo(&mut p);
-    assert!(
-        tails(&p) == 0 && (result.is_ok() || p == before),
-        "분할 없이 꼬리 노트가 생겼다: {result:?}, 클립 {:?}",
-        p.track(ia).unwrap().clip(a)
+    assert_eq!(tails(d.project()), 0);
+    let original_after_split = d.project().clone();
+    assert!(stale.undo().unwrap());
+    assert_eq!(tails(stale.project()), 0);
+    assert_eq!(
+        d.project(),
+        &original_after_split,
+        "복제본의 undo가 원본을 바꿨다"
     );
+    assert!(d.undo().unwrap() && d.undo().unwrap());
+    assert_eq!(d.project(), stale.project(), "둘 다 처음 상태로 돌아간다");
 }
 
-/// 시도 4. 분할 undo는 지금 두 클립의 경계·끝만 확인하고 `original`로 덮어쓴다. 분할 뒤
-/// 오른쪽 클립에 넣은 노트가 다른 히스토리(또는 히스토리 밖)에서 왔으면, undo는 `Ok`를
-/// 돌려주면서 그 노트를 지운다. `History` 문서는 이 경우 `Err`이고 프로젝트는 그대로라고 한다.
+/// 시도 4(개정). 다른 히스토리가 없으므로, 분할 뒤 오른쪽에 넣은 노트는 같은 문서의 undo
+/// 단위다. undo는 그 노트를 먼저 지우고 그다음 분할을 되돌린다. 노트가 말없이 사라지지 않는다.
 #[test]
 fn undo_split_after_note_from_other_history_keeps_note_or_fails() {
-    let (mut p, ia, _, a) = fixture();
-    let mut h = History::new(usize::MAX);
-    h.apply(
-        &mut p,
+    let (p, ia, _, a) = fixture();
+    let mut d = Document::new(p, usize::MAX).unwrap();
+    d.apply(
         vec![Edit::SplitClip {
             track: ia,
             id: a,
@@ -154,48 +159,47 @@ fn undo_split_after_note_from_other_history_keeps_note_or_fails() {
         None,
     )
     .unwrap();
-    let right = p
+    let right = d
+        .project()
         .track(ia)
         .unwrap()
         .clips()
         .map(|(id, _)| id)
         .find(|&id| id != a)
         .unwrap();
-    let mut other = History::new(usize::MAX);
     let added = note(0, 10, 72);
-    other
-        .apply(
-            &mut p,
-            vec![Edit::InsertNote {
-                track: ia,
-                clip: right,
-                note: added.clone(),
-            }],
-            None,
-        )
-        .unwrap();
-    let before = p.clone();
-    let result = h.undo(&mut p);
-    let kept = p
-        .track(ia)
-        .unwrap()
-        .clips()
-        .any(|(_, c)| c.notes().iter().any(|n| n.pitch() == added.pitch()));
-    assert!(
-        (result.is_err() && p == before) || kept,
-        "undo가 {result:?}를 돌려주며 다른 곳에서 넣은 노트를 지웠다"
-    );
+    d.apply(
+        vec![Edit::InsertNote {
+            track: ia,
+            clip: right,
+            note: added.clone(),
+        }],
+        None,
+    )
+    .unwrap();
+    let with_note = d.project().clone();
+    let has_added = |p: &Project| {
+        p.tracks()
+            .iter()
+            .flat_map(Track::clips)
+            .any(|(_, c)| c.notes().contains(&added))
+    };
+    assert!(d.undo().unwrap());
+    assert!(!has_added(d.project()), "첫 undo는 노트 삽입을 되돌린다");
+    assert!(d.undo().unwrap());
+    assert!(d.redo().unwrap() && d.redo().unwrap());
+    assert!(has_added(d.project()));
+    assert_eq!(d.project(), &with_note);
 }
 
-/// 시도 5. 히스토리 밖에서 클립을 분할하고 오른쪽을 지운 뒤 노트 삭제를 undo한다.
-/// `History` 문서는 밖에서 고친 뒤의 undo가 실패하더라도 프로젝트를 바꾸지 않는다고 하지만,
-/// 실제로는 `Ok`이고 분할을 거치지 않은 노트가 꼬리로 되살아난다.
+/// 시도 5(개정). 히스토리 밖에서 클립을 줄일 수 없다. 같은 모양(노트 삭제 → 분할 → 오른쪽
+/// 클립 삭제)을 문서로 하고 undo하면, 각 단계에서 분할 없이 생긴 꼬리가 없고 처음 상태로 돌아간다.
 #[test]
 fn undo_after_outside_shrink_does_not_create_tail() {
-    let (mut p, ia, _, a) = fixture();
-    let mut h = History::new(usize::MAX);
-    h.apply(
-        &mut p,
+    let (p, ia, _, a) = fixture();
+    let mut d = Document::new(p, usize::MAX).unwrap();
+    let initial = d.project().clone();
+    d.apply(
         vec![Edit::RemoveNote {
             track: ia,
             clip: a,
@@ -204,27 +208,47 @@ fn undo_after_outside_shrink_does_not_create_tail() {
         None,
     )
     .unwrap();
-    let t = p.track_by_id_mut(ia).unwrap();
-    let right = t.split_clip(a, Tick::new(10)).unwrap();
-    t.remove_clip(right).unwrap();
-    let before = p.clone();
-    let result = h.undo(&mut p);
-    assert!(
-        tails(&p) == 0 && (result.is_ok() || p == before),
-        "분할 없이 꼬리 노트가 생겼다: {result:?}"
-    );
+    d.apply(
+        vec![Edit::SplitClip {
+            track: ia,
+            id: a,
+            at: Tick::new(10),
+        }],
+        None,
+    )
+    .unwrap();
+    let right = d
+        .project()
+        .track(ia)
+        .unwrap()
+        .clips()
+        .map(|(id, _)| id)
+        .find(|&id| id != a)
+        .unwrap();
+    d.apply(
+        vec![Edit::RemoveClip {
+            track: ia,
+            id: right,
+        }],
+        None,
+    )
+    .unwrap();
+    for _ in 0..3 {
+        assert!(d.undo().unwrap());
+        assert_eq!(tails(d.project()), 0);
+    }
+    assert_eq!(d.project(), &initial);
 }
 
 /// 시도 6(못 깨뜨림 기대). 트랙 A의 클립을 꺼내 트랙 B에 넣으면 새 id를 받는다. 히스토리
 /// 경유와 직접 호출 모두. 그리고 undo 전부 = 초기, redo 전부 = 최종(`TrackId`·`ClipId` 포함).
 #[test]
 fn clip_moved_between_tracks_gets_new_id_and_round_trips() {
-    let (mut p, ia, ib, a) = fixture();
+    let (p, ia, ib, a) = fixture();
     let initial = p.clone();
-    let mut h = History::new(usize::MAX);
     let clip = p.track(ia).unwrap().clip(a).unwrap().clone();
-    h.apply(
-        &mut p,
+    let mut d = Document::new(p, usize::MAX).unwrap();
+    d.apply(
         vec![
             Edit::RemoveClip { track: ia, id: a },
             Edit::InsertClip {
@@ -236,15 +260,21 @@ fn clip_moved_between_tracks_gets_new_id_and_round_trips() {
         None,
     )
     .unwrap();
-    let moved: Vec<ClipId> = p.track(ib).unwrap().clips().map(|(id, _)| id).collect();
+    let moved: Vec<ClipId> = d
+        .project()
+        .track(ib)
+        .unwrap()
+        .clips()
+        .map(|(id, _)| id)
+        .collect();
     assert_eq!(moved.len(), 1);
     assert_ne!(moved[0], a, "다른 트랙으로 옮긴 클립이 같은 id를 받았다");
-    assert!(clip_ids_unique(&p) && track_ids_unique(&p));
-    let after = p.clone();
-    assert!(h.undo(&mut p).unwrap());
-    assert_eq!(p, initial);
-    assert!(h.redo(&mut p).unwrap());
-    assert_eq!(p, after);
+    assert!(clip_ids_unique(d.project()) && track_ids_unique(d.project()));
+    let after = d.project().clone();
+    assert!(d.undo().unwrap());
+    assert_eq!(d.project(), &initial);
+    assert!(d.redo().unwrap());
+    assert_eq!(d.project(), &after);
 
     // 히스토리 밖 직접 호출도 새 id다.
     let mut q = initial.clone();
