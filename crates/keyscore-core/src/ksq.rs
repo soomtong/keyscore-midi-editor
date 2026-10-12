@@ -803,11 +803,13 @@ fn write_then_rename(temp: &Path, path: &Path, bytes: &[u8]) -> std::io::Result<
         .write(true)
         .create_new(true)
         .open(temp)?;
-    file.write_all(bytes)?;
-    // 원래 파일의 권한을 유지한다(리뷰 1 제안 7). 새 파일이면 기본 권한 그대로다.
+    // 원래 파일의 권한을 유지한다(리뷰 1 제안 7). 내용을 쓰기 전에 맞춰야, 쓰는 동안 임시 파일이
+    // 원본보다 넓은 권한(예: 0600 원본에 0644)으로 열려 있지 않다(리뷰 2 지적 1). 새 파일이면
+    // 기본 권한 그대로다. 이미 연 핸들로 쓰므로 원본이 읽기 전용이어도 쓰기는 된다.
     if let Ok(meta) = fs::metadata(path) {
         file.set_permissions(meta.permissions())?;
     }
+    file.write_all(bytes)?;
     file.sync_all()?;
     drop(file);
     fs::rename(temp, path)?;
