@@ -10,7 +10,7 @@
 - `Track`: SEQ-7 속성과 클립. 클립의 삽입·삭제·이동·분할과 클립 안 노트 삽입·삭제는 `Track`의 메서드로만 한다.
 - `Project`: 조성과 트랙 목록(템포·박자표 맵은 S0-T3).
 - `TempoMap`·`MeterMap`·`MusicTime`·`TimeSignature`: 템포·박자표 맵과 정확한 틱↔시각 변환(1/960 ns 단위).
-- `TrackId`: 트랙 식별자. 프로젝트 안에서 유일하다(복제본은 같은 프로젝트에 넣을 수 없다).
+- `TrackId`: 트랙 식별자. 문서(`Document`) 안에서 유일하다. `Project`는 구성 단계에서 `track_mut` 대입으로 중복을 만들 수 있으나 `Document::new`가 거부한다.
 - `Edit`·`TrackProp`: 모델을 바꾸는 정방향 편집. 역편집은 히스토리 안에만 있다.
 - `Document`·`CoalesceKey`: 편집 중인 곡(프로젝트 + undo 히스토리). 편집의 유일한 진입점이며 `&mut Project`를 내주지 않는다. 묶음 적용은 원자적이고, 같은 키의 연속 편집은 한 단위로 묶인다.
 - `ModelError`: 불변식을 깨뜨리는 입력의 거부 사유.

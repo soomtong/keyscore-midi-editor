@@ -114,3 +114,12 @@ check-deps.test 11, bench-check.test 8 통과
 cargo test --workspace: 112 passed (doc-test 4개 포함, 4개 모두 compile_fail)
 check-deps.test 11, bench-check.test 8 통과
 ~~~
+
+## 리뷰 대응 (review-3, 판정: 병합 가능)
+
+| # | 제안 | 대응 |
+| --- | --- | --- |
+| 1 | `History` 비공개, `Edit::InsertClip { id }` 부재에 대한 `compile_fail` 예 없음 | 기록만 함. 지금은 각각 E0433·E0026으로 막혀 있다. 판정 뒤 코드 변경을 피하려고 이 PR에서는 더하지 않는다 |
+| 2 | 2회차 테스트 세 개의 이름이 개정 내용과 맞지 않음 | 기록만 함(1과 같은 이유). 각 테스트의 문서 주석이 개정 내용을 설명한다 |
+| 3 | 상한이 있으면 undo가 오래된 단위를 버릴 수 있음 | 받음. `plan/stages/12-S2-app-shell.md` S2-T6에 이월로 적었다. 기본 상한과 EDT-1 「무제한」의 관계는 그때 결정 요청으로 다룬다 |
+| 4 | README의 「프로젝트 안에서 유일」 | 고쳤다(문서만): 「문서 안에서 유일, `Project` 구성 단계 중복은 `Document::new`가 거부」 |
