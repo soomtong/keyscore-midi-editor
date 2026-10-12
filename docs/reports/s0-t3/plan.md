@@ -9,7 +9,7 @@
 
 - `Project`가 템포 맵과 박자표 맵을 가진다(SEQ-1). 둘 다 틱 0에 항상 값이 있고, 새 프로젝트는 120 BPM·4/4다.
 - 틱 → 시각, 시각 → 틱 변환이 정수 산술만으로 된다. 틱 → 시각은 정확하고(반올림 없음), 시각 → 틱은 내림이다. 그래서 「틱 → 시각 → 틱」 왕복 오차는 0이다.
-- 시각의 단위는 1/960 나노초(u128)다. 틱 하나의 길이 `µs/qn × 1000 / 960` ns가 이 단위에서 정수(`µs/qn × 1000`)가 되므로, 템포 구간을 아무리 이어 붙여도 누적 오차가 생기지 않는다. 1시간(120 BPM, 3,456,000틱)은 정확히 3,600,000,000,000 ns다(NF-4 준비).
+- 시각의 단위는 1/960 나노초(u128)다. 틱 하나의 길이 `µs/qn × 1000 / 960` ns가 이 단위에서 정수(`µs/qn × 1000`)가 되므로, 템포 구간을 아무리 이어 붙여도 누적 오차가 생기지 않는다. 1시간(120 BPM, 6,912,000틱)은 정확히 3,600,000,000,000 ns다. 단계 파일의 「3,456,000틱」은 60 BPM 기준이라 정정한다(NF-4 준비).
 - 박자표 맵으로 틱 ↔ (마디, 박, 박 안 틱) 변환과 마디 시작 틱 계산이 된다. 박의 단위는 박자표 분모다(6/8의 박은 8분음표).
 - criterion 벤치(틱→시각, 시각→틱)와 기준값 `benches/baseline.json`, 10% 회귀 검사 스크립트가 있다.
 - 원문과 다른 점: 원문의 `tick_to_seconds`/`seconds_to_tick`은 `tick_to_time`/`time_to_tick`으로 하고, 초는 `MusicTime::as_secs_f64`(표시용)로 얻는다. 부동소수를 변환 경로에서 빼기 위해서다.
@@ -74,7 +74,7 @@ impl MeterMap {
 | --- | --- | --- | --- |
 | 1 | `tempo_from_bpm_120_is_500000_micros` | 단위 | BPM 변환, 0·범위 밖 거부 |
 | 2 | `tempo_map_one_quarter_at_120_is_half_second` | 단위 | 기본 변환 |
-| 3 | `tempo_map_one_hour_at_120_is_exact` | 단위 | 3,456,000틱 = 3,600,000,000,000 ns 정확(NF-4) |
+| 3 | `tempo_map_one_hour_at_120_is_exact` | 단위 | 120 BPM 6,912,000틱 = 60 BPM 3,456,000틱 = 3,600,000,000,000 ns 정확(NF-4) |
 | 4 | `tempo_map_three_changes_round_trip_is_exact` | 속성 | 템포 변화 3개, 임의 틱 t: `time_to_tick(tick_to_time(t)) == t` (게이트) |
 | 5 | `tempo_map_time_to_tick_is_floor` | 속성 | `tick_to_time(k) ≤ x < tick_to_time(k+1)`, k = `time_to_tick(x)` |
 | 6 | `tempo_map_tick_to_time_is_strictly_increasing` | 속성 | 단조 증가 |
