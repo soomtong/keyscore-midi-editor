@@ -56,10 +56,11 @@ check-deps.test 11, bench-check.test 8 통과
 
 ## 알려진 한계
 
+리뷰 2 뒤 개정했다. 처음 판에는 「undo가 실패하는 경우는 히스토리 밖에서 고친 때뿐이고, 트랙은 인덱스로 가리킨다」고 적었다. 이제는 둘 다 맞지 않는다.
+
 - 메모리 사용량은 추정치다(구조체 크기 + 노트·문자열). 실측은 NF-7(S8)이다. 앱의 기본 상한은 S2 설정에서 정한다.
-- undo가 실패하는 경우는 히스토리 밖에서 프로젝트를 고친 때뿐이다. `Project`는 여전히 `&mut`로 고칠 수 있어서, 이 규율은 앱 쪽 약속이다. 실패해도 상태는 그대로다.
-- 상위 편집(퀀타이즈, 클립 자동 연장, 붙여넣기)은 이 `Edit`들의 묶음으로 S0-T7·S3·S4에서 만든다.
-- 트랙은 인덱스로 가리킨다. 트랙 삭제·삽입은 역편집이 인덱스를 맞춰 주므로 히스토리 안에서는 일관되다. 히스토리 밖에서 트랙 순서를 바꾸면 이후 undo가 엉뚱한 트랙을 가리킬 수 있다. 위 「히스토리 밖 변경」과 같은 부류다.
+- 편집의 공개 진입점은 `Document`뿐이고, `&mut Project`를 내주지 않는다. `Project`의 `&mut` API(`track_mut` 등)는 구성 단계(S0-T6 파일 읽기, 테스트)용이다. 그 단계에서 만든 `TrackId`·`ClipId` 중복은 `Document::new`가 거부한다.
+- 상위 편집(퀀타이즈, 클립 자동 연장, 붙여넣기)은 `Edit` 묶음으로 S0-T7·S3·S4에서 만든다.
 
 ## 리뷰어에게
 
@@ -88,5 +89,28 @@ check-deps.test 11, bench-check.test 8 통과
 
 ~~~
 cargo test --workspace: 102 passed (doc-test 2개 포함, compile_fail 2개)
+check-deps.test 11, bench-check.test 8 통과
+~~~
+
+## 리뷰 대응 (review-2, 판정: 수정 후 재리뷰)
+
+| # | 지적 | 대응 |
+| --- | --- | --- |
+| 1 | `track_mut` 대입으로 `TrackId`·`ClipId` 중복, 그 상태에서 원자성 위반 (차단) | 편집의 공개 진입점을 `Document`로 바꿨다. `Document`는 프로젝트와 히스토리를 함께 소유하고 `&mut Project`를 내주지 않는다. `Document::new`는 `TrackId`·`ClipId` 중복을 거부한다. `Project` 수준의 중복은 구성 단계에서 여전히 만들 수 있고, `Project::track_mut` 문서에 적었다 |
+| 2 | 복제·두 번째 `History`로 맞지 않는 역편집이 `Ok`로 적용됨 (차단) | `History`를 crate 내부로 숨겼다. 복제는 `Document` 통째로만 되며, 프로젝트와 히스토리가 함께 복제된다 |
+| 3 | 히스토리 밖 변경 뒤 undo가 `Ok`로 꼬리를 만들거나 노트를 지움 | 1·2로 히스토리 밖 변경 경로가 없다. `compile_fail` 예로 `project_mut`이 없음을 확인한다 |
+| 4 | `compile_fail` 예 1이 아무것도 지키지 못함 | `matches!` 패턴과 메서드 호출로 바꿨다. 같은 모양에 실재하는 `SplitClip`과 `project()`를 넣으면 컴파일되는 것을 확인했다(확인 후 되돌림). 그러니 예가 실패하는 이유는 그 항목이 없다는 것 하나뿐이다 |
+| 5 | 보고서 「알려진 한계」가 낡음 | 고쳤다(위 절, 개정 표시) |
+| 6 | `handmade_*` 테스트 이름 (제안) | `split_then_undo_restores_initial`, `split_in_failing_batch_leaves_document_unchanged`로 바꿨다 |
+
+리뷰어 테스트 처리: 2회차 시도 1–5는 `&mut Project`를 히스토리 밖에서 쓰거나 `History`를 따로 만들거나 복제했다. 이제는 그런 코드가 컴파일되지 않는다. 그래서 각 시도를 같은 목표를 `Document`로 노리는 테스트로 바꿨고, 파일 머리와 커밋 `b8ba908` 본문에 이유를 적었다.
+- 시도 1: `Project` 수준 중복은 여전히 만들 수 있다는 전제를 확인하고, 그 프로젝트를 `Document::new`가 거부하는지 본다.
+- 시도 2: 문서 안에서 복제 트랙을 넣는 묶음이 원자적으로 실패하는지 본다.
+- 시도 3: 문서를 복제했을 때 복제본의 undo가 원본에 영향을 주지 않고 꼬리를 만들지 않는지 본다.
+- 시도 4·5: 같은 모양의 편집을 문서로 하고, undo가 노트를 말없이 잃거나 꼬리를 만들지 않는지 본다.
+- 시도 6: 그대로 `Document`로 옮겼다.
+
+~~~
+cargo test --workspace: 112 passed (doc-test 4개 포함, 4개 모두 compile_fail)
 check-deps.test 11, bench-check.test 8 통과
 ~~~

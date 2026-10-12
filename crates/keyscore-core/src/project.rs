@@ -53,7 +53,9 @@ impl Project {
         &self.tracks
     }
 
-    /// 트랙은 자기 불변식을 스스로 지키므로 `&mut Track`을 내줘도 된다.
+    /// 트랙은 자기 불변식을 스스로 지키므로 `&mut Track`을 내줘도 된다. 다만 트랙을 통째로
+    /// 바꾸면(복제본 대입) 프로젝트 안에서 `TrackId`가 겹칠 수 있다. `Project`는 파일 읽기 등의
+    /// 구성 단계용이고, 편집은 [`crate::Document`]로 한다. `Document::new`가 중복을 거부한다.
     pub fn track_mut(&mut self, index: usize) -> Option<&mut Track> {
         self.tracks.get_mut(index)
     }

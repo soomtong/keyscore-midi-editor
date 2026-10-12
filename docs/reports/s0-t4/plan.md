@@ -43,16 +43,20 @@ pub enum Edit {                        // 정방향 편집만. apply는 공개�
     SetKey(Key),
 }
 pub(crate) enum Op { /* Edit + InsertClipWithId, SplitClipWithId, UnsplitClip, RestoreNote */ }
-// history.rs
+// history.rs (리뷰 2 뒤 crate 내부)
 pub struct CoalesceKey(pub u64);
-pub struct History { .. }               // Entry는 Vec<Op>를 보관
-impl History {
-    pub fn new(limit_bytes: usize) -> Self;
-    pub fn apply(&mut self, project: &mut Project, edits: Vec<Edit>, coalesce: Option<CoalesceKey>) -> Result<(), ModelError>;
-    pub fn undo(&mut self, project: &mut Project) -> Result<bool, ModelError>;
-    pub fn redo(&mut self, project: &mut Project) -> Result<bool, ModelError>;
+pub(crate) struct History { .. }        // Entry는 Vec<Op>를 보관
+// document.rs (리뷰 2 뒤 추가, 편집의 유일한 공개 진입점)
+pub struct Document { project: Project, history: History }   // Clone은 둘을 함께 복제
+impl Document {
+    pub fn new(project: Project, limit_bytes: usize) -> Result<Self, ModelError>;   // TrackId·ClipId 중복 거부
+    pub fn project(&self) -> &Project;                                            // &mut는 없다
+    pub fn into_project(self) -> Project;
+    pub fn apply(&mut self, edits: Vec<Edit>, coalesce: Option<CoalesceKey>) -> Result<(), ModelError>;
+    pub fn undo(&mut self) -> Result<bool, ModelError>;
+    pub fn redo(&mut self) -> Result<bool, ModelError>;
     pub fn seal(&mut self);
-    pub fn undo_len/redo_len/used_bytes;
+    pub fn undo_len/redo_len/history_bytes;
 }
 ~~~
 
