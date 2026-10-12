@@ -110,7 +110,7 @@ pub fn quantize(
     settings: &QuantizeSettings,
 ) -> Result<Vec<Edit>, ModelError> {
     let grid = settings.grid_ticks();
-    plan(project, notes, |clip, note| {
+    plan(project, notes, |_, clip, note| {
         let abs = clip.start().get() + note.start().get();
         let target = snap(project, abs, grid, settings.swing);
         // 강도: 목표 쪽으로 강도만큼만 간다. 0으로 향해 잘라 강도 100%는 목표 그대로다.
@@ -131,7 +131,7 @@ pub fn transpose(
     semitones: i32,
     range: PitchRange,
 ) -> Result<Vec<Edit>, ModelError> {
-    plan(project, notes, |_, note| {
+    plan(project, notes, |_, _, note| {
         // i64라 i32 끝의 반음 수도 넘치지 않는다. 접기는 반복 대신 옥타브 수를 한 번에 계산한다
         // (S0-T7 리뷰 1 지적 2: i32 덧셈 오버플로, 반음 수에 비례하는 반복).
         let (low, high) = (i64::from(range.low.get()), i64::from(range.high.get()));
@@ -168,7 +168,7 @@ pub fn shift(
     notes: &[NoteRef],
     delta_ticks: i64,
 ) -> Result<Vec<Edit>, ModelError> {
-    plan(project, notes, |clip, note| {
+    plan(project, notes, |_, clip, note| {
         let abs = i128::from(clip.start().get()) + i128::from(note.start().get());
         relocate(clip, note, abs + i128::from(delta_ticks))
     })
@@ -195,12 +195,18 @@ pub fn scale(
     let (num, den) = (u128::from(numerator), u128::from(denominator));
     // 반올림(0.5는 올림): (x × 분자 × 2 + 분모) / (2 × 분모).
     let ratio = |x: u128| (x * num * 2 + den) / (2 * den);
-    let mut anchor = u64::MAX;
+    // 기준점은 클립마다 그 클립 안의 가장 이른 선택 노트다(결정 개정). 선택 전체 기준이면 여러
+    // 클립에 걸친 반속이 언제나 「클립 시작 앞」으로 거부된다.
+    let mut anchors: HashMap<(TrackId, ClipId), u64> = HashMap::new();
     for r in notes {
-        let clip = find(project, r)?.0;
-        anchor = anchor.min(clip.start().get() + r.note.start().get());
+        let start = r.note.start().get();
+        anchors
+            .entry((r.track, r.clip))
+            .and_modify(|a| *a = (*a).min(start))
+            .or_insert(start);
     }
-    plan(project, notes, |clip, note| {
+    plan(project, notes, |r, clip, note| {
+        let anchor = clip.start().get() + anchors.get(&(r.track, r.clip)).copied().unwrap_or(0);
         let abs = clip.start().get() + note.start().get();
         let moved = u128::from(anchor) + ratio(u128::from(abs - anchor));
         let length = u32::try_from(ratio(u128::from(note.length())).max(1))
@@ -274,7 +280,7 @@ fn snap(project: &Project, abs: u64, grid: u64, swing: u8) -> u64 {
 fn plan(
     project: &Project,
     notes: &[NoteRef],
-    mut f: impl FnMut(&Clip, &Note) -> Result<Note, ModelError>,
+    mut f: impl FnMut(&NoteRef, &Clip, &Note) -> Result<Note, ModelError>,
 ) -> Result<Vec<Edit>, ModelError> {
     // 같은 노트를 클립에 있는 개수보다 많이 고르면 적용 단계에서 실패한다. 함수 문서대로 계산
     // 단계에서 거부한다(S0-T7 리뷰 1 지적 3).
@@ -299,7 +305,7 @@ fn plan(
     let mut needed: Vec<(TrackId, ClipId, u64)> = Vec::new();
     for r in notes {
         let (clip, ()) = find(project, r)?;
-        let new = f(clip, &r.note)?;
+        let new = f(r, clip, &r.note)?;
         // 원래 꼬리였던 노트는 꼬리로 둔다: 끝이 아니라 시작만 클립 안에 있으면 된다
         // (결정 개정, S0-T7 리뷰 1 지적 1). 그 밖의 노트는 끝까지 클립 안이어야 한다.
         let needed_end = if r.note.end() > clip.length() {
