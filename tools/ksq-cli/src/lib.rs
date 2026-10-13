@@ -43,6 +43,8 @@ pub enum CliError {
     },
     #[error("텍스트 오류: {0}")]
     Parse(#[from] ParseError),
+    #[error("{}: 텍스트 오류: {source}", path.display())]
+    TextFile { path: PathBuf, source: ParseError },
     #[error("모델 오류: {0}")]
     Model(#[from] ModelError),
     /// 내보낸 텍스트를 다시 읽지 못했다. `keyscore-text`의 내보내기·파서가 어긋난 것이다.

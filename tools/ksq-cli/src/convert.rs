@@ -1,9 +1,17 @@
+use std::collections::HashSet;
 use std::fmt;
 
-use keyscore_core::Project;
-use keyscore_text::{Diagnostic, Mode};
+use keyscore_core::{
+    Clip, MeterMap, Note, PitchOffset, Project, TempoMap, Tick, Track, TrackColor, Velocity, ksq,
+};
+use keyscore_text::{Diagnostic, ExportTrack, Header, Mode, export, parse};
+use serde_json::{Map, Value};
 
 use crate::CliError;
+
+/// 계이름 텍스트 파서가 블록을 시작할 때의 벨로시티(MIDI 1.0). `keyscore-text`의 `START_VELOCITY`와
+/// 같아야 한다. 어긋나면 손실 없는 프로젝트의 바이트 왕복 테스트가 깨져 드러난다.
+const TEXT_VELOCITY: u8 = 100;
 
 /// `ksq2txt`가 텍스트로 옮기지 못한 정보 한 가지.
 ///
@@ -71,33 +79,475 @@ pub enum Loss {
     Mismatch { detail: String },
 }
 
-impl fmt::Display for Loss {
+/// 사람에게 보이는 트랙 표시. 이름에 줄바꿈·따옴표가 있어도 한 줄로 보이게 `Debug`로 적는다.
+struct TrackLabel<'a>(usize, &'a str);
+
+impl fmt::Display for TrackLabel<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let _ = f;
-        todo!()
+        write!(f, "트랙 {} {:?}", self.0 + 1, self.1)
     }
 }
 
+impl fmt::Display for Loss {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Loss::TempoChanges { dropped } => write!(
+                f,
+                "템포 변화 {dropped}개를 잃는다(틱 0의 템포만 헤더로 간다)"
+            ),
+            Loss::MeterChanges { dropped } => write!(
+                f,
+                "박자표 변화 {dropped}개를 잃는다(틱 0의 박자표만 헤더로 간다)"
+            ),
+            Loss::ClipLayout {
+                track,
+                name,
+                clips,
+                first_start,
+            } => write!(
+                f,
+                "{}: 클립 {clips}개(첫 시작 {first_start}틱)를 시작 0 클립 하나로 합친다",
+                TrackLabel(*track, name)
+            ),
+            Loss::ClipAttributes { track, name } => {
+                write!(f, "{}: 클립 이름·색을 잃는다", TrackLabel(*track, name))
+            }
+            Loss::HiddenTails { track, name, notes } => write!(
+                f,
+                "{}: 클립 끝을 넘는 노트 꼬리 {notes}개를 자른다",
+                TrackLabel(*track, name)
+            ),
+            Loss::Velocities { track, name, notes } => write!(
+                f,
+                "{}: 노트 {notes}개의 벨로시티를 잃는다(텍스트는 {TEXT_VELOCITY}으로 읽힌다)",
+                TrackLabel(*track, name)
+            ),
+            Loss::PitchOffsets { track, name, notes } => write!(
+                f,
+                "{}: 노트 {notes}개의 피치 오프셋을 잃는다",
+                TrackLabel(*track, name)
+            ),
+            Loss::TrackAttributes {
+                track,
+                name,
+                attributes,
+            } => write!(
+                f,
+                "{}: 트랙 속성을 잃는다: {}",
+                TrackLabel(*track, name),
+                attributes.join(", ")
+            ),
+            Loss::UnknownKeys { paths } => write!(
+                f,
+                "모르는 키 {}개를 잃는다: {}",
+                paths.len(),
+                paths.join(", ")
+            ),
+            Loss::EmptyTrack { track, name } => write!(
+                f,
+                "{}: 클립이 없어 한 마디 쉼표 클립으로 쓴다",
+                TrackLabel(*track, name)
+            ),
+            Loss::RenamedTrack { track, from, to } => write!(
+                f,
+                "{}: 같은 이름의 트랙이 있어 {to:?}(으)로 바꾼다",
+                TrackLabel(*track, from)
+            ),
+            Loss::ClipLength {
+                track,
+                name,
+                from,
+                to,
+            } => write!(
+                f,
+                "{}: 클립 길이 {from}틱을 쉼표로 닿는 {to}틱으로 쓴다",
+                TrackLabel(*track, name)
+            ),
+            Loss::Mismatch { detail } => {
+                write!(
+                    f,
+                    "되읽은 결과가 원본과 다르다(keyscore-text 버그): {detail}"
+                )
+            }
+        }
+    }
+}
+
+/// `txt2ksq`가 `index`번째 트랙에 주는 색. 텍스트는 색을 나르지 않으므로 팔레트를 차례로 돈다.
+fn default_color(index: usize) -> Result<TrackColor, CliError> {
+    let palette = usize::from(TrackColor::PALETTE_LEN);
+    // index % palette < 12라 u8에 들어간다.
+    let i = u8::try_from(index % palette).unwrap_or(0);
+    Ok(TrackColor::new(i)?)
+}
+
 /// 프로젝트를 계이름 텍스트로 쓴다. 텍스트가 나르지 않는 정보는 [`Loss`]로 돌려준다.
+///
+/// 헤더는 늘 셋 다 적는다(틱 0의 템포·박자표와 조). 쓴 텍스트를 다시 읽어 원본과 대조하므로,
+/// 클립 길이 반올림처럼 내보내기가 바꾼 것도 손실로 나온다.
 ///
 /// # Errors
 ///
 /// 내보낸 텍스트를 다시 읽지 못하면 [`CliError::ExportUnreadable`], 노트를 합친 클립을 만들 수
 /// 없으면 [`CliError::Model`].
 pub fn project_to_text(project: &Project) -> Result<(String, Vec<Loss>), CliError> {
-    let _ = project;
-    todo!()
+    let mut losses = Vec::new();
+    let tempo_changes = project.tempo_map().changes().count().saturating_sub(1);
+    if tempo_changes > 0 {
+        losses.push(Loss::TempoChanges {
+            dropped: tempo_changes,
+        });
+    }
+    let meter_changes = project.meter_map().changes().count().saturating_sub(1);
+    if meter_changes > 0 {
+        losses.push(Loss::MeterChanges {
+            dropped: meter_changes,
+        });
+    }
+    let unknown = unknown_keys(project);
+    if !unknown.is_empty() {
+        losses.push(Loss::UnknownKeys { paths: unknown });
+    }
+
+    let time = project.meter_map().signature_at(Tick::ZERO);
+    let header = Header::new(
+        Some(project.tempo_map().tempo_at(Tick::ZERO)),
+        Some(time),
+        Some(project.key()),
+    );
+    let names = text_names(project, &mut losses);
+    let mut clips = Vec::with_capacity(project.tracks().len());
+    for (i, (track, name)) in project.tracks().iter().zip(&names).enumerate() {
+        track_attribute_losses(i, track, name, &mut losses)?;
+        clips.push(merged_clip(i, track, name, time.bar_ticks(), &mut losses)?);
+    }
+    let tracks: Vec<ExportTrack<'_>> = project
+        .tracks()
+        .iter()
+        .zip(&names)
+        .zip(&clips)
+        .map(|((t, name), clip)| ExportTrack {
+            name,
+            channel: t.channel(),
+            program: t.program(),
+            bank: t.bank(),
+            clip,
+        })
+        .collect();
+    let text = export(&header, &tracks);
+    verify(&text, &header, &tracks, &mut losses)?;
+    Ok((text, losses))
+}
+
+/// 텍스트에 쓸 트랙 이름. 텍스트는 같은 이름의 블록을 한 트랙으로 합치므로(결정 Q2), 앞서 나온
+/// 이름과 같으면 `이름 (2)`처럼 번호를 붙인다. 원래 있는 다른 트랙 이름과도 겹치지 않게 고른다.
+fn text_names(project: &Project, losses: &mut Vec<Loss>) -> Vec<String> {
+    let originals: HashSet<&str> = project.tracks().iter().map(Track::name).collect();
+    let mut used: HashSet<String> = HashSet::new();
+    let mut out = Vec::with_capacity(project.tracks().len());
+    for (i, t) in project.tracks().iter().enumerate() {
+        let name = t.name();
+        if used.insert(name.to_owned()) {
+            out.push(name.to_owned());
+            continue;
+        }
+        // 피해야 할 이름은 원래 이름 n개와 앞서 쓴 이름 n개뿐이라 2..=2n+2 안에 빈 번호가 있다.
+        let limit = 2 * project.tracks().len() + 2;
+        let renamed = (2..=limit)
+            .map(|k| format!("{name} ({k})"))
+            .find(|c| !originals.contains(c.as_str()) && !used.contains(c))
+            .unwrap_or_default();
+        used.insert(renamed.clone());
+        losses.push(Loss::RenamedTrack {
+            track: i,
+            from: name.to_owned(),
+            to: renamed.clone(),
+        });
+        out.push(renamed);
+    }
+    out
+}
+
+/// 텍스트가 나르지 않는 트랙 속성 가운데 `txt2ksq`가 만들 값과 다른 것.
+fn track_attribute_losses(
+    index: usize,
+    track: &Track,
+    name: &str,
+    losses: &mut Vec<Loss>,
+) -> Result<(), CliError> {
+    let color = default_color(index)?;
+    let fresh = Track::new("", track.channel(), color);
+    let mut attributes = Vec::new();
+    if track.color() != color {
+        attributes.push("color");
+    }
+    if track.port() != fresh.port() {
+        attributes.push("port");
+    }
+    if track.default_velocity() != fresh.default_velocity() {
+        attributes.push("default_velocity");
+    }
+    if track.mute() != fresh.mute() {
+        attributes.push("mute");
+    }
+    if track.solo() != fresh.solo() {
+        attributes.push("solo");
+    }
+    if track.lyric_lang() != fresh.lyric_lang() {
+        attributes.push("lyric_lang");
+    }
+    if !attributes.is_empty() {
+        losses.push(Loss::TrackAttributes {
+            track: index,
+            name: name.to_owned(),
+            attributes,
+        });
+    }
+    Ok(())
+}
+
+/// 트랙의 클립들을 시작 0 클립 하나로 합친다. 노트는 트랙 기준 자리로 옮기고, 클립 끝을 넘는
+/// 꼬리는 자른다(내보내기도 클립 끝에서 자르지만, 합친 클립에서는 꼬리가 다음 클립 자리로
+/// 들어가 보이게 되므로 여기서 먼저 자른다).
+fn merged_clip(
+    index: usize,
+    track: &Track,
+    name: &str,
+    bar: u64,
+    losses: &mut Vec<Loss>,
+) -> Result<Clip, CliError> {
+    let clips: Vec<&Clip> = track.clips().map(|(_, c)| c).collect();
+    let (Some(first), Some(last)) = (clips.first(), clips.last()) else {
+        losses.push(Loss::EmptyTrack {
+            track: index,
+            name: name.to_owned(),
+        });
+        return Ok(Clip::new(Tick::ZERO, bar)?);
+    };
+    if clips.len() > 1 || first.start() != Tick::ZERO {
+        losses.push(Loss::ClipLayout {
+            track: index,
+            name: name.to_owned(),
+            clips: clips.len(),
+            first_start: first.start().get(),
+        });
+    }
+    if clips
+        .iter()
+        .any(|c| c.name().is_some() || c.color().is_some())
+    {
+        losses.push(Loss::ClipAttributes {
+            track: index,
+            name: name.to_owned(),
+        });
+    }
+    let text_velocity = Velocity::from_midi1(TEXT_VELOCITY)?;
+    let (mut tails, mut velocities, mut offsets) = (0, 0, 0);
+    let mut merged = Clip::new(Tick::ZERO, last.end())?;
+    for clip in &clips {
+        for n in clip.notes() {
+            let mut length = n.length();
+            if n.end() > clip.length() {
+                tails += 1;
+                // 노트 시작은 클립 안이라 남는 길이는 1 이상이고 원래 길이(u32)보다 짧다.
+                length = u32::try_from(clip.length() - n.start().get()).unwrap_or(length);
+            }
+            if n.velocity() != text_velocity {
+                velocities += 1;
+            }
+            if n.offset() != PitchOffset::ZERO {
+                offsets += 1;
+            }
+            let start = clip.start().checked_add(n.start().get())?;
+            let mut note = Note::new(start, length, n.pitch(), text_velocity)?;
+            if let Some(lyric) = n.lyric() {
+                note = note.with_lyric(lyric);
+            }
+            merged.insert_note(note)?;
+        }
+    }
+    let name = name.to_owned();
+    if tails > 0 {
+        losses.push(Loss::HiddenTails {
+            track: index,
+            name: name.clone(),
+            notes: tails,
+        });
+    }
+    if velocities > 0 {
+        losses.push(Loss::Velocities {
+            track: index,
+            name: name.clone(),
+            notes: velocities,
+        });
+    }
+    if offsets > 0 {
+        losses.push(Loss::PitchOffsets {
+            track: index,
+            name,
+            notes: offsets,
+        });
+    }
+    Ok(merged)
+}
+
+/// 쓴 텍스트를 다시 읽어 넘긴 헤더·트랙과 대조한다. 클립 길이 차이는 내보내기 규칙(반올림)이라
+/// [`Loss::ClipLength`]이고, 그 밖의 차이는 [`Loss::Mismatch`]다.
+fn verify(
+    text: &str,
+    header: &Header,
+    tracks: &[ExportTrack<'_>],
+    losses: &mut Vec<Loss>,
+) -> Result<(), CliError> {
+    let parsed = parse(text, Mode::Lenient).map_err(CliError::ExportUnreadable)?;
+    if parsed.header() != header {
+        losses.push(Loss::Mismatch {
+            detail: format!("헤더: {header:?} → {:?}", parsed.header()),
+        });
+    }
+    if parsed.tracks().len() != tracks.len() {
+        losses.push(Loss::Mismatch {
+            detail: format!("트랙 수: {} → {}", tracks.len(), parsed.tracks().len()),
+        });
+        return Ok(());
+    }
+    for (i, (back, sent)) in parsed.tracks().iter().zip(tracks).enumerate() {
+        let label = TrackLabel(i, sent.name);
+        if back.name() != sent.name
+            || back.channel() != sent.channel
+            || back.program() != sent.program
+            || back.bank() != sent.bank
+        {
+            losses.push(Loss::Mismatch {
+                detail: format!("{label}: 트랙 속성"),
+            });
+        }
+        if note_views(back.clip()) != note_views(sent.clip) {
+            losses.push(Loss::Mismatch {
+                detail: format!("{label}: 노트"),
+            });
+        }
+        if back.clip().length() != sent.clip.length() {
+            losses.push(Loss::ClipLength {
+                track: i,
+                name: sent.name.to_owned(),
+                from: sent.clip.length(),
+                to: back.clip().length(),
+            });
+        }
+    }
+    Ok(())
+}
+
+/// 텍스트가 나르는 노트 정보(시작, 길이, 음높이, 가사), 정렬한 것.
+fn note_views(clip: &Clip) -> Vec<(u64, u32, u8, Option<&str>)> {
+    let mut v: Vec<_> = clip
+        .notes()
+        .iter()
+        .map(|n| (n.start().get(), n.length(), n.pitch().get(), n.lyric()))
+        .collect();
+    v.sort_unstable();
+    v
+}
+
+/// `.ksq`에서 이 도구가 아는 키. `keyscore-core`는 모르는 키를 보존하지만 내보내지 않으므로,
+/// 직렬화 결과를 훑어 이 목록 밖의 키를 찾는다. core가 새 키를 알게 되면 여기도 더해야 한다
+/// (빠뜨리면 손실이 아닌 것을 손실로 보고할 뿐, 놓치지는 않는다).
+const ROOT_KEYS: &[&str] = &["format_version", "key", "tempo", "meter", "tracks"];
+const KEY_KEYS: &[&str] = &["tonic", "mode"];
+const TRACK_KEYS: &[&str] = &[
+    "name",
+    "color",
+    "port",
+    "channel",
+    "bank",
+    "program",
+    "default_velocity",
+    "mute",
+    "solo",
+    "lyric_lang",
+    "clips",
+];
+const PORT_KEYS: &[&str] = &["named"];
+const CLIP_KEYS: &[&str] = &["start", "length", "name", "color", "notes"];
+const NOTE_KEYS: &[&str] = &["offset", "lyric"];
+
+fn unknown_keys(project: &Project) -> Vec<String> {
+    let mut out = Vec::new();
+    let Ok(Value::Object(root)) = serde_json::from_str::<Value>(&ksq::to_string(project)) else {
+        return out;
+    };
+    extra_keys(&root, ROOT_KEYS, "", &mut out);
+    if let Some(Value::Object(key)) = root.get("key") {
+        extra_keys(key, KEY_KEYS, "key", &mut out);
+    }
+    for (i, track) in objects(root.get("tracks")) {
+        let path = format!("tracks[{i}]");
+        extra_keys(track, TRACK_KEYS, &path, &mut out);
+        if let Some(Value::Object(port)) = track.get("port") {
+            extra_keys(port, PORT_KEYS, &format!("{path}.port"), &mut out);
+        }
+        for (j, clip) in objects(track.get("clips")) {
+            let path = format!("{path}.clips[{j}]");
+            extra_keys(clip, CLIP_KEYS, &path, &mut out);
+            let notes = clip.get("notes").and_then(Value::as_array);
+            for (k, note) in notes.into_iter().flatten().enumerate() {
+                if let Some(Value::Object(attrs)) = note.get(4) {
+                    extra_keys(attrs, NOTE_KEYS, &format!("{path}.notes[{k}]"), &mut out);
+                }
+            }
+        }
+    }
+    out
+}
+
+fn objects(value: Option<&Value>) -> impl Iterator<Item = (usize, &Map<String, Value>)> {
+    value
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .enumerate()
+        .filter_map(|(i, v)| v.as_object().map(|o| (i, o)))
+}
+
+fn extra_keys(object: &Map<String, Value>, known: &[&str], path: &str, out: &mut Vec<String>) {
+    for key in object.keys().filter(|k| !known.contains(&k.as_str())) {
+        out.push(if path.is_empty() {
+            key.clone()
+        } else {
+            format!("{path}.{key}")
+        });
+    }
 }
 
 /// 계이름 텍스트를 프로젝트로 읽는다. 헤더는 템포·박자 맵의 틱 0 값과 조가 되고, 트랙 블록마다
 /// 트랙 하나와 시작 0 클립 하나가 된다. 텍스트에 없는 헤더는 [`Project::new`]의 기본값이다.
+/// 트랙 색은 순번대로 팔레트를 돈다(텍스트가 색을 나르지 않는다).
 ///
 /// # Errors
 ///
 /// 문법 오류면 [`CliError::Parse`].
 pub fn text_to_project(text: &str, mode: Mode) -> Result<(Project, Vec<Diagnostic>), CliError> {
-    let _ = (text, mode);
-    todo!()
+    let parsed = parse(text, mode)?;
+    let mut project = Project::new();
+    let header = parsed.header();
+    if let Some(tempo) = header.tempo() {
+        *project.tempo_map_mut() = TempoMap::new(tempo);
+    }
+    if let Some(time) = header.time() {
+        *project.meter_map_mut() = MeterMap::new(time);
+    }
+    if let Some(key) = header.key() {
+        project.set_key(key);
+    }
+    for (i, t) in parsed.tracks().iter().enumerate() {
+        let mut track = Track::new(t.name(), t.channel(), default_color(i)?);
+        track.set_program(t.program());
+        track.set_bank(t.bank());
+        track.insert_clip(t.clip().clone())?;
+        project.push_track(track)?;
+    }
+    Ok((project, parsed.warnings().to_vec()))
 }
 
 #[cfg(test)]
