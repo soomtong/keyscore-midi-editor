@@ -219,6 +219,13 @@ const REST_BUDGET_BASE: u64 = 64;
 /// 성부 16개의 쉼표 합은 16 × 마지막 시작까지의 온음표 수 이하라 늘 예산 안이다(리뷰 5 지적 2).
 /// 계수를 16보다 낮추면 그때부터 작동한다.
 const FREE_VOICES: usize = 16;
+/// 온음표 쉼표 하나의 출력 바이트(4/4에서 `r1 |`와 줄바꿈). 성부 블록 헤더 줄의 바이트를 예산
+/// 단위로 환산할 때 쓴다(S0-T5 리뷰 6 지적 1).
+const REST_UNIT_BYTES: u64 = 5;
+/// 성부 블록 헤더 줄에서 비용을 매기지 않는 바이트. 보통 이름(`@track Lead ch1 prog0 bank0`)은
+/// 이 안이라 예산 경계가 바뀌지 않는다. 헤더 하나는 성부를 강제하는 입력 사건(겹친 노트 하나는
+/// `c~+0:+N`처럼 몇 바이트) 하나에 붙으므로 이만큼은 입력에 선형이다.
+const HEADER_FREE_BYTES: u64 = 64;
 
 /// 겹치지 않게 성부로 나눈다. 시작 순으로, 이전 사건이 끝났고 커서가 `MAX_DRIFT` 넘게 앞지르지
 /// 않을 첫 성부(가장 앞 번호)에 넣는다(구간 분할 탐욕). 가장 일찍 비는 성부가 아니라 앞 번호를
@@ -243,7 +250,9 @@ const FREE_VOICES: usize = 16;
 /// 넘게 필요하고 예산까지 바닥난 클립에서만 이 경로를 탄다.
 ///
 /// 크기: 출력은 입력에 선형이고, 상수는 256배 이내다(결정 2026-10-13 개정). 예산과 면제 성부의
-/// 쉼표는 합쳐도 예산(사건 수와 마지막 시작까지의 온음표 수에 선형) 안이다. 예산 밖에서 고른 성부는
+/// 쉼표는 합쳐도 예산(사건 수와 마지막 시작까지의 온음표 수에 선형) 안이다. 성부 블록마다 다시 쓰는
+/// `@track` 줄도 `HEADER_FREE_BYTES`를 넘는 부분을 예산에서 빼므로, 긴 트랙 이름이 성부 수만큼
+/// 반복되어 「이름 길이 × 성부 수」가 되지 않는다(S0-T5 리뷰 6 지적 1). 예산 밖에서 고른 성부는
 /// 커서가 가장 늦은 성부라 다른 성부가 지난 구간을 다시 채우지 않는다. 남는 경우는 모든 성부의
 /// 커서가 (마지막 사건을 접어도) 시작보다 `MAX_DRIFT` 넘게 앞서 새 성부를 열 수밖에 없을 때다.
 /// 접은 사건은 커서를 60틱 옮기므로, 이는 약 540틱 안에 사건이 성부 수 × 9개 넘게 몰릴 때뿐이다.
@@ -253,15 +262,16 @@ const FREE_VOICES: usize = 16;
 /// 상수가 큰 까닭은 압축 입력이다. 느슨 모드에서 `l1..` 뒤의 `c` 한 바이트는 사건 하나와 온음표
 /// 1.75개를 만들고, 예산은 그 둘에 각각 온음표 쉼표 16개를 허락하는데, 내보내기는 온음표마다
 /// `r1 |`와 줄바꿈(5바이트)을 쓴다. 그래서 바이트당 약 16 × 2.75 × 5 = 220바이트에 다가간다.
-/// 측정(release): 기본 길이 쉼표·음 6000–30000바이트 뒤 겹친 노트·몰린 사건·셋잇단·긴 트랙 이름,
-/// 박자표 다섯 가지를 섞어 최악 221배였다. 길이를 매번 적은 입력(`r1.. `)은 33배 이하다.
+/// 측정(release, 리뷰 6 뒤): 압축 쉼표·음(`c`, `r`, `c~+59`, `[ce]`, `n(ccc)`) 최대 30,000바이트 뒤
+/// 겹친 노트·몰린 사건, 트랙 이름 1–6,000바이트, 박자표 다섯 가지를 섞어 최악 221배였다(`l1..` 뒤
+/// `c`, 겹침 32). 긴 트랙 이름은 이보다 작다. 길이를 매번 적은 입력(`r1.. `)은 33배 이하다.
 /// core API로 만든 클립은 「몰린 사건 수 × 클립 길이」까지 갈 수 있다.
 ///
 /// 성부 수의 상한: 64분음표(60틱)보다 짧은 노트도 커서를 60틱 옮기므로, 앞지름이 한도에 닿은
 /// 성부는 60틱마다 사건 하나만 받는다. 그래서 짧은 노트가 촘촘하면 성부 수가 겹침 수 ×
 /// (60 / 가장 짧은 노트 길이) 근처까지, 최대 약 60배로 는다(1틱 노트 겹침 3 → 176성부,
 /// S0-T5 리뷰 2 지적 3). 읽기 좋은 출력이 필요해지면(S3) 다시 본다.
-fn voices(events: Vec<Event<'_>>) -> Vec<Vec<Event<'_>>> {
+fn voices(events: Vec<Event<'_>>, header_cost: u64) -> Vec<Vec<Event<'_>>> {
     // 사건은 시작 순이라 마지막 사건이 가장 늦게 시작한다.
     let last_start = events.last().map_or(0, |e| e.start);
     let units = u64::try_from(events.len()).unwrap_or(u64::MAX) + last_start / WHOLE;
@@ -297,7 +307,7 @@ fn voices(events: Vec<Event<'_>>) -> Vec<Vec<Event<'_>>> {
         // 성부가 `FREE_VOICES` 이하로 남는 동안은 예산을 보지 않는다(비용은 빼 둔다).
         let fits = match first {
             Some(f) => voices.len() <= FREE_VOICES || cost(busy[f]) <= budget,
-            None => voices.len() < FREE_VOICES || cost(0) <= budget,
+            None => voices.len() < FREE_VOICES || cost(0) + header_cost <= budget,
         };
         let chosen = if fits {
             first
@@ -317,6 +327,7 @@ fn voices(events: Vec<Event<'_>>) -> Vec<Vec<Event<'_>>> {
             }
             latest.or(first)
         };
+        let opened = chosen.is_none();
         let i = chosen.unwrap_or_else(|| {
             voices.push(Vec::new());
             busy.push(0);
@@ -328,6 +339,9 @@ fn voices(events: Vec<Event<'_>>) -> Vec<Vec<Event<'_>>> {
         free.remove(&i);
         by_low.remove(&(low[i], i));
         budget = budget.saturating_sub(cost(busy[i]));
+        if opened {
+            budget = budget.saturating_sub(header_cost);
+        }
         ev.folded = end[i] > ev.start;
         let advance = if ev.folded {
             fold_advance
@@ -348,9 +362,16 @@ fn voices(events: Vec<Event<'_>>) -> Vec<Vec<Event<'_>>> {
 
 fn write_track(out: &mut String, t: &ExportTrack<'_>, bar: u64) {
     let drum = t.channel.is_drum();
+    let header = track_line(t);
+    // 성부 블록마다 다시 쓰는 `@track` 줄(빈 줄 포함) 가운데 `HEADER_FREE_BYTES`를 넘는 부분을
+    // 온음표 쉼표 비용으로 환산한다.
+    let header_cost = u64::try_from(header.len() + 2)
+        .unwrap_or(u64::MAX)
+        .saturating_sub(HEADER_FREE_BYTES)
+        .div_ceil(REST_UNIT_BYTES);
     let evs = events(t.clip);
     let max_end = evs.iter().map(Event::end).max().unwrap_or(0);
-    let mut writers: Vec<VoiceWriter> = voices(evs)
+    let mut writers: Vec<VoiceWriter> = voices(evs, header_cost)
         .into_iter()
         .map(|v| {
             let mut w = VoiceWriter::new(drum, bar);
@@ -378,7 +399,6 @@ fn write_track(out: &mut String, t: &ExportTrack<'_>, bar: u64) {
         }
     }
 
-    let header = track_line(t);
     for (i, w) in writers.into_iter().enumerate() {
         if i > 0 {
             out.push('\n');
