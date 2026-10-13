@@ -19,7 +19,7 @@ use keyscore_text::ParseError;
 use thiserror::Error;
 
 pub use check::{CheckReport, check};
-pub use convert::{Loss, project_to_text, text_to_project};
+pub use convert::{Loss, MAX_EXPANSION, project_to_text, project_to_text_limited, text_to_project};
 pub use fixtures::{fixtures, write_fixtures};
 
 /// 도구의 오류. 파일을 다루는 오류는 사람이 어느 파일인지 알 수 있게 경로를 담는다.
@@ -50,6 +50,13 @@ pub enum CliError {
     /// 내보낸 텍스트를 다시 읽지 못했다. `keyscore-text`의 내보내기·파서가 어긋난 것이다.
     #[error("내보낸 텍스트를 다시 읽지 못했다(keyscore-text 버그): {0}")]
     ExportUnreadable(ParseError),
+    /// 텍스트가 상한보다 커진다. `estimated`는 어림(또는 실제) 바이트다.
+    #[error("텍스트가 너무 커진다: 약 {estimated}바이트, 상한 {limit}바이트. {detail}")]
+    OutputTooLarge {
+        estimated: u64,
+        limit: u64,
+        detail: String,
+    },
     #[error("{}: 출력 파일이 입력 파일과 같다. 입력을 덮어쓰지 않는다", path.display())]
     SameInputOutput { path: PathBuf },
 }

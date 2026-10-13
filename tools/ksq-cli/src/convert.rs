@@ -181,16 +181,56 @@ fn default_color(index: usize) -> Result<TrackColor, CliError> {
     Ok(TrackColor::new(i)?)
 }
 
+/// 출력 텍스트 크기 상한의 기본 배수(정규 `.ksq` 바이트 대비). S0-T5가 텍스트 → 텍스트에 지킨
+/// 「입력에 선형, 256배 이내」와 맞춘다. 먼 틱의 클립을 시작 0 클립으로 합치면 빈 곳이 쉼표로
+/// 풀려 작은 파일이 거대한 텍스트가 되므로(S0-T8 리뷰 1 지적 1) 상한이 필요하다.
+pub const MAX_EXPANSION: u64 = 256;
+
+/// 어림에 쓰는 바이트 상수. 쉼표는 온음표 하나에 `r1 |`와 줄바꿈으로 실측 5.3바이트 이하라
+/// 넉넉히 잡는다. 노트는 타이 사슬(16조각)·`~` 보정·옥타브 기호를 담을 만큼 잡는다.
+/// 어림이 모자라도 내보낸 뒤 실제 크기를 다시 재므로 상한은 지켜진다(어림은 메모리를 쓰기
+/// 전에 거르는 몫이다).
+const HEADER_BYTES: u128 = 128;
+const TRACK_BYTES: u128 = 64;
+const NOTE_BYTES: u128 = 96;
+const REST_BYTES_PER_WHOLE: u128 = 8;
+const WHOLE_TICKS: u64 = 3840;
+
 /// 프로젝트를 계이름 텍스트로 쓴다. 텍스트가 나르지 않는 정보는 [`Loss`]로 돌려준다.
 ///
 /// 헤더는 늘 셋 다 적는다(틱 0의 템포·박자표와 조). 쓴 텍스트를 다시 읽어 원본과 대조하므로,
-/// 클립 길이 반올림처럼 내보내기가 바꾼 것도 손실로 나온다.
+/// 클립 길이 반올림처럼 내보내기가 바꾼 것도 손실로 나온다. 텍스트 크기는 이 프로젝트의 정규
+/// `.ksq`(`ksq::to_string`) 바이트의 [`MAX_EXPANSION`]배를 넘지 않는다.
 ///
 /// # Errors
 ///
+/// 텍스트가 상한을 넘을 것이면 [`CliError::OutputTooLarge`](텍스트를 만들기 전에 어림해 거른다),
 /// 내보낸 텍스트를 다시 읽지 못하면 [`CliError::ExportUnreadable`], 노트를 합친 클립을 만들 수
 /// 없으면 [`CliError::Model`].
 pub fn project_to_text(project: &Project) -> Result<(String, Vec<Loss>), CliError> {
+    let canonical = ksq::to_string(project);
+    let limit = MAX_EXPANSION.saturating_mul(u64::try_from(canonical.len()).unwrap_or(u64::MAX));
+    to_text(project, &canonical, limit)
+}
+
+/// [`project_to_text`]와 같되 출력 크기 상한을 바이트로 정한다.
+///
+/// # Errors
+///
+/// [`project_to_text`]와 같다.
+pub fn project_to_text_limited(
+    project: &Project,
+    max_bytes: u64,
+) -> Result<(String, Vec<Loss>), CliError> {
+    to_text(project, &ksq::to_string(project), max_bytes)
+}
+
+fn to_text(
+    project: &Project,
+    canonical: &str,
+    limit: u64,
+) -> Result<(String, Vec<Loss>), CliError> {
+    check_estimate(project, limit)?;
     let mut losses = Vec::new();
     let tempo_changes = project.tempo_map().changes().count().saturating_sub(1);
     if tempo_changes > 0 {
@@ -204,7 +244,7 @@ pub fn project_to_text(project: &Project) -> Result<(String, Vec<Loss>), CliErro
             dropped: meter_changes,
         });
     }
-    let unknown = unknown_keys(project);
+    let unknown = unknown_keys(canonical);
     if !unknown.is_empty() {
         losses.push(Loss::UnknownKeys { paths: unknown });
     }
@@ -235,8 +275,62 @@ pub fn project_to_text(project: &Project) -> Result<(String, Vec<Loss>), CliErro
         })
         .collect();
     let text = export(&header, &tracks);
+    // 어림이 모자란 경우의 안전망. 되읽기(verify) 전에 거른다.
+    let actual = u64::try_from(text.len()).unwrap_or(u64::MAX);
+    if actual > limit {
+        return Err(CliError::OutputTooLarge {
+            estimated: actual,
+            limit,
+            detail: "어림보다 실제 출력이 컸다".to_owned(),
+        });
+    }
     verify(&text, &header, &tracks, &mut losses)?;
     Ok((text, losses))
+}
+
+/// 텍스트를 만들기 전에 크기를 어림해 상한을 넘으면 거부한다. 트랙마다 합친 클립의 끝(온음표
+/// 수만큼 쉼표)과 노트·가사·이름 바이트를 더한다. 틱은 u64라 u128로 센다.
+fn check_estimate(project: &Project, limit: u64) -> Result<(), CliError> {
+    let bar = project.meter_map().signature_at(Tick::ZERO).bar_ticks();
+    let mut total = HEADER_BYTES;
+    let mut biggest: Option<(u128, usize, &str, u64)> = None;
+    for (i, track) in project.tracks().iter().enumerate() {
+        // 클립이 없는 트랙은 한 마디 쉼표 클립이 된다(merged_clip).
+        let end = track.clips().last().map_or(bar, |(_, c)| c.end());
+        let (mut notes, mut lyric_bytes) = (0u128, 0u128);
+        for (_, clip) in track.clips() {
+            for n in clip.notes() {
+                notes += 1;
+                lyric_bytes += n.lyric().map_or(0, |l| l.len() as u128);
+            }
+        }
+        // 이름·가사는 따옴표 이스케이프로 많아야 두 배다. 이름 바꾸기(` (n)`)를 위해 16을 더한다.
+        let rests = (u128::from(end / WHOLE_TICKS) + 1) * REST_BYTES_PER_WHOLE;
+        let bytes = TRACK_BYTES
+            + 2 * (track.name().len() as u128 + 16)
+            + notes * NOTE_BYTES
+            + 2 * lyric_bytes
+            + rests;
+        total += bytes;
+        if biggest.is_none_or(|(b, ..)| bytes > b) {
+            biggest = Some((bytes, i, track.name(), end));
+        }
+    }
+    if total <= u128::from(limit) {
+        return Ok(());
+    }
+    let detail = biggest.map_or_else(String::new, |(bytes, i, name, end)| {
+        format!(
+            "가장 큰 곳은 {}: 시작 0으로 합친 클립이 {end}틱(온음표 {}개 분량의 쉼표)이고 약 {bytes}바이트",
+            TrackLabel(i, name),
+            end / WHOLE_TICKS
+        )
+    });
+    Err(CliError::OutputTooLarge {
+        estimated: u64::try_from(total).unwrap_or(u64::MAX),
+        limit,
+        detail,
+    })
 }
 
 /// 텍스트에 쓸 트랙 이름. 텍스트는 같은 이름의 블록을 한 트랙으로 합치므로(결정 Q2), 앞서 나온
@@ -472,9 +566,9 @@ const PORT_KEYS: &[&str] = &["named"];
 const CLIP_KEYS: &[&str] = &["start", "length", "name", "color", "notes"];
 const NOTE_KEYS: &[&str] = &["offset", "lyric"];
 
-fn unknown_keys(project: &Project) -> Vec<String> {
+fn unknown_keys(canonical: &str) -> Vec<String> {
     let mut out = Vec::new();
-    let Ok(Value::Object(root)) = serde_json::from_str::<Value>(&ksq::to_string(project)) else {
+    let Ok(Value::Object(root)) = serde_json::from_str::<Value>(canonical) else {
         return out;
     };
     extra_keys(&root, ROOT_KEYS, "", &mut out);
@@ -826,6 +920,47 @@ mod tests {
                 to: 960,
             }]
         );
+    }
+
+    #[test]
+    fn ksq2txt_far_clip_start_errors_before_building_text() {
+        let p = project(vec![track(
+            0,
+            "Far",
+            vec![clip(3840 * 10_000_000_000, 960, vec![note(0, 960, 60)])],
+        )]);
+
+        let err = project_to_text(&p).unwrap_err();
+
+        let CliError::OutputTooLarge {
+            estimated,
+            limit,
+            detail,
+        } = &err
+        else {
+            panic!("{err}");
+        };
+        assert!(estimated > limit);
+        assert_eq!(*limit, MAX_EXPANSION * ksq::to_string(&p).len() as u64);
+        assert!(detail.contains("트랙 1 \"Far\""), "{detail}");
+    }
+
+    #[test]
+    fn ksq2txt_limited_rejects_when_estimate_exceeds_limit() {
+        let p = project(vec![track(
+            0,
+            "A",
+            vec![clip(0, 3840 * 100, vec![note(0, 960, 60)])],
+        )]);
+
+        let small = project_to_text_limited(&p, 100);
+        let ample = project_to_text_limited(&p, 1 << 20);
+
+        assert!(
+            matches!(small, Err(CliError::OutputTooLarge { .. })),
+            "{small:?}"
+        );
+        assert!(ample.is_ok());
     }
 
     #[test]

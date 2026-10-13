@@ -284,3 +284,28 @@ fn binaries_usage_errors_exit_with_two() {
         assert!(!o.stderr.is_empty());
     }
 }
+
+#[test]
+fn ksq2txt_far_clip_exits_one_and_writes_nothing() {
+    let dir = temp_dir("far");
+    let input = dir.join("far.ksq");
+    // 클립 시작을 100억 마디 뒤로 옮긴다. 합치면 앞 빈 곳이 쉼표로 풀려 거대해진다.
+    let far = small_ksq().replacen("\"start\": 0", "\"start\": 38400000000000", 1);
+    assert_ne!(far, small_ksq());
+    fs::write(&input, far).unwrap();
+    let output = dir.join("far.txt");
+
+    let to_file = run(KSQ2TXT, &[&input, Path::new("-o"), &output]);
+    let to_stdout = run(KSQ2TXT, &[&input]);
+
+    assert_eq!(to_file.status.code(), Some(1));
+    assert!(
+        stderr(&to_file).contains("너무 커진다"),
+        "{}",
+        stderr(&to_file)
+    );
+    assert!(!output.exists());
+    assert_eq!(to_stdout.status.code(), Some(1));
+    assert!(to_stdout.stdout.is_empty());
+    let _ = fs::remove_dir_all(&dir);
+}
