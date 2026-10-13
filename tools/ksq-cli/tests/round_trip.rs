@@ -97,7 +97,13 @@ fn any_note() -> impl Strategy<Value = NoteSpec> {
 }
 
 fn tail() -> impl Strategy<Value = u64> {
-    prop_oneof![3 => Just(0u64), 1 => prop::sample::select(vec![60u64, 240, 960]), 1 => 1u64..1000]
+    // 노트 끝이 아닌 클립 끝은 쉼표로 15틱 단위로만 닿아 자주 반올림 손실이 된다. 꼬리는 가끔만
+    // 붙여 손실 없는 사례를 늘린다.
+    prop_oneof![
+        8 => Just(0u64),
+        2 => prop::sample::select(vec![60u64, 240, 960]),
+        1 => 1u64..1000,
+    ]
 }
 
 fn header() -> impl Strategy<Value = (u32, (u8, u16), Key)> {
@@ -153,7 +159,7 @@ fn text_only_project() -> impl Strategy<Value = ProjectSpec> {
                         bank,
                         clips: vec![ClipSpec {
                             start: 0,
-                            tail: tail.max(u64::from(notes.is_empty())),
+                            tail: if notes.is_empty() { tail.max(60) } else { tail },
                             notes,
                         }],
                         mute: false,
@@ -164,8 +170,15 @@ fn text_only_project() -> impl Strategy<Value = ProjectSpec> {
     })
 }
 
-/// 텍스트가 나르지 않는 정보(여러 클립, 템포 변화, 벨로시티, 오프셋, 뮤트, 같은 이름)도 섞는다.
+/// 절반은 손실 없는 생성기, 절반은 손실이 섞이는 생성기. 섞인 쪽만 쓰면 손실 없는 사례가 드물어
+/// 「손실 없음 ⇒ 바이트 같음」을 거의 시험하지 않는다(S0-T8 리뷰 1 지적 5). 비율은
+/// `any_project_generates_lossless_cases_often`이 잰다.
 fn any_project() -> impl Strategy<Value = ProjectSpec> {
+    prop_oneof![1 => text_only_project(), 1 => mixed_project()]
+}
+
+/// 텍스트가 나르지 않는 정보(여러 클립, 템포 변화, 벨로시티, 오프셋, 뮤트, 같은 이름)도 섞는다.
+fn mixed_project() -> impl Strategy<Value = ProjectSpec> {
     let clip = (
         prop_oneof![1 => Just(0u64), 1 => 0u64..20_000],
         prop::collection::vec(any_note(), 0..6),
@@ -200,7 +213,7 @@ fn any_project() -> impl Strategy<Value = ProjectSpec> {
                         .into_iter()
                         .map(|(start, notes, tail)| ClipSpec {
                             start,
-                            tail: tail.max(u64::from(notes.is_empty())),
+                            tail: if notes.is_empty() { tail.max(60) } else { tail },
                             notes,
                         })
                         .collect(),
@@ -265,6 +278,30 @@ fn build(spec: &ProjectSpec) -> Project {
         p.push_track(track).unwrap();
     }
     p
+}
+
+/// 고정 시드로 1000개를 뽑아 손실 없는 사례 비율을 잰다(지금 441/1000). 생성기를 고치다 비율이
+/// 40% 밑으로 떨어지면 잡는다.
+#[test]
+fn any_project_generates_lossless_cases_often() {
+    use proptest::strategy::ValueTree;
+    use proptest::test_runner::TestRunner;
+
+    let mut runner = TestRunner::deterministic();
+    let strategy = any_project();
+    let total = 1000;
+    let lossless = (0..total)
+        .filter(|_| {
+            let spec = strategy.new_tree(&mut runner).unwrap().current();
+            project_to_text(&build(&spec)).unwrap().1.is_empty()
+        })
+        .count();
+
+    println!("손실 없는 사례 {lossless}/{total}");
+    assert!(
+        lossless * 10 >= total * 4,
+        "손실 없는 사례 {lossless}/{total}"
+    );
 }
 
 proptest! {
