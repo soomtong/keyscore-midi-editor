@@ -9,7 +9,7 @@ use keyscore_core::{
     Tempo, TempoMap, Tick, TimeSignature, Track, TrackColor, Velocity, ksq,
 };
 use keyscore_text::Mode;
-use ksq_cli::{Loss, project_to_text, text_to_project};
+use ksq_cli::{CliError, Loss, project_to_text, project_to_text_limited, text_to_project};
 use proptest::prelude::*;
 
 #[derive(Debug, Clone)]
@@ -280,6 +280,49 @@ fn build(spec: &ProjectSpec) -> Project {
     p
 }
 
+/// 성부가 많이 열리는 트랙: 같은 자리 근처에서 길이가 다른 노트가 겹치고(16성부를 넘기기도 한다),
+/// 쉼표로 못 채우는 간격(15틱 단위가 아닌 시작)이 섞이며, 클립이 길다.
+fn voices_project() -> impl Strategy<Value = ProjectSpec> {
+    let note =
+        (0u64..4, 1u32..4000, 0u8..128, 0u64..200).prop_map(|(slot, length, pitch, jitter)| {
+            NoteSpec {
+                start: slot * 3840 + jitter,
+                length,
+                pitch,
+                lyric: None,
+                velocity: 100,
+                offset: 0,
+            }
+        });
+    (
+        prop::collection::vec(note, 1..40),
+        prop::sample::select(vec![0u64, 3840 * 50, 3840 * 400]),
+        prop::bool::ANY,
+    )
+        .prop_map(|(notes, tail, long_name)| ProjectSpec {
+            tempo: 500_000,
+            meter: (4, 4),
+            key: Key::None,
+            tempo_change: None,
+            tracks: vec![TrackSpec {
+                name: if long_name {
+                    "N".repeat(300)
+                } else {
+                    "A".to_owned()
+                },
+                channel: 1,
+                program: None,
+                bank: None,
+                clips: vec![ClipSpec {
+                    start: 0,
+                    tail,
+                    notes,
+                }],
+                mute: false,
+            }],
+        })
+}
+
 /// 고정 시드로 1000개를 뽑아 손실 없는 사례 비율을 잰다(지금 441/1000). 생성기를 고치다 비율이
 /// 40% 밑으로 떨어지면 잡는다.
 #[test]
@@ -306,6 +349,26 @@ fn any_project_generates_lossless_cases_often() {
 
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(256))]
+
+    /// 어림은 실제 출력의 위쪽 한계다(S0-T8 리뷰 2 지적 2). 상한을 실제 크기보다 1바이트 작게
+    /// 주면 어림이 거부해야 하고, 텍스트를 다 만든 뒤의 안전망까지 가면 안 된다.
+    #[test]
+    fn output_estimate_bounds_actual_text_size(
+        spec in prop_oneof![1 => any_project(), 2 => voices_project()]
+    ) {
+        let original = build(&spec);
+        let (text, _) = project_to_text(&original).unwrap();
+
+        let tight = project_to_text_limited(&original, text.len() as u64 - 1);
+
+        match tight {
+            Err(CliError::OutputTooLarge { detail, .. }) => prop_assert!(
+                !detail.contains("어림보다 실제 출력이 컸다"),
+                "어림이 실제({}바이트)보다 작다: {detail}", text.len()
+            ),
+            other => prop_assert!(false, "{other:?}"),
+        }
+    }
 
     #[test]
     fn txt2ksq_then_ksq2txt_round_trips_random_projects(spec in text_only_project()) {
