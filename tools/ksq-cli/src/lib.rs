@@ -71,6 +71,21 @@ pub enum CliError {
         max = u64::MAX
     )]
     OutputBeyondAnyLimit { detail: String },
+    /// `-o` 대상이 있고 일반 파일이 아니다(`docs/decisions/2026-10-14-ksq-cli-output-path-scope.md`).
+    #[error(
+        "{}: -o는 없는 경로나 일반 파일만 받는다(이 경로는 {kind}). 대상은 건드리지 않았다. 특수 파일에 쓰려면 -o 없이 실행하고 셸로 리다이렉트하라(예: ksq2txt in.ksq > /dev/null)",
+        path.display()
+    )]
+    OutputNotRegular { path: PathBuf, kind: &'static str },
+    /// `-o` 대상을 확인하지 못했다(`NotFound` 말고). 대상은 건드리지 않는다.
+    #[error(
+        "{}: -o 대상을 확인할 수 없다: {source}. 대상은 건드리지 않았다. -o는 없는 경로나 일반 파일만 받는다. 특수 파일에 쓰려면 -o 없이 실행하고 셸로 리다이렉트하라",
+        path.display()
+    )]
+    OutputUnchecked {
+        path: PathBuf,
+        source: std::io::Error,
+    },
     #[error("{}: 출력 파일이 입력 파일과 같다. 입력을 덮어쓰지 않는다", path.display())]
     SameInputOutput { path: PathBuf },
 }

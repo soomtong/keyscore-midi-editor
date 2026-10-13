@@ -195,13 +195,66 @@ fn same_file(a: &Path, b: &Path) -> bool {
     }
 }
 
-/// 출력이 입력과 같은 파일이면 거부한다. 변환은 정보를 잃을 수 있어 입력을 덮어쓰면 되돌릴 수 없다.
+/// `-o`를 쓰기 전에 거른다. 변환하기 전에 하므로 거부할 때 아무것도 쓰지 않는다.
+///
+/// - 입력과 같은 파일이면 거부한다. 변환은 정보를 잃을 수 있어 입력을 덮어쓰면 되돌릴 수 없다.
+/// - 대상은 「없는 경로」와 「일반 파일」만 받는다(`docs/decisions/2026-10-14-ksq-cli-output-path-scope.md`).
+///   둘 다 원자적 쓰기(임시 파일 → fsync → 이름 바꾸기)로 쓴다. 디렉터리·FIFO·소켓·장치
+///   (`/dev/null`, `/dev/stdout`, `/dev/fd/N`)와 `NotFound`가 아닌 확인 오류(링크 한도를 넘는
+///   사슬의 ELOOP, EACCES, 끝 `/`의 ENOTDIR 등)는 대상을 건드리지 않고 실패한다. 특수 파일에
+///   쓰려면 `-o` 없이 셸 리다이렉션을 쓴다. 커널의 경로 풀이를 도구가 다시 흉내 내지 않으려는
+///   것이다(S0-T8 리뷰 2–8). 확인은 링크를 따라가는 `fs::metadata` 하나로, 커널이 푼다.
 fn guard_output(options: &Options) -> Result<(), CliError> {
-    match &options.output {
-        Some(output) if same_file(&options.input, output) => Err(CliError::SameInputOutput {
+    let Some(output) = &options.output else {
+        return Ok(());
+    };
+    if same_file(&options.input, output) {
+        return Err(CliError::SameInputOutput {
             path: output.clone(),
+        });
+    }
+    match fs::metadata(output) {
+        Ok(meta) if meta.is_file() && !on_devfs(&meta) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Ok(meta) => Err(CliError::OutputNotRegular {
+            path: output.clone(),
+            kind: file_kind(&meta),
         }),
-        _ => Ok(()),
+        Err(source) => Err(CliError::OutputUnchecked {
+            path: output.clone(),
+            source,
+        }),
+    }
+}
+
+/// `/dev`와 같은 장치 번호로 보고되는 파일인가. `/dev/stdout`·`/dev/fd/N`은 표준 출력 등이 일반
+/// 파일이면 `stat`에 일반 파일로 나오지만 장치 번호는 `/dev`(devfs·fdesc)의 것이다. 경로를 분류하지
+/// 않고 커널이 돌려준 장치 번호 하나로 거른다. 그대로 원자적 쓰기로 가면 `/dev/fd`에 임시 파일을
+/// 만들다 엉뚱한 ENOENT로 실패한다.
+fn on_devfs(meta: &fs::Metadata) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    fs::metadata("/dev").is_ok_and(|d| d.dev() == meta.dev())
+}
+
+/// 오류 메시지에 쓸 파일 종류. 디렉터리는 커널 문구(EISDIR)도 함께 적는다.
+fn file_kind(meta: &fs::Metadata) -> &'static str {
+    use std::os::unix::fs::FileTypeExt;
+
+    let t = meta.file_type();
+    if on_devfs(meta) && t.is_file() {
+        "/dev/fd 등 장치 파일 시스템의 파일"
+    } else if t.is_dir() {
+        "디렉터리, Is a directory"
+    } else if t.is_fifo() {
+        "FIFO"
+    } else if t.is_socket() {
+        "소켓"
+    } else if t.is_char_device() {
+        "문자 장치"
+    } else if t.is_block_device() {
+        "블록 장치"
+    } else {
+        "일반 파일이 아닌 것"
     }
 }
 
@@ -281,129 +334,11 @@ fn run_ksq2txt(
     }
 }
 
-/// 출력 경로의 `/dev/` 분류. 분류에만 쓰고, 분류에 쓴 경로로 열지 않는다.
-enum DevClass {
-    Outside,
-    /// `/dev/` 아래. 분류한 경로가 가리키는 대상의 신원(알 수 없으면 `None`)을 함께 둔다.
-    Under(Option<Identity>),
-}
-
-/// 파일 신원. `/dev/fd/N`을 `stat`하면 inode는 실제 파일의 것이지만 장치 번호는 `/dev`(fdesc)의
-/// 것이 나온다. 그래서 장치 번호가 `/dev`의 것이면 inode만 비교한다(`dev`가 `None`).
-#[derive(Clone, Copy, PartialEq, Eq)]
-struct Identity {
-    dev: Option<u64>,
-    ino: u64,
-}
-
-impl Identity {
-    fn matches(self, meta: &fs::Metadata) -> bool {
-        use std::os::unix::fs::MetadataExt;
-        self.ino == meta.ino() && self.dev.is_none_or(|d| d == meta.dev())
-    }
-}
-
-/// 직접 쓰기는 연 핸들이 분류한 대상과 같을 때만 한다. 그래야 분류와 열기 사이에 경로(링크)가
-/// 바뀌어도 분류하지 않은 파일에 자르지 않고 쓰지 않는다(S0-T8 리뷰 7 제안 3).
-///
-/// 심볼릭 링크를 따라간 뒤 부모 디렉터리를 `fs::canonicalize`하고 파일 이름을 붙여 본다. 글자
-/// 그대로 비교하면 `/dev/..`로 시작하는 일반 파일 경로가 `/dev/` 아래로 보이고, `..`가 든 상대
-/// 링크로 닿은 `/dev/stdout`은 빠져나간다(S0-T8 리뷰 4 지적 1). 파일 자체는 정규화하지 않는다.
-/// `/dev/fd/N`은 정규화하면 표준 출력이 가리키는 파일로 바뀌어 `/dev/` 판정을 잃는다.
-fn dev_classification(path: &Path) -> DevClass {
-    use std::os::unix::fs::MetadataExt;
-
-    let Ok(target) = resolve_symlink(path) else {
-        return DevClass::Outside;
-    };
-    let Some(name) = target.file_name() else {
-        return DevClass::Outside;
-    };
-    let parent = match target.parent() {
-        Some(d) if !d.as_os_str().is_empty() => d,
-        _ => Path::new("."),
-    };
-    let Ok(dir) = fs::canonicalize(parent) else {
-        return DevClass::Outside;
-    };
-    let classified = dir.join(name);
-    if !classified.starts_with("/dev") {
-        return DevClass::Outside;
-    }
-    let dev_of_dev = fs::metadata("/dev").map(|m| m.dev()).ok();
-    DevClass::Under(fs::metadata(&classified).ok().map(|m| Identity {
-        dev: (Some(m.dev()) != dev_of_dev).then_some(m.dev()),
-        ino: m.ino(),
-    }))
-}
-
-/// 출력을 임시 파일 + 이름 바꾸기 없이 그대로 써야 하면 쓰고 `true`, 아니면 쓰지 않고 `false`다
-/// (호출자가 원자적 쓰기로 간다).
-///
-/// 여는 경로는 언제나 사용자가 준 원래 경로다. 끝의 `/`·`/.`, 링크는 커널이 해석하게 둔다. 경로를
-/// 다시 짜서 열면 끝을 잃어 `/dev/null/.`처럼 커널이 거부하는 경로를 받아들인다(S0-T8 리뷰 4–6).
-/// 자르기(`truncate`) 없이 열고, 연 핸들의 종류로 고른다.
-///
-/// - 문자 장치·FIFO: 그대로 쓴다. 이름을 바꾸면 `/dev`에 임시 파일을 만들 수 없거나 FIFO가 일반
-///   파일로 바뀐다(S0-T8 리뷰 2 지적 3).
-/// - 일반 파일: `/dev/` 아래로 분류되고 연 핸들이 분류한 대상과 같은 파일(dev, ino)일 때만
-///   그대로 쓴다(`/dev/fd/N`, 표준 출력을 돌린 파일).
-///   셸이 이미 열어 둔 파일이라 그 자리에 이어 써야 한다(S0-T8 리뷰 3 지적 3). 그 밖에는 자르지
-///   않고 쓰면 옛 꼬리가 남으므로 원자적 쓰기로 보낸다.
-/// - 그 밖(디렉터리는 열기에서 실패한다): 원자적 쓰기로 보낸다.
-///
-/// 열기가 실패하면 원자적 쓰기로 갈 수 있는 것은 「경로가 없다」와 「일반 파일이다」뿐이다
-/// (없는 파일은 만들고, 읽기 전용 일반 파일은 이름 바꾸기로 바꾼다). 그 밖은 열기 오류를 그대로
-/// 낸다(S0-T8 리뷰 7 지적 1·2).
-///
-/// - 경로 자체가 틀림(ENOTDIR·EISDIR).
-/// - `/dev/` 아래로 분류됨(`/dev/stdin`, 읽기 전용 `/dev/fd/N` 등). 원자적 쓰기는 `/dev/fd`에 임시
-///   파일을 만들다 엉뚱한 ENOENT를 낸다.
-/// - 링크를 따라간 대상이 있고 일반 파일이 아님(쓰기 권한 없는 FIFO, 유닉스 소켓, 장치, 디렉터리).
-///   원자적 쓰기로 가면 이름 바꾸기로 일반 파일이 되어 버린다.
-fn write_special(path: &Path, bytes: &[u8]) -> std::io::Result<bool> {
-    use std::io::ErrorKind;
-    use std::os::unix::fs::FileTypeExt;
-
-    // 분류는 열기 전에 끝낸다. 연 뒤에 경로를 다시 풀면 그 사이에 바뀐 경로를 볼 수 있다.
-    let dev = dev_classification(path);
-    let mut file = match fs::OpenOptions::new().write(true).open(path) {
-        Ok(f) => f,
-        Err(e) => {
-            let path_is_wrong =
-                matches!(e.kind(), ErrorKind::NotADirectory | ErrorKind::IsADirectory);
-            let special =
-                matches!(dev, DevClass::Under(_)) || fs::metadata(path).is_ok_and(|m| !m.is_file());
-            return if path_is_wrong || special {
-                Err(e)
-            } else {
-                Ok(false)
-            };
-        }
-    };
-    let meta = file.metadata()?;
-    let kind = meta.file_type();
-    let direct = if kind.is_file() {
-        matches!(dev, DevClass::Under(Some(id)) if id.matches(&meta))
-    } else {
-        kind.is_char_device() || kind.is_fifo()
-    };
-    if !direct {
-        return Ok(false);
-    }
-    file.write_all(bytes)?;
-    file.flush()?;
-    Ok(true)
-}
-
 /// 같은 디렉터리의 임시 파일에 쓰고 fsync한 뒤 이름을 바꾼다. 쓰다 실패해도 기존 출력 파일이
 /// 잘린 채 남지 않는다. `txt2ksq`가 쓰는 `ksq::write_file`과 같은 보장이다(S0-T8 리뷰 1 지적 3).
 /// 출력이 심볼릭 링크면 링크를 일반 파일로 바꾸지 않고 대상 파일을 바꾸며, 기존 파일의 권한을
 /// 유지한다.
 fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    if write_special(path, bytes)? {
-        return Ok(());
-    }
     let path = resolve_symlink(path)?;
     let temp = temp_path(&path);
     let result = write_then_rename(&temp, &path, bytes);
@@ -545,19 +480,6 @@ fn run_txt2ksq(
             } else {
                 Compression::None
             };
-            // core의 write_file은 늘 임시 파일 + 이름 바꾸기라 장치·FIFO에는 쓰지 못한다. core를 바꾸지
-            // 않고 여기서 먼저 원래 경로를 열어 본다(`write_special`).
-            let bytes = ksq::to_bytes(&project, compression).map_err(|source| CliError::Ksq {
-                path: path.clone(),
-                source,
-            })?;
-            let written = write_special(path, &bytes).map_err(|source| CliError::Io {
-                path: path.clone(),
-                source,
-            })?;
-            if written {
-                return Ok(());
-            }
             ksq::write_file(path, &project, compression).map_err(|source| CliError::Ksq {
                 path: path.clone(),
                 source,
