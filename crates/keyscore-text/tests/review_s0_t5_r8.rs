@@ -378,12 +378,14 @@ fn random_same_name_lenient_blocks_round_trip_with_offsets_in_range() {
 /// 지적 2. 셋잇단 없는 같은 이름 블록 17개가 긴 쉼표 뒤 같은 자리에서 서로 다른 길이로 겹치면,
 /// 성부 16개 면제 뒤 예산이 바닥나 17번째 음이 겹쳐 적혀(`~+0:+…`) 엄격 모드로 다시 읽히지 않는다.
 /// 예산 = 16 × (사건 17 + 시작 400온음표) + 64 = 6,736인데 면제 성부 16개가 쉼표 6,400을 쓰고,
-/// 17번째 성부는 400이 든다. 동작은 결정 A(성부 예산)대로지만, 결정
-/// `ktext-implementation-details.md`의 「엄격 모드 왕복」은 이번에 「같은 이름 성부 블록이라도
-/// 셋잇단이 없으면 예외가 아니다」라고 적었고, 알려진 예외 넷에 이 꼴이 없다. 16개까지는 면제라
-/// 통과한다. 결정이 이 꼴을 예외에 더하면 그 결정에 따라 기대값을 바꾼다.
+/// 17번째 성부는 400이 든다. 16개까지는 면제라 엄격 모드로 왕복한다.
+///
+/// (구현자 수정) 결정 A(성부 예산)와 결정 문서의 알려진 예외(`a798fb2`)에 따라 기대를 바꿨다.
+/// 처음에는 17개도 엄격 모드로 다시 읽히기를 기대했다. 이제 17개 쪽은 결정된 동작, 곧 겹쳐 적기가
+/// 실제로 일어나고, 느슨 모드로 왕복하며(노트·클립 길이·경고 0), 재내보내기가 같고, 시작 보정이
+/// −480..=+59 안인지 본다. 입력은 그대로다.
 #[test]
-fn export_keeps_strict_text_when_17_same_name_blocks_overlap_after_long_rest() {
+fn export_folds_17_same_name_blocks_after_long_rest_and_round_trips_leniently() {
     let lens: Vec<u64> = notations();
     let text = |k: usize| {
         let mut t = String::new();
@@ -399,9 +401,19 @@ fn export_keeps_strict_text_when_17_same_name_blocks_overlap_after_long_rest() {
     };
     let sixteen = strict_round_trip(&text(16)).unwrap_or_else(|e| panic!("{e}"));
     assert_eq!(sixteen.matches("@track").count(), 16);
-    if let Err(e) = strict_round_trip(&text(17)) {
-        panic!("{}", e.lines().next().unwrap_or_default());
+
+    let src = text(17);
+    let p = parse(&src, Mode::Strict).unwrap();
+    let out = export_parsed(&p);
+    assert!(out.contains("64~+"), "겹쳐 적기가 일어나지 않았다\n{out}");
+    let q = parse(&out, Mode::Lenient).unwrap_or_else(|e| panic!("{e}\n{out}"));
+    assert!(q.warnings().is_empty(), "{:?}", q.warnings());
+    for (a, b) in p.tracks().iter().zip(q.tracks()) {
+        assert_eq!(view(a.clip()), view(b.clip()), "{out}");
+        assert_eq!(a.clip().length(), b.clip().length(), "{out}");
     }
+    assert_eq!(export_parsed(&q), out, "재내보내기가 다르다");
+    start_offsets_in_range(&out).unwrap_or_else(|e| panic!("{e}"));
 }
 
 fn best_export_time(text: &str) -> Duration {
