@@ -133,7 +133,7 @@ fn mkfifo(path: &Path) {
 #[test]
 fn project_to_text_crammed_events_far_start_estimate_bounds_actual() {
     let p = crammed(1000, 10_000);
-    let (text, _) = project_to_text(&p).unwrap();
+    let (text, _) = project_to_text_limited(&p, u64::MAX).unwrap();
 
     let tight = project_to_text_limited(&p, text.len() as u64 - 1);
 
@@ -402,6 +402,7 @@ fn ksq2txt_output_fifo_reader_closes_early_exits_1_and_keeps_fifo() {
         .arg(&input)
         .arg("-o")
         .arg(&fifo)
+        .args(["--max-output", "100000000000"])
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();

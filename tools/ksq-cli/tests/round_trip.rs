@@ -323,6 +323,47 @@ fn voices_project() -> impl Strategy<Value = ProjectSpec> {
         })
 }
 
+/// 한 자리에 길이만 다른 노트가 몰린 트랙(S0-T8 리뷰 3의 crammed). 16성부를 채운 뒤에도 커서
+/// 앞지름 한도 때문에 예산과 상관없이 성부가 계속 열리고, 성부마다 클립 시작부터 쉼표를 쓴다.
+fn crammed_project() -> impl Strategy<Value = ProjectSpec> {
+    crammed_project_in(1..1200, 0..200)
+}
+
+fn crammed_project_in(
+    n: std::ops::Range<u32>,
+    wholes: std::ops::Range<u64>,
+) -> impl Strategy<Value = ProjectSpec> {
+    (n, wholes, prop::collection::vec(0u8..128, 1200), 0u64..2000).prop_map(
+        |(n, wholes, pitches, tail)| ProjectSpec {
+            tempo: 500_000,
+            meter: (4, 4),
+            key: Key::None,
+            tempo_change: None,
+            tracks: vec![TrackSpec {
+                name: "T".to_owned(),
+                channel: 1,
+                program: None,
+                bank: None,
+                clips: vec![ClipSpec {
+                    start: 0,
+                    tail,
+                    notes: (1..=n)
+                        .map(|len| NoteSpec {
+                            start: wholes * 3840,
+                            length: len,
+                            pitch: pitches[len as usize - 1],
+                            lyric: None,
+                            velocity: 100,
+                            offset: 0,
+                        })
+                        .collect(),
+                }],
+                mute: false,
+            }],
+        },
+    )
+}
+
 /// 고정 시드로 1000개를 뽑아 손실 없는 사례 비율을 잰다(지금 441/1000). 생성기를 고치다 비율이
 /// 35% 밑으로 떨어지면 잡는다. 시드를 고정(`TestRunner::deterministic`)한 것은 실행마다 같은 값을
 /// 재려는 것이다. 시드를 바꾸면 414–470/1000 사이로 흔들려(S0-T8 리뷰 2 측정), 문턱은 그 최저보다
@@ -350,13 +391,37 @@ fn any_project_generates_lossless_cases_often() {
 }
 
 proptest! {
+    // 사건이 많이 몰리고 앞 빈 곳이 길어야(온음표 수천 개) 예산 밖 성부의 쉼표가 어림을 넘는다.
+    // 사례 하나가 수 MB 텍스트를 만들어 사례 수를 줄인다.
+    #![proptest_config(ProptestConfig::with_cases(12))]
+
+    #[test]
+    fn output_estimate_bounds_crammed_events_far_from_clip_start(
+        spec in crammed_project_in(500..1200, 5000..12_000)
+    ) {
+        let original = build(&spec);
+        let (text, _) = project_to_text_limited(&original, u64::MAX).unwrap();
+
+        let tight = project_to_text_limited(&original, text.len() as u64 - 1);
+
+        match tight {
+            Err(CliError::OutputTooLarge { detail, .. }) => prop_assert!(
+                !detail.contains("어림보다 실제 출력이 컸다"),
+                "어림이 실제({}바이트)보다 작다: {detail}", text.len()
+            ),
+            other => prop_assert!(false, "{other:?}"),
+        }
+    }
+}
+
+proptest! {
     #![proptest_config(ProptestConfig::with_cases(256))]
 
     /// 어림은 실제 출력의 위쪽 한계다(S0-T8 리뷰 2 지적 2). 상한을 실제 크기보다 1바이트 작게
     /// 주면 어림이 거부해야 하고, 텍스트를 다 만든 뒤의 안전망까지 가면 안 된다.
     #[test]
     fn output_estimate_bounds_actual_text_size(
-        spec in prop_oneof![1 => any_project(), 2 => voices_project()]
+        spec in prop_oneof![1 => any_project(), 2 => voices_project(), 2 => crammed_project()]
     ) {
         let original = build(&spec);
         let (text, _) = project_to_text(&original).unwrap();

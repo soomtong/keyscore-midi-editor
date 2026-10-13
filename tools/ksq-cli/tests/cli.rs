@@ -453,3 +453,65 @@ fn binaries_write_to_fifo_and_dev_null_without_replacing_them() {
     assert_eq!(c.status.code(), Some(0), "{}", stderr(&c));
     let _ = fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn ksq2txt_max_output_overrides_limit_and_rejection_mentions_it() {
+    let dir = temp_dir("max-output");
+    let input = dir.join("far.ksq");
+    // 클립을 2만 마디 뒤로 옮긴다. 기본 상한은 넘지만 텍스트는 수백 KB라 상한을 올리면 된다.
+    let far = small_ksq().replacen("\"start\": 0", "\"start\": 76800000", 1);
+    fs::write(&input, far).unwrap();
+
+    let refused = run(KSQ2TXT, &[&input]);
+    let allowed = run(
+        KSQ2TXT,
+        &[&input, Path::new("--max-output"), Path::new("100000000")],
+    );
+    let tight = run(
+        KSQ2TXT,
+        &[
+            Path::new("--max-output"),
+            Path::new("1"),
+            &fixture("01-melody.ksq"),
+        ],
+    );
+
+    assert_eq!(refused.status.code(), Some(1));
+    assert!(
+        stderr(&refused).contains("--max-output"),
+        "{}",
+        stderr(&refused)
+    );
+    assert_eq!(allowed.status.code(), Some(0), "{}", stderr(&allowed));
+    assert!(String::from_utf8_lossy(&allowed.stdout).contains("@track A ch1"));
+    // 상한을 낮출 수도 있다.
+    assert_eq!(tight.status.code(), Some(1));
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn max_output_argument_errors_are_usage_errors() {
+    let input = fixture("01-melody.ksq");
+    for args in [
+        vec![input.as_os_str(), "--max-output".as_ref()],
+        vec![input.as_os_str(), "--max-output".as_ref(), "0".as_ref()],
+        vec![input.as_os_str(), "--max-output".as_ref(), "-5".as_ref()],
+        vec![input.as_os_str(), "--max-output".as_ref(), "1kb".as_ref()],
+        vec![
+            input.as_os_str(),
+            "--max-output".as_ref(),
+            "9".as_ref(),
+            "--max-output".as_ref(),
+            "9".as_ref(),
+        ],
+    ] {
+        let o = Command::new(KSQ2TXT).args(&args).output().unwrap();
+        assert_eq!(o.status.code(), Some(2), "{args:?}: {}", stderr(&o));
+    }
+    // txt2ksq에는 이 옵션이 없다.
+    let o = Command::new(TXT2KSQ)
+        .args(["a.txt", "--max-output", "9"])
+        .output()
+        .unwrap();
+    assert_eq!(o.status.code(), Some(2), "{}", stderr(&o));
+}

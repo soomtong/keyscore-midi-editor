@@ -55,8 +55,11 @@ pub enum CliError {
         "내보낸 텍스트가 원본과 설명되지 않게 다르다(keyscore-text 버그, {count}곳). 출력을 쓰지 않는다"
     )]
     ExportMismatch { count: usize },
-    /// 텍스트가 상한보다 커진다. `estimated`는 어림(또는 실제) 바이트다.
-    #[error("텍스트가 너무 커진다: 약 {estimated}바이트, 상한 {limit}바이트. {detail}")]
+    /// 텍스트가 상한보다 커진다. `estimated`는 만들기 전에 구한 크기의 위쪽 한계(어림)이고,
+    /// 안전망에서 걸렸으면 실제 크기다.
+    #[error(
+        "텍스트가 너무 커진다: 크기 어림(위쪽 한계) {estimated}바이트가 상한 {limit}바이트를 넘는다. {detail}"
+    )]
     OutputTooLarge {
         estimated: u64,
         limit: u64,

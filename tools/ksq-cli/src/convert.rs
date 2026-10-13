@@ -190,26 +190,22 @@ fn default_color(index: usize) -> Result<TrackColor, CliError> {
 /// 등)으로 상한을 부풀릴 수 있다(S0-T8 리뷰 2 지적 1).
 pub const MAX_EXPANSION: u64 = 256;
 
-/// 어림에 쓰는 바이트 상수. 어림은 실제 출력의 위쪽 한계가 되도록 잡는다(S0-T8 리뷰 2 지적 2).
+/// 어림에 쓰는 바이트 상수. 어림은 keyscore-text의 성부 배정 규칙을 흉내 내지 않고, 그 규칙이
+/// 무엇이든 성립하는 위쪽 한계로 잡는다(S0-T8 리뷰 3 지적 2). 논증은 [`check_estimate`]에 있다.
 ///
-/// - 쉼표: 온음표 하나에 `r1 |`와 줄바꿈으로 실측 5.3바이트 이하(박자표 4/4·1/256·255/1·3/8 등).
-/// - 노트: 타이 사슬 16조각 × (화음 음높이와 옥타브 기호, 길이, `&`), `~` 보정, 사건 사이의 짧은
-///   쉼표(점·겹점 64분까지 몇 개)와 마디선. 사건은 노트보다 많지 않으므로 노트마다 센다.
+/// - 쉼표: 한 성부에서 온음표 하나 길이의 쉼표는 `r1 |`와 줄바꿈으로 많아야 5바이트다. 박자표
+///   n/d(n 1–16, d 1–256)와 노트 위치를 바꿔 잰 최댓값이 성부당 온음표 하나에 5.07바이트였다.
+///   마디가 온음표보다 짧으면 마디선 없이 `r1`만 줄에 써 3바이트 남짓이다.
+/// - 성부의 나머지 쉼표: 온음표보다 짧은 끝 쉼표(점·겹점 64분까지 여러 개)와 그 마디선.
+/// - 노트(사건): 타이 사슬 16조각 × (화음 음높이와 옥타브 기호, 길이, `&`), `~` 보정, 사건 앞의
+///   온음표보다 짧은 쉼표와 마디선. 사건은 노트보다 많지 않으므로 노트마다 센다.
 /// - 성부 블록 헤더 줄: `@track` + 따옴표 이스케이프한 이름(많아야 두 배) + ` ch16 prog127
 ///   bank16383` + 빈 줄.
 const HEADER_BYTES: u128 = 128;
 const VOICE_LINE_BYTES: u128 = 48;
-const NOTE_BYTES: u128 = 512;
-const REST_BYTES_PER_WHOLE: u128 = 8;
-/// keyscore-text 내보내기의 성부 규칙(`docs/decisions/2026-10-12-ktext-implementation-details.md`
-/// 「내보내기 성부 예산」). 성부 16개까지는 예산 없이 각자 클립 시작부터 쉼표를 쓰고, 그 뒤로는
-/// 온음표 쉼표가 16 × (사건 수 + 마지막 사건 시작까지의 온음표 수) + 64를 넘지 않으며, 헤더 줄의
-/// 64바이트 초과분은 5바이트당 온음표 하나로 예산에서 뺀다.
-const FREE_VOICES: u128 = 16;
-const BUDGET_PER_UNIT: u128 = 16;
-const BUDGET_BASE: u128 = 64;
-const HEADER_FREE_BYTES: u128 = 64;
-const REST_UNIT_BYTES: u128 = 5;
+const VOICE_REST_TAIL_BYTES: u128 = 64;
+const NOTE_BYTES: u128 = 320;
+const REST_BYTES_PER_WHOLE: u128 = 6;
 const WHOLE_TICKS: u64 = 3840;
 
 /// 프로젝트를 계이름 텍스트로 쓴다. 텍스트가 나르지 않는 정보는 [`Loss`]로 돌려준다.
@@ -224,10 +220,11 @@ const WHOLE_TICKS: u64 = 3840;
 /// 내보낸 텍스트를 다시 읽지 못하면 [`CliError::ExportUnreadable`], 노트를 합친 클립을 만들 수
 /// 없으면 [`CliError::Model`].
 pub fn project_to_text(project: &Project) -> Result<(String, Vec<Loss>), CliError> {
-    to_text(project, u64::MAX)
+    to_text(project, None)
 }
 
-/// [`project_to_text`]와 같되 `max_bytes`를 상한으로 더 건다(둘 가운데 작은 쪽).
+/// [`project_to_text`]와 같되 상한을 `max_bytes`로 바꾼다(기본 상한보다 크거나 작아도 된다).
+/// `ksq2txt --max-output`이 쓴다. 기본 상한은 위쪽 한계 어림이라 아주 긴 곡을 거부할 수 있다.
 ///
 /// # Errors
 ///
@@ -236,10 +233,10 @@ pub fn project_to_text_limited(
     project: &Project,
     max_bytes: u64,
 ) -> Result<(String, Vec<Loss>), CliError> {
-    to_text(project, max_bytes)
+    to_text(project, Some(max_bytes))
 }
 
-fn to_text(project: &Project, cap: u64) -> Result<(String, Vec<Loss>), CliError> {
+fn to_text(project: &Project, max_bytes: Option<u64>) -> Result<(String, Vec<Loss>), CliError> {
     let mut losses = Vec::new();
     let tempo_changes = project.tempo_map().changes().count().saturating_sub(1);
     if tempo_changes > 0 {
@@ -285,10 +282,12 @@ fn to_text(project: &Project, cap: u64) -> Result<(String, Vec<Loss>), CliError>
             clip,
         })
         .collect();
-    let base = ksq::to_string(&projection(&header, &tracks)?).len();
-    let limit = MAX_EXPANSION
-        .saturating_mul(u64::try_from(base).unwrap_or(u64::MAX))
-        .min(cap);
+    let limit = if let Some(m) = max_bytes {
+        m
+    } else {
+        let base = ksq::to_string(&projection(&header, &tracks)?).len();
+        MAX_EXPANSION.saturating_mul(u64::try_from(base).unwrap_or(u64::MAX))
+    };
     check_estimate(&tracks, limit)?;
     let text = export(&header, &tracks);
     // 어림이 모자란 경우의 안전망. 되읽기(verify) 전에 거른다.
@@ -327,12 +326,22 @@ fn projection(header: &Header, tracks: &[ExportTrack<'_>]) -> Result<Project, Cl
     Ok(p)
 }
 
-/// 텍스트를 만들기 전에 크기를 어림해 상한을 넘으면 거부한다. 틱은 u64라 u128로 센다.
+/// 텍스트를 만들기 전에 크기의 위쪽 한계를 구해 상한을 넘으면 거부한다. 틱은 u64라 u128로 센다.
 ///
-/// 트랙마다 성부 수의 위쪽 한계를 구해 쉼표와 헤더 줄을 그만큼 곱한다. 성부는 사건(≤ 노트)마다
-/// 많아야 하나씩 열리므로 예산 없는 성부는 min(노트 수, 16)개이고, 클립 끝을 채우는 쉼표 성부가
-/// 하나 더 생길 수 있다. 각 성부의 쉼표는 클립 끝까지의 온음표 수를 넘지 않는다. 16개를 넘는
-/// 성부의 쉼표와 헤더 비용은 예산이 묶는다.
+/// 위쪽 한계인 까닭(트랙 하나, 사건 수 E ≤ 노트 수 N, 합친 클립 길이 L):
+///
+/// 1. keyscore-text는 트랙을 성부 블록들로 쓴다. 성부는 사건을 하나 이상 담을 때만 생기고, 그 밖에는
+///    클립 끝을 채우는 쉼표 성부가 하나 더 생길 수 있다(사건이 없으면 빈 성부 하나). 그래서 성부 수
+///    V ≤ max(N, 1) + 1이다. 몇 개를 예산 안에서 열고 몇 개를 접는지는 보지 않는다.
+/// 2. 성부마다 커서는 클립 시작에서 앞으로만 가고 클립 끝(커서 앞지름 한도 480틱 포함)을 넘지
+///    않는다. 그래서 한 성부의 온음표 쉼표는 L / 3840 + 1개 이하이고, 온음표보다 짧은 쉼표는
+///    사건 앞과 성부 끝에서만 나온다.
+/// 3. 각 성부는 헤더 줄 하나를 쓴다. 각 사건은 정확히 한 성부에서 한 번 쓰인다.
+///
+/// 따라서 출력은 「헤더 + V × (헤더 줄 + 나머지 쉼표 + (L / 3840 + 1) × 온음표 쉼표) + N × 노트 +
+/// 2 × 가사 바이트」를 넘지 않는다. 한 자리에 사건이 몰려 성부가 많이 열리는 클립(리뷰 3의 crammed)도 V가
+/// 사건 수로 묶이므로 이 식 안이다. 대가로, 노트가 많고 아주 긴 곡(대략 1,400마디 넘게 촘촘한
+/// 트랙)은 실제로는 상한 안이어도 거부될 수 있다. 그때는 `ksq2txt --max-output`으로 상한을 올린다.
 fn check_estimate(tracks: &[ExportTrack<'_>], limit: u64) -> Result<(), CliError> {
     let mut total = HEADER_BYTES;
     let mut biggest: Option<(u128, usize, &str, u64, u128)> = None;
@@ -346,19 +355,15 @@ fn check_estimate(tracks: &[ExportTrack<'_>], limit: u64) -> Result<(), CliError
             .iter()
             .map(|n| n.lyric().map_or(0, |l| l.len() as u128))
             .sum();
-        let line = 2 * t.name.len() as u128 + VOICE_LINE_BYTES;
-        let free_voices = notes.clamp(1, FREE_VOICES) + 1;
-        let mut bytes = free_voices * (line + wholes * REST_BYTES_PER_WHOLE)
-            + notes * NOTE_BYTES
-            + 2 * lyric_bytes;
-        if notes > FREE_VOICES {
-            let budget = BUDGET_PER_UNIT * (notes + wholes) + BUDGET_BASE;
-            bytes += budget * (REST_BYTES_PER_WHOLE + REST_UNIT_BYTES)
-                + (notes - FREE_VOICES) * HEADER_FREE_BYTES;
-        }
+        let voices = notes.max(1) + 1;
+        let per_voice = 2 * t.name.len() as u128
+            + VOICE_LINE_BYTES
+            + VOICE_REST_TAIL_BYTES
+            + wholes * REST_BYTES_PER_WHOLE;
+        let bytes = voices * per_voice + notes * NOTE_BYTES + 2 * lyric_bytes;
         total += bytes;
         if biggest.is_none_or(|(b, ..)| bytes > b) {
-            biggest = Some((bytes, i, t.name, end, free_voices));
+            biggest = Some((bytes, i, t.name, end, voices));
         }
     }
     if total <= u128::from(limit) {
@@ -366,7 +371,7 @@ fn check_estimate(tracks: &[ExportTrack<'_>], limit: u64) -> Result<(), CliError
     }
     let detail = biggest.map_or_else(String::new, |(bytes, i, name, end, voices)| {
         format!(
-            "가장 큰 곳은 {}: 시작 0으로 합친 클립이 {end}틱(온음표 {}개 분량의 쉼표), 예산 없는 성부 많아야 {voices}개, 약 {bytes}바이트",
+            "가장 큰 곳은 {}: 시작 0으로 합친 클립이 {end}틱(온음표 {}개 분량의 쉼표), 성부 많아야 {voices}개, 많아야 {bytes}바이트",
             TrackLabel(i, name),
             end / WHOLE_TICKS
         )

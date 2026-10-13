@@ -13,14 +13,17 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use keyscore_core::ksq::{self, Compression};
 use keyscore_text::Mode;
 
-use crate::{CliError, Loss, check, project_to_text, text_to_project, write_fixtures};
+use crate::{
+    CliError, Loss, check, project_to_text, project_to_text_limited, text_to_project,
+    write_fixtures,
+};
 
 const OK: u8 = 0;
 const FAILED: u8 = 1;
 const USAGE: u8 = 2;
 
 const USAGE_KSQ: &str = "사용법: ksq check <파일.ksq|.ksqz>...\n       ksq fixtures <디렉터리>";
-const USAGE_KSQ2TXT: &str = "사용법: ksq2txt <입력.ksq> [-o 출력.txt]";
+const USAGE_KSQ2TXT: &str = "사용법: ksq2txt <입력.ksq> [-o 출력.txt] [--max-output <바이트>]";
 const USAGE_TXT2KSQ: &str = "사용법: txt2ksq <입력.txt> [-o 출력.ksq|.ksqz] [--strict]";
 
 // 표준 오류에 쓰지 못하면 알릴 곳이 없으므로 쓰기 실패는 무시한다(`eprintln!`과 같은 태도이되
@@ -109,14 +112,43 @@ struct Options {
     input: PathBuf,
     output: Option<PathBuf>,
     strict: bool,
+    max_output: Option<u64>,
 }
 
-fn parse_options(args: &[OsString], allow_strict: bool) -> Result<Options, String> {
+/// 옵션을 받는 바이너리. 바이너리마다 받는 옵션이 다르다.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Tool {
+    Ksq2Txt,
+    Txt2Ksq,
+}
+
+fn parse_options(args: &[OsString], tool: Tool) -> Result<Options, String> {
     let mut input = None;
     let mut output = None;
     let mut strict = false;
+    let mut max_output = None;
     let mut rest = args.iter();
     while let Some(arg) = rest.next() {
+        if tool == Tool::Ksq2Txt && arg == "--max-output" {
+            let value = rest
+                .next()
+                .ok_or_else(|| "--max-output 뒤에 바이트 수가 없다".to_owned())?;
+            // 0은 「상한 없음」으로 읽힐 수 있어 받지 않는다. 상한을 사실상 없애려면 큰 수를 준다.
+            let bytes = value
+                .to_str()
+                .and_then(|v| v.parse::<u64>().ok())
+                .filter(|&b| b > 0)
+                .ok_or_else(|| {
+                    format!(
+                        "--max-output은 1 이상의 바이트 수여야 한다: {}",
+                        value.to_string_lossy()
+                    )
+                })?;
+            if max_output.replace(bytes).is_some() {
+                return Err("--max-output이 두 번 나왔다".to_owned());
+            }
+            continue;
+        }
         if arg == "-o" {
             let Some(path) = rest.next() else {
                 return Err("-o 뒤에 출력 경로가 없다".to_owned());
@@ -124,7 +156,7 @@ fn parse_options(args: &[OsString], allow_strict: bool) -> Result<Options, Strin
             if output.replace(PathBuf::from(path)).is_some() {
                 return Err("-o가 두 번 나왔다".to_owned());
             }
-        } else if allow_strict && arg == "--strict" {
+        } else if tool == Tool::Txt2Ksq && arg == "--strict" {
             strict = true;
         } else if is_option(arg) {
             return Err(format!("모르는 옵션: {}", arg.to_string_lossy()));
@@ -137,6 +169,7 @@ fn parse_options(args: &[OsString], allow_strict: bool) -> Result<Options, Strin
         input,
         output,
         strict,
+        max_output,
     })
 }
 
@@ -187,7 +220,7 @@ pub fn ksq2txt(args: &[OsString], out: &mut dyn Write, err: &mut dyn Write) -> u
         say!(out, "{USAGE_KSQ2TXT}");
         return OK;
     }
-    let options = match parse_options(args, false) {
+    let options = match parse_options(args, Tool::Ksq2Txt) {
         Ok(o) => o,
         Err(message) => return usage(err, &message, USAGE_KSQ2TXT),
     };
@@ -195,6 +228,12 @@ pub fn ksq2txt(args: &[OsString], out: &mut dyn Write, err: &mut dyn Write) -> u
         Ok(()) => OK,
         Err(e) => {
             say!(err, "실패: {e}");
+            if matches!(e, CliError::OutputTooLarge { .. }) {
+                say!(
+                    err,
+                    "상한은 `--max-output <바이트>`로 바꿀 수 있다(예: --max-output 100000000)."
+                );
+            }
             FAILED
         }
     }
@@ -218,10 +257,13 @@ fn run_ksq2txt(
     for w in warnings {
         say!(err, "{}: 경고: {w}", input.display());
     }
-    // 상한은 텍스트가 나르는 내용으로 다시 만든 프로젝트만 기준으로 한다. 파일 바이트를 기준에 넣으면
-    // 잘 압축되는 평범한 `.ksqz`가 거부된다(S0-T8 리뷰 3 지적 1). 다시 만든 프로젝트는 압축과
-    // 무관하므로 압축으로 부풀릴 수도 없다.
-    let (text, losses) = project_to_text(&project)?;
+    // 기본 상한은 텍스트가 나르는 내용으로 다시 만든 프로젝트만 기준으로 한다. 파일 바이트를 기준에
+    // 넣으면 잘 압축되는 평범한 `.ksqz`가 거부된다(S0-T8 리뷰 3 지적 1). 다시 만든 프로젝트는 압축과
+    // 무관하므로 압축으로 부풀릴 수도 없다. 사용자는 `--max-output`으로 상한을 바꿀 수 있다.
+    let (text, losses) = match options.max_output {
+        Some(bytes) => project_to_text_limited(&project, bytes)?,
+        None => project_to_text(&project)?,
+    };
     for loss in &losses {
         say!(err, "{}: 손실: {loss}", input.display());
     }
@@ -361,7 +403,7 @@ pub fn txt2ksq(args: &[OsString], out: &mut dyn Write, err: &mut dyn Write) -> u
         say!(out, "{USAGE_TXT2KSQ}");
         return OK;
     }
-    let options = match parse_options(args, true) {
+    let options = match parse_options(args, Tool::Txt2Ksq) {
         Ok(o) => o,
         Err(message) => return usage(err, &message, USAGE_TXT2KSQ),
     };
