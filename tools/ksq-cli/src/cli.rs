@@ -8,6 +8,7 @@ use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use keyscore_core::ksq::{self, Compression};
 use keyscore_text::Mode;
@@ -219,12 +220,84 @@ fn run_ksq2txt(
     }
     refuse_mismatch(&losses)?;
     match &options.output {
-        Some(path) => fs::write(path, text).map_err(|source| CliError::Io {
+        Some(path) => write_atomic(path, text.as_bytes()).map_err(|source| CliError::Io {
             path: path.clone(),
             source,
         }),
         None => write_stdout(out, text.as_bytes()),
     }
+}
+
+/// 같은 디렉터리의 임시 파일에 쓰고 fsync한 뒤 이름을 바꾼다. 쓰다 실패해도 기존 출력 파일이
+/// 잘린 채 남지 않는다. `txt2ksq`가 쓰는 `ksq::write_file`과 같은 보장이다(S0-T8 리뷰 1 지적 3).
+/// 출력이 심볼릭 링크면 링크를 일반 파일로 바꾸지 않고 대상 파일을 바꾸며, 기존 파일의 권한을
+/// 유지한다.
+fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    let path = resolve_symlink(path)?;
+    let temp = temp_path(&path);
+    let result = write_then_rename(&temp, &path, bytes);
+    if result.is_err() {
+        // 지우기 실패가 원래 오류를 가리지 않게 무시한다.
+        let _ = fs::remove_file(&temp);
+    }
+    result
+}
+
+fn write_then_rename(temp: &Path, path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    let original = fs::metadata(path).ok();
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    // 처음부터 원본 권한으로 만들어, 쓰는 동안 원본보다 넓은 권한으로 열려 있지 않게 한다.
+    #[cfg(unix)]
+    if let Some(meta) = &original {
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+        options.mode(meta.permissions().mode() & 0o777);
+    }
+    let mut file = options.open(temp)?;
+    // umask가 만들 때의 권한을 좁혔을 수 있어 원본 권한을 정확히 다시 맞춘다.
+    if let Some(meta) = original {
+        file.set_permissions(meta.permissions())?;
+    }
+    file.write_all(bytes)?;
+    file.sync_all()?;
+    drop(file);
+    fs::rename(temp, path)?;
+    // 이름 바꾸기를 디스크에 남긴다. 디렉터리 fsync가 안 되는 파일 시스템도 있어 실패는 무시한다.
+    let dir = match path.parent() {
+        Some(d) if !d.as_os_str().is_empty() => d,
+        _ => Path::new("."),
+    };
+    let _ = fs::File::open(dir).and_then(|d| d.sync_all());
+    Ok(())
+}
+
+/// 심볼릭 링크를 따라간 실제 경로. 대상이 없는 링크는 링크가 가리키는 경로에 새로 만든다.
+fn resolve_symlink(path: &Path) -> std::io::Result<PathBuf> {
+    let mut current = path.to_path_buf();
+    // 순환 링크로 끝없이 돌지 않게 횟수를 제한한다.
+    for _ in 0..40 {
+        match fs::symlink_metadata(&current) {
+            Ok(meta) if meta.file_type().is_symlink() => {
+                let target = fs::read_link(&current)?;
+                current = match current.parent() {
+                    Some(parent) if target.is_relative() => parent.join(target),
+                    _ => target,
+                };
+            }
+            _ => return Ok(current),
+        }
+    }
+    Err(std::io::Error::other("심볼릭 링크가 너무 깊거나 순환한다"))
+}
+
+/// 같은 디렉터리의 임시 파일 경로. 다른 디렉터리면 rename이 원자적이지 않다.
+fn temp_path(path: &Path) -> PathBuf {
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let name = path
+        .file_name()
+        .map_or_else(|| "txt".into(), |n| n.to_string_lossy().into_owned());
+    path.with_file_name(format!(".{name}.tmp-{}-{n}", std::process::id()))
 }
 
 /// 되읽은 결과가 손실로 설명되지 않게 다르면(keyscore-text 버그) 틀린 텍스트를 쓰지 않는다.

@@ -309,3 +309,44 @@ fn ksq2txt_far_clip_exits_one_and_writes_nothing() {
     assert!(to_stdout.stdout.is_empty());
     let _ = fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn ksq2txt_output_replaces_atomically_keeping_symlink_and_permissions() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = temp_dir("atomic");
+    let input = fixture("01-melody.ksq");
+    let target = dir.join("target.txt");
+    fs::write(
+        &target,
+        "옛 내용이 더 길어서 잘리지 않으면 꼬리가 남는다 ".repeat(100),
+    )
+    .unwrap();
+    fs::set_permissions(&target, fs::Permissions::from_mode(0o600)).unwrap();
+    let link = dir.join("link.txt");
+    std::os::unix::fs::symlink("target.txt", &link).unwrap();
+
+    let o = run(KSQ2TXT, &[&input, Path::new("-o"), &link]);
+    let expected = run(KSQ2TXT, &[&input]).stdout;
+
+    assert_eq!(o.status.code(), Some(0), "{}", stderr(&o));
+    assert!(
+        fs::symlink_metadata(&link)
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+    assert_eq!(fs::read(&target).unwrap(), expected);
+    assert_eq!(
+        fs::metadata(&target).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    // 임시 파일이 남지 않는다.
+    let mut names: Vec<_> = fs::read_dir(&dir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().into_string().unwrap())
+        .collect();
+    names.sort();
+    assert_eq!(names, vec!["link.txt", "target.txt"]);
+    let _ = fs::remove_dir_all(&dir);
+}
