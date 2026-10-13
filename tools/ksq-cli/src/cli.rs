@@ -13,7 +13,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use keyscore_core::ksq::{self, Compression};
 use keyscore_text::Mode;
 
-use crate::{CliError, Loss, check, project_to_text, text_to_project, write_fixtures};
+use crate::{
+    CliError, Loss, MAX_EXPANSION, check, project_to_text_limited, text_to_project, write_fixtures,
+};
 
 const OK: u8 = 0;
 const FAILED: u8 = 1;
@@ -207,14 +209,21 @@ fn run_ksq2txt(
 ) -> Result<(), CliError> {
     guard_output(options)?;
     let input = &options.input;
-    let (project, warnings) = ksq::read_file(input).map_err(|source| CliError::Ksq {
+    let bytes = fs::read(input).map_err(|source| CliError::Io {
+        path: input.clone(),
+        source,
+    })?;
+    let (project, warnings) = ksq::from_bytes(&bytes).map_err(|source| CliError::Ksq {
         path: input.clone(),
         source,
     })?;
     for w in warnings {
         say!(err, "{}: 경고: {w}", input.display());
     }
-    let (text, losses) = project_to_text(&project)?;
+    // 파일 바이트도 기준으로 건다. `.ksqz`는 압축되어 작으므로, 압축 전 크기로만 재면 작은 파일이
+    // 거대한 텍스트를 만든다(S0-T8 리뷰 2 지적 1).
+    let file_len = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
+    let (text, losses) = project_to_text_limited(&project, MAX_EXPANSION.saturating_mul(file_len))?;
     for loss in &losses {
         say!(err, "{}: 손실: {loss}", input.display());
     }

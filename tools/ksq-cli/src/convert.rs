@@ -181,15 +181,17 @@ fn default_color(index: usize) -> Result<TrackColor, CliError> {
     Ok(TrackColor::new(i)?)
 }
 
-/// 출력 텍스트 크기 상한의 기본 배수(정규 `.ksq` 바이트 대비). S0-T5가 텍스트 → 텍스트에 지킨
-/// 「입력에 선형, 256배 이내」와 맞춘다. 먼 틱의 클립을 시작 0 클립으로 합치면 빈 곳이 쉼표로
-/// 풀려 작은 파일이 거대한 텍스트가 되므로(S0-T8 리뷰 1 지적 1) 상한이 필요하다.
+/// 출력 텍스트 크기 상한의 배수. S0-T5가 텍스트 → 텍스트에 지킨 「입력에 선형, 256배 이내」와
+/// 맞춘다. 먼 틱의 클립을 시작 0 클립으로 합치면 빈 곳이 쉼표로 풀려 작은 파일이 거대한 텍스트가
+/// 되므로(S0-T8 리뷰 1 지적 1) 상한이 필요하다.
+///
+/// 기준은 「텍스트가 나르는 내용만으로 다시 만든 프로젝트」(`txt2ksq`가 만들 프로젝트)의 정규
+/// `.ksq` 바이트다. 원본의 정규 `.ksq`를 기준으로 하면 텍스트로 가지 않는 것(모르는 키, 벨로시티
+/// 등)으로 상한을 부풀릴 수 있다(S0-T8 리뷰 2 지적 1).
 pub const MAX_EXPANSION: u64 = 256;
 
 /// 어림에 쓰는 바이트 상수. 쉼표는 온음표 하나에 `r1 |`와 줄바꿈으로 실측 5.3바이트 이하라
 /// 넉넉히 잡는다. 노트는 타이 사슬(16조각)·`~` 보정·옥타브 기호를 담을 만큼 잡는다.
-/// 어림이 모자라도 내보낸 뒤 실제 크기를 다시 재므로 상한은 지켜진다(어림은 메모리를 쓰기
-/// 전에 거르는 몫이다).
 const HEADER_BYTES: u128 = 128;
 const TRACK_BYTES: u128 = 64;
 const NOTE_BYTES: u128 = 96;
@@ -199,8 +201,8 @@ const WHOLE_TICKS: u64 = 3840;
 /// 프로젝트를 계이름 텍스트로 쓴다. 텍스트가 나르지 않는 정보는 [`Loss`]로 돌려준다.
 ///
 /// 헤더는 늘 셋 다 적는다(틱 0의 템포·박자표와 조). 쓴 텍스트를 다시 읽어 원본과 대조하므로,
-/// 클립 길이 반올림처럼 내보내기가 바꾼 것도 손실로 나온다. 텍스트 크기는 이 프로젝트의 정규
-/// `.ksq`(`ksq::to_string`) 바이트의 [`MAX_EXPANSION`]배를 넘지 않는다.
+/// 클립 길이 반올림처럼 내보내기가 바꾼 것도 손실로 나온다. 텍스트 크기는 텍스트가 나르는
+/// 내용만으로 다시 만든 프로젝트의 정규 `.ksq` 바이트의 [`MAX_EXPANSION`]배를 넘지 않는다.
 ///
 /// # Errors
 ///
@@ -208,12 +210,12 @@ const WHOLE_TICKS: u64 = 3840;
 /// 내보낸 텍스트를 다시 읽지 못하면 [`CliError::ExportUnreadable`], 노트를 합친 클립을 만들 수
 /// 없으면 [`CliError::Model`].
 pub fn project_to_text(project: &Project) -> Result<(String, Vec<Loss>), CliError> {
-    let canonical = ksq::to_string(project);
-    let limit = MAX_EXPANSION.saturating_mul(u64::try_from(canonical.len()).unwrap_or(u64::MAX));
-    to_text(project, &canonical, limit)
+    to_text(project, u64::MAX)
 }
 
-/// [`project_to_text`]와 같되 출력 크기 상한을 바이트로 정한다.
+/// [`project_to_text`]와 같되 `max_bytes`를 상한으로 더 건다(둘 가운데 작은 쪽). CLI는 입력 파일
+/// 바이트의 [`MAX_EXPANSION`]배를 넘긴다. `.ksqz`는 압축된 파일 바이트가 기준이 되어, 작은
+/// 압축 파일이 거대한 텍스트를 만들지 못한다.
 ///
 /// # Errors
 ///
@@ -222,15 +224,10 @@ pub fn project_to_text_limited(
     project: &Project,
     max_bytes: u64,
 ) -> Result<(String, Vec<Loss>), CliError> {
-    to_text(project, &ksq::to_string(project), max_bytes)
+    to_text(project, max_bytes)
 }
 
-fn to_text(
-    project: &Project,
-    canonical: &str,
-    limit: u64,
-) -> Result<(String, Vec<Loss>), CliError> {
-    check_estimate(project, limit)?;
+fn to_text(project: &Project, cap: u64) -> Result<(String, Vec<Loss>), CliError> {
     let mut losses = Vec::new();
     let tempo_changes = project.tempo_map().changes().count().saturating_sub(1);
     if tempo_changes > 0 {
@@ -244,7 +241,7 @@ fn to_text(
             dropped: meter_changes,
         });
     }
-    let unknown = unknown_keys(canonical);
+    let unknown = unknown_keys(&ksq::to_string(project));
     if !unknown.is_empty() {
         losses.push(Loss::UnknownKeys { paths: unknown });
     }
@@ -255,6 +252,8 @@ fn to_text(
         Some(time),
         Some(project.key()),
     );
+    // 합친 클립은 노트 수에 비례하는 메모리만 쓴다(빈 곳은 길이 숫자 하나다). 쉼표로 풀리는 것은
+    // 내보낼 때뿐이라, 여기까지 만든 뒤 어림해도 「만들기 전에 거른다」가 지켜진다.
     let names = text_names(project, &mut losses);
     let mut clips = Vec::with_capacity(project.tracks().len());
     for (i, (track, name)) in project.tracks().iter().zip(&names).enumerate() {
@@ -274,6 +273,11 @@ fn to_text(
             clip,
         })
         .collect();
+    let base = ksq::to_string(&projection(&header, &tracks)?).len();
+    let limit = MAX_EXPANSION
+        .saturating_mul(u64::try_from(base).unwrap_or(u64::MAX))
+        .min(cap);
+    check_estimate(&tracks, limit)?;
     let text = export(&header, &tracks);
     // 어림이 모자란 경우의 안전망. 되읽기(verify) 전에 거른다.
     let actual = u64::try_from(text.len()).unwrap_or(u64::MAX);
@@ -288,32 +292,50 @@ fn to_text(
     Ok((text, losses))
 }
 
+/// 텍스트가 나르는 내용만으로 만든 프로젝트. [`text_to_project`]가 이 텍스트를 읽어 만들 것과
+/// 같다(클립 길이 반올림만 빼고).
+fn projection(header: &Header, tracks: &[ExportTrack<'_>]) -> Result<Project, CliError> {
+    let mut p = Project::new();
+    if let Some(tempo) = header.tempo() {
+        *p.tempo_map_mut() = TempoMap::new(tempo);
+    }
+    if let Some(time) = header.time() {
+        *p.meter_map_mut() = MeterMap::new(time);
+    }
+    if let Some(key) = header.key() {
+        p.set_key(key);
+    }
+    for (i, t) in tracks.iter().enumerate() {
+        let mut track = Track::new(t.name, t.channel, default_color(i)?);
+        track.set_program(t.program);
+        track.set_bank(t.bank);
+        track.insert_clip(t.clip.clone())?;
+        p.push_track(track)?;
+    }
+    Ok(p)
+}
+
 /// 텍스트를 만들기 전에 크기를 어림해 상한을 넘으면 거부한다. 트랙마다 합친 클립의 끝(온음표
 /// 수만큼 쉼표)과 노트·가사·이름 바이트를 더한다. 틱은 u64라 u128로 센다.
-fn check_estimate(project: &Project, limit: u64) -> Result<(), CliError> {
-    let bar = project.meter_map().signature_at(Tick::ZERO).bar_ticks();
+fn check_estimate(tracks: &[ExportTrack<'_>], limit: u64) -> Result<(), CliError> {
     let mut total = HEADER_BYTES;
     let mut biggest: Option<(u128, usize, &str, u64)> = None;
-    for (i, track) in project.tracks().iter().enumerate() {
-        // 클립이 없는 트랙은 한 마디 쉼표 클립이 된다(merged_clip).
-        let end = track.clips().last().map_or(bar, |(_, c)| c.end());
-        let (mut notes, mut lyric_bytes) = (0u128, 0u128);
-        for (_, clip) in track.clips() {
-            for n in clip.notes() {
-                notes += 1;
-                lyric_bytes += n.lyric().map_or(0, |l| l.len() as u128);
-            }
-        }
-        // 이름·가사는 따옴표 이스케이프로 많아야 두 배다. 이름 바꾸기(` (n)`)를 위해 16을 더한다.
+    for (i, t) in tracks.iter().enumerate() {
+        let end = t.clip.length();
+        let notes = t.clip.notes().len() as u128;
+        let lyric_bytes: u128 = t
+            .clip
+            .notes()
+            .iter()
+            .map(|n| n.lyric().map_or(0, |l| l.len() as u128))
+            .sum();
+        // 이름·가사는 따옴표 이스케이프로 많아야 두 배다.
         let rests = (u128::from(end / WHOLE_TICKS) + 1) * REST_BYTES_PER_WHOLE;
-        let bytes = TRACK_BYTES
-            + 2 * (track.name().len() as u128 + 16)
-            + notes * NOTE_BYTES
-            + 2 * lyric_bytes
-            + rests;
+        let bytes =
+            TRACK_BYTES + 2 * t.name.len() as u128 + notes * NOTE_BYTES + 2 * lyric_bytes + rests;
         total += bytes;
         if biggest.is_none_or(|(b, ..)| bytes > b) {
-            biggest = Some((bytes, i, track.name(), end));
+            biggest = Some((bytes, i, t.name, end));
         }
     }
     if total <= u128::from(limit) {
@@ -941,7 +963,17 @@ mod tests {
             panic!("{err}");
         };
         assert!(estimated > limit);
-        assert_eq!(*limit, MAX_EXPANSION * ksq::to_string(&p).len() as u64);
+        // 기준은 텍스트가 나르는 내용으로 다시 만든 프로젝트(시작 0으로 합친 클립)다.
+        let far = 3840 * 10_000_000_000;
+        let projected = project(vec![track(
+            0,
+            "Far",
+            vec![clip(0, far + 960, vec![note(far, 960, 60)])],
+        )]);
+        assert_eq!(
+            *limit,
+            MAX_EXPANSION * ksq::to_string(&projected).len() as u64
+        );
         assert!(detail.contains("트랙 1 \"Far\""), "{detail}");
     }
 
