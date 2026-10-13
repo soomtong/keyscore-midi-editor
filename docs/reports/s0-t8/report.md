@@ -107,3 +107,19 @@ cargo test --workspace: 358 passed, 0 failed (ksq-cli: 단위 10, 통합 14, pro
 3. 임의 프로젝트 proptest(「손실 없음 ⇒ 바이트 같음」)는 손실 없는 사례 비율을 재지 않았다(256 사례). 같은 이름 트랙의 「A (2)」 충돌은 단위 테스트 한 건만 덮는다.
 
 덧붙임: `TEXT_VELOCITY = 100`은 text의 비공개 시작 벨로시티를 복사한 값이다. 어긋나면 바이트 왕복 테스트가 깨져 드러난다.
+
+## 리뷰 대응 (review-1, 판정: 수정 후 재리뷰)
+
+구현자 에이전트가 고치고 표를 보냈으며, 계획자가 옮겼다.
+
+| # | 지적 | 대응 | 커밋 |
+| --- | --- | --- | --- |
+| 1 | 출력 크기 상한 없음 (수정) | 텍스트를 만들기 전에 트랙마다 크기를 어림한다(합친 클립 끝까지의 온음표 수 × 쉼표 8바이트 + 노트 96바이트 + 가사·이름 두 배 + 상수). 어림이 정규 `.ksq`(`ksq::to_string`) 바이트의 256배를 넘으면 `CliError::OutputTooLarge`로 거부하고 아무것도 쓰지 않는다(종료 1). 어림이 모자랄 때를 대비해 내보낸 뒤 실제 크기도 잰다. 상한을 받는 `project_to_text_limited`를 더했다. 리뷰 테스트는 기대값 그대로 통과한다 | `ksq-cli: Bound ksq2txt output to 256x the canonical ksq size` |
+| 2 | `Mismatch`에도 종료 0 (제안) | 손실 목록을 먼저 찍고 `Mismatch`가 있으면 출력하지 않고 종료 1 | `ksq-cli: Refuse to write ksq2txt output on unexplained mismatch` |
+| 3 | `ksq2txt -o` 비원자 쓰기 (제안) | 같은 디렉터리 임시 파일 → fsync → rename. 심볼릭 링크는 대상을 바꾸고 권한을 유지한다 | `ksq-cli: Write ksq2txt -o output via temp file and rename` |
+| 4 | BOM 거부 (제안) | 맨 앞 BOM 하나만 뗀다 | `ksq-cli: Skip one leading UTF-8 BOM in txt2ksq input` |
+| 5 | proptest의 손실 없는 사례가 드묾 (제안) | 텍스트만 쓴 생성기와 섞은 생성기를 1:1로 섞어 손실 없는 사례를 약 44%로 올렸다. 40% 밑이면 실패하는 테스트를 더했다 | `ksq-cli: Raise lossless share of any_project proptest cases` |
+
+구현자가 알린 점:
+- 상한 기준은 입력 파일 바이트가 아니라 정규 `.ksq` 바이트다. 라이브러리와 CLI가 같은 기준을 쓰게 하려는 것이다. `.ksqz` 입력은 압축 전 크기 기준이다.
+- 성부가 많은 클립에서는 어림이 모자랄 수 있다. 그때는 실제 크기 검사가 잡지만, 상한 크기까지는 메모리를 쓴다.
