@@ -549,3 +549,23 @@ fn ksq2txt_rejection_hint_gives_max_output_that_converts() {
     assert_eq!(short.status.code(), Some(1));
     let _ = fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn binaries_output_with_trailing_slash_fail_with_kernel_error() {
+    let dir = temp_dir("slash");
+    let input = fixture("01-melody.ksq");
+    let txt = dir.join("in.txt");
+    fs::write(&txt, run(KSQ2TXT, &[&input]).stdout).unwrap();
+    // 대상이 `/`로 끝나는 링크도 끝의 `/`를 잃지 않는다.
+    let link = dir.join("link");
+    std::os::unix::fs::symlink("/dev/null/", &link).unwrap();
+
+    let a = run(TXT2KSQ, &[&txt, Path::new("-o"), Path::new("/dev/null/")]);
+    let b = run(KSQ2TXT, &[&input, Path::new("-o"), &link]);
+
+    for o in [&a, &b] {
+        assert_eq!(o.status.code(), Some(1), "{}", stderr(o));
+        assert!(stderr(o).contains("Not a directory"), "{}", stderr(o));
+    }
+    let _ = fs::remove_dir_all(&dir);
+}

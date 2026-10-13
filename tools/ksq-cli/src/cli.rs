@@ -285,6 +285,10 @@ enum Special {
     /// 표준 출력이 일반 파일로 돌려져 있으면 일반 파일로 보이고, `/dev`·`/dev/fd`에는 임시 파일을
     /// 만들 수 없다(S0-T8 리뷰 3 지적 3). 그래서 파일 종류를 보지 않는다.
     Dev(PathBuf),
+    /// 주어진 경로나 링크를 따라간 경로가 `/`로 끝난다. 경로를 다시 짜면 끝의 `/`를 잃어
+    /// `/dev/null/`이 `/dev/null`로 열린다(S0-T8 리뷰 5 지적 1). 주어진 경로를 그대로 열어 커널
+    /// 오류(ENOTDIR·EISDIR·ENOENT)를 그대로 낸다. 쓰기로 열리는 `/`로 끝나는 경로는 없다.
+    Slash(PathBuf),
     /// 그 밖에 이미 있고 일반 파일도 디렉터리도 아닌 것(FIFO 등). 이름을 바꾸면 FIFO가 일반 파일로
     /// 바뀐다(S0-T8 리뷰 2 지적 3).
     Other(PathBuf),
@@ -298,7 +302,14 @@ enum Special {
 /// 않는다. `/dev/stdout` → `/dev/fd/1`처럼 마지막 링크는 이미 따라갔고, `/dev/fd/N`은 정규화하면
 /// 표준 출력이 가리키는 파일로 바뀌어 `/dev/` 판정을 잃기 때문이다.
 fn special_output(path: &Path) -> Option<Special> {
+    let ends_with_slash = |p: &Path| p.as_os_str().as_encoded_bytes().ends_with(b"/");
+    if ends_with_slash(path) {
+        return Some(Special::Slash(path.to_owned()));
+    }
     let target = resolve_symlink(path).ok()?;
+    if ends_with_slash(&target) {
+        return Some(Special::Slash(path.to_owned()));
+    }
     let name = target.file_name()?;
     let parent = match target.parent() {
         Some(d) if !d.as_os_str().is_empty() => d,
@@ -322,6 +333,14 @@ fn write_special(path: &Path, bytes: &[u8]) -> std::io::Result<bool> {
     let (target, allow_regular) = match special_output(path) {
         Some(Special::Dev(p)) => (p, true),
         Some(Special::Other(p)) => (p, false),
+        Some(Special::Slash(p)) => {
+            fs::OpenOptions::new().write(true).open(&p)?;
+            // 커널이 열어 준다면 이 코드가 모르는 꼴이다. 쓰지 않고 실패한다.
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "끝이 /인 출력 경로에는 쓰지 않는다",
+            ));
+        }
         None => return Ok(false),
     };
     let mut file = fs::OpenOptions::new().write(true).open(&target)?;
