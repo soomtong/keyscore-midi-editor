@@ -123,3 +123,19 @@ cargo test --workspace: 358 passed, 0 failed (ksq-cli: 단위 10, 통합 14, pro
 구현자가 알린 점:
 - 상한 기준은 입력 파일 바이트가 아니라 정규 `.ksq` 바이트다. 라이브러리와 CLI가 같은 기준을 쓰게 하려는 것이다. `.ksqz` 입력은 압축 전 크기 기준이다.
 - 성부가 많은 클립에서는 어림이 모자랄 수 있다. 그때는 실제 크기 검사가 잡지만, 상한 크기까지는 메모리를 쓴다.
+
+## 리뷰 대응 (review-2, 판정: 수정 후 재리뷰)
+
+구현자 에이전트가 고치고 표를 보냈으며, 계획자가 옮겼다.
+
+| # | 지적 | 대응 | 커밋 |
+| --- | --- | --- | --- |
+| 1 | 상한 기준을 모르는 키·긴 이름·`.ksqz`로 부풀릴 수 있음 (수정) | 기준을 「텍스트가 나르는 내용만으로 다시 만든 프로젝트」의 정규 `.ksq` 바이트로 바꿨다(시작 0으로 합친 클립, 기본 트랙 속성, 노트의 시작·길이·음높이·가사). `ksq2txt`는 여기에 입력 파일 바이트의 256배를 더 건다(둘 중 작은 쪽). `.ksqz`는 압축된 바이트가 기준이다. 리뷰 테스트는 기대값 그대로 통과한다. 구현자 단위 테스트 하나는 새 기준으로 기대값을 고쳤다 | `ksq-cli: Base the output limit on the text-carried projection` |
+| 2 | 어림이 성부별 쉼표를 세지 않음 (수정) | 트랙마다 성부 수의 위쪽 한계(예산 없는 min(노트 수, 16) + 끝 채움 1, 넘는 성부는 결정 문서의 예산 식)로 쉼표와 헤더 줄을 곱해 센다. 노트 상수는 512바이트다. 「어림이 실제 크기 이상」을 확인하는 proptest를 더했다(성부 17–19개 생성기 포함, release 2만 사례) | `ksq-cli: Count per-voice rests and headers in the output estimate` |
+| 3 | `-o /dev/null`·FIFO 회귀 (수정) | `-o` 대상이 이미 있고 일반 파일도 디렉터리도 아니면 그대로 열어 쓴다(심볼릭 링크는 대상 기준). `txt2ksq`도 같은 분기로 쓴다(core는 그대로). FIFO·`/dev/null` 테스트를 더했다 | `ksq-cli: Write directly to existing non-regular -o targets` |
+| 4 | 쓰기 동작 문서화 (제안) | README에 「-o 쓰기」 절과 core 쓰기 코드 복제 사실을 적었다 | `ksq-cli: Document -o write semantics and duplicated atomic write code` |
+| 덧붙임 | proptest 문턱 여유 | 400 → 350/1000, 고정 시드 이유와 시드별 흔들림을 주석에 적었다 | `ksq-cli: Lower lossless-share threshold to 35 percent with rationale` |
+
+구현자가 알린 점:
+- 어림이 보수적이라, 노트가 16개를 넘으면서 아주 드문 트랙(예: 노트 20개를 1만 마디에 흩음)은 실제 출력이 상한 안이어도 거부할 수 있다. 내보내기가 쉼표로 못 채우는 간격에서도 새 성부를 열기 때문에 성부 수를 겹침 수로 묶을 수 없다. 평범한 곡과 400마디 픽스처는 여유가 크다.
+- 어림 상수는 keyscore-text의 비공개 규칙(16성부 면제, 예산 계수 16·64, 헤더 64·5바이트)을 결정 문서에서 옮긴 값이다. text가 규칙을 바꾸면 함께 고쳐야 하며, 새 proptest가 어림이 실제보다 작아지는 경우를 잡는다.
