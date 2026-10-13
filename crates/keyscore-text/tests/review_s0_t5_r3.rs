@@ -294,7 +294,7 @@ fn random_clips_with_long_notes_round_trip_and_stay_small() {
 ///
 /// (구현자 수정, S0-T5 리뷰 7 지적 2) 처음에는 16온음표(타이)와 17온음표(`~`)를 비교했다. 리뷰 7
 /// 지적 2에 따라 타이는 조각 수가 가장 적은 분해(겹점 온음표 포함)를 쓰므로 17온음표도 10조각 타이가
-/// 된다. 경계를 겹점 온음표 16개(16조각, 타이)와 거기에 4분음표를 더한 길이(17조각, `~`)로 옮겼다.
+/// 된다. 경계를 겹점 온음표 16개(16조각, 타이)와 거기에 64분음표를 더한 길이(17조각, `~`)로 옮겼다.
 /// 검사하는 성질은 그대로다.
 #[test]
 fn grid_note_beyond_16_tie_pieces_exports_with_offset_unlike_16_pieces() {
@@ -308,8 +308,9 @@ fn grid_note_beyond_16_tie_pieces_exports_with_offset_unlike_16_pieces() {
     assert_eq!(text.matches('&').count(), 15, "{text}");
     assert!(parse(&text, Mode::Strict).is_ok(), "{text}");
 
-    let beyond = clip(16 * 6720 + 960, &[note(0, 16 * 6720 + 960, 60, None)]);
+    // 17조각 쪽은 한 조각(64분음표)만 더한 길이다(리뷰 8 지적 3).
+    let beyond = clip(16 * 6720 + 60, &[note(0, 16 * 6720 + 60, 60, None)]);
     let text = round_trip(&header, 1, &beyond).unwrap();
-    assert!(text.contains("c1..~+0:+101760"), "{text}");
+    assert!(text.contains("c1..~+0:+100860"), "{text}");
     assert!(parse(&text, Mode::Strict).is_err(), "{text}");
 }

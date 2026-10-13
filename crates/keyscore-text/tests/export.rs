@@ -231,11 +231,12 @@ fn export_tie_chain_is_capped_at_16_pieces() {
     let text = export(&Header::default(), &[track("T", 1, &fewer)]);
     assert_eq!(text.matches('&').count(), 8, "{text}");
     assert_eq!(reparse(&text), (notes(&fewer), 3840 * 15 + 1920));
-    let long = clip(6720 * 16 + 960, &[n(0, 6720 * 16 + 960, 60)]);
+    // 한 조각(64분음표)만 더하면 17조각이다(리뷰 8 지적 3).
+    let long = clip(6720 * 16 + 60, &[n(0, 6720 * 16 + 60, 60)]);
     let text = export(&Header::default(), &[track("T", 1, &long)]);
     assert!(!text.contains('&'), "{text}");
-    assert!(text.contains("c1..~+0:+101760"), "{text}");
-    assert_eq!(reparse(&text), (notes(&long), 6720 * 16 + 960));
+    assert!(text.contains("c1..~+0:+100860"), "{text}");
+    assert_eq!(reparse(&text), (notes(&long), 6720 * 16 + 60));
 }
 
 #[test]

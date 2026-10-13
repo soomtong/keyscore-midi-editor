@@ -207,6 +207,12 @@ fn min_pieces(ticks: u64) -> Option<Vec<u64>> {
 /// - 겹점 온음표(6720틱)들 + 나머지(`TABLE_MAX` 이하)의 최소 분해. 긴 노트는 이쪽이 조각이 적다
 ///   (16.5온음표: 온음표 16개 + 2분 점음표 17조각, 겹점 온음표 9개 + 2분 점음표 10조각).
 pub(crate) fn tie_pieces(ticks: u64, max_pieces: u64) -> Option<Vec<u64>> {
+    // 조각은 모두 겹점 온음표(6720틱) 이하라 조각 수는 `ticks / 6720` 이상이다. 한도를 넘는 것이
+    // 확실하면 조각 벡터(u32 끝 길이면 원소 백만 개 남짓)를 만들기 전에 끝낸다. 이 함수는 사건마다
+    // 여러 번 불리므로 할당하면 긴 노트에서 내보내기가 수십 배 느려진다(S0-T5 리뷰 8 지적 1).
+    if ticks / 6720 > max_pieces {
+        return None;
+    }
     [by_wholes(ticks), by_double_dotted_wholes(ticks)]
         .into_iter()
         .flatten()
@@ -289,6 +295,9 @@ mod tests {
         assert_eq!(tie_pieces(63_360, 16).map(|p| p.len()), Some(10));
         assert_eq!(tie_pieces(57_630, 16).map(|p| p.len()), Some(11));
         assert_eq!(tie_pieces(16 * 6720 + 960, 16), None);
+        assert_eq!(tie_pieces(16 * 6720, 16).map(|p| p.len()), Some(16));
+        assert_eq!(tie_pieces(16 * 6720 + 60, 16), None);
+        assert_eq!(tie_pieces(u64::from(u32::MAX), 16), None);
         for t in (0..3 * WHOLE).step_by(15) {
             if let Some(p) = tie_pieces(t, 64) {
                 assert_eq!(p.iter().sum::<u64>(), t, "{t}");
