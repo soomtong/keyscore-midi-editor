@@ -279,72 +279,60 @@ fn run_ksq2txt(
     }
 }
 
-/// 임시 파일 + 이름 바꾸기 대신 그대로 열어 써야 하는 출력.
-enum Special {
-    /// `/dev/` 아래(`/dev/null`, `/dev/stdout`, `/dev/fd/N` 등). `/dev/stdout`의 대상 `/dev/fd/1`은
-    /// 표준 출력이 일반 파일로 돌려져 있으면 일반 파일로 보이고, `/dev`·`/dev/fd`에는 임시 파일을
-    /// 만들 수 없다(S0-T8 리뷰 3 지적 3). 그래서 파일 종류를 보지 않는다.
-    Dev(PathBuf),
-    /// 주어진 경로나 링크를 따라간 경로가 `/`로 끝난다. 경로를 다시 짜면 끝의 `/`를 잃어
-    /// `/dev/null/`이 `/dev/null`로 열린다(S0-T8 리뷰 5 지적 1). 주어진 경로를 그대로 열어 커널
-    /// 오류(ENOTDIR·EISDIR·ENOENT)를 그대로 낸다. 쓰기로 열리는 `/`로 끝나는 경로는 없다.
-    Slash(PathBuf),
-    /// 그 밖에 이미 있고 일반 파일도 디렉터리도 아닌 것(FIFO 등). 이름을 바꾸면 FIFO가 일반 파일로
-    /// 바뀐다(S0-T8 리뷰 2 지적 3).
-    Other(PathBuf),
-}
-
-/// 출력이 [`Special`]이면 그 실제 경로. 디렉터리는 원자적 쓰기 경로로 보내 실패하게 둔다.
+/// 출력 경로가 `/dev/` 아래로 분류되는가. 분류에만 쓰고, 이 함수가 만든 경로로 열지 않는다.
 ///
-/// 심볼릭 링크를 따라간 뒤 부모 디렉터리를 `fs::canonicalize`하고 파일 이름을 붙여 판정한다.
-/// 글자 그대로 비교하면 `/dev/..`로 시작하는 일반 파일 경로가 `/dev/` 아래로 보이고, `..`가 든
-/// 상대 링크로 닿은 `/dev/stdout`은 빠져나간다(S0-T8 리뷰 4 지적 1). 파일 자체는 정규화하지
-/// 않는다. `/dev/stdout` → `/dev/fd/1`처럼 마지막 링크는 이미 따라갔고, `/dev/fd/N`은 정규화하면
-/// 표준 출력이 가리키는 파일로 바뀌어 `/dev/` 판정을 잃기 때문이다.
-fn special_output(path: &Path) -> Option<Special> {
-    let ends_with_slash = |p: &Path| p.as_os_str().as_encoded_bytes().ends_with(b"/");
-    if ends_with_slash(path) {
-        return Some(Special::Slash(path.to_owned()));
-    }
-    let target = resolve_symlink(path).ok()?;
-    if ends_with_slash(&target) {
-        return Some(Special::Slash(path.to_owned()));
-    }
-    let name = target.file_name()?;
+/// 심볼릭 링크를 따라간 뒤 부모 디렉터리를 `fs::canonicalize`하고 파일 이름을 붙여 본다. 글자
+/// 그대로 비교하면 `/dev/..`로 시작하는 일반 파일 경로가 `/dev/` 아래로 보이고, `..`가 든 상대
+/// 링크로 닿은 `/dev/stdout`은 빠져나간다(S0-T8 리뷰 4 지적 1). 파일 자체는 정규화하지 않는다.
+/// `/dev/fd/N`은 정규화하면 표준 출력이 가리키는 파일로 바뀌어 `/dev/` 판정을 잃는다.
+fn classified_under_dev(path: &Path) -> bool {
+    let Ok(target) = resolve_symlink(path) else {
+        return false;
+    };
+    let Some(name) = target.file_name() else {
+        return false;
+    };
     let parent = match target.parent() {
         Some(d) if !d.as_os_str().is_empty() => d,
         _ => Path::new("."),
     };
-    let resolved = fs::canonicalize(parent).ok()?.join(name);
-    if resolved.starts_with("/dev") {
-        return Some(Special::Dev(resolved));
-    }
-    let meta = fs::metadata(&resolved).ok()?;
-    (!meta.is_file() && !meta.is_dir()).then_some(Special::Other(resolved))
+    fs::canonicalize(parent).is_ok_and(|p| p.join(name).starts_with("/dev"))
 }
 
-/// 출력이 [`Special`]이면 그대로 열어 쓰고 `true`를 돌려준다. 아니면 쓰지 않고 `false`다(호출자가
-/// 원자적 쓰기로 간다). 원자성은 없지만 장치·파이프에는 의미가 없다.
+/// 출력을 임시 파일 + 이름 바꾸기 없이 그대로 써야 하면 쓰고 `true`, 아니면 쓰지 않고 `false`다
+/// (호출자가 원자적 쓰기로 간다).
 ///
-/// 판정과 열기 사이에 경로가 일반 파일로 바뀌었으면 쓰지 않고 `false`를 돌려준다. 잘라 쓰기
-/// (`truncate`) 없이 열기 때문에 일반 파일에 그대로 쓰면 기존 꼬리가 남는다. `/dev/` 아래는
-/// 예외다(표준 출력을 돌린 일반 파일은 셸이 이미 열어 둔 것이고, 그 자리에 이어 써야 한다).
+/// 여는 경로는 언제나 사용자가 준 원래 경로다. 끝의 `/`·`/.`, 링크는 커널이 해석하게 둔다. 경로를
+/// 다시 짜서 열면 끝을 잃어 `/dev/null/.`처럼 커널이 거부하는 경로를 받아들인다(S0-T8 리뷰 4–6).
+/// 자르기(`truncate`) 없이 열고, 연 핸들의 종류로 고른다.
+///
+/// - 문자 장치·FIFO: 그대로 쓴다. 이름을 바꾸면 `/dev`에 임시 파일을 만들 수 없거나 FIFO가 일반
+///   파일로 바뀐다(S0-T8 리뷰 2 지적 3).
+/// - 일반 파일: `/dev/` 아래로 분류된 경우(`/dev/fd/N`, 표준 출력을 돌린 파일)에만 그대로 쓴다.
+///   셸이 이미 열어 둔 파일이라 그 자리에 이어 써야 한다(S0-T8 리뷰 3 지적 3). 그 밖에는 자르지
+///   않고 쓰면 옛 꼬리가 남으므로 원자적 쓰기로 보낸다.
+/// - 그 밖(디렉터리는 열기에서 실패한다): 원자적 쓰기로 보낸다.
+///
+/// 열기 오류 가운데 경로 자체가 틀린 것(ENOTDIR·EISDIR)은 그대로 낸다. 없는 파일, 권한 없음 등은
+/// 원자적 쓰기가 만들거나(읽기 전용 파일도 이름 바꾸기로 바꾼다) 같은 오류를 낸다.
 fn write_special(path: &Path, bytes: &[u8]) -> std::io::Result<bool> {
-    let (target, allow_regular) = match special_output(path) {
-        Some(Special::Dev(p)) => (p, true),
-        Some(Special::Other(p)) => (p, false),
-        Some(Special::Slash(p)) => {
-            fs::OpenOptions::new().write(true).open(&p)?;
-            // 커널이 열어 준다면 이 코드가 모르는 꼴이다. 쓰지 않고 실패한다.
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                "끝이 /인 출력 경로에는 쓰지 않는다",
-            ));
+    use std::io::ErrorKind;
+    use std::os::unix::fs::FileTypeExt;
+
+    let mut file = match fs::OpenOptions::new().write(true).open(path) {
+        Ok(f) => f,
+        Err(e) if matches!(e.kind(), ErrorKind::NotADirectory | ErrorKind::IsADirectory) => {
+            return Err(e);
         }
-        None => return Ok(false),
+        Err(_) => return Ok(false),
     };
-    let mut file = fs::OpenOptions::new().write(true).open(&target)?;
-    if !allow_regular && file.metadata()?.is_file() {
+    let kind = file.metadata()?.file_type();
+    let direct = if kind.is_file() {
+        classified_under_dev(path)
+    } else {
+        kind.is_char_device() || kind.is_fifo()
+    };
+    if !direct {
         return Ok(false);
     }
     file.write_all(bytes)?;
@@ -501,21 +489,18 @@ fn run_txt2ksq(
             } else {
                 Compression::None
             };
-            // core의 write_file은 늘 임시 파일 + 이름 바꾸기라 특수 파일에는 쓰지 못한다. core를 바꾸지
-            // 않고 여기서 나눈다.
-            if special_output(path).is_some() {
-                let bytes =
-                    ksq::to_bytes(&project, compression).map_err(|source| CliError::Ksq {
-                        path: path.clone(),
-                        source,
-                    })?;
-                let written = write_special(path, &bytes).map_err(|source| CliError::Io {
-                    path: path.clone(),
-                    source,
-                })?;
-                if written {
-                    return Ok(());
-                }
+            // core의 write_file은 늘 임시 파일 + 이름 바꾸기라 장치·FIFO에는 쓰지 못한다. core를 바꾸지
+            // 않고 여기서 먼저 원래 경로를 열어 본다(`write_special`).
+            let bytes = ksq::to_bytes(&project, compression).map_err(|source| CliError::Ksq {
+                path: path.clone(),
+                source,
+            })?;
+            let written = write_special(path, &bytes).map_err(|source| CliError::Io {
+                path: path.clone(),
+                source,
+            })?;
+            if written {
+                return Ok(());
             }
             ksq::write_file(path, &project, compression).map_err(|source| CliError::Ksq {
                 path: path.clone(),
