@@ -185,7 +185,7 @@ fn ksq2txt_output_regular_file_with_trailing_slash_fails_and_keeps_file() {
 
 // --- `/dev/` 판정 경계 ---
 
-/// 상대 링크 → 상대 링크(`..`) → `.`와 `..`가 섞인 `/dev/./fd/../stdout`, 그리고 그 사슬을 가리키는
+/// 상대 링크 → 상대 링크(`..`) → `.`가 섞인 `/dev/./stdout`(`..`는 `/dev` 밖 사슬에만 둔다. macOS에서 `/dev/fd/..`를 거치는 조회는 devfs 노드가 바뀌는 동안 가끔 ENOENT를 내기 때문, S0-T8 리뷰 7 제안 4), 그리고 그 사슬을 가리키는
 /// 절대 링크. 둘 다 일반 파일로 돌린 표준 출력에 쓴다.
 #[test]
 fn ksq2txt_output_mixed_link_chain_to_dev_stdout_writes_redirected_file() {
@@ -194,7 +194,7 @@ fn ksq2txt_output_mixed_link_chain_to_dev_stdout_writes_redirected_file() {
     fs::create_dir_all(dir.join("c")).unwrap();
     std::os::unix::fs::symlink("../../c/l2", dir.join("a/b/l1")).unwrap();
     let up = up_to_root(&dir.join("c"));
-    std::os::unix::fs::symlink(up + "dev/./fd/../stdout", dir.join("c/l2")).unwrap();
+    std::os::unix::fs::symlink(up + "dev/./stdout", dir.join("c/l2")).unwrap();
     std::os::unix::fs::symlink(dir.join("a/b/l1"), dir.join("abs")).unwrap();
     let expected = melody_text();
 
