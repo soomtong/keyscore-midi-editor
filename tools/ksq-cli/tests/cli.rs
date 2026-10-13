@@ -58,8 +58,9 @@ fn check_fails_on_invariant_violation_with_nonzero_exit() {
     let good = dir.join("good.ksq");
     let bad = dir.join("bad.ksq");
     fs::write(&good, small_ksq()).unwrap();
-    // 클립 길이를 노트 끝보다 짧게 바꾼다: 「노트는 클립 안」 불변식 위반.
-    let broken = small_ksq().replacen("\"length\": 960", "\"length\": 10", 1);
+    // 노트 시작을 클립 끝(960) 뒤로 옮긴다: 「노트는 클립 안」 불변식 위반. 끝만 넘는 노트는
+    // 분할로 생기는 숨김 꼬리라 합법이므로 시작을 옮긴다.
+    let broken = small_ksq().replacen("[0, 960, 60, 51492]", "[2000, 960, 60, 51492]", 1);
     assert_ne!(broken, small_ksq());
     fs::write(&bad, broken).unwrap();
 
