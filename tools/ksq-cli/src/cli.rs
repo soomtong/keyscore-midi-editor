@@ -237,11 +237,31 @@ fn run_ksq2txt(
     }
 }
 
+/// 출력이 이미 있고 일반 파일도 디렉터리도 아니면(문자 장치 `/dev/null`·`/dev/stdout`, FIFO 등)
+/// 그 실제 경로. 심볼릭 링크는 대상을 본다. 이런 출력에 임시 파일 + 이름 바꾸기를 쓰면 `/dev`에
+/// 임시 파일을 만들 수 없어 실패하거나 FIFO가 일반 파일로 바뀐다(S0-T8 리뷰 2 지적 3). 디렉터리는
+/// 원자적 쓰기 경로로 보내 실패하게 둔다.
+fn special_output(path: &Path) -> Option<PathBuf> {
+    let target = resolve_symlink(path).ok()?;
+    let meta = fs::metadata(&target).ok()?;
+    (!meta.is_file() && !meta.is_dir()).then_some(target)
+}
+
+/// 이미 있는 특수 파일을 그대로 열어 쓴다. 원자성은 없지만 장치·파이프에는 의미가 없다.
+fn write_in_place(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    let mut file = fs::OpenOptions::new().write(true).open(path)?;
+    file.write_all(bytes)?;
+    file.flush()
+}
+
 /// 같은 디렉터리의 임시 파일에 쓰고 fsync한 뒤 이름을 바꾼다. 쓰다 실패해도 기존 출력 파일이
 /// 잘린 채 남지 않는다. `txt2ksq`가 쓰는 `ksq::write_file`과 같은 보장이다(S0-T8 리뷰 1 지적 3).
 /// 출력이 심볼릭 링크면 링크를 일반 파일로 바꾸지 않고 대상 파일을 바꾸며, 기존 파일의 권한을
 /// 유지한다.
 fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    if let Some(target) = special_output(path) {
+        return write_in_place(&target, bytes);
+    }
     let path = resolve_symlink(path)?;
     let temp = temp_path(&path);
     let result = write_then_rename(&temp, &path, bytes);
@@ -383,6 +403,19 @@ fn run_txt2ksq(
             } else {
                 Compression::None
             };
+            // core의 write_file은 늘 임시 파일 + 이름 바꾸기라 특수 파일에는 쓰지 못한다. core를 바꾸지
+            // 않고 여기서 나눈다.
+            if let Some(target) = special_output(path) {
+                let bytes =
+                    ksq::to_bytes(&project, compression).map_err(|source| CliError::Ksq {
+                        path: path.clone(),
+                        source,
+                    })?;
+                return write_in_place(&target, &bytes).map_err(|source| CliError::Io {
+                    path: path.clone(),
+                    source,
+                });
+            }
             ksq::write_file(path, &project, compression).map_err(|source| CliError::Ksq {
                 path: path.clone(),
                 source,

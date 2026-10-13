@@ -1,6 +1,7 @@
 //! 실제 바이너리로 하는 검사(S0-T8, 계획 테스트 5·6·10·11). 종료 코드와 파일 쓰기를 본다.
 
 use std::fs;
+use std::os::unix::fs::FileTypeExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
@@ -369,5 +370,59 @@ fn txt2ksq_skips_one_leading_utf8_bom() {
     assert_eq!(a.stdout, c.stdout);
     // 하나만 건너뛴다. 둘째 BOM은 텍스트의 일부다.
     assert_eq!(b.status.code(), Some(1), "{}", stderr(&b));
+    let _ = fs::remove_dir_all(&dir);
+}
+
+/// FIFO를 만들고, 읽는 쪽 스레드를 띄운 채 `bin`이 `-o fifo`로 쓴 바이트를 돌려준다.
+///
+/// 쓰는 쪽이 FIFO를 열지 않으면(실패하거나 FIFO를 일반 파일로 바꿔치면) 읽는 쪽이 영원히 막힌다.
+/// 그래서 같은 FIFO에 하드 링크를 하나 더 걸어 두고, 실행 뒤 읽는 쪽이 아직 막혀 있으면 그 링크로
+/// 쓰기 쪽을 열었다 닫아 풀어 준다(이름이 바뀌어도 하드 링크는 같은 FIFO를 가리킨다).
+fn write_through_fifo(dir: &Path, name: &str, bin: &str, input: &Path) -> (Output, Vec<u8>) {
+    let fifo = dir.join(name);
+    let keep = dir.join(format!("{name}.keep"));
+    let made = Command::new("mkfifo").arg(&fifo).status().unwrap();
+    assert!(made.success());
+    fs::hard_link(&fifo, &keep).unwrap();
+    let reader = {
+        let fifo = fifo.clone();
+        std::thread::spawn(move || fs::read(fifo).unwrap())
+    };
+
+    let o = run(bin, &[input, Path::new("-o"), &fifo]);
+
+    for _ in 0..200 {
+        if reader.is_finished() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    if !reader.is_finished() {
+        drop(fs::OpenOptions::new().write(true).open(&keep).unwrap());
+    }
+    let got = reader.join().unwrap();
+    assert!(
+        fs::symlink_metadata(&fifo).unwrap().file_type().is_fifo(),
+        "{name}: FIFO가 일반 파일로 바뀌었다"
+    );
+    (o, got)
+}
+
+#[test]
+fn binaries_write_to_fifo_and_dev_null_without_replacing_them() {
+    let dir = temp_dir("special");
+    let input = fixture("01-melody.ksq");
+    let txt = dir.join("in.txt");
+    fs::write(&txt, run(KSQ2TXT, &[&input]).stdout).unwrap();
+
+    let (a, from_ksq2txt) = write_through_fifo(&dir, "a.pipe", KSQ2TXT, &input);
+    let (b, from_txt2ksq) = write_through_fifo(&dir, "b.pipe", TXT2KSQ, &txt);
+    let c = run(TXT2KSQ, &[&txt, Path::new("-o"), Path::new("/dev/null")]);
+
+    assert_eq!(a.status.code(), Some(0), "{}", stderr(&a));
+    assert_eq!(from_ksq2txt, fs::read(&txt).unwrap());
+    assert_eq!(b.status.code(), Some(0), "{}", stderr(&b));
+    assert_eq!(from_txt2ksq, fs::read(&input).unwrap());
+    assert_eq!(c.status.code(), Some(0), "{}", stderr(&c));
     let _ = fs::remove_dir_all(&dir);
 }
