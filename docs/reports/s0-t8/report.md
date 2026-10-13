@@ -139,3 +139,27 @@ cargo test --workspace: 358 passed, 0 failed (ksq-cli: 단위 10, 통합 14, pro
 구현자가 알린 점:
 - 어림이 보수적이라, 노트가 16개를 넘으면서 아주 드문 트랙(예: 노트 20개를 1만 마디에 흩음)은 실제 출력이 상한 안이어도 거부할 수 있다. 내보내기가 쉼표로 못 채우는 간격에서도 새 성부를 열기 때문에 성부 수를 겹침 수로 묶을 수 없다. 평범한 곡과 400마디 픽스처는 여유가 크다.
 - 어림 상수는 keyscore-text의 비공개 규칙(16성부 면제, 예산 계수 16·64, 헤더 64·5바이트)을 결정 문서에서 옮긴 값이다. text가 규칙을 바꾸면 함께 고쳐야 하며, 새 proptest가 어림이 실제보다 작아지는 경우를 잡는다.
+
+## 리뷰 대응 (review-3, 판정: 수정 후 재리뷰)
+
+지적 1(평범한 `.ksqz` 거부)과 지적 2(어림 부족)가 서로 당겨서, 계획자가 방향을 정했다. 정밀한 어림 대신 「확실한 위쪽 한계 + 넉넉한 기준 + 사용자 탈출구」다. 구현자 에이전트가 고치고 표를 보냈으며, 계획자가 옮겼다.
+
+| # | 지적 | 대응 | 커밋 |
+| --- | --- | --- | --- |
+| 1 | `.ksqz` 평범한 곡 거부 (차단) | 입력 파일 바이트 조건을 없앴다. 상한은 「텍스트가 나르는 내용으로 다시 만든 프로젝트」의 정규 `.ksq` 바이트 × 256 하나이고, 압축과 무관하다 | `ksq-cli: Drop the input file size cap from the ksq2txt limit` |
+| 2 | 어림이 몰린 사건에서 모자람 (수정) | 어림을 확실한 위쪽 한계로 바꿨다. 성부 수 ≤ max(노트 수, 1) + 1이고, 성부마다 헤더 줄 + 쉼표(온음표당 6바이트, 실측 최대 5.07)를 곱하고 노트당 320바이트를 더한다. 논증은 `check_estimate` 주석에 있다. 탈출구로 `ksq2txt --max-output <바이트>`를 더했다. README에 「4분음표 트랙이면 약 1,400마디부터 거부될 수 있다」를 적었다. 「어림 ≥ 실제」 proptest에 먼 몰린 사건 생성기를 넣었다 | `ksq-cli: Make the output estimate a sure upper bound, add --max-output` |
+| 3 | `-o /dev/stdout` 회귀 (수정) | `/dev/` 아래 경로(심볼릭 링크를 따라간 결과 포함)는 그대로 열어 쓴다. 두 바이너리 모두다 | `ksq-cli: Write -o paths under /dev/ in place for both binaries` |
+| 4 | FIFO 테스트 멈춤 가능성 (제안) | 20초 한도를 두고, 읽는 쪽은 `O_RDWR`로 푼다 | `ksq-cli: Unblock FIFO test reader with O_RDWR and add timeouts` |
+| 5 | 성긴 곡 거부 (제안) | 1·2로 해소. 리뷰 3의 1,000마디 곡이 통과한다 | 위와 같음 |
+
+계획자가 승인해 바꾼 리뷰 3 테스트 두 곳(입력과 의도는 그대로, 기본 상한 가정만 바꿈):
+
+- `project_to_text_crammed_events_far_start_estimate_bounds_actual`
+  - 바꾼 곳: 맨 앞의 `project_to_text`를 `project_to_text_limited(&p, u64::MAX)`로
+  - 수치: 실제 8,316,216, 기본 상한 8,561,664, 어림 60,500,248바이트
+  - 이유: 실제가 상한에 3%까지 붙어 있어, 확실한 위쪽 한계로는 기본 상한 안에 들일 수 없다.
+- `ksq2txt_output_fifo_reader_closes_early_exits_1_and_keeps_fifo`
+  - 바꾼 곳: 바이너리 인자에 `--max-output 100000000000`
+  - 이유: 1만 마디 곡이라 기본 상한에서 거부된다. 이 인자를 주면 EPIPE 경로를 그대로 시험한다.
+
+리뷰 1·2 테스트 파일은 바뀌지 않았다(계획자가 diff로 확인).
