@@ -350,3 +350,24 @@ fn ksq2txt_output_replaces_atomically_keeping_symlink_and_permissions() {
     assert_eq!(names, vec!["link.txt", "target.txt"]);
     let _ = fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn txt2ksq_skips_one_leading_utf8_bom() {
+    let dir = temp_dir("bom");
+    let one = dir.join("one.txt");
+    let two = dir.join("two.txt");
+    fs::write(&one, "\u{feff}@track A ch1\nc4\n").unwrap();
+    fs::write(&two, "\u{feff}\u{feff}@track A ch1\nc4\n").unwrap();
+    let plain = dir.join("plain.txt");
+    fs::write(&plain, "@track A ch1\nc4\n").unwrap();
+
+    let a = run(TXT2KSQ, &[&one, Path::new("--strict")]);
+    let b = run(TXT2KSQ, &[&two]);
+    let c = run(TXT2KSQ, &[&plain]);
+
+    assert_eq!(a.status.code(), Some(0), "{}", stderr(&a));
+    assert_eq!(a.stdout, c.stdout);
+    // 하나만 건너뛴다. 둘째 BOM은 텍스트의 일부다.
+    assert_eq!(b.status.code(), Some(1), "{}", stderr(&b));
+    let _ = fs::remove_dir_all(&dir);
+}

@@ -344,13 +344,17 @@ fn run_txt2ksq(
         path: input.clone(),
         source,
     })?;
+    // 메모장류 편집기가 맨 앞에 붙이는 UTF-8 BOM 하나를 뗀다. 텍스트 문법이 아니라 파일 인코딩의
+    // 표지라서 파일을 읽는 이 자리에서 다룬다(S0-T8 리뷰 1 지적 4). 편집기가 BOM을 보이지 않으므로
+    // 열 번호도 BOM을 빼고 센다.
+    let text = text.strip_prefix('\u{feff}').unwrap_or(&text);
     let mode = if options.strict {
         Mode::Strict
     } else {
         Mode::Lenient
     };
     // 텍스트 오류는 경로가 없는 CliError::Parse라서, 어느 파일인지 여기서 붙인다.
-    let (project, diagnostics) = text_to_project(&text, mode).map_err(|e| match e {
+    let (project, diagnostics) = text_to_project(text, mode).map_err(|e| match e {
         CliError::Parse(source) => CliError::TextFile {
             path: input.clone(),
             source,
