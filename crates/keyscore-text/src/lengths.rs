@@ -148,12 +148,15 @@ pub(crate) fn rests_of(ticks: u64) -> Vec<u64> {
     out
 }
 
-/// 온음표 둘(7680틱) 이하 15틱 배수 값의 최소 조각 분해. 칸 `v / 15`에 (조각 수, 첫 조각)이 있다.
+/// 표의 상한: 겹점 온음표(6720틱) 넷. 긴 노트는 겹점 온음표 몇 개 + 이 안의 나머지로 나눈다.
+const TABLE_MAX: u64 = 4 * 6720;
+
+/// `TABLE_MAX` 이하 15틱 배수 값의 최소 조각 분해. 칸 `v / 15`에 (조각 수, 첫 조각)이 있다.
 /// 같은 조각 수면 첫 조각이 긴 쪽이다. 한 번만 만든다.
 fn min_pieces_table() -> &'static [Option<(u8, u64)>] {
     static TABLE: std::sync::OnceLock<Vec<Option<(u8, u64)>>> = std::sync::OnceLock::new();
     TABLE.get_or_init(|| {
-        let size = usize::try_from(2 * WHOLE / 15).unwrap_or(0) + 1;
+        let size = usize::try_from(TABLE_MAX / 15).unwrap_or(0) + 1;
         let mut t: Vec<Option<(u8, u64)>> = vec![None; size];
         t[0] = Some((0, 0));
         for i in 1..size {
@@ -178,9 +181,9 @@ fn min_pieces_table() -> &'static [Option<(u8, u64)>] {
     })
 }
 
-/// `ticks`(≤ 온음표 둘)를 표기 길이들로 나눈 최소 조각(긴 것부터). 나눌 수 없으면 `None`.
+/// `ticks`(≤ `TABLE_MAX`)를 표기 길이들로 나눈 최소 조각(긴 것부터). 나눌 수 없으면 `None`.
 fn min_pieces(ticks: u64) -> Option<Vec<u64>> {
-    if ticks > 2 * WHOLE || !ticks.is_multiple_of(15) {
+    if ticks > TABLE_MAX || !ticks.is_multiple_of(15) {
         return None;
     }
     let table = min_pieces_table();
@@ -194,25 +197,51 @@ fn min_pieces(ticks: u64) -> Option<Vec<u64>> {
     Some(out)
 }
 
-/// 표기 길이 하나로 적을 수 없는 노트 길이를 타이로 잇는 조각들: 온음표들 + 나머지의 최소 분해.
+/// 표기 길이 하나로 적을 수 없는 노트 길이를 타이로 잇는 조각들(조각 수가 가장 적은 분해).
 /// 그리드 길이로 정확히 적을 수 있는 노트에 `~`를 붙이지 않게 한다(REQ 5.14, S0-T5 리뷰 6
-/// 지적 2). 조각이 `max_pieces`를 넘거나 나눌 수 없으면 `None`.
+/// 지적 2). 그래서 「`max_pieces` 조각 이하의 타이로 적을 수 있으면 타이」가 성립한다(리뷰 7 지적 2).
+/// 조각이 `max_pieces`를 넘거나 나눌 수 없으면 `None`.
+///
+/// 후보 둘 가운데 조각이 적은 쪽이고, 같으면 앞쪽이다.
+/// - 온음표들 + 나머지의 최소 분해. 읽기 쉬운 꼴(`c1&c1`)이라 같은 조각 수면 이쪽을 쓴다.
+/// - 겹점 온음표(6720틱)들 + 나머지(`TABLE_MAX` 이하)의 최소 분해. 긴 노트는 이쪽이 조각이 적다
+///   (16.5온음표: 온음표 16개 + 2분 점음표 17조각, 겹점 온음표 9개 + 2분 점음표 10조각).
 pub(crate) fn tie_pieces(ticks: u64, max_pieces: u64) -> Option<Vec<u64>> {
+    [by_wholes(ticks), by_double_dotted_wholes(ticks)]
+        .into_iter()
+        .flatten()
+        .min_by_key(Vec::len)
+        .filter(|p| u64::try_from(p.len()).is_ok_and(|n| n <= max_pieces))
+}
+
+/// 온음표들 + 나머지의 최소 분해. 나머지가 너무 작으면(예: 30틱) 온음표 하나와 합쳐 나눈다.
+fn by_wholes(ticks: u64) -> Option<Vec<u64>> {
     let (mut wholes, mut rem) = (ticks / WHOLE, ticks % WHOLE);
     let mut tail = min_pieces(rem);
     if tail.is_none() && wholes > 0 {
-        // 나머지가 너무 작으면(예: 30틱) 온음표 하나와 합쳐 나눈다.
         wholes -= 1;
         rem += WHOLE;
         tail = min_pieces(rem);
     }
-    let tail = tail?;
-    if wholes + u64::try_from(tail.len()).ok()? > max_pieces {
-        return None;
-    }
     let mut pieces = vec![WHOLE; usize::try_from(wholes).ok()?];
-    pieces.extend(tail);
+    pieces.extend(tail?);
     Some(pieces)
+}
+
+/// 겹점 온음표들 + 나머지의 최소 분해. 나머지를 `TABLE_MAX` 안에서 넓혀 가며(겹점 온음표를 하나씩
+/// 덜 쓰며) 조각이 가장 적은 것을 고른다. 같으면 겹점 온음표가 많은 쪽이다.
+fn by_double_dotted_wholes(ticks: u64) -> Option<Vec<u64>> {
+    const DDW: u64 = 6720;
+    let most = ticks / DDW;
+    (0..=3u64)
+        .filter_map(|less| {
+            let k = most.checked_sub(less)?;
+            let tail = min_pieces(ticks - k * DDW)?;
+            let mut pieces = vec![DDW; usize::try_from(k).ok()?];
+            pieces.extend(tail);
+            Some(pieces)
+        })
+        .min_by_key(Vec::len)
 }
 
 #[cfg(test)]
@@ -256,12 +285,41 @@ mod tests {
         assert_eq!(tie_pieces(3840 + 30, 16), Some(vec![3360, 420, 90]));
         assert_eq!(tie_pieces(30, 16), None);
         assert_eq!(tie_pieces(1201, 16), None);
-        assert_eq!(tie_pieces(17 * 3840, 16), None);
+        assert_eq!(tie_pieces(17 * 3840, 16).map(|p| p.len()), Some(10));
+        assert_eq!(tie_pieces(63_360, 16).map(|p| p.len()), Some(10));
+        assert_eq!(tie_pieces(57_630, 16).map(|p| p.len()), Some(11));
+        assert_eq!(tie_pieces(16 * 6720 + 960, 16), None);
         for t in (0..3 * WHOLE).step_by(15) {
             if let Some(p) = tie_pieces(t, 64) {
                 assert_eq!(p.iter().sum::<u64>(), t, "{t}");
                 assert!(p.iter().all(|&x| exact(x).is_some()), "{t}");
             }
+        }
+    }
+
+    /// 타이 분해의 조각 수가 모든 길이에서 최소다(전수 동적 계획법과 비교, 17온음표 남짓까지).
+    #[test]
+    fn tie_pieces_count_is_minimal_for_every_length() {
+        let limit = 18 * 6720;
+        let size = usize::try_from(limit / 15).unwrap() + 1;
+        let mut best = vec![u32::MAX; size];
+        best[0] = 0;
+        for i in 1..size {
+            let v = u64::try_from(i).unwrap() * 15;
+            for n in NOTATIONS {
+                if n.ticks <= v {
+                    let r = best[usize::try_from((v - n.ticks) / 15).unwrap()];
+                    if r != u32::MAX {
+                        best[i] = best[i].min(r + 1);
+                    }
+                }
+            }
+        }
+        for (i, &b) in best.iter().enumerate() {
+            let v = u64::try_from(i).unwrap() * 15;
+            let got = tie_pieces(v, 64).map(|p| u32::try_from(p.len()).unwrap());
+            let want = (b != u32::MAX && b <= 64).then_some(b);
+            assert_eq!(got, want, "{v}");
         }
     }
 

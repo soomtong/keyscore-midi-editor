@@ -288,18 +288,28 @@ fn random_clips_with_long_notes_round_trip_and_stay_small() {
     }
 }
 
-/// 타이 한도의 부수 효과 관찰: 그리드에 놓인 16온음표 노트는 타이로(`~` 없이) 나가 엄격 모드로도
-/// 읽히지만, 17온음표 노트는 `~+0:+차이`로 나가 엄격 모드가 읽지 못한다(리뷰 3 지적 2, 제안).
+/// 타이 한도의 부수 효과 관찰: 타이 16조각 안에 드는 그리드 노트는 타이로(`~` 없이) 나가 엄격
+/// 모드로도 읽히지만, 16조각으로 적을 수 없는 노트는 `~+0:+차이`로 나가 엄격 모드가 읽지 못한다
+/// (리뷰 3 지적 2, 제안).
+///
+/// (구현자 수정, S0-T5 리뷰 7 지적 2) 처음에는 16온음표(타이)와 17온음표(`~`)를 비교했다. 리뷰 7
+/// 지적 2에 따라 타이는 조각 수가 가장 적은 분해(겹점 온음표 포함)를 쓰므로 17온음표도 10조각 타이가
+/// 된다. 경계를 겹점 온음표 16개(16조각, 타이)와 거기에 4분음표를 더한 길이(17조각, `~`)로 옮겼다.
+/// 검사하는 성질은 그대로다.
 #[test]
-fn grid_note_of_17_wholes_exports_with_offset_unlike_16_wholes() {
+fn grid_note_beyond_16_tie_pieces_exports_with_offset_unlike_16_pieces() {
     let header = Header::default();
     let sixteen = clip(16 * 3840, &[note(0, 16 * W, 60, None)]);
     let text = round_trip(&header, 1, &sixteen).unwrap();
     assert!(!text.contains('~'), "{text}");
     assert!(parse(&text, Mode::Strict).is_ok(), "{text}");
+    let at_cap = clip(16 * 6720, &[note(0, 16 * 6720, 60, None)]);
+    let text = round_trip(&header, 1, &at_cap).unwrap();
+    assert_eq!(text.matches('&').count(), 15, "{text}");
+    assert!(parse(&text, Mode::Strict).is_ok(), "{text}");
 
-    let seventeen = clip(17 * 3840, &[note(0, 17 * W, 60, None)]);
-    let text = round_trip(&header, 1, &seventeen).unwrap();
-    assert!(text.contains("c1..~+0:+58560"), "{text}");
+    let beyond = clip(16 * 6720 + 960, &[note(0, 16 * 6720 + 960, 60, None)]);
+    let text = round_trip(&header, 1, &beyond).unwrap();
+    assert!(text.contains("c1..~+0:+101760"), "{text}");
     assert!(parse(&text, Mode::Strict).is_err(), "{text}");
 }

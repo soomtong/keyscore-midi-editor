@@ -220,16 +220,22 @@ fn export_start_offsets_stay_within_parser_cap() {
 
 #[test]
 fn export_tie_chain_is_capped_at_16_pieces() {
-    // 16조각(온음표 15개 + 2분음표)까지는 타이, 넘으면 가장 가까운 표기 + 길이 보정 하나.
-    let tied = clip(3840 * 15 + 1920, &[n(0, 3840 * 15 + 1920, 60)]);
+    // 조각 수가 가장 적은 분해가 16조각(겹점 온음표 16개)까지면 타이, 넘으면 가장 가까운 표기 + 길이
+    // 보정 하나. 리뷰 7 지적 2 전에는 「온음표 15개 + 2분음표」(16조각)와 온음표 17개를 비교했다.
+    // 지금은 앞쪽이 겹점 온음표 8개 + 점온음표(9조각), 뒤쪽이 10조각 타이라 경계를 옮겼다.
+    let tied = clip(6720 * 16, &[n(0, 6720 * 16, 60)]);
     let text = export(&Header::default(), &[track("T", 1, &tied)]);
     assert_eq!(text.matches('&').count(), 15, "{text}");
-    assert_eq!(reparse(&text), (notes(&tied), 3840 * 15 + 1920));
-    let long = clip(3840 * 17, &[n(0, 3840 * 17, 60)]);
+    assert_eq!(reparse(&text), (notes(&tied), 6720 * 16));
+    let fewer = clip(3840 * 15 + 1920, &[n(0, 3840 * 15 + 1920, 60)]);
+    let text = export(&Header::default(), &[track("T", 1, &fewer)]);
+    assert_eq!(text.matches('&').count(), 8, "{text}");
+    assert_eq!(reparse(&text), (notes(&fewer), 3840 * 15 + 1920));
+    let long = clip(6720 * 16 + 960, &[n(0, 6720 * 16 + 960, 60)]);
     let text = export(&Header::default(), &[track("T", 1, &long)]);
     assert!(!text.contains('&'), "{text}");
-    assert!(text.contains("c1..~+0:+58560"), "{text}");
-    assert_eq!(reparse(&text), (notes(&long), 3840 * 17));
+    assert!(text.contains("c1..~+0:+101760"), "{text}");
+    assert_eq!(reparse(&text), (notes(&long), 6720 * 16 + 960));
 }
 
 #[test]
