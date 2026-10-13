@@ -218,10 +218,12 @@ const _: () = assert!(MAX_DRIFT <= crate::parse::MAX_START_OFFSET.unsigned_abs()
 /// 4 지적 2)은 이 계수다. 계수와 기본량은 리뷰 5의 351/352마디 경계 테스트가 고정한다.
 const REST_BUDGET_PER_UNIT: u64 = 16;
 const REST_BUDGET_BASE: u64 = 64;
-/// 성부가 이 수 이하인 동안은 예산을 보지 않는다(결정 2026-10-13 A). 이때 쓴 쉼표도 예산에서 빼 두므로
-/// 이 성부들의 쉼표와 예산이 따로 쌓이지 않는다. 계수 16에서는 이 면제가 출력을 바꾸지 않는다:
-/// 성부 16개의 쉼표 합은 16 × 마지막 시작까지의 온음표 수 이하라 늘 예산 안이다(리뷰 5 지적 2).
-/// 계수를 16보다 낮추면 그때부터 작동한다.
+/// 성부가 이 수 이하인 동안은 예산을 보지 않는다(결정 2026-10-13 A). 이때 쓴 쉼표와 헤더 비용도
+/// 예산에서 빼 두므로 이 성부들의 출력과 예산이 따로 쌓이지 않는다. 쉼표만 보면 계수 16에서 이 면제는
+/// 출력을 바꾸지 않는다(성부 16개의 쉼표 합은 16 × 마지막 시작까지의 온음표 수 이하라 늘 예산 안,
+/// 리뷰 5 지적 2). 헤더 비용(`HEADER_FREE_BYTES` 초과분)이 생긴 뒤로는 트랙 이름이 길어 헤더 비용이
+/// 예산을 먼저 쓰는 트랙에서만 출력을 바꾼다: 면제가 있으면 성부 16개까지 열고, 없으면 그 전에 접어
+/// 적는다(리뷰 7 지적 4).
 const FREE_VOICES: usize = 16;
 /// 온음표 쉼표 하나의 출력 바이트(4/4에서 `r1 |`와 줄바꿈). 성부 블록 헤더 줄의 바이트를 예산
 /// 단위로 환산할 때 쓴다(S0-T5 리뷰 6 지적 1).
@@ -235,6 +237,8 @@ const HEADER_FREE_BYTES: u64 = 64;
 /// 않을 첫 성부(가장 앞 번호)에 넣는다(구간 분할 탐욕). 가장 일찍 비는 성부가 아니라 앞 번호를
 /// 고르는 것은 악구가 한 성부에 이어지게 하려는 것이다. 사건이 시작 순이라 한 번 빈 성부는
 /// 계속 비어 있으므로, 바쁜 성부는 빌 시각의 힙에, 빈 성부는 번호의 순서 집합에 두면 n log n이다.
+/// 사건마다 보는 빈 성부는 앞 `FREE_VOICES`개, 셋잇단 길이 목록은 시작마다 길이 종류(21가지 이하)
+/// 뿐이라 이 상수들을 곱해도 n log n이다.
 ///
 /// `busy`는 성부 커서의 위쪽 한계다. 쉼표는 다음 시작을 넘지 않으므로 사건 앞의 커서는
 /// `max(busy, 시작)` 이하이고, 사건은 커서를 표기 길이(단음) 또는 실제 길이(타이·셋잇단)만큼
@@ -309,7 +313,13 @@ fn voices(events: Vec<Event<'_>>, header_cost: u64) -> Vec<Vec<Event<'_>>> {
     let mut triplet_starts: std::collections::HashMap<u64, Vec<u64>> =
         std::collections::HashMap::new();
     for e in events.iter().filter(|e| triplet_length(e.length)) {
-        triplet_starts.entry(e.start).or_default().push(e.length);
+        // 같은 길이는 한 번만 둔다. 가사가 붙은 같은 노트는 화음으로 묶이지 않아 같은 자리에 사건이
+        // 여럿 서는데, 중복째 쌓으면 아래 `needs_prev`가 사건마다 그 목록을 훑어 제곱이 된다(S0-T5
+        // 리뷰 7 지적 3). 길이 종류는 셋잇단 길이 21가지뿐이라 목록은 짧다.
+        let lengths_here = triplet_starts.entry(e.start).or_default();
+        if !lengths_here.contains(&e.length) {
+            lengths_here.push(e.length);
+        }
     }
     for mut ev in events {
         while let Some(&Reverse((at, i))) = pending.peek() {
