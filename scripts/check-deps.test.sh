@@ -29,6 +29,15 @@ fresh_copy() {
 passed=0
 failed=0
 
+# 사본 안의 crate Cargo.toml. 라이브러리 crate는 crates/, 도구는 tools/에 있다.
+manifest() {
+  if [ -d "$work/ws/crates/$1" ]; then
+    echo "$work/ws/crates/$1/Cargo.toml"
+  else
+    echo "$work/ws/tools/$1/Cargo.toml"
+  fi
+}
+
 # expect <ok|fail> <이름> <crate 디렉터리> <Cargo.toml 끝에 붙일 내용> [crate2 snippet2]
 # 붙일 내용은 반드시 자기 테이블 헤더로 시작한다. 그냥 붙이면 그 crate의 마지막 절
 # (예: 기존 [dev-dependencies]) 아래로 들어가 의도와 다른 종류의 의존이 되거나 중복 키가 된다.
@@ -39,10 +48,10 @@ expect() {
   local want=$1 name=$2 crate=$3 snippet=$4 crate2=${5:-} snippet2=${6:-}
   fresh_copy
   if [ -n "$crate" ]; then
-    printf '\n%s\n' "$snippet" >> "$work/ws/crates/$crate/Cargo.toml"
+    printf '\n%s\n' "$snippet" >> "$(manifest "$crate")"
   fi
   if [ -n "$crate2" ]; then
-    printf '\n%s\n' "$snippet2" >> "$work/ws/crates/$crate2/Cargo.toml"
+    printf '\n%s\n' "$snippet2" >> "$(manifest "$crate2")"
   fi
   local got
   if "$work/ws/scripts/check-deps.sh" >"$work/out.txt" 2>&1; then got=ok; else got=fail; fi
@@ -108,6 +117,23 @@ reason="keyscore-core의 직접 의존 serde가 레지스트리 crate가 아니�
 expect fail "review-2 #2: 허용된 이름 serde를 path 소스로" keyscore-core \
   "[target.'cfg(all())'.dependencies]
 serde = { path = \"$fake/serde\" }"
+
+reason="ksq-cli 내부 의존이 다르다"
+expect fail "ksq-cli → keyscore-midi" ksq-cli \
+  "[target.'cfg(all())'.dependencies]
+keyscore-midi.workspace = true"
+reason="ksq-cli 내부 의존이 다르다"
+expect fail "ksq-cli의 dev 의존 keyscore-ai" ksq-cli \
+  "[target.'cfg(all())'.dev-dependencies]
+keyscore-ai.workspace = true"
+reason="ksq-cli의 직접 의존 ureq가 허용 목록에 없다"
+expect fail "ksq-cli 직접 의존 ureq" ksq-cli \
+  "[target.'cfg(all())'.dependencies]
+ureq = { path = \"$fake/ureq\" }"
+reason="ksq-cli가 금지 crate에 의존한다: reqwest"
+expect fail "ksq-cli의 target-specific reqwest" ksq-cli \
+  "[target.'cfg(windows)'.dependencies]
+reqwest = { path = \"$fake/reqwest\" }"
 
 echo "check-deps.test: $passed passed, $failed failed"
 [ "$failed" -eq 0 ]
