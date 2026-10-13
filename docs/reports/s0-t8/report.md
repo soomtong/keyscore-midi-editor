@@ -185,3 +185,18 @@ cargo test --workspace: 358 passed, 0 failed (ksq-cli: 단위 10, 통합 14, pro
 | 2 | u64를 넘는 어림의 틀린 안내 (수정) | 어림이 u64를 넘으면 `CliError::OutputBeyondAnyLimit`으로 「어떤 상한으로도 변환할 수 없다」고 알리고 `--max-output`을 안내하지 않는다. README에 예외를 적었다 | `ksq-cli: Report estimates beyond u64 as unconvertible at any limit` |
 
 리뷰 1–5 테스트 파일은 바뀌지 않았다(계획자가 diff로 확인). 구현자가 알린 점: `--max-output`을 아주 크게 주면 정말 거대한 출력도 만들려 한다. 탈출구의 정의대로이며, 사용자가 명시적으로 고른 상한이다.
+
+## 리뷰 대응 (review-6, 판정: 수정 후 재리뷰)
+
+리뷰 4·5·6의 경로 지적이 같은 원인(다시 짠 경로로 열기)이라, 계획자가 원인을 고치라고 지시했다. 원칙은 「실제로 여는 경로는 언제나 사용자가 준 원래 경로, 정규화한 경로는 분류에만 쓴다」다. 구현자 에이전트가 고치고 표를 보냈으며, 계획자가 옮겼다.
+
+| # | 지적 | 대응 | 커밋 |
+| --- | --- | --- | --- |
+| 1 | 끝 `/.` 경로를 받아들임 (수정) | 원래 경로를 자르기 없이 열고 연 핸들의 fstat으로 고른다. 문자 장치·FIFO는 그대로 쓰고, 일반 파일은 `/dev/` 아래로 분류된 경우(`/dev/fd/N`)에만 그대로 쓰며, 그 밖은 원자적 쓰기로 간다. ENOTDIR·EISDIR은 그대로 낸다. 리뷰 5의 끝 `/` 특례는 지웠다 | `ksq-cli: Always open the user-given -o path for direct writes` |
+| 2 | 안내가 변환을 약속함 (제안) | 「크기 검사를 통과한다」로 바꾸고, 큰 상한이 실제로 큰 출력을 만들 수 있음을 README에 적었다 | `ksq-cli: Promise only passing the size check in the --max-output hint` |
+
+구현자가 알린 점:
+- 일반 파일 출력도 먼저 쓰기 모드로(자르기 없이) 열었다 닫는 열기가 한 번 더 생긴다.
+- `txt2ksq`는 일반 파일일 때 직렬화를 두 번 한다.
+
+리뷰 1–6 테스트 파일은 바뀌지 않았다(계획자가 diff로 확인).
