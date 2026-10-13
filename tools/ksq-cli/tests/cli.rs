@@ -373,12 +373,19 @@ fn txt2ksq_skips_one_leading_utf8_bom() {
     let _ = fs::remove_dir_all(&dir);
 }
 
+/// 바이너리와 읽는 쪽을 기다리는 시간 한도. 넘으면 테스트가 멈추지 않고 실패한다.
+const FIFO_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
+
 /// FIFO를 만들고, 읽는 쪽 스레드를 띄운 채 `bin`이 `-o fifo`로 쓴 바이트를 돌려준다.
 ///
-/// 쓰는 쪽이 FIFO를 열지 않으면(실패하거나 FIFO를 일반 파일로 바꿔치면) 읽는 쪽이 영원히 막힌다.
-/// 그래서 같은 FIFO에 하드 링크를 하나 더 걸어 두고, 실행 뒤 읽는 쪽이 아직 막혀 있으면 그 링크로
-/// 쓰기 쪽을 열었다 닫아 풀어 준다(이름이 바뀌어도 하드 링크는 같은 FIFO를 가리킨다).
+/// 쓰는 쪽이 FIFO를 열지 않으면(실패하거나 FIFO를 일반 파일로 바꿔치면) 읽는 쪽이 막힌다. 그래서
+/// 같은 FIFO에 하드 링크를 하나 더 걸어 두고(이름이 바뀌어도 같은 FIFO를 가리킨다), 시간 안에
+/// 읽는 쪽이 끝나지 않으면 그 링크를 읽기·쓰기(`O_RDWR`)로 열었다 닫아 풀어 준다. `O_RDWR` 열기는
+/// 상대가 없어도 막히지 않으므로, 확인과 열기 사이에 읽는 쪽이 끝나도 멈추지 않는다(S0-T8 리뷰 3
+/// 제안 4). 바이너리도 시간 한도를 넘으면 죽이고 실패한다.
 fn write_through_fifo(dir: &Path, name: &str, bin: &str, input: &Path) -> (Output, Vec<u8>) {
+    use std::time::Instant;
+
     let fifo = dir.join(name);
     let keep = dir.join(format!("{name}.keep"));
     let made = Command::new("mkfifo").arg(&fifo).status().unwrap();
@@ -389,16 +396,36 @@ fn write_through_fifo(dir: &Path, name: &str, bin: &str, input: &Path) -> (Outpu
         std::thread::spawn(move || fs::read(fifo).unwrap())
     };
 
-    let o = run(bin, &[input, Path::new("-o"), &fifo]);
-
-    for _ in 0..200 {
-        if reader.is_finished() {
-            break;
+    let mut child = Command::new(bin)
+        .args([input.as_os_str(), "-o".as_ref(), fifo.as_os_str()])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let deadline = Instant::now() + FIFO_TIMEOUT;
+    while child.try_wait().unwrap().is_none() {
+        if Instant::now() > deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            drop(fs::OpenOptions::new().read(true).write(true).open(&keep));
+            panic!("{name}: {bin}이 {FIFO_TIMEOUT:?} 안에 끝나지 않았다");
         }
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
+    let o = child.wait_with_output().unwrap();
+
+    let deadline = Instant::now() + FIFO_TIMEOUT;
+    while !reader.is_finished() && Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
     if !reader.is_finished() {
-        drop(fs::OpenOptions::new().write(true).open(&keep).unwrap());
+        drop(
+            fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(&keep)
+                .unwrap(),
+        );
     }
     let got = reader.join().unwrap();
     assert!(
