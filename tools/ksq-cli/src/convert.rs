@@ -376,11 +376,16 @@ fn check_estimate(tracks: &[ExportTrack<'_>], limit: u64) -> Result<(), CliError
             end / WHOLE_TICKS
         )
     });
-    Err(CliError::OutputTooLarge {
-        estimated: u64::try_from(total).unwrap_or(u64::MAX),
-        limit,
-        detail,
-    })
+    // 어림이 u64를 넘으면 어떤 `--max-output`도 통과하지 않는다. u64::MAX로 잘라 「그 값 이상을
+    // 주면 변환한다」고 안내하면 지킬 수 없는 약속이 된다(S0-T8 리뷰 5 지적 2).
+    match u64::try_from(total) {
+        Ok(estimated) => Err(CliError::OutputTooLarge {
+            estimated,
+            limit,
+            detail,
+        }),
+        Err(_) => Err(CliError::OutputBeyondAnyLimit { detail }),
+    }
 }
 
 /// 텍스트에 쓸 트랙 이름. 텍스트는 같은 이름의 블록을 한 트랙으로 합치므로(결정 Q2), 앞서 나온
@@ -1003,6 +1008,29 @@ mod tests {
             MAX_EXPANSION * ksq::to_string(&projected).len() as u64
         );
         assert!(detail.contains("트랙 1 \"Far\""), "{detail}");
+    }
+
+    #[test]
+    fn ksq2txt_estimate_beyond_u64_is_unconvertible_at_any_limit() {
+        // u64 끝 근처의 클립에 노트 1,000개: 성부 1,001개 × 온음표 약 4.8 × 10^15개 × 6바이트가
+        // u64를 넘는다. 어림이 u64 안이면 상한 u64::MAX에서 텍스트를 실제로 만들려 하므로(메모리를
+        // 다 쓴다) 노트 수를 넉넉히 둔다.
+        let length = 2_000_000;
+        let notes = (0..1000u64)
+            .map(|i| note(i * 1920, 960, 30 + u8::try_from(i % 60).unwrap()))
+            .collect();
+        let p = project(vec![track(
+            0,
+            "A",
+            vec![clip(u64::MAX - length, length, notes)],
+        )]);
+
+        let err = project_to_text_limited(&p, u64::MAX).unwrap_err();
+
+        assert!(
+            matches!(err, CliError::OutputBeyondAnyLimit { .. }),
+            "{err}"
+        );
     }
 
     #[test]

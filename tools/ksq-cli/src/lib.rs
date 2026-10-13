@@ -65,6 +65,12 @@ pub enum CliError {
         limit: u64,
         detail: String,
     },
+    /// 크기 어림이 u64 범위를 넘어 어떤 상한으로도 변환할 수 없다.
+    #[error(
+        "텍스트가 너무 커진다: 크기 어림(위쪽 한계)이 u64 범위({max}바이트)를 넘어 어떤 상한으로도 변환할 수 없다. {detail}",
+        max = u64::MAX
+    )]
+    OutputBeyondAnyLimit { detail: String },
     #[error("{}: 출력 파일이 입력 파일과 같다. 입력을 덮어쓰지 않는다", path.display())]
     SameInputOutput { path: PathBuf },
 }
