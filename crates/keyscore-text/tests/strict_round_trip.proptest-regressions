@@ -1,0 +1,11 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 8ae79cd3c9e0911aceed0f75cd34a1081f494b2d12f587743345eaec2b923ef5 # shrinks to text = "@track A ch1\nl4 n(c c c) n(c1 c c)\n"
+cc f73917bef1d68806653094c9712241bb497f9aed7e90cef6074d5afea7c3710d # shrinks to text = "@track A ch1\nl4 c8.. c32&c64..\n@track A ch1\nl4 c n(c c c)\n"
+cc 5d7a4f21806af62fe489662517c5482d479130ee05fec085c07763b1051a0c3c # shrinks to text = "@track B ch1\nl4 c n(c c c8)\n@track B ch1\nl4 c1 n(c c c) c c\n"
+cc f2e41978e89fd22a4a843145276ce34ca94cad09f68fa2e340e9150265c816c9 # shrinks to text = "@track B ch1\nl4 c1 c&c1 c c\n@track B ch1\nl4 r1. n(c c c8) l4. c c r\n"
+cc b8f43a22729ee23e3966205a400cb70ca8cb9519581c99c4bcd5debcae3c1784 # shrinks to text = "@track A ch1\nl16 r64.. c c c c c c c c c\n@track A ch1\nl16 c64\n"

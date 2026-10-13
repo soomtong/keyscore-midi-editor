@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 210357c5450da4b852ce6d42a72fdd5c49141476ffa5a91693c3ed4e4a14f1f9 # shrinks to h = Header { tempo: None, time: None, key: None }, specs = [TrackSpec { name: "", channel: 1, program: None, bank: None, notes: [], mode: Split(0, 0) }]
