@@ -277,35 +277,58 @@ fn run_ksq2txt(
     }
 }
 
-/// 임시 파일 + 이름 바꾸기 대신 그대로 열어 써야 하는 출력이면 열 경로.
-///
-/// - `/dev/` 아래 경로(`/dev/null`, `/dev/stdout`, `/dev/fd/N` 등). 주어진 경로나 심볼릭 링크를
-///   따라간 결과 어느 쪽이든 `/dev/` 아래면 그렇다. `/dev/stdout`의 대상 `/dev/fd/1`은 표준 출력이
-///   일반 파일로 돌려져 있으면 일반 파일로 보이고, `/dev`·`/dev/fd`에는 임시 파일을 만들 수 없다
-///   (S0-T8 리뷰 3 지적 3). 그래서 파일 종류를 보지 않고 경로로 판단한다.
-/// - 이미 있고 일반 파일도 디렉터리도 아닌 것(FIFO 등). 이름을 바꾸면 FIFO가 일반 파일로 바뀐다
-///   (S0-T8 리뷰 2 지적 3). 심볼릭 링크는 대상을 본다.
-///
-/// 디렉터리는 원자적 쓰기 경로로 보내 실패하게 둔다.
-fn special_output(path: &Path) -> Option<PathBuf> {
-    let dev = Path::new("/dev");
-    let absolute = std::path::absolute(path).ok()?;
-    if absolute.starts_with(dev) {
-        return Some(absolute);
-    }
-    let target = resolve_symlink(&absolute).ok()?;
-    if target.starts_with(dev) {
-        return Some(target);
-    }
-    let meta = fs::metadata(&target).ok()?;
-    (!meta.is_file() && !meta.is_dir()).then_some(target)
+/// 임시 파일 + 이름 바꾸기 대신 그대로 열어 써야 하는 출력.
+enum Special {
+    /// `/dev/` 아래(`/dev/null`, `/dev/stdout`, `/dev/fd/N` 등). `/dev/stdout`의 대상 `/dev/fd/1`은
+    /// 표준 출력이 일반 파일로 돌려져 있으면 일반 파일로 보이고, `/dev`·`/dev/fd`에는 임시 파일을
+    /// 만들 수 없다(S0-T8 리뷰 3 지적 3). 그래서 파일 종류를 보지 않는다.
+    Dev(PathBuf),
+    /// 그 밖에 이미 있고 일반 파일도 디렉터리도 아닌 것(FIFO 등). 이름을 바꾸면 FIFO가 일반 파일로
+    /// 바뀐다(S0-T8 리뷰 2 지적 3).
+    Other(PathBuf),
 }
 
-/// 이미 있는 특수 파일을 그대로 열어 쓴다. 원자성은 없지만 장치·파이프에는 의미가 없다.
-fn write_in_place(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    let mut file = fs::OpenOptions::new().write(true).open(path)?;
+/// 출력이 [`Special`]이면 그 실제 경로. 디렉터리는 원자적 쓰기 경로로 보내 실패하게 둔다.
+///
+/// 심볼릭 링크를 따라간 뒤 부모 디렉터리를 `fs::canonicalize`하고 파일 이름을 붙여 판정한다.
+/// 글자 그대로 비교하면 `/dev/..`로 시작하는 일반 파일 경로가 `/dev/` 아래로 보이고, `..`가 든
+/// 상대 링크로 닿은 `/dev/stdout`은 빠져나간다(S0-T8 리뷰 4 지적 1). 파일 자체는 정규화하지
+/// 않는다. `/dev/stdout` → `/dev/fd/1`처럼 마지막 링크는 이미 따라갔고, `/dev/fd/N`은 정규화하면
+/// 표준 출력이 가리키는 파일로 바뀌어 `/dev/` 판정을 잃기 때문이다.
+fn special_output(path: &Path) -> Option<Special> {
+    let target = resolve_symlink(path).ok()?;
+    let name = target.file_name()?;
+    let parent = match target.parent() {
+        Some(d) if !d.as_os_str().is_empty() => d,
+        _ => Path::new("."),
+    };
+    let resolved = fs::canonicalize(parent).ok()?.join(name);
+    if resolved.starts_with("/dev") {
+        return Some(Special::Dev(resolved));
+    }
+    let meta = fs::metadata(&resolved).ok()?;
+    (!meta.is_file() && !meta.is_dir()).then_some(Special::Other(resolved))
+}
+
+/// 출력이 [`Special`]이면 그대로 열어 쓰고 `true`를 돌려준다. 아니면 쓰지 않고 `false`다(호출자가
+/// 원자적 쓰기로 간다). 원자성은 없지만 장치·파이프에는 의미가 없다.
+///
+/// 판정과 열기 사이에 경로가 일반 파일로 바뀌었으면 쓰지 않고 `false`를 돌려준다. 잘라 쓰기
+/// (`truncate`) 없이 열기 때문에 일반 파일에 그대로 쓰면 기존 꼬리가 남는다. `/dev/` 아래는
+/// 예외다(표준 출력을 돌린 일반 파일은 셸이 이미 열어 둔 것이고, 그 자리에 이어 써야 한다).
+fn write_special(path: &Path, bytes: &[u8]) -> std::io::Result<bool> {
+    let (target, allow_regular) = match special_output(path) {
+        Some(Special::Dev(p)) => (p, true),
+        Some(Special::Other(p)) => (p, false),
+        None => return Ok(false),
+    };
+    let mut file = fs::OpenOptions::new().write(true).open(&target)?;
+    if !allow_regular && file.metadata()?.is_file() {
+        return Ok(false);
+    }
     file.write_all(bytes)?;
-    file.flush()
+    file.flush()?;
+    Ok(true)
 }
 
 /// 같은 디렉터리의 임시 파일에 쓰고 fsync한 뒤 이름을 바꾼다. 쓰다 실패해도 기존 출력 파일이
@@ -313,8 +336,8 @@ fn write_in_place(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 /// 출력이 심볼릭 링크면 링크를 일반 파일로 바꾸지 않고 대상 파일을 바꾸며, 기존 파일의 권한을
 /// 유지한다.
 fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    if let Some(target) = special_output(path) {
-        return write_in_place(&target, bytes);
+    if write_special(path, bytes)? {
+        return Ok(());
     }
     let path = resolve_symlink(path)?;
     let temp = temp_path(&path);
@@ -459,16 +482,19 @@ fn run_txt2ksq(
             };
             // core의 write_file은 늘 임시 파일 + 이름 바꾸기라 특수 파일에는 쓰지 못한다. core를 바꾸지
             // 않고 여기서 나눈다.
-            if let Some(target) = special_output(path) {
+            if special_output(path).is_some() {
                 let bytes =
                     ksq::to_bytes(&project, compression).map_err(|source| CliError::Ksq {
                         path: path.clone(),
                         source,
                     })?;
-                return write_in_place(&target, &bytes).map_err(|source| CliError::Io {
+                let written = write_special(path, &bytes).map_err(|source| CliError::Io {
                     path: path.clone(),
                     source,
-                });
+                })?;
+                if written {
+                    return Ok(());
+                }
             }
             ksq::write_file(path, &project, compression).map_err(|source| CliError::Ksq {
                 path: path.clone(),
