@@ -23,7 +23,7 @@ export CARGO_NET_OFFLINE=true
 fresh_copy() {
   rm -rf "$work/ws"
   mkdir -p "$work/ws"
-  cp -R "$root/Cargo.toml" "$root/Cargo.lock" "$root/rust-toolchain.toml" "$root/crates" "$root/scripts" "$work/ws/"
+  cp -R "$root/Cargo.toml" "$root/Cargo.lock" "$root/rust-toolchain.toml" "$root/crates" "$root/tools" "$root/scripts" "$work/ws/"
 }
 
 passed=0

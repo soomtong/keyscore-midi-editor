@@ -1,0 +1,12 @@
+# 02 멜로디 + 화음: F장조. 화음 트랙은 마디마다 온음표 화음 하나.
+@tempo 90
+@time 4/4
+@key F major
+
+@track Melody ch1 prog73
+o5 l4 c < a f a | b-2 a2 | g8 a8 b-8 > c8 < a f | g1 |
+a b- > c d | c2 < a2 | g8 f8 e g e | f1 |
+
+@track Chords ch2 prog0
+o3 l1 [f a > c] | o3 [f b- > d] | o3 [e g > c] | o3 [e g b- > c] |
+o3 [f a > d] | o3 [f a > c] | o3 [e g b- > c] | o3 [f a > c] |

@@ -1,0 +1,14 @@
+# 03 드럼만: 채널 10, GM 라벨. 8비트 패턴, 16분음표 필인, 셋잇단 하이햇.
+@tempo 110
+@time 4/4
+@key none
+
+@track Drums ch10
+l8 [bd ch] ch [sd ch] ch [bd ch] [bd ch] [sd ch] ch |
+[bd ch] ch [sd ch] ch [bd ch] ch [sd ch] [sd oh] |
+[bd ch] ch [sd ch] ch [bd ch] [bd ch] [sd ch] ch |
+[bd ch] ch [sd ch] ch l16 sd sd mt mt lt lt sd sd |
+l8 [bd cr] ch [sd ch] ch [bd ch] [bd ch] [sd ch] ch |
+[bd ch] ch [sd ch] n(ch ch ch) ch [sd ch] [sd oh] |
+[bd ch] ch [sd ch] ch [bd ch] [bd ch] [sd ch] ch |
+[bd ch] ch [sd ch] ch l4 [bd cr] r |
