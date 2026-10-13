@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use keyscore_core::ksq::{self, Compression};
 use keyscore_text::Mode;
 
-use crate::{CliError, check, project_to_text, text_to_project, write_fixtures};
+use crate::{CliError, Loss, check, project_to_text, text_to_project, write_fixtures};
 
 const OK: u8 = 0;
 const FAILED: u8 = 1;
@@ -214,15 +214,30 @@ fn run_ksq2txt(
         say!(err, "{}: 경고: {w}", input.display());
     }
     let (text, losses) = project_to_text(&project)?;
-    for loss in losses {
+    for loss in &losses {
         say!(err, "{}: 손실: {loss}", input.display());
     }
+    refuse_mismatch(&losses)?;
     match &options.output {
         Some(path) => fs::write(path, text).map_err(|source| CliError::Io {
             path: path.clone(),
             source,
         }),
         None => write_stdout(out, text.as_bytes()),
+    }
+}
+
+/// 되읽은 결과가 손실로 설명되지 않게 다르면(keyscore-text 버그) 틀린 텍스트를 쓰지 않는다.
+/// 손실 목록은 그 전에 표준 오류에 찍혀 무엇이 달랐는지 보인다(S0-T8 리뷰 1 지적 2).
+fn refuse_mismatch(losses: &[Loss]) -> Result<(), CliError> {
+    let count = losses
+        .iter()
+        .filter(|l| matches!(l, Loss::Mismatch { .. }))
+        .count();
+    if count == 0 {
+        Ok(())
+    } else {
+        Err(CliError::ExportMismatch { count })
     }
 }
 
@@ -288,5 +303,32 @@ fn run_txt2ksq(
             })
         }
         None => write_stdout(out, ksq::to_string(&project).as_bytes()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn refuse_mismatch_with_mismatch_loss_is_error() {
+        let losses = vec![
+            Loss::TempoChanges { dropped: 1 },
+            Loss::Mismatch {
+                detail: "노트".to_owned(),
+            },
+        ];
+
+        let result = refuse_mismatch(&losses);
+
+        assert!(matches!(result, Err(CliError::ExportMismatch { count: 1 })));
+    }
+
+    #[test]
+    fn refuse_mismatch_with_ordinary_losses_is_ok() {
+        let losses = vec![Loss::TempoChanges { dropped: 1 }];
+
+        assert!(refuse_mismatch(&losses).is_ok());
+        assert!(refuse_mismatch(&[]).is_ok());
     }
 }

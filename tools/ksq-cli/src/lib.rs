@@ -50,6 +50,11 @@ pub enum CliError {
     /// 내보낸 텍스트를 다시 읽지 못했다. `keyscore-text`의 내보내기·파서가 어긋난 것이다.
     #[error("내보낸 텍스트를 다시 읽지 못했다(keyscore-text 버그): {0}")]
     ExportUnreadable(ParseError),
+    /// 되읽은 텍스트가 손실로 설명되지 않게 달랐다([`Loss::Mismatch`]). 출력을 쓰지 않는다.
+    #[error(
+        "내보낸 텍스트가 원본과 설명되지 않게 다르다(keyscore-text 버그, {count}곳). 출력을 쓰지 않는다"
+    )]
+    ExportMismatch { count: usize },
     /// 텍스트가 상한보다 커진다. `estimated`는 어림(또는 실제) 바이트다.
     #[error("텍스트가 너무 커진다: 약 {estimated}바이트, 상한 {limit}바이트. {detail}")]
     OutputTooLarge {
