@@ -281,24 +281,60 @@ fn run_ksq2txt(
     }
 }
 
-/// 출력 경로가 `/dev/` 아래로 분류되는가. 분류에만 쓰고, 이 함수가 만든 경로로 열지 않는다.
+/// 출력 경로의 `/dev/` 분류. 분류에만 쓰고, 분류에 쓴 경로로 열지 않는다.
+enum DevClass {
+    Outside,
+    /// `/dev/` 아래. 분류한 경로가 가리키는 대상의 신원(알 수 없으면 `None`)을 함께 둔다.
+    Under(Option<Identity>),
+}
+
+/// 파일 신원. `/dev/fd/N`을 `stat`하면 inode는 실제 파일의 것이지만 장치 번호는 `/dev`(fdesc)의
+/// 것이 나온다. 그래서 장치 번호가 `/dev`의 것이면 inode만 비교한다(`dev`가 `None`).
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct Identity {
+    dev: Option<u64>,
+    ino: u64,
+}
+
+impl Identity {
+    fn matches(self, meta: &fs::Metadata) -> bool {
+        use std::os::unix::fs::MetadataExt;
+        self.ino == meta.ino() && self.dev.is_none_or(|d| d == meta.dev())
+    }
+}
+
+/// 직접 쓰기는 연 핸들이 분류한 대상과 같을 때만 한다. 그래야 분류와 열기 사이에 경로(링크)가
+/// 바뀌어도 분류하지 않은 파일에 자르지 않고 쓰지 않는다(S0-T8 리뷰 7 제안 3).
 ///
 /// 심볼릭 링크를 따라간 뒤 부모 디렉터리를 `fs::canonicalize`하고 파일 이름을 붙여 본다. 글자
 /// 그대로 비교하면 `/dev/..`로 시작하는 일반 파일 경로가 `/dev/` 아래로 보이고, `..`가 든 상대
 /// 링크로 닿은 `/dev/stdout`은 빠져나간다(S0-T8 리뷰 4 지적 1). 파일 자체는 정규화하지 않는다.
 /// `/dev/fd/N`은 정규화하면 표준 출력이 가리키는 파일로 바뀌어 `/dev/` 판정을 잃는다.
-fn classified_under_dev(path: &Path) -> bool {
+fn dev_classification(path: &Path) -> DevClass {
+    use std::os::unix::fs::MetadataExt;
+
     let Ok(target) = resolve_symlink(path) else {
-        return false;
+        return DevClass::Outside;
     };
     let Some(name) = target.file_name() else {
-        return false;
+        return DevClass::Outside;
     };
     let parent = match target.parent() {
         Some(d) if !d.as_os_str().is_empty() => d,
         _ => Path::new("."),
     };
-    fs::canonicalize(parent).is_ok_and(|p| p.join(name).starts_with("/dev"))
+    let Ok(dir) = fs::canonicalize(parent) else {
+        return DevClass::Outside;
+    };
+    let classified = dir.join(name);
+    if !classified.starts_with("/dev") {
+        return DevClass::Outside;
+    }
+    let dev_of_dev = fs::metadata("/dev").map(|m| m.dev()).ok();
+    DevClass::Under(fs::metadata(&classified).ok().map(|m| Identity {
+        dev: (Some(m.dev()) != dev_of_dev).then_some(m.dev()),
+        ino: m.ino(),
+    }))
 }
 
 /// 출력을 임시 파일 + 이름 바꾸기 없이 그대로 써야 하면 쓰고 `true`, 아니면 쓰지 않고 `false`다
@@ -310,7 +346,8 @@ fn classified_under_dev(path: &Path) -> bool {
 ///
 /// - 문자 장치·FIFO: 그대로 쓴다. 이름을 바꾸면 `/dev`에 임시 파일을 만들 수 없거나 FIFO가 일반
 ///   파일로 바뀐다(S0-T8 리뷰 2 지적 3).
-/// - 일반 파일: `/dev/` 아래로 분류된 경우(`/dev/fd/N`, 표준 출력을 돌린 파일)에만 그대로 쓴다.
+/// - 일반 파일: `/dev/` 아래로 분류되고 연 핸들이 분류한 대상과 같은 파일(dev, ino)일 때만
+///   그대로 쓴다(`/dev/fd/N`, 표준 출력을 돌린 파일).
 ///   셸이 이미 열어 둔 파일이라 그 자리에 이어 써야 한다(S0-T8 리뷰 3 지적 3). 그 밖에는 자르지
 ///   않고 쓰면 옛 꼬리가 남으므로 원자적 쓰기로 보낸다.
 /// - 그 밖(디렉터리는 열기에서 실패한다): 원자적 쓰기로 보낸다.
@@ -328,13 +365,15 @@ fn write_special(path: &Path, bytes: &[u8]) -> std::io::Result<bool> {
     use std::io::ErrorKind;
     use std::os::unix::fs::FileTypeExt;
 
+    // 분류는 열기 전에 끝낸다. 연 뒤에 경로를 다시 풀면 그 사이에 바뀐 경로를 볼 수 있다.
+    let dev = dev_classification(path);
     let mut file = match fs::OpenOptions::new().write(true).open(path) {
         Ok(f) => f,
         Err(e) => {
             let path_is_wrong =
                 matches!(e.kind(), ErrorKind::NotADirectory | ErrorKind::IsADirectory);
             let special =
-                classified_under_dev(path) || fs::metadata(path).is_ok_and(|m| !m.is_file());
+                matches!(dev, DevClass::Under(_)) || fs::metadata(path).is_ok_and(|m| !m.is_file());
             return if path_is_wrong || special {
                 Err(e)
             } else {
@@ -342,9 +381,10 @@ fn write_special(path: &Path, bytes: &[u8]) -> std::io::Result<bool> {
             };
         }
     };
-    let kind = file.metadata()?.file_type();
+    let meta = file.metadata()?;
+    let kind = meta.file_type();
     let direct = if kind.is_file() {
-        classified_under_dev(path)
+        matches!(dev, DevClass::Under(Some(id)) if id.matches(&meta))
     } else {
         kind.is_char_device() || kind.is_fifo()
     };
