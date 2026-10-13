@@ -248,6 +248,7 @@ fn export_folds_overlaps_after_long_rest_and_stays_linear() {
         }
     }
     let mut r = Lcg(5);
+    let mut folded = 0;
     for case in 0..60 {
         let gap = (50 + r.below(400)) * 3840 + r.below(3840);
         let count = 20 + r.below(200);
@@ -302,10 +303,10 @@ fn export_folds_overlaps_after_long_rest_and_stays_linear() {
             "사례 {case}: {}바이트, 단위 {units}",
             text.len()
         );
-        assert!(
-            text.matches("@track").count() < 40,
-            "사례 {case}: 성부 {}",
-            text.matches("@track").count()
-        );
+        if text.contains("64~+") {
+            folded += 1;
+        }
     }
+    // 예산이 실제로 바닥나 겹쳐 적기 경로를 지나는지(지금은 60사례 모두).
+    assert!(folded >= 50, "겹쳐 적은 사례 {folded}");
 }

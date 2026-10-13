@@ -180,14 +180,29 @@ fn export_keeps_grid_notes_free_of_offsets_when_chord_enters_after_100_bars() {
     }
 }
 
-/// 예산 경계 바로 아래(99마디)와 위(100마디): 둘 다 왕복하고, 위쪽은 실제로 겹쳐 적으며, 시작
-/// 보정은 −480..=+59 안이다. 못 깨뜨림.
+/// 예산 경계 바로 아래와 위: 둘 다 왕복하고, 위쪽은 실제로 겹쳐 적으며, 시작 보정은 −480..=+59
+/// 안이다. 못 깨뜨림.
+///
+/// (구현자 수정, 결정 2026-10-13 A) 처음에는 5음 패드를 99마디(아래)와 100마디(위)로 나눴다. 결정 A는
+/// 성부 16개까지 예산을 보지 않으므로 5음 패드는 어느 마디에서도 겹쳐 적지 않는다(같은 파일의 지적 2
+/// 테스트가 400마디까지 이를 요구한다). 그래서 경계를 400마디 뒤 16음(아래, 16성부)과 17음(위, 17번째
+/// 성부에서 예산이 모자람)으로 옮겼다. 검사하는 성질은 그대로다.
 #[test]
 fn rest_budget_boundary_round_trips_with_start_offsets_in_range() {
+    // `bars` 마디 쉰 뒤 16분음표 간격으로 `k`음이 들어와 서로 겹치는 패드(모두 그리드 위,
+    // 길이는 온음표 8개라 타이로 정확히 적힌다).
+    let late_pad = |bars: u64, k: u64| {
+        let s = bars * u64::from(W);
+        let ns: Vec<Note> = (0..k)
+            .map(|i| note(s + i * 240, 8 * W, u8::try_from(40 + i * 2).unwrap(), None))
+            .collect();
+        clip(s + (k - 1) * 240 + 8 * u64::from(W), &ns)
+    };
     let header = Header::default();
-    let below = round_trip(&header, 1, &late_build_up(99, 5)).unwrap();
-    assert_eq!(below.matches("@track").count(), 5, "{below}");
-    let above = round_trip(&header, 1, &late_build_up(100, 5)).unwrap();
+    let below = round_trip(&header, 1, &late_pad(400, 16)).unwrap();
+    assert_eq!(below.matches("@track").count(), 16, "{below}");
+    assert!(!below.contains('~'), "{below}");
+    let above = round_trip(&header, 1, &late_pad(400, 17)).unwrap();
     assert!(
         above.contains("64~+0:+"),
         "겹쳐 적기가 일어나지 않았다\n{above}"
