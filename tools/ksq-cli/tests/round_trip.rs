@@ -324,7 +324,9 @@ fn voices_project() -> impl Strategy<Value = ProjectSpec> {
 }
 
 /// 고정 시드로 1000개를 뽑아 손실 없는 사례 비율을 잰다(지금 441/1000). 생성기를 고치다 비율이
-/// 40% 밑으로 떨어지면 잡는다.
+/// 35% 밑으로 떨어지면 잡는다. 시드를 고정(`TestRunner::deterministic`)한 것은 실행마다 같은 값을
+/// 재려는 것이다. 시드를 바꾸면 414–470/1000 사이로 흔들려(S0-T8 리뷰 2 측정), 문턱은 그 최저보다
+/// 넉넉히 낮게 둔다.
 #[test]
 fn any_project_generates_lossless_cases_often() {
     use proptest::strategy::ValueTree;
@@ -342,7 +344,7 @@ fn any_project_generates_lossless_cases_often() {
 
     println!("손실 없는 사례 {lossless}/{total}");
     assert!(
-        lossless * 10 >= total * 4,
+        lossless * 100 >= total * 35,
         "손실 없는 사례 {lossless}/{total}"
     );
 }
