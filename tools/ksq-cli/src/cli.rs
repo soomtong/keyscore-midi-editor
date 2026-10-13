@@ -13,9 +13,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use keyscore_core::ksq::{self, Compression};
 use keyscore_text::Mode;
 
-use crate::{
-    CliError, Loss, MAX_EXPANSION, check, project_to_text_limited, text_to_project, write_fixtures,
-};
+use crate::{CliError, Loss, check, project_to_text, text_to_project, write_fixtures};
 
 const OK: u8 = 0;
 const FAILED: u8 = 1;
@@ -220,10 +218,10 @@ fn run_ksq2txt(
     for w in warnings {
         say!(err, "{}: 경고: {w}", input.display());
     }
-    // 파일 바이트도 기준으로 건다. `.ksqz`는 압축되어 작으므로, 압축 전 크기로만 재면 작은 파일이
-    // 거대한 텍스트를 만든다(S0-T8 리뷰 2 지적 1).
-    let file_len = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
-    let (text, losses) = project_to_text_limited(&project, MAX_EXPANSION.saturating_mul(file_len))?;
+    // 상한은 텍스트가 나르는 내용으로 다시 만든 프로젝트만 기준으로 한다. 파일 바이트를 기준에 넣으면
+    // 잘 압축되는 평범한 `.ksqz`가 거부된다(S0-T8 리뷰 3 지적 1). 다시 만든 프로젝트는 압축과
+    // 무관하므로 압축으로 부풀릴 수도 없다.
+    let (text, losses) = project_to_text(&project)?;
     for loss in &losses {
         say!(err, "{}: 손실: {loss}", input.display());
     }

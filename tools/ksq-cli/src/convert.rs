@@ -227,9 +227,7 @@ pub fn project_to_text(project: &Project) -> Result<(String, Vec<Loss>), CliErro
     to_text(project, u64::MAX)
 }
 
-/// [`project_to_text`]와 같되 `max_bytes`를 상한으로 더 건다(둘 가운데 작은 쪽). CLI는 입력 파일
-/// 바이트의 [`MAX_EXPANSION`]배를 넘긴다. `.ksqz`는 압축된 파일 바이트가 기준이 되어, 작은
-/// 압축 파일이 거대한 텍스트를 만들지 못한다.
+/// [`project_to_text`]와 같되 `max_bytes`를 상한으로 더 건다(둘 가운데 작은 쪽).
 ///
 /// # Errors
 ///
