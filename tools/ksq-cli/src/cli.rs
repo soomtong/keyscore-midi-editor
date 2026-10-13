@@ -235,12 +235,26 @@ fn run_ksq2txt(
     }
 }
 
-/// 출력이 이미 있고 일반 파일도 디렉터리도 아니면(문자 장치 `/dev/null`·`/dev/stdout`, FIFO 등)
-/// 그 실제 경로. 심볼릭 링크는 대상을 본다. 이런 출력에 임시 파일 + 이름 바꾸기를 쓰면 `/dev`에
-/// 임시 파일을 만들 수 없어 실패하거나 FIFO가 일반 파일로 바뀐다(S0-T8 리뷰 2 지적 3). 디렉터리는
-/// 원자적 쓰기 경로로 보내 실패하게 둔다.
+/// 임시 파일 + 이름 바꾸기 대신 그대로 열어 써야 하는 출력이면 열 경로.
+///
+/// - `/dev/` 아래 경로(`/dev/null`, `/dev/stdout`, `/dev/fd/N` 등). 주어진 경로나 심볼릭 링크를
+///   따라간 결과 어느 쪽이든 `/dev/` 아래면 그렇다. `/dev/stdout`의 대상 `/dev/fd/1`은 표준 출력이
+///   일반 파일로 돌려져 있으면 일반 파일로 보이고, `/dev`·`/dev/fd`에는 임시 파일을 만들 수 없다
+///   (S0-T8 리뷰 3 지적 3). 그래서 파일 종류를 보지 않고 경로로 판단한다.
+/// - 이미 있고 일반 파일도 디렉터리도 아닌 것(FIFO 등). 이름을 바꾸면 FIFO가 일반 파일로 바뀐다
+///   (S0-T8 리뷰 2 지적 3). 심볼릭 링크는 대상을 본다.
+///
+/// 디렉터리는 원자적 쓰기 경로로 보내 실패하게 둔다.
 fn special_output(path: &Path) -> Option<PathBuf> {
-    let target = resolve_symlink(path).ok()?;
+    let dev = Path::new("/dev");
+    let absolute = std::path::absolute(path).ok()?;
+    if absolute.starts_with(dev) {
+        return Some(absolute);
+    }
+    let target = resolve_symlink(&absolute).ok()?;
+    if target.starts_with(dev) {
+        return Some(target);
+    }
     let meta = fs::metadata(&target).ok()?;
     (!meta.is_file() && !meta.is_dir()).then_some(target)
 }
