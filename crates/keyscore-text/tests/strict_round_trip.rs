@@ -2,10 +2,11 @@
 //! `~`」, S0-T5 리뷰 6 지적 2). 공개 API만 쓴다.
 //!
 //! 생성기가 만들지 않는 엄격 모드 꼴(알려진 한계): 쉼표가 낀 셋잇단(`n(c r e)`), 셋잇단 원소에서
-//! 시작하는 타이, 17조각 이상 타이 사슬, 같은 이름의 성부 블록들이 셋잇단 쉼표 간격으로 엇갈리거나
-//! 같은 (시작, 길이, 음높이) 셋잇단 원소를 나누는 꼴(내보내기는 같은 시작·길이 노트를 한 화음으로
-//! 묶는다). 내보내기는 이들을 `~`로 적는다. 그래서 무작위 텍스트는 블록마다 다른 이름(트랙마다 한
-//! 갈래)을 쓰고, 여러 성부 블록은 고친 꼴을 결정적 테스트로 따로 본다.
+//! 시작하는 타이, 16조각으로 적을 수 없는 타이, 같은 이름의 성부 블록들이 셋잇단 쉼표 간격으로
+//! 엇갈리거나 같은 (시작, 길이, 음높이) 셋잇단 원소를 나누는 꼴(내보내기는 같은 시작·길이 노트를 한
+//! 화음으로 묶는다). 내보내기는 이들을 `~`로 적는다. 그래서 셋잇단을 넣는 무작위 텍스트는 블록마다
+//! 다른 이름(트랙마다 한 갈래)을 쓰고, 같은 이름 블록은 셋잇단 없이 따로 만든다(리뷰 7 지적 1).
+//! 셋잇단이 든 여러 성부 블록은 고친 꼴을 결정적 테스트로 본다.
 
 mod common;
 
@@ -69,7 +70,7 @@ fn sounding(drum: bool) -> impl Strategy<Value = String> {
         })
 }
 
-fn token(drum: bool) -> BoxedStrategy<String> {
+fn token(drum: bool, triplets: bool) -> BoxedStrategy<String> {
     let triplet = prop::collection::vec(
         (
             prop_oneof![
@@ -92,7 +93,7 @@ fn token(drum: bool) -> BoxedStrategy<String> {
     prop_oneof![
         6 => sounding(drum),
         2 => length().prop_map(|l| format!("r{l}")),
-        1 => triplet,
+        u32::from(triplets) => triplet,
         1 => commands.prop_map(str::to_owned),
     ]
     .boxed()
@@ -106,7 +107,7 @@ fn block() -> impl Strategy<Value = (u8, String)> {
     )
         .prop_flat_map(|(drum, l)| {
             let ch = if drum { 10 } else { 1 };
-            prop::collection::vec(token(drum), 1..24)
+            prop::collection::vec(token(drum, true), 1..24)
                 .prop_map(move |ts| (ch, format!("{l} {}\n", ts.join(" "))))
         })
 }
@@ -123,6 +124,35 @@ fn strict_text() -> impl Strategy<Value = String> {
                 let _ = write!(t, "@track {} ch{ch}\n{body}", NAMES[i]);
             }
             t
+        })
+}
+
+/// 같은 이름(같은 채널)의 성부 블록 2–3개. 셋잇단은 넣지 않는다: 알려진 예외(셋잇단이 셋잇단 쉼표
+/// 간격으로 엇갈리거나 같은 원소를 나누는 꼴)가 모두 셋잇단 꼴이라서다. 그 밖의 성부 배정(쉼표로
+/// 못 채우는 간격에서 새 성부 열기, S0-T5 리뷰 7 지적 1)은 이 생성기가 본다.
+fn voice_block_text() -> impl Strategy<Value = String> {
+    (
+        prop::sample::select(vec!["", "@time 3/4\n", "@time 7/8\n"]),
+        any::<bool>(),
+        prop::collection::vec(
+            (
+                prop::sample::select(vec!["l4", "l8", "l16", "l1", "l2.", "l64"]),
+                prop::collection::vec(any::<prop::sample::Index>(), 1..16),
+            ),
+            2..4,
+        ),
+    )
+        .prop_flat_map(|(h, drum, blocks)| {
+            let ch = if drum { 10 } else { 1 };
+            let bodies: Vec<BoxedStrategy<String>> = blocks
+                .into_iter()
+                .map(|(l, toks)| {
+                    prop::collection::vec(token(drum, false), toks.len())
+                        .prop_map(move |ts| format!("@track A ch{ch}\n{l} {}\n", ts.join(" ")))
+                        .boxed()
+                })
+                .collect();
+            bodies.prop_map(move |bs| format!("{h}{}", bs.concat()))
         })
 }
 
@@ -175,6 +205,25 @@ fn strict_voice_blocks_export_to_strict_text() {
 
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(512))]
+
+    #[test]
+    fn strict_voice_block_text_exports_to_strict_text(text in voice_block_text()) {
+        let Ok(p) = parse(&text, Mode::Strict) else {
+            return Ok(());
+        };
+        let out = export_parsed(&p);
+        let q = parse(&out, Mode::Strict);
+        prop_assert!(q.is_ok(), "{:?}\n원문:\n{}\n내보냄:\n{}", q.err(), text, out);
+        let q = q.unwrap();
+        for (a, b) in p.tracks().iter().zip(q.tracks()) {
+            let (mut x, mut y) = (notes(a.clip()), notes(b.clip()));
+            x.sort();
+            y.sort();
+            prop_assert_eq!(x, y, "{}", out);
+            prop_assert_eq!(a.clip().length(), b.clip().length(), "{}", out);
+        }
+        prop_assert_eq!(export_parsed(&q), out);
+    }
 
     #[test]
     fn strict_text_exports_to_strict_text(text in strict_text()) {

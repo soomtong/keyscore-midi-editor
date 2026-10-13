@@ -38,7 +38,7 @@ pub struct ExportTrack<'a> {
 /// 이어 붙은 셋의 셋잇단(어디서 묶을지는 `~`가 붙는 음이 가장 적게), 쉼표로 정확히 채울 수 있는
 /// 간격(점·겹점 64분쉼표 포함). 그 밖은 가장 가까운 길이에 `~<±시작>[:<±길이>]`를 붙인다.
 /// 엄격 모드로 읽히는 텍스트는 대개 다시 엄격 모드로 읽히는 텍스트로 나간다. 예외(알려진 한계):
-/// 쉼표가 낀 셋잇단, 셋잇단 원소에서 시작하는 타이, 17조각 이상 타이, 같은 이름 성부 블록들이
+/// 쉼표가 낀 셋잇단, 셋잇단 원소에서 시작하는 타이, 16조각으로 적을 수 없는 타이, 같은 이름 성부 블록들이
 /// 셋잇단 쉼표 간격으로 엇갈리거나 같은 셋잇단 원소를 나누는 꼴.
 #[must_use]
 pub fn export(header: &Header, tracks: &[ExportTrack<'_>]) -> String {
@@ -365,14 +365,14 @@ fn voices(events: Vec<Event<'_>>, header_cost: u64) -> Vec<Vec<Event<'_>>> {
                     .find(|&&f| clean(grid_cursor[f]))
             })
             .copied();
-        // 깨끗한 빈 성부가 없고, 빈 성부의 커서가 셋잇단 때문에 15틱 격자 밖에 있어 셋잇단 쉼표가
-        // 있어야 이어 쓸 수 있으면, 클립 시작에서 쉼표로 닿는 새 성부를 연다(여유가 있을 때만).
-        // 녹음된 비그리드 노트는 커서가 격자 위라 여기에 해당하지 않는다.
+        // 깨끗한 빈 성부가 없으면(커서에서 시작까지가 셋잇단 쉼표나 15·30·45·75·135틱처럼 쉼표로
+        // 못 채우는 간격) 그 성부에 `~`로 넣지 않고, 클립 시작에서 쉼표로 닿는 새 성부를 연다(여유가
+        // 있을 때만, S0-T5 리뷰 7 지적 1). 사건 자체가 그리드 길이일 때만 연다. 녹음된 비그리드
+        // 노트는 새 성부에서도 `~`를 받으므로 성부만 늘기 때문이다.
         let fresh = good.is_none()
             && clean(0)
-            && free
-                .first()
-                .is_some_and(|&f| !grid_cursor[f].is_multiple_of(15))
+            && !free.is_empty()
+            && (lengths::exact(ev.length).is_some() || floor_preferred(ev.length))
             && (voices.len() < FREE_VOICES || cost(0) + header_cost <= budget);
         let first = if fresh {
             None
