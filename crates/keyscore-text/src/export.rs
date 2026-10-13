@@ -33,9 +33,13 @@ pub struct ExportTrack<'a> {
 ///   (`docs/decisions/2026-10-12-ktext-implementation-details.md`).
 ///
 /// 적는 방식: 같은 시작·길이의 노트는 화음으로 묶고, 겹치는 것은 같은 이름의 블록(성부)으로
-/// 나눈다. 표기 가능한 길이로 그리드에 놓인 노트는 접미 없이, 그 밖은 가장 가까운 길이에
-/// `~<±시작>[:<±길이>]`를 붙인다. 온음표보다 긴 노트는 온음표 배수 + 표기 길이면 타이로
-/// (조각 16개까지), 셋 연속으로 표기 길이의 2/3인 노트는 셋잇단으로 적는다.
+/// 나눈다. 그리드 길이 집합(점·겹점·셋잇단 포함)으로 정확히 적을 수 있는 노트는 접미 없이 적는다
+/// (REQ 5.14): 표기 길이 하나, 표기 길이들의 타이(온음표들 + 나머지의 최소 분해, 조각 16개까지),
+/// 이어 붙은 셋의 셋잇단(어디서 묶을지는 `~`가 붙는 음이 가장 적게), 쉼표로 정확히 채울 수 있는
+/// 간격(점·겹점 64분쉼표 포함). 그 밖은 가장 가까운 길이에 `~<±시작>[:<±길이>]`를 붙인다.
+/// 엄격 모드로 읽히는 텍스트는 대개 다시 엄격 모드로 읽히는 텍스트로 나간다. 예외(알려진 한계):
+/// 쉼표가 낀 셋잇단, 셋잇단 원소에서 시작하는 타이, 17조각 이상 타이, 같은 이름 성부 블록들이
+/// 셋잇단 쉼표 간격으로 엇갈리거나 같은 셋잇단 원소를 나누는 꼴.
 #[must_use]
 pub fn export(header: &Header, tracks: &[ExportTrack<'_>]) -> String {
     let mut out = String::new();
@@ -271,6 +275,10 @@ const HEADER_FREE_BYTES: u64 = 64;
 /// 성부는 60틱마다 사건 하나만 받는다. 그래서 짧은 노트가 촘촘하면 성부 수가 겹침 수 ×
 /// (60 / 가장 짧은 노트 길이) 근처까지, 최대 약 60배로 는다(1틱 노트 겹침 3 → 176성부,
 /// S0-T5 리뷰 2 지적 3). 읽기 좋은 출력이 필요해지면(S3) 다시 본다.
+#[allow(
+    clippy::too_many_lines,
+    reason = "busy·low·end·free_at·힙·집합을 한 사건마다 함께 갱신해야 서로 어긋나지 않는다"
+)]
 fn voices(events: Vec<Event<'_>>, header_cost: u64) -> Vec<Vec<Event<'_>>> {
     // 사건은 시작 순이라 마지막 사건이 가장 늦게 시작한다.
     let last_start = events.last().map_or(0, |e| e.start);
@@ -283,6 +291,12 @@ fn voices(events: Vec<Event<'_>>, header_cost: u64) -> Vec<Vec<Event<'_>>> {
     // 마지막 사건을 접어 적었다면의 busy. 예산 밖에서 그 사건을 거슬러 접을 수 있다.
     let mut low: Vec<u64> = Vec::new();
     let mut end: Vec<u64> = Vec::new();
+    // 작성기(`VoiceWriter`)의 커서를 같은 규칙으로 흉내 낸 값(`writer_cursor_after`). `busy`는
+    // 앞지름 한도를 지키는 위쪽 한계라 셋잇단 64분음표(40틱)를 60틱으로 어림하므로, 다음 음까지를
+    // 쉼표로 정확히 채울 수 있는지는 이 값으로 본다.
+    let mut grid_cursor: Vec<u64> = Vec::new();
+    // 성부의 마지막 두 사건 길이(셋잇단을 한 성부에 잇는 데 쓴다).
+    let mut last_len: Vec<[u64; 2]> = Vec::new();
     let mut free_at: Vec<u64> = Vec::new();
     // (빌 시각, 성부 번호). 빌 시각 = max(실제 끝, busy − MAX_DRIFT). 바뀐 성부의 옛 항목은
     // 꺼낼 때 `free_at`과 비교해 버린다.
@@ -291,6 +305,12 @@ fn voices(events: Vec<Event<'_>>, header_cost: u64) -> Vec<Vec<Event<'_>>> {
     // 모든 성부의 (low, 번호). 예산 밖에서 커서를 가장 늦게 둘 수 있는 성부를 찾는다.
     let mut by_low: BTreeSet<(u64, usize)> = BTreeSet::new();
     let fold_advance = lengths::NOTATIONS[20].ticks;
+    // 셋잇단 길이 사건의 시작 → 길이들. 셋잇단 원소를 한 성부에 모으는 데 쓴다.
+    let mut triplet_starts: std::collections::HashMap<u64, Vec<u64>> =
+        std::collections::HashMap::new();
+    for e in events.iter().filter(|e| triplet_length(e.length)) {
+        triplet_starts.entry(e.start).or_default().push(e.length);
+    }
     for mut ev in events {
         while let Some(&Reverse((at, i))) = pending.peek() {
             if at > ev.start {
@@ -303,7 +323,52 @@ fn voices(events: Vec<Event<'_>>, header_cost: u64) -> Vec<Vec<Event<'_>>> {
         }
         // 성부 커서 `b`에서 시작까지 채울 온음표 쉼표 수.
         let cost = |b: u64| ev.start.saturating_sub(b) / WHOLE;
-        let first = free.first().copied();
+        // 빈 성부 가운데 커서에서 시작까지를 쉼표로 정확히 채울 수 있는(또는 바로 이어지는) 앞
+        // 번호의 성부. 그렇지 않은 성부에 넣으면 그리드 위 음에도 시작 보정 `~`가 붙는다(두 블록이
+        // 섞여 셋잇단이 갈라지는 꼴, S0-T5 리뷰 6 지적 2). 한 사건에 앞 16개까지만 본다(선형 유지).
+        // 먼저 진행 중인 셋잇단(앞 두 사건 가운데 하나가 셋잇단 길이이고 바로 이어짐)을 잇는 성부를
+        // 고른다. 셋잇단 원소가 성부 사이로 갈라지면 묶을 수 없다. 원소 가운데는 그 자체로 표기
+        // 가능한 길이도 있어(`l4.` 뒤 `n(c2 c c)`의 960) 앞 두 사건을 본다.
+        // 뒤에 셋잇단 길이 사건이 둘 이어지지 않는 셋잇단 길이 사건은 앞 사건(그 자체로 표기 가능한
+        // 길이일 수 있다, `n(c1. c c)`의 3840)과 묶여야 하므로 그 앞 사건이 있는 성부를 고른다.
+        let needs_prev = triplet_length(ev.length)
+            && !triplet_starts.get(&ev.end()).is_some_and(|ls| {
+                ls.iter()
+                    .any(|&l| triplet_starts.contains_key(&(ev.end() + l)))
+            });
+        let clean = |c: u64| {
+            ev.start
+                .checked_sub(c)
+                .is_some_and(|g| g == 0 || lengths::restable(g))
+        };
+        let good = free
+            .iter()
+            .take(FREE_VOICES)
+            .find(|&&f| {
+                end[f] == ev.start
+                    && (last_len[f].iter().any(|&l| triplet_length(l))
+                        || needs_prev && triplet_shaped(last_len[f][1]))
+            })
+            .or_else(|| {
+                free.iter()
+                    .take(FREE_VOICES)
+                    .find(|&&f| clean(grid_cursor[f]))
+            })
+            .copied();
+        // 깨끗한 빈 성부가 없고, 빈 성부의 커서가 셋잇단 때문에 15틱 격자 밖에 있어 셋잇단 쉼표가
+        // 있어야 이어 쓸 수 있으면, 클립 시작에서 쉼표로 닿는 새 성부를 연다(여유가 있을 때만).
+        // 녹음된 비그리드 노트는 커서가 격자 위라 여기에 해당하지 않는다.
+        let fresh = good.is_none()
+            && clean(0)
+            && free
+                .first()
+                .is_some_and(|&f| !grid_cursor[f].is_multiple_of(15))
+            && (voices.len() < FREE_VOICES || cost(0) + header_cost <= budget);
+        let first = if fresh {
+            None
+        } else {
+            good.or_else(|| free.first().copied())
+        };
         // 성부가 `FREE_VOICES` 이하로 남는 동안은 예산을 보지 않는다(비용은 빼 둔다).
         let fits = match first {
             Some(f) => voices.len() <= FREE_VOICES || cost(busy[f]) <= budget,
@@ -333,6 +398,8 @@ fn voices(events: Vec<Event<'_>>, header_cost: u64) -> Vec<Vec<Event<'_>>> {
             busy.push(0);
             low.push(0);
             end.push(0);
+            last_len.push([0, 0]);
+            grid_cursor.push(0);
             free_at.push(0);
             voices.len() - 1
         });
@@ -346,12 +413,14 @@ fn voices(events: Vec<Event<'_>>, header_cost: u64) -> Vec<Vec<Event<'_>>> {
         let advance = if ev.folded {
             fold_advance
         } else {
-            lengths::nearest(ev.length).ticks.max(ev.length)
+            single_advance(ev.length)
         };
         let base = busy[i].max(ev.start);
         busy[i] = base + advance;
         low[i] = base + fold_advance;
         end[i] = end[i].max(ev.end());
+        last_len[i] = [last_len[i][1], ev.length];
+        grid_cursor[i] = writer_cursor_after(grid_cursor[i], &ev);
         free_at[i] = end[i].max(busy[i].saturating_sub(MAX_DRIFT));
         by_low.insert((low[i], i));
         pending.push(Reverse((free_at[i], i)));
@@ -386,12 +455,15 @@ fn write_track(out: &mut String, t: &ExportTrack<'_>, bar: u64) {
     // 클립 길이: 가져온 클립의 길이는 노트 끝과 쉼표 끝 가운데 가장 늦은 것이다.
     let length = t.clip.length();
     if length != max_end {
-        let c0 = writers[0].cursor;
-        match nearest_reachable(length, max_end, c0) {
+        let cursors: Vec<u64> = writers.iter().map(|w| w.cursor).collect();
+        match nearest_reachable(length, max_end, &cursors) {
             (_, Fill::None) => {}
-            (target, Fill::FirstVoice) => writers[0].rests(&lengths::rests_of(target - c0)),
+            (target, Fill::Voice(v)) => {
+                let c = writers[v].cursor;
+                writers[v].rests(&lengths::rests_of(target - c));
+            }
             (target, Fill::RestVoice) => {
-                // 첫 성부의 커서로는 닿지 않는다. 쉼표만 있는 성부를 더한다.
+                // 어느 성부의 커서로도 닿지 않는다. 쉼표만 있는 성부를 더한다.
                 let mut w = VoiceWriter::new(drum, bar);
                 w.rests(&lengths::rests_of(target));
                 writers.push(w);
@@ -417,8 +489,9 @@ fn write_track(out: &mut String, t: &ExportTrack<'_>, bar: u64) {
 enum Fill {
     /// 노트 끝이 그 길이다.
     None,
-    /// 첫 성부의 커서 뒤에 쉼표를 쓴다.
-    FirstVoice,
+    /// 그 성부의 커서 뒤에 쉼표를 쓴다. 성부 커서가 서로 달라(셋잇단 뒤 등) 첫 성부로는 정확히
+    /// 닿지 않는 길이도 다른 성부로는 닿을 수 있다(S0-T5 리뷰 6 지적 2의 엄격 모드 왕복).
+    Voice(usize),
     /// 쉼표만 있는 성부를 더한다.
     RestVoice,
 }
@@ -428,9 +501,14 @@ enum Fill {
 /// 클립에서 차이가 커지므로 위쪽도 본다(S0-T5 리뷰 1 지적 1).
 ///
 /// 고른 길이는 다시 내보낼 때 거리 0인 후보라서 같은 방법이 다시 뽑힌다(재내보내기 안정).
-fn nearest_reachable(length: u64, max_end: u64, c0: u64) -> (u64, Fill) {
+fn nearest_reachable(length: u64, max_end: u64, cursors: &[u64]) -> (u64, Fill) {
     let mut candidates = vec![(max_end, Fill::None)];
-    for (base, fill) in [(c0, Fill::FirstVoice), (0, Fill::RestVoice)] {
+    let bases = cursors
+        .iter()
+        .enumerate()
+        .map(|(v, &c)| (c, Fill::Voice(v)))
+        .chain([(0, Fill::RestVoice)]);
+    for (base, fill) in bases {
         let x = length.saturating_sub(base);
         let below = lengths::largest_restable(x);
         let above = lengths::smallest_restable_from(x);
@@ -459,6 +537,80 @@ fn nearest_reachable(length: u64, max_end: u64, c0: u64) -> (u64, Fill) {
 /// 1,118,481개(약 5 MB)로 내보내진다(S0-T5 리뷰 2 지적 1). 16조각(4/4 16마디)이면 실제 곡의 긴
 /// 지속음은 타이로 읽기 좋게 남고, 노트 하나의 출력은 상수로 묶인다.
 const MAX_TIE_PIECES: u64 = 16;
+
+/// 커서 `c`에서 사건 `ev`를 적은 뒤의 작성기 커서. `VoiceWriter::fill_gap`·`event`와 같은 규칙이다.
+/// 셋잇단 길이는 셋잇단으로 묶인다고 보고 실제 길이만큼 옮긴다(묶이지 않으면 실제 길이 이하).
+fn writer_cursor_after(c: u64, ev: &Event<'_>) -> u64 {
+    let mut c = c;
+    if let Some(gap) = ev.start.checked_sub(c) {
+        if gap > 0 && lengths::restable(gap) {
+            c = ev.start;
+        } else if gap >= 60 {
+            c += gap - gap % 60;
+        }
+    }
+    let advance = if ev.folded {
+        lengths::NOTATIONS[20].ticks
+    } else if c == ev.start && floor_preferred(ev.length) {
+        ev.length
+    } else {
+        lengths::exact(ev.length).map_or_else(|| single_notation(ev.length).ticks, |n| n.ticks)
+    };
+    c + advance
+}
+
+/// 셋잇단 원소가 될 수 있는 길이(표기 길이의 2/3). 그 자체로 표기 가능한 길이도 포함한다.
+fn triplet_shaped(ticks: u64) -> bool {
+    ticks > 0 && (ticks * 3).is_multiple_of(2) && lengths::exact(ticks * 3 / 2).is_some()
+}
+
+/// 셋잇단 원소가 될 수 있는 길이(표기 길이의 2/3)이면서 그냥은 표기할 수 없다.
+fn triplet_length(ticks: u64) -> bool {
+    lengths::exact(ticks).is_none()
+        && (ticks * 3).is_multiple_of(2)
+        && lengths::exact(ticks * 3 / 2).is_some()
+}
+
+/// 실제 길이 이하의 표기로 적어야 하는 길이: 셋잇단 길이와 타이로 적을 수 있는 길이. 이런 사건은
+/// 셋잇단이나 타이로 적히면 커서가 정확히 실제 길이만큼 나아간다. 시작 보정 때문에 따로 적게
+/// 되어도 커서가 실제 길이를 넘지 않게 해야, 성부 배정이 커서를 실제 길이로 어림할 수 있고
+/// 셋잇단·타이 뒤의 음이 같은 성부에 남는다(S0-T5 리뷰 6 지적 2).
+fn floor_preferred(ticks: u64) -> bool {
+    triplet_length(ticks) || lengths::tie_pieces(ticks, MAX_TIE_PIECES).is_some()
+}
+
+/// 표기 길이 하나로 적을 때의 명목 길이. 보통은 가장 가까운 표기(REQ 5.14)이고,
+/// `floor_preferred` 길이는 실제 길이 이하의 가장 긴 표기다.
+fn single_notation(ticks: u64) -> Notation {
+    if floor_preferred(ticks)
+        && let Some(n) = lengths::NOTATIONS.iter().find(|n| n.ticks <= ticks)
+    {
+        return *n;
+    }
+    lengths::nearest(ticks)
+}
+
+/// 겹쳐 적지 않은 사건 하나가 성부 커서를 옮기는 양의 위쪽 한계: 표기 하나(`single_notation`),
+/// 타이 사슬(실제 길이), 셋잇단(실제 길이) 가운데 가장 큰 것.
+fn single_advance(ticks: u64) -> u64 {
+    single_notation(ticks).ticks.max(ticks)
+}
+
+/// 사건을 `~` 없이 적을 수 있는가(시작 정렬은 따로 본다): 표기 길이 하나이거나 타이 사슬.
+fn grid_exact(e: &Event<'_>) -> bool {
+    !e.folded
+        && (lengths::exact(e.length).is_some()
+            || lengths::tie_pieces(e.length, MAX_TIE_PIECES).is_some())
+}
+
+/// 셋이 이어 붙어 있고 모두 표기 길이의 2/3이다(겹쳐 적은 사건은 빼고).
+fn triplet_shape(g: &[Event<'_>]) -> bool {
+    g.iter().all(|e| !e.folded)
+        && g[1].start == g[0].end()
+        && g[2].start == g[1].end()
+        && g.iter()
+            .all(|e| (e.length * 3) % 2 == 0 && lengths::exact(e.length * 3 / 2).is_some())
+}
 
 /// 성부 블록 하나의 본문을 적는다. 커서는 파서와 같이 명목 길이로 나아간다.
 struct VoiceWriter {
@@ -568,12 +720,29 @@ impl VoiceWriter {
         (vec![], format!("[{}]", inner.join(" ")))
     }
 
+    /// 셋잇단으로 묶을 자리를 정해 적는다. 앞에서부터 탐욕으로 묶으면 그냥 표기할 수 있는 음
+    /// (8분음표 480은 점8분 720의 2/3이기도 하다)이 뒤 셋잇단의 첫 음을 빼앗아 정렬이 어긋난다
+    /// (S0-T5 리뷰 6 지적 2). 그래서 뒤에서부터 「`~`가 붙는 사건 수」가 가장 적은 묶음을 고른다.
+    /// 같으면 묶지 않는다(4분음표 셋을 `n(c2. d2. e2.)`로 적지 않게).
     fn events(&mut self, evs: &[Event<'_>]) {
+        let n = evs.len();
+        let mut best = vec![0usize; n + 1];
+        let mut group = vec![false; n];
+        for i in (0..n).rev() {
+            let single = usize::from(!grid_exact(&evs[i])) + best[i + 1];
+            match evs.get(i..i + 3).filter(|g| triplet_shape(g)) {
+                Some(_) if best[i + 3] < single => {
+                    best[i] = best[i + 3];
+                    group[i] = true;
+                }
+                _ => best[i] = single,
+            }
+        }
         let mut i = 0;
-        while i < evs.len() {
-            if let Some(group) = evs.get(i..i + 3).filter(|g| self.is_triplet(g)) {
-                self.fill_gap(group[0].start);
-                self.triplet(group);
+        while i < n {
+            if group[i] && self.is_triplet(&evs[i..i + 3]) {
+                self.fill_gap(evs[i].start);
+                self.triplet(&evs[i..i + 3]);
                 i += 3;
             } else {
                 self.event(&evs[i]);
@@ -582,18 +751,10 @@ impl VoiceWriter {
         }
     }
 
-    /// 셋이 이어 붙어 있고, 모두 표기 길이의 2/3이며, 하나라도 그냥은 표기할 수 없을 때만
-    /// 셋잇단으로 적는다(4분음표 셋을 `n(c2. d2. e2.)`로 적지 않게).
+    /// 셋잇단 모양이고, 커서에서 첫 음까지를 쉼표로 정확히 채울 수 있다.
     fn is_triplet(&self, g: &[Event<'_>]) -> bool {
         let gap = i128::from(g[0].start) - i128::from(self.cursor);
-        gap >= 0
-            && gap % 60 == 0
-            && g.iter().all(|e| !e.folded)
-            && g[1].start == g[0].end()
-            && g[2].start == g[1].end()
-            && g.iter()
-                .all(|e| (e.length * 3) % 2 == 0 && lengths::exact(e.length * 3 / 2).is_some())
-            && g.iter().any(|e| lengths::exact(e.length).is_none())
+        triplet_shape(g) && u64::try_from(gap).is_ok_and(|gap| gap == 0 || lengths::restable(gap))
     }
 
     fn triplet(&mut self, g: &[Event<'_>]) {
@@ -609,14 +770,15 @@ impl VoiceWriter {
         self.advance(g.iter().map(|e| e.length).sum());
     }
 
-    /// 다음 사건의 시작까지 60틱 단위 쉼표로 채우고, 남은 시작 보정을 돌려준다.
+    /// 다음 사건의 시작까지 쉼표로 채우고, 남은 시작 보정을 돌려준다. 간격을 쉼표로 정확히 채울
+    /// 수 있으면(점·겹점 64분쉼표 포함) 그렇게 하고(보정 0), 아니면 60틱 단위로 채운다.
     /// 쉼표를 시작보다 늦게 끝내지 않는다(쉼표 끝도 클립 길이에 들어가므로).
     fn fill_gap(&mut self, start: u64) -> i64 {
         let gap = i128::from(start) - i128::from(self.cursor);
-        if gap >= 60 {
-            // gap ≥ 60이라 u64에 들어간다.
-            let fill = u64::try_from(gap - gap % 60).unwrap_or(0);
-            self.rests(&lengths::rests_of_multiple_of_60(fill));
+        match u64::try_from(gap) {
+            Ok(g) if g > 0 && lengths::restable(g) => self.rests(&lengths::rests_of(g)),
+            Ok(g) if g >= 60 => self.rests(&lengths::rests_of_multiple_of_60(g - g % 60)),
+            _ => {}
         }
         // 남은 간격은 다음 음의 시작 보정이다. 틱은 u64지만 차이는 클립 길이 안이다.
         i64::try_from(i128::from(start) - i128::from(self.cursor)).unwrap_or(i64::MAX)
@@ -626,20 +788,12 @@ impl VoiceWriter {
         let so = self.fill_gap(ev.start);
         let lyric = ev.lyric.map(quote).unwrap_or_default();
         let len = ev.length;
-        let rem = len % WHOLE;
-        let pieces_count = len / WHOLE + u64::from(rem > 0);
-        if so == 0
-            && !ev.folded
-            && len > WHOLE
-            && pieces_count <= MAX_TIE_PIECES
-            && lengths::exact(len).is_none()
-            && (rem == 0 || lengths::exact(rem).is_some())
-        {
-            // 온음표 타이 사슬. 가사는 첫 조각에만 둔다(이어지는 쪽 가사는 오류).
-            let mut pieces = vec![WHOLE; usize::try_from(len / WHOLE).unwrap_or(0)];
-            if rem > 0 {
-                pieces.push(rem);
-            }
+        let tie = (so == 0 && !ev.folded && lengths::exact(len).is_none())
+            .then(|| lengths::tie_pieces(len, MAX_TIE_PIECES))
+            .flatten();
+        if let Some(pieces) = tie {
+            // 타이 사슬(온음표들 + 나머지의 최소 분해). 가사는 첫 조각에만 둔다(이어지는 쪽
+            // 가사는 오류).
             let last = pieces.len() - 1;
             for (i, &p) in pieces.iter().enumerate() {
                 let (pre, name) = self.event_head(&ev.pitches);
@@ -658,7 +812,7 @@ impl VoiceWriter {
         } else {
             match lengths::exact(len) {
                 Some(n) => n,
-                None => lengths::nearest(len),
+                None => single_notation(len),
             }
         };
         // 길이 차이는 u32 노트 길이와 표기 길이(≤ 6720) 사이라 i64에 들어간다.

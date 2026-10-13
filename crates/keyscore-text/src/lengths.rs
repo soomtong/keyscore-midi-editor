@@ -148,6 +148,73 @@ pub(crate) fn rests_of(ticks: u64) -> Vec<u64> {
     out
 }
 
+/// 온음표 둘(7680틱) 이하 15틱 배수 값의 최소 조각 분해. 칸 `v / 15`에 (조각 수, 첫 조각)이 있다.
+/// 같은 조각 수면 첫 조각이 긴 쪽이다. 한 번만 만든다.
+fn min_pieces_table() -> &'static [Option<(u8, u64)>] {
+    static TABLE: std::sync::OnceLock<Vec<Option<(u8, u64)>>> = std::sync::OnceLock::new();
+    TABLE.get_or_init(|| {
+        let size = usize::try_from(2 * WHOLE / 15).unwrap_or(0) + 1;
+        let mut t: Vec<Option<(u8, u64)>> = vec![None; size];
+        t[0] = Some((0, 0));
+        for i in 1..size {
+            let v = u64::try_from(i).unwrap_or(0) * 15;
+            for n in NOTATIONS {
+                if n.ticks > v {
+                    continue;
+                }
+                let rest = usize::try_from((v - n.ticks) / 15).unwrap_or(0);
+                if let Some((c, _)) = t[rest] {
+                    let better = match t[i] {
+                        None => true,
+                        Some((best, _)) => c + 1 < best,
+                    };
+                    if better {
+                        t[i] = Some((c + 1, n.ticks));
+                    }
+                }
+            }
+        }
+        t
+    })
+}
+
+/// `ticks`(≤ 온음표 둘)를 표기 길이들로 나눈 최소 조각(긴 것부터). 나눌 수 없으면 `None`.
+fn min_pieces(ticks: u64) -> Option<Vec<u64>> {
+    if ticks > 2 * WHOLE || !ticks.is_multiple_of(15) {
+        return None;
+    }
+    let table = min_pieces_table();
+    let mut out = Vec::new();
+    let mut v = ticks;
+    while v > 0 {
+        let (_, first) = table[usize::try_from(v / 15).ok()?]?;
+        out.push(first);
+        v -= first;
+    }
+    Some(out)
+}
+
+/// 표기 길이 하나로 적을 수 없는 노트 길이를 타이로 잇는 조각들: 온음표들 + 나머지의 최소 분해.
+/// 그리드 길이로 정확히 적을 수 있는 노트에 `~`를 붙이지 않게 한다(REQ 5.14, S0-T5 리뷰 6
+/// 지적 2). 조각이 `max_pieces`를 넘거나 나눌 수 없으면 `None`.
+pub(crate) fn tie_pieces(ticks: u64, max_pieces: u64) -> Option<Vec<u64>> {
+    let (mut wholes, mut rem) = (ticks / WHOLE, ticks % WHOLE);
+    let mut tail = min_pieces(rem);
+    if tail.is_none() && wholes > 0 {
+        // 나머지가 너무 작으면(예: 30틱) 온음표 하나와 합쳐 나눈다.
+        wholes -= 1;
+        rem += WHOLE;
+        tail = min_pieces(rem);
+    }
+    let tail = tail?;
+    if wholes + u64::try_from(tail.len()).ok()? > max_pieces {
+        return None;
+    }
+    let mut pieces = vec![WHOLE; usize::try_from(wholes).ok()?];
+    pieces.extend(tail);
+    Some(pieces)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -177,6 +244,24 @@ mod tests {
                 above >= t.max(1) && restable(above) && above - t.max(1) < 60,
                 "{t}"
             );
+        }
+    }
+
+    #[test]
+    fn tie_pieces_are_minimal_and_sum_exactly() {
+        assert_eq!(tie_pieces(1200, 16), Some(vec![960, 240]));
+        assert_eq!(tie_pieces(2400, 16), Some(vec![1920, 480]));
+        assert_eq!(tie_pieces(7680, 16), Some(vec![3840, 3840]));
+        assert_eq!(tie_pieces(3840 + 210, 16), Some(vec![3840, 210]));
+        assert_eq!(tie_pieces(3840 + 30, 16), Some(vec![3360, 420, 90]));
+        assert_eq!(tie_pieces(30, 16), None);
+        assert_eq!(tie_pieces(1201, 16), None);
+        assert_eq!(tie_pieces(17 * 3840, 16), None);
+        for t in (0..3 * WHOLE).step_by(15) {
+            if let Some(p) = tie_pieces(t, 64) {
+                assert_eq!(p.iter().sum::<u64>(), t, "{t}");
+                assert!(p.iter().all(|&x| exact(x).is_some()), "{t}");
+            }
         }
     }
 
