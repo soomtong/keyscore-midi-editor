@@ -228,10 +228,12 @@ pub fn ksq2txt(args: &[OsString], out: &mut dyn Write, err: &mut dyn Write) -> u
         Ok(()) => OK,
         Err(e) => {
             say!(err, "실패: {e}");
-            if matches!(e, CliError::OutputTooLarge { .. }) {
+            // 어림(또는 안전망의 실제 크기)은 이 실행이 통과하는 가장 작은 상한이다. 고정 예시는 정작
+            // 거부되는 긴 곡의 어림보다 작아 따라 해도 다시 거부된다(S0-T8 리뷰 4 제안 2).
+            if let CliError::OutputTooLarge { estimated, .. } = e {
                 say!(
                     err,
-                    "상한은 `--max-output <바이트>`로 바꿀 수 있다(예: --max-output 100000000)."
+                    "`--max-output {estimated}` 이상을 주면 변환한다(실제 텍스트는 대개 이보다 훨씬 작다)."
                 );
             }
             FAILED

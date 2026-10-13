@@ -515,3 +515,37 @@ fn max_output_argument_errors_are_usage_errors() {
         .unwrap();
     assert_eq!(o.status.code(), Some(2), "{}", stderr(&o));
 }
+
+#[test]
+fn ksq2txt_rejection_hint_gives_max_output_that_converts() {
+    let dir = temp_dir("hint");
+    let input = dir.join("far.ksq");
+    // 2만 마디 뒤 클립 하나. 기본 상한은 넘고, 안내한 값을 주면 변환된다.
+    let far = small_ksq().replacen("\"start\": 0", "\"start\": 76800000", 1);
+    fs::write(&input, far).unwrap();
+
+    let refused = run(KSQ2TXT, &[&input]);
+    let err = stderr(&refused);
+    let hint: String = err
+        .split("--max-output ")
+        .nth(1)
+        .unwrap_or_else(|| panic!("{err}"))
+        .chars()
+        .take_while(char::is_ascii_digit)
+        .collect();
+    let again = run(
+        KSQ2TXT,
+        &[&input, Path::new("--max-output"), Path::new(&hint)],
+    );
+    let below = (hint.parse::<u64>().unwrap() - 1).to_string();
+    let short = run(
+        KSQ2TXT,
+        &[&input, Path::new("--max-output"), Path::new(&below)],
+    );
+
+    assert_eq!(refused.status.code(), Some(1));
+    assert_eq!(again.status.code(), Some(0), "{hint}: {}", stderr(&again));
+    // 안내한 값은 이 실행에서 통과하는 가장 작은 상한이다.
+    assert_eq!(short.status.code(), Some(1));
+    let _ = fs::remove_dir_all(&dir);
+}
