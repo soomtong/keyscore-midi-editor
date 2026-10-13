@@ -1,4 +1,4 @@
-# HANDOFF: KeyScore S0 진행 중 — S0-T5(문법 결정 대기)·S0-T8 남음
+# HANDOFF: KeyScore S0 진행 중 — S0-T8 남음
 
 ## 목표
 
@@ -6,7 +6,7 @@
 
 ## 현재 브랜치
 
-`main` — S0-T1·T2·T3·T4·T6·T7 병합 완료(테스트 243개 통과). 진행 중인 Task 브랜치는 없다.
+`main` — S0-T1~T7 병합 완료(테스트 332개 통과). 다음은 S0-T8(`s0/t8-ksq-cli`).
 
 ## 완료된 작업
 
@@ -17,6 +17,7 @@
 - [x] S0-T3 템포·박자표 맵 (1/960 ns 정수 시각, `scripts/bench-check.py`, `benches/baseline.json`)
 - [x] S0-T4 undo (`Document`가 프로젝트+히스토리 소유, 역편집은 crate 내부 `Op`, `TrackId`)
 - [x] S0-T6 `.ksq` (결정적 쓰기, 모르는 키 보존, 임시 파일 + rename, 10만 노트 읽기 15 ms)
+- [x] S0-T5 계이름 텍스트 파서·내보내기(리뷰 9회, 결정 `2026-10-13-ktext-export-voice-budget.md`와 개정). 엄격 모드 왕복의 알려진 예외와 출력 크기 상한(선형, 256배)은 `docs/decisions/2026-10-12-ktext-implementation-details.md`
 - [x] S0-T7 일괄 연산(퀀타이즈·조옮김·시간 이동·길이 스케일). 4회차 리뷰에서 병합 가능. 일괄 연산은 클립마다 `Edit::ReplaceNotes`(길이 늘리기 + 동시 치환, 꼬리는 편집 직전 길이로 판정)를 낸다
 
 ## 시도했으나 실패한 접근
@@ -30,24 +31,23 @@
 - zsh에서 `set -e`가 `cargo fmt --check` 실패 뒤에도 멈추지 않았다. 게이트 결과를 직접 확인한다.
 - 일괄 연산을 `ExtendClip` + `ReplaceNote` 여러 개로 표현: 꼬리 판정 시점이 어긋나 `Ok` 묶음이 적용에서 실패했다. 클립 단위 `ReplaceNotes`로 합쳤다.
 - `ReplaceNotes`를 pair 차례 적용: 앞 pair의 결과를 뒤 pair의 `from`으로 써서 분할 없이 꼬리가 생겼다. 동시 치환으로 바꿨다.
+- 리뷰마다 더 좁은 경계를 찾아 재리뷰가 9회까지 늘었다(S0-T5). 재리뷰 3회 뒤에는 결정 요청으로 넘기고, 이후 확인 리뷰는 직전 수정 범위로 좁힌다. 임의로 정한 수치(「64배」)를 완료 조건에 넣지 말고 측정으로 정한다.
 - 테스트를 커밋한 뒤 clippy를 돌림: 경고가 뒤늦게 발견됐다. 게이트는 커밋 전에 모두 돌린다.
 - 단계 파일 수치를 검증 없이 옮기기: S0-T3 「1시간 = 3,456,000틱」은 60 BPM 기준이었다(정정함).
 
 ## 남은 작업
 
-- [ ] S0-T5 계이름 텍스트 파서: `docs/decisions/2026-10-11-ktext-grammar-ambiguities.md` 답을 기다리며 보류
-- [ ] S0-T8 `ksq-cli`: 텍스트 변환이 S0-T5에 의존. `ksq check`·픽스처 생성은 먼저 할 수 있다
+- [ ] S0-T8 `ksq-cli`(`tools/ksq-cli`): `ksq2txt`, `txt2ksq`, `ksq check`, 픽스처 8곡
 - [ ] S0 출구 게이트(`plan/stages/10-S0-foundation.md` 끝) + `docs/reports/stage-0-exit.md` 사람 서명. 수동 항목에 「원격 CI 첫 실행 확인」, 「벤치 기준값을 CI 러너에서 다시 잡기」 포함
 - [ ] 사람의 수동 확인 대기: Surge XT 수신(SP-3), 실제 키보드·IME(SP-1), 120 Hz 디스플레이(SP-2)
 
 결정 대기(`rg -l "상태: 결정 대기" docs/decisions/`):
-- `2026-10-11-ktext-grammar-ambiguities.md` — S0-T5를 막는다(가장 급함)
 - `2026-10-11-ai-model-defaults.md` — S7 전
 - `2026-10-12-ksq-newer-version-save.md` — S2-T7 전
 - `2026-10-12-ksq-unknown-keys-on-value-change.md` — S2-T5 전
 - `2026-10-12-quantize-grid-lengths.md` — S5 전
 
-사람이 직접 고칠 REQ 문구: 8.4(MPL-2.0 허용), LYR-1·9.5(노트 선택 속성 객체 `{"lyric": …}`).
+사람이 직접 고칠 REQ 문구: 8.4(MPL-2.0 허용), LYR-1·9.5(노트 선택 속성 객체 `{"lyric": …}`), 5.14(예시 마디 길이, 성부 블록, `~` 길이 접미).
 
 ## 핵심 파일
 
@@ -64,7 +64,7 @@
 
 ## 다음 에이전트에게
 
-1. `docs/decisions/2026-10-11-ktext-grammar-ambiguities.md`의 「결정」 줄이 채워졌는지 본다. 채워졌으면 S0-T5를 시작한다(`plan/stages/10-S0-foundation.md` S0-T5, REQ 5.13·5.14·5.15, 결정 문서 6문항, `docs/spikes/sp5-llm-text-stability.md`). 비어 있으면 사람에게 묻는다.
+1. S0-T8을 진행한다(`docs/reports/s0-t8/plan.md`가 있으면 그 상태부터).
 2. Task 루프: 브랜치 `s0/t<번호>-<slug>` → `docs/reports/s0-t<번호>/plan.md` → 테스트 먼저(뼈대 `todo!()`로 실패 확인) → 구현 → 게이트 전부(커밋 전에) → `report.md` → 새 에이전트로 적대적 리뷰(`general-purpose`, 구현 맥락 없이, 양식 `plan/templates/adversarial-review.md`, 산출물만 남기고 커밋 금지, 기존 `.proptest-regressions` 삭제 금지) → 지적마다 커밋 하나 → 재리뷰(최대 3회) → `git merge --no-ff`.
 3. 자동 게이트: `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`, `cargo deny check`, `scripts/check-deps.sh`, `scripts/check-deps.test.sh`, `scripts/bench-check.test.sh`. `core`·`text`에 외부 의존을 더하면 `scripts/check-deps.sh`의 허용 목록도 고친다.
 4. REQ에 없는 결정은 임의로 정하지 말고 사람에게 묻거나 `docs/decisions/`에 결정 요청을 쓴다. 사람과의 대화는 한국어로 하고, 문서에 `**`를 쓰지 않는다.
