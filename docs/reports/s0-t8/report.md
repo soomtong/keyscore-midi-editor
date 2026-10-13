@@ -174,3 +174,14 @@ cargo test --workspace: 358 passed, 0 failed (ksq-cli: 단위 10, 통합 14, pro
 | 2 | 거부 메시지 예시 값이 너무 작음 (제안) | 그 실행의 어림 값을 `--max-output` 값으로 안내한다. 안내값이면 통과, 1 작으면 거부하는 테스트를 더했다 | `ksq-cli: Suggest the estimated size as the --max-output value` |
 
 리뷰 1–4 테스트 파일은 바뀌지 않았다(계획자가 diff로 확인).
+
+## 리뷰 대응 (review-5, 판정: 수정 후 재리뷰)
+
+구현자 에이전트가 고치고 표를 보냈으며, 계획자가 옮겼다.
+
+| # | 지적 | 대응 | 커밋 |
+| --- | --- | --- | --- |
+| 1 | 끝 `/`를 버리고 씀 (수정) | 경로나 링크 대상이 `/`로 끝나면 특수 판정을 하지 않고 원래 경로를 그대로 열어 커널 오류(ENOTDIR 등)를 낸다 | `ksq-cli: Keep the trailing slash of -o paths and surface ENOTDIR` |
+| 2 | u64를 넘는 어림의 틀린 안내 (수정) | 어림이 u64를 넘으면 `CliError::OutputBeyondAnyLimit`으로 「어떤 상한으로도 변환할 수 없다」고 알리고 `--max-output`을 안내하지 않는다. README에 예외를 적었다 | `ksq-cli: Report estimates beyond u64 as unconvertible at any limit` |
+
+리뷰 1–5 테스트 파일은 바뀌지 않았다(계획자가 diff로 확인). 구현자가 알린 점: `--max-output`을 아주 크게 주면 정말 거대한 출력도 만들려 한다. 탈출구의 정의대로이며, 사용자가 명시적으로 고른 상한이다.
