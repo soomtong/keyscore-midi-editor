@@ -315,18 +315,32 @@ fn classified_under_dev(path: &Path) -> bool {
 ///   않고 쓰면 옛 꼬리가 남으므로 원자적 쓰기로 보낸다.
 /// - 그 밖(디렉터리는 열기에서 실패한다): 원자적 쓰기로 보낸다.
 ///
-/// 열기 오류 가운데 경로 자체가 틀린 것(ENOTDIR·EISDIR)은 그대로 낸다. 없는 파일, 권한 없음 등은
-/// 원자적 쓰기가 만들거나(읽기 전용 파일도 이름 바꾸기로 바꾼다) 같은 오류를 낸다.
+/// 열기가 실패하면 원자적 쓰기로 갈 수 있는 것은 「경로가 없다」와 「일반 파일이다」뿐이다
+/// (없는 파일은 만들고, 읽기 전용 일반 파일은 이름 바꾸기로 바꾼다). 그 밖은 열기 오류를 그대로
+/// 낸다(S0-T8 리뷰 7 지적 1·2).
+///
+/// - 경로 자체가 틀림(ENOTDIR·EISDIR).
+/// - `/dev/` 아래로 분류됨(`/dev/stdin`, 읽기 전용 `/dev/fd/N` 등). 원자적 쓰기는 `/dev/fd`에 임시
+///   파일을 만들다 엉뚱한 ENOENT를 낸다.
+/// - 링크를 따라간 대상이 있고 일반 파일이 아님(쓰기 권한 없는 FIFO, 유닉스 소켓, 장치, 디렉터리).
+///   원자적 쓰기로 가면 이름 바꾸기로 일반 파일이 되어 버린다.
 fn write_special(path: &Path, bytes: &[u8]) -> std::io::Result<bool> {
     use std::io::ErrorKind;
     use std::os::unix::fs::FileTypeExt;
 
     let mut file = match fs::OpenOptions::new().write(true).open(path) {
         Ok(f) => f,
-        Err(e) if matches!(e.kind(), ErrorKind::NotADirectory | ErrorKind::IsADirectory) => {
-            return Err(e);
+        Err(e) => {
+            let path_is_wrong =
+                matches!(e.kind(), ErrorKind::NotADirectory | ErrorKind::IsADirectory);
+            let special =
+                classified_under_dev(path) || fs::metadata(path).is_ok_and(|m| !m.is_file());
+            return if path_is_wrong || special {
+                Err(e)
+            } else {
+                Ok(false)
+            };
         }
-        Err(_) => return Ok(false),
     };
     let kind = file.metadata()?.file_type();
     let direct = if kind.is_file() {
