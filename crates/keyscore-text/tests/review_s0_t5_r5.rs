@@ -120,14 +120,15 @@ fn export_ratio(text: &str) -> (usize, usize) {
 /// 깨진다. `l1..` 뒤의 `r`는 1–2바이트로 1.75온음표를 나아가지만, 내보내기는 성부마다 그 구간을
 /// 온음표마다 `r1 |`와 줄바꿈(5바이트)으로 다시 적는다. 겹친 노트 16개(면제 성부 16개)만으로
 /// 16 × 1.75 × 5 = 140배에 다가간다(n = 30,000에서 139배). 공백을 넣은 평범한 꼴
-/// (`l1.. r r r`)도 70배에 다가간다. 기준은 결정 A와 리뷰 2–4의 64배다.
+/// (`l1.. r r r`)도 70배에 다가간다. 처음 기준은 결정 A와 리뷰 2–4의 64배였고, 결정 개정
+/// (2026-10-13, 「선형 보장 + 상한 재기술」)에 따라 256배로 바꿨다(구현자 수정, 입력은 그대로).
 #[test]
-fn export_size_stays_within_64x_input_when_default_length_rests_feed_16_voices() {
+fn export_size_stays_within_256x_input_when_default_length_rests_feed_16_voices() {
     for unit in ["r", "r "] {
         let text = late_overlaps("l1.. ", unit, 6000, 16);
         let (i, o) = export_ratio(&text);
         assert!(
-            o <= 64 * i,
+            o <= 256 * i,
             "단위 {unit:?}: 입력 {i}바이트 → 내보내기 {o}바이트({}배)",
             o / i
         );
@@ -138,12 +139,13 @@ fn export_size_stays_within_64x_input_when_default_length_rests_feed_16_voices()
 /// 16온음표 쉼표를 허락하는데, `l1..` 뒤의 `c` 한 바이트는 사건 하나와 1.75온음표를 함께 만든다
 /// (단위 2.75). 그래서 출력은 바이트당 약 16 × 2.75 × 5 = 220바이트에 다가간다(겹친 노트 64개,
 /// n = 30,000에서 218배). 계수를 결정 범위(16–32)의 가장 아래로 두어도 64배 안에 둘 수 없다.
+/// 결정 개정(2026-10-13)에 따라 기준을 256배로 바꿨다(구현자 수정, 입력은 그대로).
 #[test]
-fn export_size_stays_within_64x_input_when_default_length_notes_inflate_budget() {
+fn export_size_stays_within_256x_input_when_default_length_notes_inflate_budget() {
     let text = late_overlaps("l1.. ", "c", 6000, 64);
     let (i, o) = export_ratio(&text);
     assert!(
-        o <= 64 * i,
+        o <= 256 * i,
         "입력 {i}바이트 → 내보내기 {o}바이트({}배)",
         o / i
     );
