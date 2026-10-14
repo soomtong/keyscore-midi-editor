@@ -237,3 +237,17 @@ cargo test --workspace: 358 passed, 0 failed (ksq-cli: 단위 10, 통합 14, pro
 - 디렉터리 거부 메시지에 커널 문구 「Is a directory」를 함께 적는다.
 
 남는 한계(README): 확인과 쓰기 사이에 다른 프로세스가 대상을 특수 파일로 바꾸면, 이름 바꾸기가 그것을 일반 파일로 바꿀 수 있다. 출력 디렉터리를 남과 나눠 쓰지 않는 개발 도구라 받아들인다.
+
+## 리뷰 대응 (review-9, 판정: 수정 후 재리뷰)
+
+구현자 에이전트가 고치고 표를 보냈으며, 계획자가 옮겼다. 정정: review-8 대응에 「18개 모두 임시 파일 없음을 본다」고 적었지만, 실제로 그 검사가 있던 테스트는 5개였다(리뷰 9 제안 2). 이번에 FIFO·링크 테스트 둘에 검사를 더했다.
+
+| # | 지적 | 대응 | 커밋 |
+| --- | --- | --- | --- |
+| 1 | FIFO 읽는 스레드 때문에 테스트가 가끔 멈춤 (수정) | 결정 A에서 도구는 FIFO를 열지 않으므로 리뷰 3·7 FIFO 테스트 셋에서 읽는 쪽을 지웠다. 기대(종료 1, FIFO 그대로)와 입력은 그대로다. 30회 넘게 반복하고 동시 실행을 섞었는데 멈춤 0이다 | `ksq-cli: Drop FIFO reader threads from tests now that -o never opens FIFOs` |
+| 2 | 「임시 파일 없음」 검사 수 (제안) | 위 정정. 바꾼 FIFO·링크 테스트 둘에 검사를 더했다 | 위와 같음 |
+| 3 | 거부 메시지 예가 바이너리와 무관 (제안) | 바이너리별 예(`ksq2txt in.ksq > out.txt`, `txt2ksq in.txt > out.ksq`)를 보인다 | `ksq-cli: Show per-binary redirect examples, also for uncreatable -o paths` |
+| 4 | `/dev/stdin` 입력과 같은 파일을 덮음 (제안, 기존 결함) | 입력을 먼저 열고, 연 핸들의 fstat (dev, ino)를 출력 대상과 비교한다. 두 바이너리에 테스트를 더했다(고치기 전 코드에서 실패 확인) | `ksq-cli: Compare -o with the opened input handle to detect the same file` |
+| 5 | 만들 수 없는 경로 오류에 안내 없음 (제안) | `OutputUncreatable`로 같은 안내를 붙인다 | 3과 같음 |
+
+구현자가 알린 점: 동시 실행 한 번에서 `check_reads_gzip_and_warns_without_version`의 자식 프로세스가 신호로 끝났다(종료 코드 None). 이번 커밋과 무관한 테스트이고, 다시 70회 돌려도 재현되지 않았다. 다른 세션과 겹친 메모리 압박으로 macOS가 자식을 죽인 것으로 추정한다. 다시 나면 원인을 알 수 있게 단언 메시지에 종료 상태와 표준 오류를 넣었다(`ksq-cli: Report child exit status in the gzip check test assertion`).
