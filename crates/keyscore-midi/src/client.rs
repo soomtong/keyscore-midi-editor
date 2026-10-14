@@ -1,19 +1,20 @@
 use std::mem::{MaybeUninit, size_of};
 use std::ptr;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::time::{Duration, Instant};
 
 use core_foundation::base::TCFType;
 use core_foundation::string::{CFString, CFStringRef};
 use coremidi_sys::{
-    ByteCount, ItemCount, MIDIClientCreate, MIDIClientDispose, MIDIClientRef, MIDIEndpointDispose,
-    MIDIEndpointRef, MIDIEventList, MIDIEventListAdd, MIDIEventListInit, MIDIGetNumberOfSources,
-    MIDIGetSource, MIDIObjectGetStringProperty, MIDIObjectSetStringProperty, MIDIProtocolID,
+    ByteCount, ItemCount, MIDIClientCreate, MIDIClientRef, MIDIEndpointDispose, MIDIEndpointRef,
+    MIDIEventList, MIDIEventListAdd, MIDIEventListInit, MIDIGetNumberOfSources, MIDIGetSource,
+    MIDIObjectGetStringProperty, MIDIObjectSetStringProperty, MIDIProtocolID,
     MIDIReceivedEventList, MIDISourceCreateWithProtocol, kMIDIPropertyName, kMIDIProtocol_1_0,
 };
 
 use crate::{HostTime, MidiError, MidiPort, ump_word_count};
 
-/// 한 클라이언트가 만들 수 있는 가상 출력 포트 수(OUT-2).
+/// 한 `MidiClient`가 만들 수 있는 가상 출력 포트 수(OUT-2). 앱은 `MidiClient`를 하나만 둔다.
 pub const MAX_VIRTUAL_OUTPUTS: usize = 16;
 
 /// v1 가상 포트는 MIDI 1.0 프로토콜이다(OUT-1). 바인딩의 상수 타입이 `MIDIProtocolID`와 달라 맞춘다.
@@ -36,9 +37,55 @@ fn valid_name(name: &str) -> Result<(), MidiError> {
     }
 }
 
-/// 클라이언트 핸들과, 그 클라이언트가 만든 가상 포트의 이름 목록.
+/// 프로세스의 CoreMIDI 클라이언트. 한 번 만들면 해제하지 않는다.
 ///
-/// 포트가 `Arc`로 이 값을 붙잡으므로 클라이언트는 마지막 포트보다 먼저 해제되지 않는다.
+/// `MIDIServices.h`: 앱의 마지막 클라이언트를 해제하면 MIDI 서버가 종료할 수 있고, 그 뒤 그
+/// 프로세스의 `MIDIClientCreate`는 모두 실패한다(S1-T1 리뷰 1 지적 1). 그래서 모든 `MidiClient`가
+/// 이 클라이언트 하나를 나눠 쓰고, 프로세스가 끝날 때 OS가 정리하게 둔다.
+static PROCESS_CLIENT: Mutex<Option<MIDIClientRef>> = Mutex::new(None);
+
+/// 서버가 막 내려가거나 올라오는 중이면 생성이 잠깐 실패한다(리뷰 1 지적 3). 그동안만 다시 시도한다.
+const CLIENT_CREATE_PATIENCE: Duration = Duration::from_secs(3);
+
+#[allow(unsafe_code)]
+fn process_client(name: &str) -> Result<MIDIClientRef, MidiError> {
+    let mut slot = PROCESS_CLIENT
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner);
+    if let Some(raw) = *slot {
+        return Ok(raw);
+    }
+    let cf_name = CFString::new(name);
+    let start = Instant::now();
+    let mut delay = Duration::from_millis(20);
+    loop {
+        let mut raw: MIDIClientRef = 0;
+        // SAFETY: 이름 문자열은 호출 동안 살아 있고, 출력 포인터는 이 스택 변수를 가리킨다.
+        // 알림 함수가 없으므로 refCon은 쓰이지 않는다.
+        let status = unsafe {
+            MIDIClientCreate(
+                cf_name.as_concrete_TypeRef(),
+                None,
+                ptr::null_mut(),
+                &raw mut raw,
+            )
+        };
+        if status == 0 {
+            *slot = Some(raw);
+            return Ok(raw);
+        }
+        if start.elapsed() >= CLIENT_CREATE_PATIENCE {
+            return Err(MidiError::Os {
+                call: "MIDIClientCreate",
+                status,
+            });
+        }
+        std::thread::sleep(delay);
+        delay = (delay * 2).min(Duration::from_millis(500));
+    }
+}
+
+/// 프로세스 클라이언트 핸들과, 이 `MidiClient`가 만든 가상 포트의 이름 목록.
 struct ClientInner {
     raw: MIDIClientRef,
     // 이름 중복·개수 검사용. 생성·이름 변경·해제에서만 잠그고 송신 경로에서는 쓰지 않는다.
@@ -52,22 +99,6 @@ impl ClientInner {
     }
 }
 
-impl Drop for ClientInner {
-    #[allow(unsafe_code)]
-    fn drop(&mut self) {
-        // SAFETY: `raw`는 `MidiClient::new`가 만든 유효한 클라이언트이고, 이 값만 소유한다.
-        // 마지막 `Arc`가 사라질 때 한 번만 불린다. 실패해도 할 수 있는 일이 없어 상태를 버린다.
-        let _ = unsafe { MIDIClientDispose(self.raw) };
-    }
-}
-
-// SAFETY: CoreMIDI 객체 참조는 프로세스 전역의 정수 id이고, CoreMIDI API는 스레드 안전하다.
-// 그 밖의 상태는 `Mutex`가 지킨다.
-#[allow(unsafe_code)]
-unsafe impl Send for ClientInner {}
-#[allow(unsafe_code)]
-unsafe impl Sync for ClientInner {}
-
 /// CoreMIDI 클라이언트. 복제하면 같은 클라이언트를 공유한다.
 #[derive(Clone)]
 pub struct MidiClient {
@@ -75,29 +106,19 @@ pub struct MidiClient {
 }
 
 impl MidiClient {
-    /// 클라이언트를 만든다.
+    /// 포트 목록을 따로 갖는 클라이언트 핸들을 만든다.
     ///
-    /// 알림 콜백은 두지 않는다. 핫플러그 알림은 run loop을 소유하는 S1-T2의 감시 스레드가 받는다.
+    /// CoreMIDI 클라이언트 자체는 프로세스에 하나이고 해제하지 않는다(`PROCESS_CLIENT`). `name`은
+    /// 그 클라이언트를 처음 만들 때만 쓰인다. 16개 상한과 이름 중복 검사는 이 핸들 단위이므로, 앱은
+    /// 핸들을 하나만 만들어 복제해 쓴다. 알림 콜백은 두지 않는다. 핫플러그 알림은 run loop을 소유하는
+    /// S1-T2의 감시 스레드가 받는다.
     ///
     /// # Errors
     ///
     /// 이름이 비었으면 `InvalidName`, CoreMIDI 호출이 실패하면 `Os`.
-    #[allow(unsafe_code)]
     pub fn new(name: &str) -> Result<Self, MidiError> {
         valid_name(name)?;
-        let cf_name = CFString::new(name);
-        let mut raw: MIDIClientRef = 0;
-        // SAFETY: 이름 문자열은 호출 동안 살아 있고, 출력 포인터는 이 스택 변수를 가리킨다.
-        // 알림 함수가 없으므로 refCon은 쓰이지 않는다.
-        let status = unsafe {
-            MIDIClientCreate(
-                cf_name.as_concrete_TypeRef(),
-                None,
-                ptr::null_mut(),
-                &raw mut raw,
-            )
-        };
-        check("MIDIClientCreate", status)?;
+        let raw = process_client(name)?;
         Ok(MidiClient {
             inner: Arc::new(ClientInner {
                 raw,
@@ -125,7 +146,7 @@ impl MidiClient {
         }
         let cf_name = CFString::new(name);
         let mut endpoint: MIDIEndpointRef = 0;
-        // SAFETY: 클라이언트는 `self.inner`가 살아 있게 붙잡고, 이름 문자열은 호출 동안 살아 있으며,
+        // SAFETY: 프로세스 클라이언트는 해제되지 않아 유효하고, 이름 문자열은 호출 동안 살아 있으며,
         // 출력 포인터는 이 스택 변수를 가리킨다.
         let status = unsafe {
             MIDISourceCreateWithProtocol(
@@ -194,8 +215,9 @@ impl Drop for VirtualOutput {
         if let Some(i) = names.iter().position(|n| *n == self.name) {
             names.swap_remove(i);
         }
-        // SAFETY: 엔드포인트는 이 값만 소유하고 drop에서 한 번만 해제한다. 클라이언트는 `self.client`가
-        // 아직 붙잡고 있다. 실패해도 할 수 있는 일이 없다.
+        // SAFETY: 엔드포인트는 이 값만 소유하고 drop에서 한 번만 해제한다. 프로세스 클라이언트는
+        // 해제되지 않는다. 실패해도 할 수 있는 일이 없다. 이름 목록 잠금을 해제가 끝날 때까지 쥐어,
+        // 같은 이름의 새 포트가 해제 전에 생기지 않게 한다.
         let _ = unsafe { MIDIEndpointDispose(self.endpoint) };
     }
 }
