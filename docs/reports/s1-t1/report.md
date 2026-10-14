@@ -69,3 +69,19 @@ keyscore-midi: 단위 2, 통합 9(+ 자식 프로세스 역할 1, ignored). 10�
    - 구조체가 packed인지, 패킷 워드 배열이 64인지에 따라 4워드 메시지가 들어가는지 확인해 달라.
 2. `VirtualOutput::drop`의 순서: 이름 목록에서 먼저 지운 뒤 엔드포인트를 해제한다. 두 단계 사이에 같은 이름으로 새 포트를 만들면, 해제 전 CoreMIDI에 같은 이름의 소스가 잠깐 둘 존재할 수 있다.
 3. `unsafe impl Send/Sync for ClientInner`의 근거(CoreMIDI 스레드 안전성)
+
+## 리뷰 대응 (review-1, 판정: 수정 후 재리뷰)
+
+| # | 지적 | 대응 | 커밋 |
+| --- | --- | --- | --- |
+| 1 | 마지막 클라이언트 해제로 MIDI 서버 종료, 이후 클라이언트 생성 영구 실패 (차단) | CoreMIDI 클라이언트를 프로세스에 하나만 만들고 해제하지 않는다. `MidiClient`는 자기 포트 목록만 갖는 핸들이다. 16개 상한과 이름 중복은 핸들 단위이고, 앱은 핸들을 하나 만들어 복제해 쓴다(문서에 적음) | `midi: Share one never-disposed CoreMIDI client per process` |
+| 2 | 열거 중 앞쪽 소스가 사라지면 살아 있는 소스를 건너뜀 (수정) | 엔드포인트 목록을 읽고 이름을 모은 뒤 목록이 그대로인지 확인하고, 바뀌었으면 다시 읽는다(최대 8회) | `midi: Re-read source enumeration until the endpoint list is stable` |
+| 3 | 테스트 간헐 실패 (수정) | `Source::from_name`은 재시도한다(2와 같은 커밋). 서버 재시작 직후의 `-304`는 클라이언트 생성을 3초까지 재시도해 흡수한다(1과 같은 커밋). 고친 뒤 약 80회 반복에서 1회 실패가 있었고, 원인 출력을 잡으려 다시 58회 돌렸지만 재현되지 않았다 | 위 두 커밋 |
+| 4 | 앞뒤 공백만 다른 이름 허용 (수정) | 이름의 앞뒤 공백을 떼어 그 이름을 포트 이름으로 쓰고 중복도 그것으로 판정한다 | `midi: Trim port names before use and duplicate checks` |
+| 5 | 불필요한 `unsafe impl Send/Sync` (수정) | 지웠다. 필드로 자동 구현된다 | 1과 같은 커밋 |
+| 6 | 1.0 소스로 전달되지 않는 UMP 타입도 `Ok` (제안) | 반영하지 않았다. 리뷰어의 경계 테스트 `send_four_word_message_fits_stack_event_list`가 4워드 타입 0xD 송신의 `Ok`를 고정하고 있어, 타입 제한은 그 테스트와 충돌한다. 타입 검사는 S1-T3(인코딩)에서 인코더가 만드는 타입만 내보내는 방식으로 다룬다 | — |
+| 7 | 포트 drop을 스케줄러 스레드에서 하지 말 것 (제안) | `MidiPort` 문서에 적었다. S1-T4에서 지킨다 | `midi: Name the default port, document drop off the scheduler thread` |
+| 8 | 기본 이름 상수 없음 (제안) | `DEFAULT_PORT_NAME = "KeyScore Out"` | 위와 같음 |
+| 9 | kill 테스트 자식이 고아로 60초 남을 수 있음 (제안) | 자식이 부모가 바뀌면(재부모화) 곧 끝난다 | 위와 같음 |
+
+OUT-2(최대 16)는 핸들 단위라, 핸들을 둘 만들면 넘을 수 있다. 앱이 핸들을 하나만 두는 것은 S2(앱 셸)에서 지킨다. 리뷰 테스트 파일은 바뀌지 않았다. 워크스페이스 테스트 491개 통과.
