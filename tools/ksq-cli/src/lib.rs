@@ -92,12 +92,23 @@ pub enum CliError {
         source: std::io::Error,
         example: &'static str,
     },
-    /// 확인 때 없던 `-o` 대상을 만들지 못했다(없는 디렉터리 안, `/dev/<없는 이름>`, 끝 `/` 등).
+    /// 확인 때 없던 `-o` 대상을 특수 파일 자리라서 만들지 못했다(`/dev/<없는 이름>`, 끝 `/` 등).
     #[error(
         "{}: -o 대상을 만들지 못했다: {detail}. -o는 없는 경로나 일반 파일만 받는다. 특수 파일에 쓰려면 -o 없이 실행하고 셸로 리다이렉트하라(예: {example})",
         path.display()
     )]
     OutputUncreatable {
+        path: PathBuf,
+        detail: String,
+        example: &'static str,
+    },
+    /// 확인 때 없던 `-o` 대상을 일반적인 이유(권한 없음, 없는 디렉터리 안 등)로 만들지 못했다.
+    /// 특수 파일 때문이 아니므로 다른 경로나 표준 출력을 권한다(S0-T8 리뷰 10 제안 2).
+    #[error(
+        "{}: -o 대상을 만들지 못했다: {detail}. 다른 경로를 주거나 표준 출력으로 받는다(예: {example})",
+        path.display()
+    )]
+    OutputCreateFailed {
         path: PathBuf,
         detail: String,
         example: &'static str,

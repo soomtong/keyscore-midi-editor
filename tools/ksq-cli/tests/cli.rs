@@ -582,8 +582,10 @@ fn binaries_refuse_output_equal_to_input_given_as_dev_stdin() {
     let _ = fs::remove_dir_all(&dir);
 }
 
-/// 거부 안내는 그 바이너리의 리다이렉션 예를 보이고(리뷰 9 제안 3), 확인 때 없던 대상을 만들지
-/// 못한 실패(없는 디렉터리 안, `/dev/<없는 이름>`)에도 같은 안내를 붙인다(리뷰 9 제안 5).
+/// 거부 안내는 그 바이너리의 리다이렉션 예를 보인다(리뷰 9 제안 3). 확인 때 없던 대상을 만들지
+/// 못한 실패에도 예를 붙인다(리뷰 9 제안 5). 「특수 파일·리다이렉트」 안내는 특수 파일 자리
+/// (`/dev/<없는 이름>`)일 때만이고, 없는 디렉터리 안 같은 일반 실패는 다른 경로나 표준 출력을
+/// 권한다(계획자 결정 A, 리뷰 10 제안 2).
 #[test]
 fn output_errors_show_redirect_example_for_each_binary() {
     let dir = temp_dir("redirect-hint");
@@ -606,6 +608,14 @@ fn output_errors_show_redirect_example_for_each_binary() {
             assert_eq!(o.status.code(), Some(1), "{bin} {}", target.display());
             assert!(
                 stderr(&o).contains(example),
+                "{bin} {}: {}",
+                target.display(),
+                stderr(&o)
+            );
+            let special = target.starts_with("/dev");
+            assert_eq!(
+                stderr(&o).contains("리다이렉트"),
+                special,
                 "{bin} {}: {}",
                 target.display(),
                 stderr(&o)

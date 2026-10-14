@@ -10,7 +10,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use keyscore_core::ksq::{self, Compression};
+use keyscore_core::ksq::{self, Compression, KsqError};
 use keyscore_text::Mode;
 
 use crate::{
@@ -268,22 +268,54 @@ fn refuse_same_file(options: &Options, input: (u64, u64)) -> Result<(), CliError
     }
 }
 
-/// `-o` 쓰기 실패. 확인 때 없던 대상이면 만들 수 없는 경로(없는 디렉터리 안, `/dev/<없는 이름>`,
-/// 끝 `/` 등)이므로 다른 거부와 같은 리다이렉션 안내를 붙인다(S0-T8 리뷰 9 제안 5).
+/// `-o` 쓰기 실패. 확인 때 없던 대상을 만들지 못했으면 원인에 따라 다르게 알린다(계획자 결정 A,
+/// S0-T8 리뷰 10 제안 2). 경로는 이 오류가 한 번만 적는다.
+///
+/// - 특수 파일 자리(경로가 `/dev/` 아래이거나 끝이 `/`·`/.`이고, 커널 오류가 ENOENT·ENOTDIR·EPERM):
+///   다른 거부와 같은 「특수 파일에 쓰려면 … 리다이렉트하라」 안내([`CliError::OutputUncreatable`]).
+/// - 그 밖(권한 없음, 없는 디렉터리 안 등): 셸 리다이렉션도 같은 이유로 실패할 수 있으므로 특수
+///   파일 안내 대신 다른 경로나 표준 출력을 권한다([`CliError::OutputCreateFailed`]).
+///
+/// 경로 모양은 메시지를 고르는 데만 쓴다. 쓰기 동작은 바꾸지 않는다.
 fn output_error(options: &Options, path: &Path, was_missing: bool, cause: CliError) -> CliError {
+    use std::io::ErrorKind;
+
     if !was_missing {
         return cause;
     }
-    // 경로는 이 오류가 한 번만 적는다.
+    let io = match &cause {
+        CliError::Io { source, .. }
+        | CliError::Ksq {
+            source: KsqError::Io(source),
+            ..
+        } => Some(source),
+        _ => None,
+    };
+    let special_kind = io.is_some_and(|e| {
+        matches!(e.kind(), ErrorKind::NotFound | ErrorKind::NotADirectory)
+            || e.raw_os_error() == Some(1)
+    });
+    let bytes = path.as_os_str().as_encoded_bytes();
+    let special_place = path.starts_with("/dev") || bytes.ends_with(b"/") || bytes.ends_with(b"/.");
     let detail = match cause {
         CliError::Io { source, .. } => source.to_string(),
         CliError::Ksq { source, .. } => source.to_string(),
         other => other.to_string(),
     };
-    CliError::OutputUncreatable {
-        path: path.to_owned(),
-        detail,
-        example: options.tool.redirect_example(),
+    let example = options.tool.redirect_example();
+    let path = path.to_owned();
+    if special_kind && special_place {
+        CliError::OutputUncreatable {
+            path,
+            detail,
+            example,
+        }
+    } else {
+        CliError::OutputCreateFailed {
+            path,
+            detail,
+            example,
+        }
     }
 }
 
