@@ -178,42 +178,42 @@ fn is_option(arg: &OsStr) -> bool {
     arg.as_encoded_bytes().first() == Some(&b'-') && arg.len() > 1
 }
 
-/// 두 경로가 같은 파일인가. 심볼릭 링크·`.`·하드 링크로 철자가 달라도 같은 파일이면 참이다.
-/// 출력이 아직 없으면 거짓이다.
-fn same_file(a: &Path, b: &Path) -> bool {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt;
-        match (fs::metadata(a), fs::metadata(b)) {
-            (Ok(x), Ok(y)) => x.dev() == y.dev() && x.ino() == y.ino(),
-            _ => false,
-        }
-    }
-    #[cfg(not(unix))]
-    {
-        matches!((fs::canonicalize(a), fs::canonicalize(b)), (Ok(x), Ok(y)) if x == y)
-    }
+/// 입력을 연다. 같은 파일 판정에 쓸 신원(dev, ino)은 연 핸들의 `fstat`으로 얻는다. 경로를
+/// `stat`하면 `/dev/stdin`·`/dev/fd/N`이 `/dev`의 장치 번호로 보여, 그 fd가 출력 파일을 가리켜도
+/// 다른 파일로 판정해 입력을 덮었다(S0-T8 리뷰 9 제안 4).
+fn open_input(path: &Path) -> Result<(fs::File, (u64, u64)), CliError> {
+    use std::os::unix::fs::MetadataExt;
+
+    let io = |source| CliError::Io {
+        path: path.to_owned(),
+        source,
+    };
+    let file = fs::File::open(path).map_err(io)?;
+    let meta = file.metadata().map_err(io)?;
+    Ok((file, (meta.dev(), meta.ino())))
 }
 
 /// `-o`를 쓰기 전에 거른다. 변환하기 전에 하므로 거부할 때 아무것도 쓰지 않는다.
 ///
 /// - 입력과 같은 파일이면 거부한다. 변환은 정보를 잃을 수 있어 입력을 덮어쓰면 되돌릴 수 없다.
+///   입력은 연 핸들의 신원(`input`, [`open_input`])과 출력 대상의 신원(링크를 따라간 `stat`)을
+///   비교한다. 심볼릭 링크·하드 링크·`/dev/stdin`으로 철자가 달라도 같은 파일이면 거부한다.
 /// - 대상은 「없는 경로」와 「일반 파일」만 받는다(`docs/decisions/2026-10-14-ksq-cli-output-path-scope.md`).
 ///   둘 다 원자적 쓰기(임시 파일 → fsync → 이름 바꾸기)로 쓴다. 디렉터리·FIFO·소켓·장치
 ///   (`/dev/null`, `/dev/stdout`, `/dev/fd/N`)와 `NotFound`가 아닌 확인 오류(링크 한도를 넘는
 ///   사슬의 ELOOP, EACCES, 끝 `/`의 ENOTDIR 등)는 대상을 건드리지 않고 실패한다. 특수 파일에
 ///   쓰려면 `-o` 없이 셸 리다이렉션을 쓴다. 커널의 경로 풀이를 도구가 다시 흉내 내지 않으려는
 ///   것이다(S0-T8 리뷰 2–8). 확인은 링크를 따라가는 `fs::metadata` 하나로, 커널이 푼다.
-fn guard_output(options: &Options) -> Result<(), CliError> {
+fn guard_output(options: &Options, input: (u64, u64)) -> Result<(), CliError> {
+    use std::os::unix::fs::MetadataExt;
+
     let Some(output) = &options.output else {
         return Ok(());
     };
-    if same_file(&options.input, output) {
-        return Err(CliError::SameInputOutput {
-            path: output.clone(),
-        });
-    }
     match fs::metadata(output) {
+        Ok(meta) if (meta.dev(), meta.ino()) == input => Err(CliError::SameInputOutput {
+            path: output.clone(),
+        }),
         Ok(meta) if meta.is_file() && !on_devfs(&meta) => Ok(()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Ok(meta) => Err(CliError::OutputNotRegular {
@@ -301,9 +301,11 @@ fn run_ksq2txt(
     out: &mut dyn Write,
     err: &mut dyn Write,
 ) -> Result<(), CliError> {
-    guard_output(options)?;
     let input = &options.input;
-    let bytes = fs::read(input).map_err(|source| CliError::Io {
+    let (mut file, identity) = open_input(input)?;
+    guard_output(options, identity)?;
+    let mut bytes = Vec::new();
+    std::io::Read::read_to_end(&mut file, &mut bytes).map_err(|source| CliError::Io {
         path: input.clone(),
         source,
     })?;
@@ -444,9 +446,11 @@ fn run_txt2ksq(
     out: &mut dyn Write,
     err: &mut dyn Write,
 ) -> Result<(), CliError> {
-    guard_output(options)?;
     let input = &options.input;
-    let text = fs::read_to_string(input).map_err(|source| CliError::Io {
+    let (mut file, identity) = open_input(input)?;
+    guard_output(options, identity)?;
+    let mut text = String::new();
+    std::io::Read::read_to_string(&mut file, &mut text).map_err(|source| CliError::Io {
         path: input.clone(),
         source,
     })?;

@@ -551,3 +551,32 @@ fn binaries_output_with_trailing_slash_fail_with_kernel_error() {
     }
     let _ = fs::remove_dir_all(&dir);
 }
+
+/// 입력을 `/dev/stdin`으로 주고 표준 입력을 출력 파일에서 열면, 경로가 달라도 같은 파일이다. 두
+/// 바이너리 모두 종료 1이고 입력(=출력) 파일은 그대로다(S0-T8 리뷰 9 제안 4).
+#[test]
+fn binaries_refuse_output_equal_to_input_given_as_dev_stdin() {
+    let dir = temp_dir("same-stdin");
+    let ksq_file = dir.join("same.ksq");
+    fs::write(&ksq_file, small_ksq()).unwrap();
+    let txt_file = dir.join("same.txt");
+    fs::write(&txt_file, "@track A ch1\nc4\n").unwrap();
+
+    for (bin, file) in [(KSQ2TXT, &ksq_file), (TXT2KSQ, &txt_file)] {
+        let before = fs::read(file).unwrap();
+        let o = Command::new(bin)
+            .args([Path::new("/dev/stdin"), Path::new("-o"), file])
+            .stdin(fs::File::open(file).unwrap())
+            .output()
+            .unwrap();
+
+        assert_eq!(o.status.code(), Some(1), "{bin}: {}", stderr(&o));
+        assert!(
+            stderr(&o).contains("입력 파일과 같다"),
+            "{bin}: {}",
+            stderr(&o)
+        );
+        assert_eq!(fs::read(file).unwrap(), before, "{bin}");
+    }
+    let _ = fs::remove_dir_all(&dir);
+}
