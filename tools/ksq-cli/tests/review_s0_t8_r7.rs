@@ -215,6 +215,10 @@ fn ksq2txt_output_unix_socket_fails_and_keeps_socket() {
 /// 표준 입력이 읽기 전용으로 연 일반 파일일 때 `-o /dev/stdin`. 쓰기로 열면 EACCES다. 리뷰 6 이전에는
 /// 그 오류(os error 13)로 실패했다. 지금은 오류를 버리고 원자적 쓰기가 `/dev/fd`에 임시 파일을 만들려다
 /// 낸 ENOENT(os error 2)를 알린다. 종료 1이고 파일은 그대로지만 사용자가 받는 원인이 틀리다.
+///
+/// 결정 `docs/decisions/2026-10-14-ksq-cli-output-path-scope.md`로 기대를 바꿨다: `-o`는 없는 경로와
+/// 일반 파일만 받는다. 특수 파일·`/dev/stdin`·`/dev/stdout`·`/dev/fd/N`(과 그 링크)은 종료 1이고
+/// 대상은 그대로다. 오류는 셸 리다이렉션을 안내한다.
 #[test]
 fn ksq2txt_output_read_only_dev_stdin_reports_permission_denied() {
     let dir = temp_dir("stdin-ro");
@@ -238,13 +242,18 @@ fn ksq2txt_output_read_only_dev_stdin_reports_permission_denied() {
 
     assert_eq!(r.code, Some(1), "{}", r.stderr);
     assert_eq!(fs::read_to_string(&file).unwrap(), "keep");
-    assert!(r.stderr.contains("os error 13"), "{}", r.stderr);
+    assert!(r.stderr.contains("리다이렉트"), "{}", r.stderr);
     fs::remove_dir_all(&dir).unwrap();
 }
 
 // --- 경계: 리뷰 6 수정이 지킨 것 ---
 
 /// 읽는 쪽이 있는 FIFO는 그대로 열어 쓰고 FIFO로 남는다. 읽는 쪽(`cat`)도 시간 제한 안에서 기다린다.
+///
+/// 결정 `docs/decisions/2026-10-14-ksq-cli-output-path-scope.md`로 기대를 바꿨다: `-o`는 없는 경로와
+/// 일반 파일만 받는다. 특수 파일·`/dev/stdin`·`/dev/stdout`·`/dev/fd/N`(과 그 링크)은 종료 1이고
+/// 대상은 그대로다. 오류는 셸 리다이렉션을 안내한다.
+/// 도구가 FIFO를 열지 않으므로, 막힌 `cat`은 테스트가 FIFO를 읽기·쓰기로 열었다 닫아 풀어 준다.
 #[test]
 fn ksq2txt_output_fifo_with_reader_written_directly_and_stays_fifo() {
     let dir = temp_dir("fifo");
@@ -259,10 +268,20 @@ fn ksq2txt_output_fifo_with_reader_written_directly_and_stays_fifo() {
         .unwrap();
 
     let r = ksq2txt_o(&fifo);
+    // 쓰는 쪽이 하나도 없으면 `cat`은 열기에서 막혀 있다. `O_RDWR` 열기는 상대가 없어도 막히지 않는다.
+    drop(
+        fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&fifo)
+            .unwrap(),
+    );
     let read = wait(reader, "cat");
 
-    assert_eq!(r.code, Some(0), "{}", r.stderr);
-    assert_eq!(String::from_utf8(read.stdout).unwrap(), melody_text());
+    assert_eq!(r.code, Some(1), "{}", r.stderr);
+    assert!(r.stderr.contains("리다이렉트"), "{}", r.stderr);
+    assert!(!melody_text().is_empty());
+    assert!(read.stdout.is_empty());
     assert!(fs::symlink_metadata(&fifo).unwrap().file_type().is_fifo());
     fs::remove_dir_all(&dir).unwrap();
 }
@@ -353,6 +372,10 @@ fn ksq2txt_output_read_only_file_and_read_only_dir_behave_as_documented() {
 
 /// `/dev/stdout`, `/dev/fd/1`, `/dev/stdout`을 가리키는 링크: 일반 파일로 돌린 표준 출력에 `-o` 없는
 /// 실행과 같은 바이트를 쓴다. `/dev/null`은 종료 0.
+///
+/// 결정 `docs/decisions/2026-10-14-ksq-cli-output-path-scope.md`로 기대를 바꿨다: `-o`는 없는 경로와
+/// 일반 파일만 받는다. 특수 파일·`/dev/stdin`·`/dev/stdout`·`/dev/fd/N`(과 그 링크)은 종료 1이고
+/// 대상은 그대로다. 오류는 셸 리다이렉션을 안내한다.
 #[test]
 fn ksq2txt_output_dev_paths_and_links_write_redirected_stdout() {
     let dir = temp_dir("dev");
@@ -361,17 +384,18 @@ fn ksq2txt_output_dev_paths_and_links_write_redirected_stdout() {
     let expected = melody_text();
 
     let null = ksq2txt_o(Path::new("/dev/null"));
-    assert_eq!(null.code, Some(0), "{}", null.stderr);
+    assert_eq!(null.code, Some(1), "{}", null.stderr);
     for (i, out) in [Path::new("/dev/stdout"), Path::new("/dev/fd/1"), &link]
         .into_iter()
         .enumerate()
     {
         let redirected = dir.join(format!("r{i}.txt"));
         let r = ksq2txt_o_to(out, Stdio::from(fs::File::create(&redirected).unwrap()));
-        assert_eq!(r.code, Some(0), "{}: {}", out.display(), r.stderr);
+        assert_eq!(r.code, Some(1), "{}: {}", out.display(), r.stderr);
+        assert!(!expected.is_empty());
         assert_eq!(
             fs::read_to_string(&redirected).unwrap(),
-            expected,
+            "",
             "{}",
             out.display()
         );
@@ -448,6 +472,11 @@ fn ksq2txt_output_dev_dotdot_regular_file_replaced_atomically() {
 
 /// `txt2ksq`는 일반 파일이면 `to_bytes`로 한 번, `ksq::write_file`로 한 번 직렬화한다. 두 번째가 쓴
 /// 파일과 첫 번째가 `/dev/stdout`으로 쓴 바이트가 같다(`.ksq`·`.ksqz` 모두). `.ksqz`는 다시 읽힌다.
+///
+/// 결정 `docs/decisions/2026-10-14-ksq-cli-output-path-scope.md`로 기대를 바꿨다: `-o`는 없는 경로와
+/// 일반 파일만 받는다. 특수 파일·`/dev/stdin`·`/dev/stdout`·`/dev/fd/N`(과 그 링크)은 종료 1이고
+/// 대상은 그대로다. 오류는 셸 리다이렉션을 안내한다.
+/// `/dev/stdout`을 가리키는 링크는 종료 1이고 아무것도 쓰지 않는다. 일반 파일 출력은 그대로 읽힌다.
 #[test]
 fn txt2ksq_double_serialization_gives_same_bytes_as_direct_write() {
     let dir = temp_dir("twice");
@@ -462,8 +491,8 @@ fn txt2ksq_double_serialization_gives_same_bytes_as_direct_write() {
         let link = dir.join(format!("to-stdout.{ext}"));
         std::os::unix::fs::symlink("/dev/stdout", &link).unwrap();
         let b = txt2ksq_o_to(&input, &link, Stdio::piped());
-        assert_eq!(b.code, Some(0), "{}", b.stderr);
-        assert_eq!(fs::read(&file).unwrap(), b.stdout, "{ext}");
+        assert_eq!(b.code, Some(1), "{}", b.stderr);
+        assert!(b.stdout.is_empty(), "{ext}");
         assert!(ksq::read_file(&file).is_ok(), "{ext}");
     }
     fs::remove_dir_all(&dir).unwrap();

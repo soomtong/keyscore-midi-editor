@@ -297,6 +297,8 @@ fn dev_stdout_to_file(bin: &str, input: &Path, out: &Path) -> (ExitStatus, Strin
     wait_with_timeout(child, bin)
 }
 
+/// 결정 `docs/decisions/2026-10-14-ksq-cli-output-path-scope.md`로 기대를 바꿨다: `-o`는 없는 경로와
+/// 일반 파일만 받는다. 특수 파일(과 그 링크)은 종료 1이고 대상은 그대로다. 입력은 그대로다.
 #[test]
 fn ksq2txt_output_dev_stdout_redirected_to_regular_file_writes_text() {
     let dir = temp_dir("stdout-ksq2txt");
@@ -306,11 +308,15 @@ fn ksq2txt_output_dev_stdout_redirected_to_regular_file_writes_text() {
 
     let (status, err) = dev_stdout_to_file(KSQ2TXT, &input, &out);
 
-    assert_eq!(status.code(), Some(0), "{err}");
-    assert_eq!(fs::read(&out).unwrap(), expected);
+    assert_eq!(status.code(), Some(1), "{err}");
+    assert!(err.contains("리다이렉트"), "{err}");
+    assert!(!expected.is_empty());
+    assert_eq!(fs::read(&out).unwrap(), b"");
     let _ = fs::remove_dir_all(&dir);
 }
 
+/// 결정 `docs/decisions/2026-10-14-ksq-cli-output-path-scope.md`로 기대를 바꿨다: `-o`는 없는 경로와
+/// 일반 파일만 받는다. 특수 파일(과 그 링크)은 종료 1이고 대상은 그대로다. 입력은 그대로다.
 #[test]
 fn txt2ksq_output_dev_stdout_redirected_to_regular_file_writes_project() {
     let dir = temp_dir("stdout-txt2ksq");
@@ -325,12 +331,17 @@ fn txt2ksq_output_dev_stdout_redirected_to_regular_file_writes_project() {
 
     let (status, err) = dev_stdout_to_file(TXT2KSQ, &txt, &out);
 
-    assert_eq!(status.code(), Some(0), "{err}");
-    assert_eq!(fs::read(&out).unwrap(), fs::read(&input).unwrap());
+    assert_eq!(status.code(), Some(1), "{err}");
+    assert!(err.contains("리다이렉트"), "{err}");
+    assert_eq!(fs::read(&out).unwrap(), b"");
     let _ = fs::remove_dir_all(&dir);
 }
 
 /// `/dev/null`·FIFO를 가리키는 심볼릭 링크는 대상에 바로 쓰고 링크를 그대로 둔다.
+///
+/// 결정 `docs/decisions/2026-10-14-ksq-cli-output-path-scope.md`로 기대를 바꿨다: `-o`는 없는 경로와
+/// 일반 파일만 받는다. 특수 파일(과 그 링크)은 종료 1이고 대상은 그대로다. 입력은 그대로다.
+/// 읽는 쪽은 아무것도 받지 못한다(`join_reader`가 풀어 준다).
 #[test]
 fn ksq2txt_output_symlinks_to_dev_null_and_fifo_write_through_and_keep_links() {
     let dir = temp_dir("special-links");
@@ -365,9 +376,10 @@ fn ksq2txt_output_symlinks_to_dev_null_and_fifo_write_through_and_keep_links() {
     let (b, b_err) = wait_with_timeout(b, "fifo link");
     let got = join_reader(reader, &fifo);
 
-    assert_eq!(a.code(), Some(0), "{a_err}");
-    assert_eq!(b.code(), Some(0), "{b_err}");
-    assert_eq!(got, expected);
+    assert_eq!(a.code(), Some(1), "{a_err}");
+    assert_eq!(b.code(), Some(1), "{b_err}");
+    assert!(!expected.is_empty());
+    assert!(got.is_empty());
     assert!(fs::symlink_metadata(&null_link).unwrap().is_symlink());
     assert!(fs::symlink_metadata(&fifo_link).unwrap().is_symlink());
     assert!(fs::symlink_metadata(&fifo).unwrap().file_type().is_fifo());
@@ -376,6 +388,11 @@ fn ksq2txt_output_symlinks_to_dev_null_and_fifo_write_through_and_keep_links() {
 
 /// 읽는 쪽이 한 바이트만 읽고 닫으면 FIFO 쓰기가 중간에 실패한다(EPIPE). 종료 1과 진단을 내고,
 /// FIFO는 그대로이며 임시 파일이 남지 않는다.
+///
+/// 결정 `docs/decisions/2026-10-14-ksq-cli-output-path-scope.md`로 기대를 바꿨다: `-o`는 없는 경로와
+/// 일반 파일만 받는다. 특수 파일(과 그 링크)은 종료 1이고 대상은 그대로다. 입력은 그대로다.
+/// 도구가 FIFO를 열지 않으므로 읽는 쪽은 한 바이트도 받지 못하고(`join_reader`가 풀어 준다),
+/// 진단은 입출력 오류가 아니라 셸 리다이렉션 안내다.
 #[test]
 fn ksq2txt_output_fifo_reader_closes_early_exits_1_and_keeps_fifo() {
     let dir = temp_dir("fifo-epipe");
@@ -409,9 +426,9 @@ fn ksq2txt_output_fifo_reader_closes_early_exits_1_and_keeps_fifo() {
     let (status, err) = wait_with_timeout(child, "epipe");
     let read = join_reader(reader, &fifo);
 
-    assert_eq!(read, 1);
+    assert_eq!(read, 0);
     assert_eq!(status.code(), Some(1), "{err}");
-    assert!(err.contains("입출력 오류"), "{err}");
+    assert!(err.contains("리다이렉트"), "{err}");
     assert!(fs::symlink_metadata(&fifo).unwrap().file_type().is_fifo());
     let names: Vec<_> = fs::read_dir(&dir)
         .unwrap()

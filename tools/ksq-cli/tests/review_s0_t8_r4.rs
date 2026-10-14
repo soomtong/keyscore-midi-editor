@@ -428,6 +428,9 @@ fn txt2ksq_output_dev_dotdot_existing_project_replaced_with_readable_project() {
 /// README: 「심볼릭 링크를 따라간 결과가 `/dev/` 아래인 것 포함」. 링크 대상이 `..`로 `/dev/stdout`에
 /// 닿는 상대 경로면 `resolve_symlink`의 결과(`<디렉터리>/../../dev/stdout`)가 `/dev`로 시작하지 않고,
 /// 메타데이터는 일반 파일(돌린 표준 출력)이라 원자적 쓰기로 가 실패한다(리뷰 3 지적 3과 같은 꼴).
+///
+/// 결정 `docs/decisions/2026-10-14-ksq-cli-output-path-scope.md`로 기대를 바꿨다: `-o`는 없는 경로와
+/// 일반 파일만 받는다. `/dev/stdout`(과 그 링크)은 종료 1이고 대상(돌린 파일)은 그대로다. 링크도 그대로다.
 #[test]
 fn ksq2txt_output_relative_symlink_to_dev_stdout_redirected_to_file_writes_text() {
     let dir = temp_dir("rel-stdout");
@@ -449,7 +452,10 @@ fn ksq2txt_output_relative_symlink_to_dev_stdout_redirected_to_file_writes_text(
         Stdio::from(fs::File::create(&redirected).unwrap()),
     );
 
-    assert!(status.success(), "{err}");
-    assert_eq!(fs::read_to_string(&redirected).unwrap(), expected);
+    assert_eq!(status.code(), Some(1), "{err}");
+    assert!(err.contains("리다이렉트"), "{err}");
+    assert!(!expected.is_empty());
+    assert_eq!(fs::read_to_string(&redirected).unwrap(), "");
+    assert!(fs::symlink_metadata(&link).unwrap().is_symlink());
     fs::remove_dir_all(&dir).unwrap();
 }

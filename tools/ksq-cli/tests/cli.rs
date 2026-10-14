@@ -373,84 +373,66 @@ fn txt2ksq_skips_one_leading_utf8_bom() {
     let _ = fs::remove_dir_all(&dir);
 }
 
-/// 바이너리와 읽는 쪽을 기다리는 시간 한도. 넘으면 테스트가 멈추지 않고 실패한다.
-const FIFO_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
+/// FIFO 대상에서 바이너리가 막히면(대상을 열면 읽는 쪽이 없어 막힌다) 테스트가 멈추지 않고 실패하게
+/// 하는 시간 한도.
+const SPECIAL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
 
-/// FIFO를 만들고, 읽는 쪽 스레드를 띄운 채 `bin`이 `-o fifo`로 쓴 바이트를 돌려준다.
-///
-/// 쓰는 쪽이 FIFO를 열지 않으면(실패하거나 FIFO를 일반 파일로 바꿔치면) 읽는 쪽이 막힌다. 그래서
-/// 같은 FIFO에 하드 링크를 하나 더 걸어 두고(이름이 바뀌어도 같은 FIFO를 가리킨다), 시간 안에
-/// 읽는 쪽이 끝나지 않으면 그 링크를 읽기·쓰기(`O_RDWR`)로 열었다 닫아 풀어 준다. `O_RDWR` 열기는
-/// 상대가 없어도 막히지 않으므로, 확인과 열기 사이에 읽는 쪽이 끝나도 멈추지 않는다(S0-T8 리뷰 3
-/// 제안 4). 바이너리도 시간 한도를 넘으면 죽이고 실패한다.
-fn write_through_fifo(dir: &Path, name: &str, bin: &str, input: &Path) -> (Output, Vec<u8>) {
+fn run_with_timeout(bin: &str, args: &[&Path]) -> Output {
     use std::time::Instant;
 
-    let fifo = dir.join(name);
-    let keep = dir.join(format!("{name}.keep"));
-    let made = Command::new("mkfifo").arg(&fifo).status().unwrap();
-    assert!(made.success());
-    fs::hard_link(&fifo, &keep).unwrap();
-    let reader = {
-        let fifo = fifo.clone();
-        std::thread::spawn(move || fs::read(fifo).unwrap())
-    };
-
     let mut child = Command::new(bin)
-        .args([input.as_os_str(), "-o".as_ref(), fifo.as_os_str()])
+        .args(args)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
         .unwrap();
-    let deadline = Instant::now() + FIFO_TIMEOUT;
+    let deadline = Instant::now() + SPECIAL_TIMEOUT;
     while child.try_wait().unwrap().is_none() {
         if Instant::now() > deadline {
             let _ = child.kill();
             let _ = child.wait();
-            drop(fs::OpenOptions::new().read(true).write(true).open(&keep));
-            panic!("{name}: {bin}이 {FIFO_TIMEOUT:?} 안에 끝나지 않았다");
+            panic!("{bin}이 {SPECIAL_TIMEOUT:?} 안에 끝나지 않았다(대상을 연 것으로 보인다)");
         }
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
-    let o = child.wait_with_output().unwrap();
-
-    let deadline = Instant::now() + FIFO_TIMEOUT;
-    while !reader.is_finished() && Instant::now() < deadline {
-        std::thread::sleep(std::time::Duration::from_millis(10));
-    }
-    if !reader.is_finished() {
-        drop(
-            fs::OpenOptions::new()
-                .read(true)
-                .write(true)
-                .open(&keep)
-                .unwrap(),
-        );
-    }
-    let got = reader.join().unwrap();
-    assert!(
-        fs::symlink_metadata(&fifo).unwrap().file_type().is_fifo(),
-        "{name}: FIFO가 일반 파일로 바뀌었다"
-    );
-    (o, got)
+    child.wait_with_output().unwrap()
 }
 
+/// 결정 `docs/decisions/2026-10-14-ksq-cli-output-path-scope.md`: `-o`는 없는 경로와 일반 파일만
+/// 받는다. FIFO와 `/dev/null`은 대상을 건드리지 않고 종료 1이며, 셸 리다이렉션을 안내한다. 읽는
+/// 쪽 없는 FIFO에서도 막히지 않는다(대상을 열지 않는다).
 #[test]
-fn binaries_write_to_fifo_and_dev_null_without_replacing_them() {
+fn binaries_refuse_fifo_and_dev_null_outputs_and_keep_them() {
     let dir = temp_dir("special");
     let input = fixture("01-melody.ksq");
     let txt = dir.join("in.txt");
     fs::write(&txt, run(KSQ2TXT, &[&input]).stdout).unwrap();
+    let fifo = dir.join("out.pipe");
+    let made = Command::new("mkfifo").arg(&fifo).status().unwrap();
+    assert!(made.success());
 
-    let (a, from_ksq2txt) = write_through_fifo(&dir, "a.pipe", KSQ2TXT, &input);
-    let (b, from_txt2ksq) = write_through_fifo(&dir, "b.pipe", TXT2KSQ, &txt);
-    let c = run(TXT2KSQ, &[&txt, Path::new("-o"), Path::new("/dev/null")]);
+    let a = run_with_timeout(KSQ2TXT, &[&input, Path::new("-o"), &fifo]);
+    let b = run_with_timeout(TXT2KSQ, &[&txt, Path::new("-o"), &fifo]);
+    let c = run_with_timeout(TXT2KSQ, &[&txt, Path::new("-o"), Path::new("/dev/null")]);
 
-    assert_eq!(a.status.code(), Some(0), "{}", stderr(&a));
-    assert_eq!(from_ksq2txt, fs::read(&txt).unwrap());
-    assert_eq!(b.status.code(), Some(0), "{}", stderr(&b));
-    assert_eq!(from_txt2ksq, fs::read(&input).unwrap());
-    assert_eq!(c.status.code(), Some(0), "{}", stderr(&c));
+    for o in [&a, &b, &c] {
+        assert_eq!(o.status.code(), Some(1), "{}", stderr(o));
+        assert!(o.stdout.is_empty());
+        assert!(stderr(o).contains("리다이렉트"), "{}", stderr(o));
+    }
+    assert!(fs::symlink_metadata(&fifo).unwrap().file_type().is_fifo());
+    assert!(
+        fs::metadata("/dev/null")
+            .unwrap()
+            .file_type()
+            .is_char_device()
+    );
+    let mut names: Vec<_> = fs::read_dir(&dir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().into_string().unwrap())
+        .collect();
+    names.sort();
+    assert_eq!(names, vec!["in.txt", "out.pipe"]);
     let _ = fs::remove_dir_all(&dir);
 }
 

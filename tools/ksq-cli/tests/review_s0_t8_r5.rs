@@ -187,6 +187,9 @@ fn ksq2txt_output_regular_file_with_trailing_slash_fails_and_keeps_file() {
 
 /// 상대 링크 → 상대 링크(`..`) → `.`가 섞인 `/dev/./stdout`(`..`는 `/dev` 밖 사슬에만 둔다. macOS에서 `/dev/fd/..`를 거치는 조회는 devfs 노드가 바뀌는 동안 가끔 ENOENT를 내기 때문, S0-T8 리뷰 7 제안 4), 그리고 그 사슬을 가리키는
 /// 절대 링크. 둘 다 일반 파일로 돌린 표준 출력에 쓴다.
+///
+/// 결정 `docs/decisions/2026-10-14-ksq-cli-output-path-scope.md`로 기대를 바꿨다: `-o`는 없는 경로와
+/// 일반 파일만 받는다. 특수 파일·`/dev/stdout`·`/dev/fd/N`(과 그 링크)은 종료 1이고 대상은 그대로다.
 #[test]
 fn ksq2txt_output_mixed_link_chain_to_dev_stdout_writes_redirected_file() {
     let dir = temp_dir("chain");
@@ -209,14 +212,19 @@ fn ksq2txt_output_mixed_link_chain_to_dev_stdout_writes_redirected_file() {
             ],
             Stdio::from(fs::File::create(&redirected).unwrap()),
         );
-        assert_eq!(r.code, Some(0), "{link}: {}", r.stderr);
-        assert_eq!(fs::read_to_string(&redirected).unwrap(), expected, "{link}");
+        assert_eq!(r.code, Some(1), "{link}: {}", r.stderr);
+        assert!(!expected.is_empty());
+        assert_eq!(fs::read_to_string(&redirected).unwrap(), "", "{link}");
     }
     fs::remove_dir_all(&dir).unwrap();
 }
 
 /// `/dev` 디렉터리를 가리키는 링크 `d`: `d/null`은 `/dev/` 아래라 그대로 쓰고, `d/../<임시>/out`은
 /// 커널이 `/` 아래로 푸는 일반 파일이라 원자적으로 바꾼다(옛 꼬리 없음, 새 inode). 두 바이너리 모두.
+///
+/// 결정 `docs/decisions/2026-10-14-ksq-cli-output-path-scope.md`로 기대를 바꿨다: `-o`는 없는 경로와
+/// 일반 파일만 받는다. 특수 파일·`/dev/stdout`·`/dev/fd/N`(과 그 링크)은 종료 1이고 대상은 그대로다.
+/// `d/null`(문자 장치)이 여기에 해당하고, `d/..`를 거친 일반 파일은 그대로 원자적으로 바꾼다.
 #[test]
 fn output_through_link_to_dev_directory_judged_by_kernel_resolution() {
     let dir = temp_dir("devlink");
@@ -225,7 +233,10 @@ fn output_through_link_to_dev_directory_judged_by_kernel_resolution() {
     let real = fs::canonicalize(&dir).unwrap();
     let rest = real.strip_prefix("/").unwrap();
 
-    assert_eq!(ksq2txt_o(&d.join("null")).code, Some(0));
+    assert_eq!(ksq2txt_o(&d.join("null")).code, Some(1));
+    assert!(std::os::unix::fs::FileTypeExt::is_char_device(
+        &fs::metadata("/dev/null").unwrap().file_type()
+    ));
     let r = ksq2txt_o(&d);
     assert_eq!(r.code, Some(1), "디렉터리 /dev는 실패해야 한다");
 
@@ -335,6 +346,10 @@ fn ksq2txt_output_non_utf8_name_writes_or_fails_cleanly() {
 /// `/dev/fd/1`이 파이프면 그 파이프로, 일반 파일(잘라 쓰지 않고 연 것)이면 `-o` 없이 표준 출력에 쓴
 /// 것과 바이트가 같다. 셸의 `1<>`처럼 잘라 쓰지 않고 연 표준 출력에서는 둘 다 옛 꼬리를 남기는데,
 /// 이것은 macOS fdesc가 `O_TRUNC`를 무시하는 것과 같은 동작이라 원자적 쓰기의 보장 밖이다.
+///
+/// 결정 `docs/decisions/2026-10-14-ksq-cli-output-path-scope.md`로 기대를 바꿨다: `-o`는 없는 경로와
+/// 일반 파일만 받는다. 특수 파일·`/dev/stdout`·`/dev/fd/N`(과 그 링크)은 종료 1이고 대상은 그대로다.
+/// 파이프든 일반 파일이든 `-o /dev/fd/1`은 아무것도 쓰지 않고, `-o` 없는 실행은 그대로 표준 출력에 쓴다.
 #[test]
 fn ksq2txt_output_dev_fd_1_matches_plain_stdout_for_pipe_and_file() {
     let dir = temp_dir("fd1");
@@ -345,8 +360,8 @@ fn ksq2txt_output_dev_fd_1_matches_plain_stdout_for_pipe_and_file() {
         KSQ2TXT,
         &[input.as_os_str(), "-o".as_ref(), "/dev/fd/1".as_ref()],
     );
-    assert_eq!(piped.code, Some(0), "{}", piped.stderr);
-    assert_eq!(piped.stdout, expected.as_bytes());
+    assert_eq!(piped.code, Some(1), "{}", piped.stderr);
+    assert!(piped.stdout.is_empty());
 
     let mut results = Vec::new();
     for (name, args) in [
@@ -364,11 +379,12 @@ fn ksq2txt_output_dev_fd_1_matches_plain_stdout_for_pipe_and_file() {
             .open(&path)
             .unwrap();
         let r = run_with(KSQ2TXT, &args, Stdio::from(file));
-        assert_eq!(r.code, Some(0), "{name}: {}", r.stderr);
+        let want = if name == "o.txt" { Some(1) } else { Some(0) };
+        assert_eq!(r.code, want, "{name}: {}", r.stderr);
         results.push(fs::read(&path).unwrap());
     }
-    assert_eq!(results[0], results[1]);
-    assert!(results[0].starts_with(expected.as_bytes()));
+    assert_eq!(results[0], "Y".repeat(expected.len() + 30).into_bytes());
+    assert!(results[1].starts_with(expected.as_bytes()));
     fs::remove_dir_all(&dir).unwrap();
 }
 

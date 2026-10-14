@@ -320,6 +320,9 @@ fn binaries_output_regular_file_still_replaced_atomically() {
 
 /// 리뷰 4·5에서 통과한 `/dev/` 판정이 그대로다. `/dev/null`은 종료 0, `/dev/stdout`은 일반 파일로 돌린
 /// 표준 출력에 `-o` 없는 실행과 같은 바이트를 쓴다.
+///
+/// 결정 `docs/decisions/2026-10-14-ksq-cli-output-path-scope.md`로 기대를 바꿨다: `-o`는 없는 경로와
+/// 일반 파일만 받는다. `/dev/null`·`/dev/stdout`은 종료 1이고 대상은 그대로다(돌린 파일은 비어 있다).
 #[test]
 fn ksq2txt_output_dev_paths_still_written_directly() {
     let dir = temp_dir("dev");
@@ -335,9 +338,10 @@ fn ksq2txt_output_dev_paths_still_written_directly() {
         Stdio::from(fs::File::create(&redirected).unwrap()),
     );
 
-    assert_eq!(null.code, Some(0), "{}", null.stderr);
-    assert_eq!(stdout.code, Some(0), "{}", stdout.stderr);
-    assert_eq!(fs::read_to_string(&redirected).unwrap(), melody_text());
+    assert_eq!(null.code, Some(1), "{}", null.stderr);
+    assert_eq!(stdout.code, Some(1), "{}", stdout.stderr);
+    assert!(!melody_text().is_empty());
+    assert_eq!(fs::read_to_string(&redirected).unwrap(), "");
     fs::remove_dir_all(&dir).unwrap();
 }
 

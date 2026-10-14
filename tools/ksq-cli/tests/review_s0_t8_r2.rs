@@ -162,13 +162,20 @@ fn project_to_text_sixteen_voices_far_notes_rejected_by_estimate_before_building
 
 /// 리뷰 1 전에는 `fs::write`라 `-o /dev/null`(손실 보고만 보려는 흔한 쓰임)이 됐다. 원자적
 /// 쓰기가 `/dev`에 임시 파일을 만들려다 EPERM으로 실패한다. FIFO는 일반 파일로 바뀐다(손으로 확인).
+///
+/// 결정 `docs/decisions/2026-10-14-ksq-cli-output-path-scope.md`로 기대를 바꿨다: `-o`는 없는 경로와
+/// 일반 파일만 받으므로 `/dev/null`은 종료 1이고 그대로다(`-o` 없이 `> /dev/null`로 리다이렉트한다).
 #[test]
 fn ksq2txt_output_dev_null_succeeds_like_before() {
     let input = fixture("01-melody.ksq");
 
     let o = run(KSQ2TXT, &[&input, Path::new("-o"), Path::new("/dev/null")]);
 
-    assert_eq!(o.status.code(), Some(0), "{}", stderr(&o));
+    assert_eq!(o.status.code(), Some(1), "{}", stderr(&o));
+    assert!(o.stdout.is_empty());
+    assert!(std::os::unix::fs::FileTypeExt::is_char_device(
+        &fs::metadata("/dev/null").unwrap().file_type()
+    ));
 }
 
 // ---------------------------------------------------------------- 경계: 정상 곡을 거부하지 않음

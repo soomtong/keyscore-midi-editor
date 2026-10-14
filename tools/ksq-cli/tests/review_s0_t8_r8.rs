@@ -206,6 +206,10 @@ fn txt2ksq_output_link_chain_over_kernel_limit_to_socket_fails_and_keeps_socket(
 // --- 경계: 열기 실패 갈래가 지키는 것 ---
 
 /// 대상 종류별로 종료 코드, 남은 임시 파일, 원래 대상을 본다. 커널 한도 안의 경로는 모두 문서대로다.
+///
+/// 결정 `docs/decisions/2026-10-14-ksq-cli-output-path-scope.md`로 기대를 바꿨다: `-o`는 없는 경로와
+/// 일반 파일만 받는다. 특수 파일·`/dev/stdout`·`/dev/fd/N`(과 그 링크)은 종료 1이고 대상은 그대로다.
+/// 쓰기 권한 없는 FIFO는 열기 오류(os error 13) 대신 셸 리다이렉션 안내로 실패한다(열지 않는다).
 #[test]
 fn ksq2txt_output_open_failure_kinds_follow_documented_exit_codes() {
     let dir = temp_dir("kinds");
@@ -275,7 +279,7 @@ fn ksq2txt_output_open_failure_kinds_follow_documented_exit_codes() {
         fs::set_permissions(&fifo, fs::Permissions::from_mode(0o444)).unwrap();
         let r = ksq2txt_o(&fifo);
         assert_eq!(r.code, Some(1), "{}", r.stderr);
-        assert!(r.stderr.contains("os error 13"), "{}", r.stderr);
+        assert!(r.stderr.contains("리다이렉트"), "{}", r.stderr);
         assert!(fs::symlink_metadata(&fifo).unwrap().file_type().is_fifo());
 
         // 권한 없는 부모 안의 파일은 실패하고 그대로다.
@@ -325,6 +329,10 @@ fn txt2ksq_output_open_failure_kinds_follow_documented_exit_codes() {
 
 /// 표준 출력을 일반 파일로 돌리고 `/dev/fd/1`, `/dev/stdout`, 그리고 그 둘을 가리키는 링크. 셸처럼
 /// 자른 파일에 쓰므로 옛 꼬리가 없고 `-o` 없는 출력과 같다. 신원(inode만 비교)이 맞아 직접 쓴다.
+///
+/// 결정 `docs/decisions/2026-10-14-ksq-cli-output-path-scope.md`로 기대를 바꿨다: `-o`는 없는 경로와
+/// 일반 파일만 받는다. 특수 파일·`/dev/stdout`·`/dev/fd/N`(과 그 링크)은 종료 1이고 대상은 그대로다.
+/// 셸이 자른 파일은 비어 있는 채로 남는다.
 #[test]
 fn ksq2txt_output_dev_fd_to_redirected_regular_file_matches_identity() {
     let dir = temp_dir("fd-regular");
@@ -344,17 +352,18 @@ fn ksq2txt_output_dev_fd_to_redirected_regular_file_matches_identity() {
         fs::write(&sink, "OLD".repeat(200)).unwrap();
         let ino = fs::metadata(&sink).unwrap().ino();
         let r = ksq2txt_o_to(target, Stdio::from(fs::File::create(&sink).unwrap()));
-        assert_eq!(r.code, Some(0), "{}: {}", target.display(), r.stderr);
+        assert_eq!(r.code, Some(1), "{}: {}", target.display(), r.stderr);
+        assert!(!text.is_empty());
         assert_eq!(
             fs::read_to_string(&sink).unwrap(),
-            text,
+            "",
             "{}",
             target.display()
         );
         assert_eq!(
             fs::metadata(&sink).unwrap().ino(),
             ino,
-            "직접 쓰기여야 한다"
+            "대상은 그대로여야 한다"
         );
     }
     assert!(temp_leftovers(&dir).is_empty());
@@ -362,13 +371,18 @@ fn ksq2txt_output_dev_fd_to_redirected_regular_file_matches_identity() {
 }
 
 /// 표준 출력이 파이프면 `/dev/stdout`·`/dev/fd/1`은 FIFO 핸들이라 신원과 상관없이 직접 쓴다.
+///
+/// 결정 `docs/decisions/2026-10-14-ksq-cli-output-path-scope.md`로 기대를 바꿨다: `-o`는 없는 경로와
+/// 일반 파일만 받는다. 특수 파일·`/dev/stdout`·`/dev/fd/N`(과 그 링크)은 종료 1이고 대상은 그대로다.
+/// 파이프에도 아무것도 쓰지 않는다.
 #[test]
 fn ksq2txt_output_dev_stdout_to_pipe_writes_pipe() {
     let text = melody_text();
     for target in ["/dev/stdout", "/dev/fd/1"] {
         let r = ksq2txt_o(Path::new(target));
-        assert_eq!(r.code, Some(0), "{target}: {}", r.stderr);
-        assert_eq!(String::from_utf8(r.stdout).unwrap(), text, "{target}");
+        assert_eq!(r.code, Some(1), "{target}: {}", r.stderr);
+        assert!(!text.is_empty());
+        assert!(r.stdout.is_empty(), "{target}");
     }
 }
 
