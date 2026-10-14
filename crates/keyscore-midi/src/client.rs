@@ -29,11 +29,14 @@ fn check(call: &'static str, status: i32) -> Result<(), MidiError> {
     }
 }
 
-fn valid_name(name: &str) -> Result<(), MidiError> {
-    if name.trim().is_empty() {
+/// 앞뒤 공백을 뗀 이름. 신디의 입력 목록에서 공백만 다른 이름은 구분되지 않으므로, 떼어 낸 이름을
+/// 포트 이름으로 쓰고 중복도 그 이름으로 판정한다.
+fn normalized_name(name: &str) -> Result<&str, MidiError> {
+    let name = name.trim();
+    if name.is_empty() {
         Err(MidiError::InvalidName)
     } else {
-        Ok(())
+        Ok(name)
     }
 }
 
@@ -117,7 +120,7 @@ impl MidiClient {
     ///
     /// 이름이 비었으면 `InvalidName`, CoreMIDI 호출이 실패하면 `Os`.
     pub fn new(name: &str) -> Result<Self, MidiError> {
-        valid_name(name)?;
+        let name = normalized_name(name)?;
         let raw = process_client(name)?;
         Ok(MidiClient {
             inner: Arc::new(ClientInner {
@@ -135,7 +138,7 @@ impl MidiClient {
     /// 이미 16개면 `TooManyPorts`, CoreMIDI 호출이 실패하면 `Os`.
     #[allow(unsafe_code)]
     pub fn create_virtual_output(&self, name: &str) -> Result<VirtualOutput, MidiError> {
-        valid_name(name)?;
+        let name = normalized_name(name)?;
         // 검사와 등록 사이에 다른 스레드가 같은 이름을 넣지 못하게 끝까지 잠근다.
         let mut names = self.inner.names();
         if names.iter().any(|n| n == name) {
@@ -181,7 +184,7 @@ impl VirtualOutput {
     /// `InvalidName`, `DuplicateName`, `Os`. 실패하면 이름은 그대로다.
     #[allow(unsafe_code)]
     pub fn rename(&mut self, name: &str) -> Result<(), MidiError> {
-        valid_name(name)?;
+        let name = normalized_name(name)?;
         if name == self.name {
             return Ok(());
         }
