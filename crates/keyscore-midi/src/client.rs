@@ -266,29 +266,50 @@ impl MidiPort for VirtualOutput {
     }
 }
 
+/// 열거가 흔들릴 때 다시 시도하는 횟수. 소스가 계속 생기고 사라지면 마지막 결과를 쓴다.
+const ENUMERATION_ATTEMPTS: usize = 8;
+
 /// 시스템의 MIDI 소스 이름을 열거 순서대로 돌려준다. 이름을 읽지 못한 소스는 건너뛴다.
+///
+/// CoreMIDI 열거는 인덱스 기반이라, 열거 중 앞쪽 소스가 사라지면 인덱스가 당겨져 살아 있는 소스를
+/// 건너뛴다(리뷰 1 지적 2). 그래서 엔드포인트 목록을 읽고 이름을 모은 뒤 목록이 그대로인지 다시
+/// 확인하고, 바뀌었으면 처음부터 다시 읽는다.
 #[must_use]
-#[allow(unsafe_code)]
 pub fn source_names() -> Vec<String> {
-    // SAFETY: 인자가 없는 조회 함수다.
-    let count = unsafe { MIDIGetNumberOfSources() };
     let mut names = Vec::new();
-    for i in 0..count {
-        // SAFETY: 범위 밖 인덱스면 0을 돌려주는 조회 함수다. 열거 중 소스가 사라져도 0이 온다.
-        let endpoint = unsafe { MIDIGetSource(i as ItemCount) };
-        if endpoint == 0 {
-            continue;
+    for _ in 0..ENUMERATION_ATTEMPTS {
+        let endpoints = source_endpoints();
+        names = endpoints.iter().filter_map(|&e| endpoint_name(e)).collect();
+        if source_endpoints() == endpoints {
+            break;
         }
-        let mut raw: CFStringRef = ptr::null();
-        // SAFETY: 출력 포인터는 이 스택 변수를 가리키고, 속성 키는 CoreMIDI 상수다.
-        let status =
-            unsafe { MIDIObjectGetStringProperty(endpoint, kMIDIPropertyName, &raw mut raw) };
-        if status != 0 || raw.is_null() {
-            continue;
-        }
-        // SAFETY: Get 계열 CoreMIDI 속성 함수는 호출자가 해제할 새 참조를 돌려준다(create rule).
-        let name = unsafe { CFString::wrap_under_create_rule(raw) };
-        names.push(name.to_string());
     }
     names
+}
+
+#[allow(unsafe_code)]
+fn source_endpoints() -> Vec<MIDIEndpointRef> {
+    // SAFETY: 인자가 없는 조회 함수다.
+    let count = unsafe { MIDIGetNumberOfSources() };
+    (0..count)
+        // SAFETY: 범위 밖 인덱스면 0을 돌려주는 조회 함수다. 열거 중 소스가 사라져도 0이 온다.
+        .map(|i| unsafe { MIDIGetSource(i as ItemCount) })
+        .collect()
+}
+
+#[allow(unsafe_code)]
+fn endpoint_name(endpoint: MIDIEndpointRef) -> Option<String> {
+    if endpoint == 0 {
+        return None;
+    }
+    let mut raw: CFStringRef = ptr::null();
+    // SAFETY: 출력 포인터는 이 스택 변수를 가리키고, 속성 키는 CoreMIDI 상수다. 사라진
+    // 엔드포인트면 오류 상태가 온다.
+    let status = unsafe { MIDIObjectGetStringProperty(endpoint, kMIDIPropertyName, &raw mut raw) };
+    if status != 0 || raw.is_null() {
+        return None;
+    }
+    // SAFETY: Get 계열 CoreMIDI 속성 함수는 호출자가 해제할 새 참조를 돌려준다(create rule).
+    let name = unsafe { CFString::wrap_under_create_rule(raw) };
+    Some(name.to_string())
 }

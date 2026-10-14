@@ -25,6 +25,17 @@ fn wait_until(limit: Duration, mut cond: impl FnMut() -> bool) -> bool {
     cond()
 }
 
+/// 수신기 쪽 소스를 찾는다. `coremidi` crate의 열거도 인덱스 기반이라 다른 테스트가 소스를
+/// 만들고 지우는 동안 잠깐 놓칠 수 있어(리뷰 1 지적 3) 다시 시도한다.
+fn find_source(name: &str) -> coremidi::Source {
+    let mut found = None;
+    assert!(wait_until(Duration::from_secs(2), || {
+        found = coremidi::Source::from_name(name);
+        found.is_some()
+    }));
+    found.unwrap()
+}
+
 fn has_source(name: &str) -> bool {
     source_names().iter().any(|n| n == name)
 }
@@ -72,8 +83,7 @@ fn virtual_output_send_is_received_by_in_process_client() {
             }
         })
         .unwrap();
-    let source = coremidi::Source::from_name(&name).unwrap();
-    input.connect_source(&source).unwrap();
+    input.connect_source(&find_source(&name)).unwrap();
 
     let at = HostTime::now();
     port.send(at, &[note_on_ump(2, 60, 100)]).unwrap();
@@ -96,9 +106,7 @@ fn virtual_output_future_timestamp_arrives_no_earlier_than_scheduled() {
             let _ = tx.send(Instant::now());
         })
         .unwrap();
-    input
-        .connect_source(&coremidi::Source::from_name(&name).unwrap())
-        .unwrap();
+    input.connect_source(&find_source(&name)).unwrap();
 
     let sent = Instant::now();
     let at = HostTime::from_ticks(HostTime::now().ticks() + ms_to_ticks(20));
