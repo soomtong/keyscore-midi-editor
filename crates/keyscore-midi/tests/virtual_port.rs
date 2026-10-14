@@ -34,10 +34,15 @@ fn note_on_ump(channel: u8, note: u8, velocity: u8) -> u32 {
     0x2000_0000 | (u32::from(0x90 | channel) << 16) | (u32::from(note) << 8) | u32::from(velocity)
 }
 
-/// mach 틱을 ms로 바꾸는 비율. 테스트 안에서만 쓰므로 근사로 충분하다(Apple Silicon 125/3 ns).
+/// ms를 mach 틱으로 바꾼다. 틱 단위는 기기마다 다르므로(Apple Silicon 125/3 ns, Intel 1 ns)
+/// 실제 경과 시간으로 비율을 잰다. 테스트에서 예약 시각을 만드는 데만 쓴다.
 fn ms_to_ticks(ms: u64) -> u64 {
-    // 이 비율은 기기마다 다를 수 있어, 실제 경과 시간으로 다시 검증한다.
-    ms * 1_000_000 * 3 / 125
+    let (t0, i0) = (HostTime::now(), Instant::now());
+    std::thread::sleep(Duration::from_millis(50));
+    let (t1, i1) = (HostTime::now(), Instant::now());
+    let ticks = u128::from(t1.ticks() - t0.ticks());
+    let nanos = i1.duration_since(i0).as_nanos();
+    u64::try_from(ticks * u128::from(ms) * 1_000_000 / nanos).unwrap()
 }
 
 #[test]

@@ -4,8 +4,13 @@
 /// 넘기지 않게 한다.
 #[must_use]
 pub fn ump_word_count(first_word: u32) -> usize {
-    let _ = first_word;
-    todo!()
+    match first_word >> 28 {
+        0x0..=0x2 | 0x6 | 0x7 => 1,
+        0x3 | 0x4 | 0x8..=0xA => 2,
+        0xB | 0xC => 3,
+        // 0x5, 0xD–0xF. 시프트 결과는 4비트라 다른 값은 없다.
+        _ => 4,
+    }
 }
 
 #[cfg(test)]
