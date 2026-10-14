@@ -1,4 +1,4 @@
-# HANDOFF: KeyScore S0 완료 — 사람 서명 대기
+# HANDOFF: KeyScore S0 완료·서명됨 — S1 시작
 
 ## 목표
 
@@ -6,7 +6,7 @@
 
 ## 현재 브랜치
 
-`main` — S0-T1~T8 병합 완료(테스트 471개 통과). `docs/reports/stage-0-exit.md` 사람 서명 대기. 서명 전에는 S1을 시작하지 않는다.
+`main` — S0-T1~T8 병합 완료(테스트 471개 통과). `docs/reports/stage-0-exit.md` 서명됨(YoungTaek, 2026-10-15). REQ 문구 동기화 병합(`723c684`).
 
 ## 완료된 작업
 
@@ -41,7 +41,7 @@
 
 ## 남은 작업
 
-- [ ] 사람: `docs/reports/stage-0-exit.md`의 확인 항목(손으로 쓴 텍스트 왕복, 픽스처 원곡 확인, 원격 CI, 벤치 기준값, REQ 문구)과 서명
+- [ ] 원격 CI 첫 실행과 CI 러너 벤치 기준값: remote가 생기면(사람이 건너뜀)
 - [ ] 서명 뒤 S1(`plan/stages/11-S1-*.md`) 시작
 - [ ] 사람의 수동 확인 대기: Surge XT 수신(SP-3), 실제 키보드·IME(SP-1), 120 Hz 디스플레이(SP-2)
 
@@ -51,7 +51,7 @@
 - `2026-10-12-ksq-unknown-keys-on-value-change.md` — S2-T5 전
 - `2026-10-12-quantize-grid-lengths.md` — S5 전
 
-사람이 직접 고칠 REQ 문구: 8.4(MPL-2.0 허용), LYR-1·9.5(노트 선택 속성 객체 `{"lyric": …}`), 5.14(예시 마디 길이, 성부 블록, `~` 길이 접미).
+REQ 문구: 사람이 에이전트에게 수정을 허락한 범위(결정 문서의 「후속(사람)」)는 반영했다. 그 밖의 REQ 수정은 여전히 사람이 한다.
 
 ## 핵심 파일
 
@@ -68,7 +68,7 @@
 
 ## 다음 에이전트에게
 
-1. `docs/reports/stage-0-exit.md` 서명란을 본다. 비어 있으면 사람에게 확인 항목을 안내하고 기다린다. 서명되어 있으면 S1을 시작한다.
+1. S1을 시작한다(`plan/stages/11-*`, 스파이크 SP-3 분기 B: `coremidi-sys`).
 2. Task 루프: 브랜치 `s0/t<번호>-<slug>` → `docs/reports/s0-t<번호>/plan.md` → 테스트 먼저(뼈대 `todo!()`로 실패 확인) → 구현 → 게이트 전부(커밋 전에) → `report.md` → 새 에이전트로 적대적 리뷰(`general-purpose`, 구현 맥락 없이, 양식 `plan/templates/adversarial-review.md`, 산출물만 남기고 커밋 금지, 기존 `.proptest-regressions` 삭제 금지) → 지적마다 커밋 하나 → 재리뷰(최대 3회) → `git merge --no-ff`.
 3. 자동 게이트: `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`, `cargo deny check`, `scripts/check-deps.sh`, `scripts/check-deps.test.sh`, `scripts/bench-check.test.sh`. `core`·`text`에 외부 의존을 더하면 `scripts/check-deps.sh`의 허용 목록도 고친다.
 4. REQ에 없는 결정은 임의로 정하지 말고 사람에게 묻거나 `docs/decisions/`에 결정 요청을 쓴다. 사람과의 대화는 한국어로 하고, 문서에 `**`를 쓰지 않는다.
