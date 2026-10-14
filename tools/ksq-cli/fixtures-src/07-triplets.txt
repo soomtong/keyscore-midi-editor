@@ -1,0 +1,20 @@
+# 07 셋잇단·셔플: B♭장조. 8분·4분 셋잇단으로 흔드는 리듬.
+@tempo 96
+@time 4/4
+@key Bb major
+
+@track Lead ch1 prog65
+o4 l8 n(b- > c d) l4 f d l8 n(c d c) | < l2 b- l4 n(f g a) |
+l8 n(b- > c d) l4 e- c l8 n(d c < b-) | l2 > c < l4 r f |
+l8 n(b- > c d) l4 f d l8 n(c d e-) | l2 f l4 n(e- d c) |
+l8 n(d c < b-) l4 a > c l8 n(< a > c < a) | l2 b- r |
+
+@track Bass ch2 prog34
+o2 l4 b- l8 n(b- > d < b-) l4 f l8 n(f a f) |
+o2 l4 b- l8 n(b- > d < b-) l4 f l8 n(f a f) |
+o2 l4 e- l8 n(e- g e-) l4 b- l8 n(b- g e-) |
+o2 l4 f l8 n(f a > c) l4 f l8 n(c < a f) |
+o2 l4 b- l8 n(b- > d < b-) l4 f l8 n(f a f) |
+o2 l4 e- l8 n(e- g e-) l4 b- l8 n(b- g e-) |
+o2 l4 f l8 n(f a > c) l4 f l8 n(c < a f) |
+o2 l2 b- r |

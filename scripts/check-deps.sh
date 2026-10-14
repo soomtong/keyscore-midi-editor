@@ -48,10 +48,12 @@ expected_internal() {
     keyscore-midi) echo "keyscore-core" ;;
     keyscore-ai) echo "keyscore-core keyscore-text" ;;
     keyscore-app) echo "keyscore-ai keyscore-core keyscore-midi keyscore-text" ;;
+    # 픽스처·변환 도구는 앱 없이 돌아야 하므로 core와 text만 쓴다(plan/00-conventions.md).
+    ksq-cli) echo "keyscore-core keyscore-text" ;;
   esac
 }
 
-# core·text가 직접 쓸 수 있는 외부 crate(normal·build·dev 모두). 이 목록에 없는 이름은 실패다.
+# core·text·ksq-cli가 직접 쓸 수 있는 외부 crate(normal·build·dev 모두). 이 목록에 없는 이름은 실패다.
 # 금지 목록은 닫혀 있어 새 네트워크·UI crate를 놓치므로(review-1 C), 직접 의존은 허용 목록으로 본다.
 # REQ 9.6 표의 의존 열(serde, serde_json)과 plan/00-conventions.md의 도구(thiserror, proptest,
 # insta, criterion)가 출발점이다. 새 crate가 필요한 Task는 여기에 추가하고 PR에서 리뷰받는다.
@@ -60,13 +62,15 @@ allowed_external() {
     # flate2: .ksqz gzip 저장(REQ IO-1, S0-T6).
     keyscore-core) echo "serde serde_json thiserror flate2 proptest insta criterion" ;;
     keyscore-text) echo "thiserror proptest insta criterion" ;;
+    # serde_json·flate2: 파일의 format_version과 모르는 키를 직접 본다(core가 이미 쓰는 crate).
+    ksq-cli) echo "thiserror serde_json flate2 proptest" ;;
   esac
 }
 
-# 허용 목록을 거친 전이 의존에서도 UI·MIDI·네트워크가 들어오지 않아야 한다.
+# 허용 목록을 거친 전이 의존에서도 UI·MIDI·네트워크가 들어오지 않아야 한다(core·text·ksq-cli).
 forbidden='^(gpui|gpui[-_].*|zed[-_].*|coremidi.*|core[-_]midi.*|objc|objc2.*|cocoa.*|core[-_]foundation.*|core[-_]graphics.*|metal|block2?|dispatch2?|reqwest|ureq|hyper|hyper[-_].*|h2|h3|http|http[-_].*|tokio|tokio[-_].*|async[-_]std|smol|mio|socket2|rustls.*|native[-_]tls|openssl.*|security[-_]framework.*|curl|curl[-_]sys|isahc|surf|tungstenite|tokio[-_]tungstenite)$'
 
-crates="keyscore-core keyscore-text keyscore-midi keyscore-ai keyscore-app"
+crates="keyscore-core keyscore-text keyscore-midi keyscore-ai keyscore-app ksq-cli"
 
 for crate in $crates; do
   if ! tree=$(tree_of "$crate" --depth 1); then
@@ -83,7 +87,7 @@ for crate in $crates; do
   fi
 
   case "$crate" in
-    keyscore-core | keyscore-text)
+    keyscore-core | keyscore-text | ksq-cli)
       allowed=" $(allowed_external "$crate") "
       while read -r dep _version source; do
         case "$dep" in keyscore-*) continue ;; esac
@@ -102,7 +106,7 @@ for crate in $crates; do
   esac
 done
 
-for crate in keyscore-core keyscore-text; do
+for crate in keyscore-core keyscore-text ksq-cli; do
   if ! tree=$(tree_of "$crate"); then
     fail=1
     continue

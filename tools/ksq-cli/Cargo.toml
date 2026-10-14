@@ -1,0 +1,22 @@
+[package]
+name = "ksq-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+# 내부 의존은 core와 text뿐이다(plan/00-conventions.md 「tools/ksq-cli」, scripts/check-deps.sh).
+# serde_json·flate2는 core가 이미 쓰는 crate로, 파일의 format_version과 모르는 키를 직접 보려고 쓴다.
+[dependencies]
+keyscore-core.workspace = true
+keyscore-text.workspace = true
+thiserror.workspace = true
+serde_json.workspace = true
+flate2.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true

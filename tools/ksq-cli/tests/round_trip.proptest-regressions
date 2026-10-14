@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 7a4b1004b2ee52f0eb71a2caf2d09675caa5f11f1aa2374fa0c91f6f237cae1e # shrinks to spec = ProjectSpec { tempo: 250000, meter: (1, 1), key: None, tempo_change: None, tracks: [] }
+cc 0fa31ae837acc0ffb56ddddef8c82529078d82539e700947ec151b5bdefc32fe # shrinks to spec = ProjectSpec { tempo: 250000, meter: (1, 1), key: None, tempo_change: None, tracks: [] }

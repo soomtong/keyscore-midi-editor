@@ -1,0 +1,24 @@
+# 08 베이스 + 드럼: 마단조 펑크. 프로그램과 뱅크(GS 변형, GM2 리듬 뱅크)를 지정한다.
+@tempo 124
+@time 4/4
+@key E minor
+
+@track Bass ch2 prog38 bank8
+o2 l16 e8 e > e < e r8 e g a8 g e d8 e |
+o2 e8 e > e < e r8 e g b8 a g8 e d |
+o2 e8 e > e < e r8 e g a8 g e d8 e |
+o2 g8 g > g < g r8 g a b8 a g8 e d |
+o2 e8 e > e < e r8 e g a8 g e d8 e |
+o2 e8 e > e < e r8 e g b8 a g8 e d |
+o2 c8 c > c < c r8 c d e8 d c8 < b > c |
+o2 d8 d > d < d r8 d e f+8 e d8 c < b |
+
+@track Kit ch10 prog25 bank15360
+l8 [bd ch] ch [sd ch] [bd ch] ch [bd ch] [sd ch] oh |
+[bd ch] ch [sd ch] [bd ch] ch [bd ch] [sd ch] oh |
+[bd ch] ch [sd ch] [bd ch] ch [bd ch] [sd ch] oh |
+[bd ch] ch [sd ch] [bd ch] l16 sd sd sd sd mt mt lt lt |
+l8 [bd cr] ch [sd ch] [bd ch] ch [bd ch] [sd ch] oh |
+[bd ch] ch [sd ch] [bd ch] ch [bd ch] [sd ch] oh |
+[bd ch] ch [sd ch] [bd ch] ch [bd ch] [sd ch] oh |
+[bd ch] ch [sd ch] [bd ch] l16 sd sd mt mt lt lt [bd cr]8 |

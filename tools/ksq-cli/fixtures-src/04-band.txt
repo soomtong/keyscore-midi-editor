@@ -1,0 +1,26 @@
+# 04 4트랙 밴드: 가단조. 멜로디·화음·베이스·드럼.
+@tempo 120
+@time 4/4
+@key A minor
+
+@track Melody ch1 prog81
+o5 l8 e4 a4 g e d c | d4. e8 c4 < a4 | > e4 a4 b > c < b a | g2. r4 |
+c4 d e f e d c | < b4 > c d < b2 | a8 b > c d e4 d c | < a1 |
+
+@track Chords ch2 prog4
+o3 l1 [a > c e] | o3 [a > d f] | o3 [a > c f] | o3 [g > c e] |
+o3 [a > c e] | o3 [g b > d] | o3 [a > d f] | o3 [a > c e] |
+
+@track Bass ch3 prog33
+o2 l4 a2 e a | d2 a d | f2 > c < f | c2 g c |
+a2 e a | g2 d g | d2 a d | a1 |
+
+@track Drums ch10
+l8 [bd ch] ch [sd ch] ch [bd ch] [bd ch] [sd ch] ch |
+[bd ch] ch [sd ch] ch [bd ch] [bd ch] [sd ch] [sd oh] |
+[bd ch] ch [sd ch] ch [bd ch] [bd ch] [sd ch] ch |
+[bd ch] ch [sd ch] ch l16 sd sd mt mt lt lt sd sd |
+l8 [bd cr] ch [sd ch] ch [bd ch] [bd ch] [sd ch] ch |
+[bd ch] ch [sd ch] ch [bd ch] [bd ch] [sd ch] [sd oh] |
+[bd ch] ch [sd ch] ch [bd ch] [bd ch] [sd ch] ch |
+[bd cr] ch [sd ch] ch l4 [bd cr] r |
