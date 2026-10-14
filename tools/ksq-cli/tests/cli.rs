@@ -131,8 +131,9 @@ fn check_reads_gzip_and_warns_without_version() {
     );
     assert_eq!(plain_report.version(), None);
     assert_eq!(plain_report.warnings().len(), 1);
-    // 경고는 실패가 아니다.
-    assert_eq!(o.status.code(), Some(0));
+    // 경고는 실패가 아니다. 실패하면 종료 상태(신호로 끝났는지)와 표준 오류를 함께 보인다. 동시 실행
+    // 33회 가운데 한 번 이 자식이 신호로 끝난(code None) 일이 있어 원인을 남기려는 것이다.
+    assert_eq!(o.status.code(), Some(0), "{:?}: {}", o.status, stderr(&o));
     assert!(stderr(&o).contains("format_version"), "{}", stderr(&o));
     let _ = fs::remove_dir_all(&dir);
 }
