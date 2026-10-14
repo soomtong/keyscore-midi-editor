@@ -7,14 +7,13 @@
 //! - 통과하는 테스트: 평범한 긴 곡을 거부하지 않는 경계, 특수 파일(심볼릭 링크 너머 `/dev/null`,
 //!   FIFO)과 일반 파일의 쓰기 경로, 특수 파일에 쓰다 실패하는 경로.
 //!
-//! FIFO 테스트는 바이너리와 읽는 쪽 모두에 시간 제한을 둔다. 읽는 쪽이 막혀 있으면 FIFO를 읽기·쓰기
-//! (`O_RDWR`)로 열어 풀어 준다. FIFO를 `O_RDWR`로 여는 것은 상대가 없어도 막히지 않는다.
+//! FIFO 테스트는 바이너리에 시간 제한을 둔다. 결정 `docs/decisions/2026-10-14-ksq-cli-output-path-scope.md`
+//! 뒤로 도구는 FIFO를 열지 않으므로 읽는 쪽을 두지 않는다(S0-T8 리뷰 9 지적 1).
 
 use std::fs;
 use std::os::unix::fs::{FileTypeExt, MetadataExt};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
-use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use keyscore_core::ksq::{self, Compression};
@@ -98,25 +97,6 @@ fn wait_with_timeout(mut child: Child, what: &str) -> (ExitStatus, String) {
         }
         std::thread::sleep(Duration::from_millis(10));
     }
-}
-
-/// 읽는 쪽 스레드를 기다린다. 시간 안에 끝나지 않으면 `unblock`(같은 FIFO를 가리키는 경로)을
-/// `O_RDWR`로 열었다 닫아 풀어 준다. 쓰기 전용 열기와 달리 읽는 쪽이 이미 끝났어도 막히지 않는다.
-fn join_reader<T>(reader: JoinHandle<T>, unblock: &Path) -> T {
-    let deadline = Instant::now() + TIMEOUT;
-    while !reader.is_finished() && Instant::now() < deadline {
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    if !reader.is_finished() {
-        drop(
-            fs::OpenOptions::new()
-                .read(true)
-                .write(true)
-                .open(unblock)
-                .unwrap(),
-        );
-    }
-    reader.join().unwrap()
 }
 
 fn mkfifo(path: &Path) {
@@ -341,7 +321,8 @@ fn txt2ksq_output_dev_stdout_redirected_to_regular_file_writes_project() {
 ///
 /// 결정 `docs/decisions/2026-10-14-ksq-cli-output-path-scope.md`로 기대를 바꿨다: `-o`는 없는 경로와
 /// 일반 파일만 받는다. 특수 파일(과 그 링크)은 종료 1이고 대상은 그대로다. 입력은 그대로다.
-/// 읽는 쪽은 아무것도 받지 못한다(`join_reader`가 풀어 준다).
+/// 도구가 FIFO를 열지 않으므로 읽는 쪽을 두지 않는다(리뷰 9 지적 1: 읽는 쪽 스레드는 풀기 뒤에도
+/// 가끔 막혀 `cargo test`를 멈췄다). 도구가 FIFO를 열면 쓰기 열기에서 막히고 바이너리 시간 제한이 잡는다.
 #[test]
 fn ksq2txt_output_symlinks_to_dev_null_and_fifo_write_through_and_keep_links() {
     let dir = temp_dir("special-links");
@@ -353,10 +334,6 @@ fn ksq2txt_output_symlinks_to_dev_null_and_fifo_write_through_and_keep_links() {
     mkfifo(&fifo);
     let fifo_link = dir.join("pipe.txt");
     std::os::unix::fs::symlink(&fifo, &fifo_link).unwrap();
-    let reader = {
-        let fifo = fifo.clone();
-        std::thread::spawn(move || fs::read(fifo).unwrap())
-    };
 
     let a = Command::new(KSQ2TXT)
         .arg(&input)
@@ -374,15 +351,23 @@ fn ksq2txt_output_symlinks_to_dev_null_and_fifo_write_through_and_keep_links() {
         .spawn()
         .unwrap();
     let (b, b_err) = wait_with_timeout(b, "fifo link");
-    let got = join_reader(reader, &fifo);
 
     assert_eq!(a.code(), Some(1), "{a_err}");
     assert_eq!(b.code(), Some(1), "{b_err}");
     assert!(!expected.is_empty());
-    assert!(got.is_empty());
     assert!(fs::symlink_metadata(&null_link).unwrap().is_symlink());
     assert!(fs::symlink_metadata(&fifo_link).unwrap().is_symlink());
     assert!(fs::symlink_metadata(&fifo).unwrap().file_type().is_fifo());
+    let mut names: Vec<_> = fs::read_dir(&dir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().into_string().unwrap())
+        .collect();
+    names.sort();
+    assert_eq!(
+        names,
+        ["null.txt", "pipe", "pipe.txt"],
+        "임시 파일이 남았다"
+    );
     let _ = fs::remove_dir_all(&dir);
 }
 
@@ -391,8 +376,8 @@ fn ksq2txt_output_symlinks_to_dev_null_and_fifo_write_through_and_keep_links() {
 ///
 /// 결정 `docs/decisions/2026-10-14-ksq-cli-output-path-scope.md`로 기대를 바꿨다: `-o`는 없는 경로와
 /// 일반 파일만 받는다. 특수 파일(과 그 링크)은 종료 1이고 대상은 그대로다. 입력은 그대로다.
-/// 도구가 FIFO를 열지 않으므로 읽는 쪽은 한 바이트도 받지 못하고(`join_reader`가 풀어 준다),
-/// 진단은 입출력 오류가 아니라 셸 리다이렉션 안내다.
+/// 도구가 FIFO를 열지 않으므로 읽는 쪽을 두지 않는다(리뷰 9 지적 1). 진단은 입출력 오류가 아니라
+/// 셸 리다이렉션 안내다.
 #[test]
 fn ksq2txt_output_fifo_reader_closes_early_exits_1_and_keeps_fifo() {
     let dir = temp_dir("fifo-epipe");
@@ -406,14 +391,6 @@ fn ksq2txt_output_fifo_reader_closes_early_exits_1_and_keeps_fifo() {
     ksq::write_file(&input, &big, Compression::None).unwrap();
     let fifo = dir.join("pipe");
     mkfifo(&fifo);
-    let reader = {
-        let fifo = fifo.clone();
-        std::thread::spawn(move || {
-            let mut f = fs::File::open(fifo).unwrap();
-            let mut one = [0u8; 1];
-            std::io::Read::read(&mut f, &mut one).unwrap()
-        })
-    };
 
     let child = Command::new(KSQ2TXT)
         .arg(&input)
@@ -424,9 +401,7 @@ fn ksq2txt_output_fifo_reader_closes_early_exits_1_and_keeps_fifo() {
         .spawn()
         .unwrap();
     let (status, err) = wait_with_timeout(child, "epipe");
-    let read = join_reader(reader, &fifo);
 
-    assert_eq!(read, 0);
     assert_eq!(status.code(), Some(1), "{err}");
     assert!(err.contains("리다이렉트"), "{err}");
     assert!(fs::symlink_metadata(&fifo).unwrap().file_type().is_fifo());

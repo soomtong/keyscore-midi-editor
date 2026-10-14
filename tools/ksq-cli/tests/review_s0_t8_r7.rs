@@ -253,36 +253,20 @@ fn ksq2txt_output_read_only_dev_stdin_reports_permission_denied() {
 /// 결정 `docs/decisions/2026-10-14-ksq-cli-output-path-scope.md`로 기대를 바꿨다: `-o`는 없는 경로와
 /// 일반 파일만 받는다. 특수 파일·`/dev/stdin`·`/dev/stdout`·`/dev/fd/N`(과 그 링크)은 종료 1이고
 /// 대상은 그대로다. 오류는 셸 리다이렉션을 안내한다.
-/// 도구가 FIFO를 열지 않으므로, 막힌 `cat`은 테스트가 FIFO를 읽기·쓰기로 열었다 닫아 풀어 준다.
+/// 도구가 FIFO를 열지 않으므로 읽는 쪽(`cat`)을 두지 않는다(S0-T8 리뷰 9 지적 1: 풀기 뒤에도 읽는
+/// 쪽이 가끔 막혔다). 도구가 FIFO를 열면 쓰기 열기에서 막혀 `wait`의 시간 제한이 잡는다.
 #[test]
 fn ksq2txt_output_fifo_with_reader_written_directly_and_stays_fifo() {
     let dir = temp_dir("fifo");
     let fifo = dir.join("ff");
     mkfifo(&fifo);
-    let reader = Command::new("cat")
-        .arg(&fifo)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
 
     let r = ksq2txt_o(&fifo);
-    // 쓰는 쪽이 하나도 없으면 `cat`은 열기에서 막혀 있다. `O_RDWR` 열기는 상대가 없어도 막히지 않는다.
-    drop(
-        fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(&fifo)
-            .unwrap(),
-    );
-    let read = wait(reader, "cat");
 
     assert_eq!(r.code, Some(1), "{}", r.stderr);
     assert!(r.stderr.contains("리다이렉트"), "{}", r.stderr);
-    assert!(!melody_text().is_empty());
-    assert!(read.stdout.is_empty());
     assert!(fs::symlink_metadata(&fifo).unwrap().file_type().is_fifo());
+    assert!(temp_leftovers(&dir).is_empty());
     fs::remove_dir_all(&dir).unwrap();
 }
 
