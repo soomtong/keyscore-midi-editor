@@ -251,3 +251,14 @@ cargo test --workspace: 358 passed, 0 failed (ksq-cli: 단위 10, 통합 14, pro
 | 5 | 만들 수 없는 경로 오류에 안내 없음 (제안) | `OutputUncreatable`로 같은 안내를 붙인다 | 3과 같음 |
 
 구현자가 알린 점: 동시 실행 한 번에서 `check_reads_gzip_and_warns_without_version`의 자식 프로세스가 신호로 끝났다(종료 코드 None). 이번 커밋과 무관한 테스트이고, 다시 70회 돌려도 재현되지 않았다. 다른 세션과 겹친 메모리 압박으로 macOS가 자식을 죽인 것으로 추정한다. 다시 나면 원인을 알 수 있게 단언 메시지에 종료 상태와 표준 오류를 넣었다(`ksq-cli: Report child exit status in the gzip check test assertion`).
+
+## 리뷰 대응 (review-10, 판정: 수정 후 재리뷰)
+
+구현자 에이전트가 고치고 표를 보냈으며, 계획자가 옮겼다.
+
+| # | 지적 | 대응 | 커밋 |
+| --- | --- | --- | --- |
+| 1 | 입력 열기가 `-o` 확인보다 앞서 FIFO 입력에서 멈춤 (수정) | 순서를 「`-o` 범위 판정(경로만) → 입력 열기 → 연 핸들과 출력의 (dev, ino) 비교」로 바꿨다. 거부될 `-o`는 입력을 열기 전에 종료 1이다. 리뷰 10의 디렉터리 입력 테스트를 위해, 일반 파일이 아닌 `-o`가 입력 경로와 같은 파일이면 입력을 열지 않고 「입력과 같다」로 알린다 | `ksq-cli: Judge -o scope before opening the input` |
+| 2 | 권한 없음에도 특수 파일 안내 (제안) | 계획자 결정 A. 리뷰 테스트(두 경우 모두 예를 기대)를 고치지 않고 문구를 둘로 나눴다. 특수 파일 자리(경로가 `/dev/` 아래이거나 끝 `/`·`/.`이고 ENOENT·ENOTDIR·EPERM)이면 리다이렉트를 안내한다. 그 밖(EACCES, 없는 디렉터리 안)은 `OutputCreateFailed`로 「다른 경로를 주거나 표준 출력으로 받는다(예: …)」를 보인다 | `ksq-cli: Split uncreatable -o wording by special-file cause` |
+
+리뷰 1–10 테스트 파일은 바뀌지 않았다(계획자가 diff로 확인). 끊긴 링크가 `/dev/<없는 이름>`을 가리키면 일반 문구로 나온다. 메시지만 다르고, 종료 1과 아무것도 만들지 않는 동작은 같다.
