@@ -230,7 +230,14 @@ fn child_holds_virtual_output_until_killed() {
     };
     let client = MidiClient::new("ks-test-child").unwrap();
     let _port = client.create_virtual_output(&name).unwrap();
-    std::thread::sleep(Duration::from_mins(1));
+    // 부모 테스트가 외부에서 죽어 kill을 못 보내도 고아로 오래 남지 않게, 부모가 바뀌면(재부모화)
+    // 곧 끝낸다(리뷰 1 제안 9). 최대 1분.
+    let parent = std::os::unix::process::parent_id();
+    let start = Instant::now();
+    while std::os::unix::process::parent_id() == parent && start.elapsed() < Duration::from_mins(1)
+    {
+        std::thread::sleep(Duration::from_millis(100));
+    }
 }
 
 #[test]

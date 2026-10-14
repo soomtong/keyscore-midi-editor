@@ -17,6 +17,9 @@ use crate::{HostTime, MidiError, MidiPort, ump_word_count};
 /// 한 `MidiClient`가 만들 수 있는 가상 출력 포트 수(OUT-2). 앱은 `MidiClient`를 하나만 둔다.
 pub const MAX_VIRTUAL_OUTPUTS: usize = 16;
 
+/// 앱의 기본 가상 출력 포트 이름(OUT-1).
+pub const DEFAULT_PORT_NAME: &str = "KeyScore Out";
+
 /// v1 가상 포트는 MIDI 1.0 프로토콜이다(OUT-1). 바인딩의 상수 타입이 `MIDIProtocolID`와 달라 맞춘다.
 #[allow(clippy::cast_possible_wrap)]
 const PROTOCOL_1_0: MIDIProtocolID = kMIDIProtocol_1_0 as MIDIProtocolID;

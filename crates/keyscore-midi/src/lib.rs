@@ -10,7 +10,7 @@ mod port;
 mod time;
 mod ump;
 
-pub use client::{MAX_VIRTUAL_OUTPUTS, MidiClient, VirtualOutput, source_names};
+pub use client::{DEFAULT_PORT_NAME, MAX_VIRTUAL_OUTPUTS, MidiClient, VirtualOutput, source_names};
 pub use error::MidiError;
 pub use port::MidiPort;
 pub use time::HostTime;
