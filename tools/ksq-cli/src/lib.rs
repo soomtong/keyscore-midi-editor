@@ -72,19 +72,35 @@ pub enum CliError {
     )]
     OutputBeyondAnyLimit { detail: String },
     /// `-o` 대상이 있고 일반 파일이 아니다(`docs/decisions/2026-10-14-ksq-cli-output-path-scope.md`).
+    /// `example`은 그 바이너리로 셸 리다이렉션을 쓰는 예다.
     #[error(
-        "{}: -o는 없는 경로나 일반 파일만 받는다(이 경로는 {kind}). 대상은 건드리지 않았다. 특수 파일에 쓰려면 -o 없이 실행하고 셸로 리다이렉트하라(예: ksq2txt in.ksq > /dev/null)",
+        "{}: -o는 없는 경로나 일반 파일만 받는다(이 경로는 {kind}). 대상은 건드리지 않았다. 특수 파일에 쓰려면 -o 없이 실행하고 셸로 리다이렉트하라(예: {example})",
         path.display()
     )]
-    OutputNotRegular { path: PathBuf, kind: &'static str },
+    OutputNotRegular {
+        path: PathBuf,
+        kind: &'static str,
+        example: &'static str,
+    },
     /// `-o` 대상을 확인하지 못했다(`NotFound` 말고). 대상은 건드리지 않는다.
     #[error(
-        "{}: -o 대상을 확인할 수 없다: {source}. 대상은 건드리지 않았다. -o는 없는 경로나 일반 파일만 받는다. 특수 파일에 쓰려면 -o 없이 실행하고 셸로 리다이렉트하라",
+        "{}: -o 대상을 확인할 수 없다: {source}. 대상은 건드리지 않았다. -o는 없는 경로나 일반 파일만 받는다. 특수 파일에 쓰려면 -o 없이 실행하고 셸로 리다이렉트하라(예: {example})",
         path.display()
     )]
     OutputUnchecked {
         path: PathBuf,
         source: std::io::Error,
+        example: &'static str,
+    },
+    /// 확인 때 없던 `-o` 대상을 만들지 못했다(없는 디렉터리 안, `/dev/<없는 이름>`, 끝 `/` 등).
+    #[error(
+        "{}: -o 대상을 만들지 못했다: {detail}. -o는 없는 경로나 일반 파일만 받는다. 특수 파일에 쓰려면 -o 없이 실행하고 셸로 리다이렉트하라(예: {example})",
+        path.display()
+    )]
+    OutputUncreatable {
+        path: PathBuf,
+        detail: String,
+        example: &'static str,
     },
     #[error("{}: 출력 파일이 입력 파일과 같다. 입력을 덮어쓰지 않는다", path.display())]
     SameInputOutput { path: PathBuf },

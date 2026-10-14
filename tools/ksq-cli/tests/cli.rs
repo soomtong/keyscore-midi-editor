@@ -580,3 +580,38 @@ fn binaries_refuse_output_equal_to_input_given_as_dev_stdin() {
     }
     let _ = fs::remove_dir_all(&dir);
 }
+
+/// 거부 안내는 그 바이너리의 리다이렉션 예를 보이고(리뷰 9 제안 3), 확인 때 없던 대상을 만들지
+/// 못한 실패(없는 디렉터리 안, `/dev/<없는 이름>`)에도 같은 안내를 붙인다(리뷰 9 제안 5).
+#[test]
+fn output_errors_show_redirect_example_for_each_binary() {
+    let dir = temp_dir("redirect-hint");
+    let input = fixture("01-melody.ksq");
+    let txt = dir.join("in.txt");
+    fs::write(&txt, run(KSQ2TXT, &[&input]).stdout).unwrap();
+    let missing_dir = dir.join("nowhere").join("out");
+
+    for (bin, src, example) in [
+        (KSQ2TXT, input.as_path(), "ksq2txt in.ksq > out.txt"),
+        (TXT2KSQ, txt.as_path(), "txt2ksq in.txt > out.ksq"),
+    ] {
+        for target in [
+            Path::new("/dev/null"),
+            missing_dir.as_path(),
+            Path::new("/dev/ksq-cli-no-such-node"),
+        ] {
+            let o = run(bin, &[src, Path::new("-o"), target]);
+
+            assert_eq!(o.status.code(), Some(1), "{bin} {}", target.display());
+            assert!(
+                stderr(&o).contains(example),
+                "{bin} {}: {}",
+                target.display(),
+                stderr(&o)
+            );
+        }
+    }
+    assert!(!dir.join("nowhere").exists());
+    assert!(!Path::new("/dev/ksq-cli-no-such-node").exists());
+    let _ = fs::remove_dir_all(&dir);
+}

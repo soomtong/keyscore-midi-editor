@@ -109,6 +109,7 @@ fn check_files(files: &[OsString], out: &mut dyn Write, err: &mut dyn Write) -> 
 }
 
 struct Options {
+    tool: Tool,
     input: PathBuf,
     output: Option<PathBuf>,
     strict: bool,
@@ -120,6 +121,17 @@ struct Options {
 enum Tool {
     Ksq2Txt,
     Txt2Ksq,
+}
+
+impl Tool {
+    /// `-o` 대신 셸 리다이렉션을 쓰는 예. 오류 메시지가 그 바이너리에 맞는 예를 보이게 한다
+    /// (S0-T8 리뷰 9 제안 3).
+    const fn redirect_example(self) -> &'static str {
+        match self {
+            Tool::Ksq2Txt => "ksq2txt in.ksq > out.txt",
+            Tool::Txt2Ksq => "txt2ksq in.txt > out.ksq",
+        }
+    }
 }
 
 fn parse_options(args: &[OsString], tool: Tool) -> Result<Options, String> {
@@ -166,6 +178,7 @@ fn parse_options(args: &[OsString], tool: Tool) -> Result<Options, String> {
     }
     let input = input.ok_or_else(|| "입력 파일이 없다".to_owned())?;
     Ok(Options {
+        tool,
         input,
         output,
         strict,
@@ -204,26 +217,51 @@ fn open_input(path: &Path) -> Result<(fs::File, (u64, u64)), CliError> {
 ///   사슬의 ELOOP, EACCES, 끝 `/`의 ENOTDIR 등)는 대상을 건드리지 않고 실패한다. 특수 파일에
 ///   쓰려면 `-o` 없이 셸 리다이렉션을 쓴다. 커널의 경로 풀이를 도구가 다시 흉내 내지 않으려는
 ///   것이다(S0-T8 리뷰 2–8). 확인은 링크를 따라가는 `fs::metadata` 하나로, 커널이 푼다.
-fn guard_output(options: &Options, input: (u64, u64)) -> Result<(), CliError> {
+///
+/// 대상이 없었으면(`NotFound`) `true`를 돌려준다. 그런 대상을 만들지 못한 실패에도 같은 안내를
+/// 붙이려는 것이다([`output_error`]).
+fn guard_output(options: &Options, input: (u64, u64)) -> Result<bool, CliError> {
     use std::os::unix::fs::MetadataExt;
 
     let Some(output) = &options.output else {
-        return Ok(());
+        return Ok(false);
     };
+    let example = options.tool.redirect_example();
     match fs::metadata(output) {
         Ok(meta) if (meta.dev(), meta.ino()) == input => Err(CliError::SameInputOutput {
             path: output.clone(),
         }),
-        Ok(meta) if meta.is_file() && !on_devfs(&meta) => Ok(()),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Ok(meta) if meta.is_file() && !on_devfs(&meta) => Ok(false),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(true),
         Ok(meta) => Err(CliError::OutputNotRegular {
             path: output.clone(),
             kind: file_kind(&meta),
+            example,
         }),
         Err(source) => Err(CliError::OutputUnchecked {
             path: output.clone(),
             source,
+            example,
         }),
+    }
+}
+
+/// `-o` 쓰기 실패. 확인 때 없던 대상이면 만들 수 없는 경로(없는 디렉터리 안, `/dev/<없는 이름>`,
+/// 끝 `/` 등)이므로 다른 거부와 같은 리다이렉션 안내를 붙인다(S0-T8 리뷰 9 제안 5).
+fn output_error(options: &Options, path: &Path, was_missing: bool, cause: CliError) -> CliError {
+    if !was_missing {
+        return cause;
+    }
+    // 경로는 이 오류가 한 번만 적는다.
+    let detail = match cause {
+        CliError::Io { source, .. } => source.to_string(),
+        CliError::Ksq { source, .. } => source.to_string(),
+        other => other.to_string(),
+    };
+    CliError::OutputUncreatable {
+        path: path.to_owned(),
+        detail,
+        example: options.tool.redirect_example(),
     }
 }
 
@@ -303,7 +341,7 @@ fn run_ksq2txt(
 ) -> Result<(), CliError> {
     let input = &options.input;
     let (mut file, identity) = open_input(input)?;
-    guard_output(options, identity)?;
+    let was_missing = guard_output(options, identity)?;
     let mut bytes = Vec::new();
     std::io::Read::read_to_end(&mut file, &mut bytes).map_err(|source| CliError::Io {
         path: input.clone(),
@@ -328,9 +366,16 @@ fn run_ksq2txt(
     }
     refuse_mismatch(&losses)?;
     match &options.output {
-        Some(path) => write_atomic(path, text.as_bytes()).map_err(|source| CliError::Io {
-            path: path.clone(),
-            source,
+        Some(path) => write_atomic(path, text.as_bytes()).map_err(|source| {
+            output_error(
+                options,
+                path,
+                was_missing,
+                CliError::Io {
+                    path: path.clone(),
+                    source,
+                },
+            )
         }),
         None => write_stdout(out, text.as_bytes()),
     }
@@ -448,7 +493,7 @@ fn run_txt2ksq(
 ) -> Result<(), CliError> {
     let input = &options.input;
     let (mut file, identity) = open_input(input)?;
-    guard_output(options, identity)?;
+    let was_missing = guard_output(options, identity)?;
     let mut text = String::new();
     std::io::Read::read_to_string(&mut file, &mut text).map_err(|source| CliError::Io {
         path: input.clone(),
@@ -484,9 +529,16 @@ fn run_txt2ksq(
             } else {
                 Compression::None
             };
-            ksq::write_file(path, &project, compression).map_err(|source| CliError::Ksq {
-                path: path.clone(),
-                source,
+            ksq::write_file(path, &project, compression).map_err(|source| {
+                output_error(
+                    options,
+                    path,
+                    was_missing,
+                    CliError::Ksq {
+                        path: path.clone(),
+                        source,
+                    },
+                )
             })
         }
         None => write_stdout(out, ksq::to_string(&project).as_bytes()),
