@@ -15,21 +15,21 @@ const REQ_EXAMPLE: &str = r"# 주석은 # 뒤
 @key C major        # 선택. 'none' 가능
 
 @track Lead ch1 prog0
-o4 l8 c d e f g4 r4 | e d c2 | [c e g]4 r4 c8&c8 d4 |
+o4 l8 c d e f g4 r4 | e d c4 c2 | [c e g]4 r4 c8&c8 d4 |
 
 @track Bass ch2 prog33
 o2 l4 c c g g | a a g2 |
 
 @track Drums ch10
-l16 [bd ch] ch [sd ch] ch [bd ch] ch [sd oh] r | n(ch ch ch) ch4 [bd cr] r8 sd8 |
+l16 [bd ch] ch [sd ch] ch [bd ch] ch [sd oh] r [bd ch] ch [sd ch] ch [bd ch] ch [sd oh] r |
+n(ch ch ch) ch4 [bd cr]4 r8 sd8 sd8 |
 ";
 
 #[test]
 fn req_example_block_snapshot() {
     let p = ok(REQ_EXAMPLE, Mode::Lenient);
-    // 결정 Q3: 사람이 예시를 고칠 때까지 마디 길이 경고 세 개(Lead 둘째 마디 3/4,
-    // Drums 첫 마디 1/2, 둘째 마디 11/16)가 정답이다.
-    assert_eq!(warning_positions(&p), vec![(7, 30), (13, 48), (13, 81)]);
+    // 결정 Q3: 사람이 REQ 예시를 마디가 맞게 고쳤으므로(2026-10-15) 경고가 없다.
+    assert_eq!(warning_positions(&p), Vec::<(usize, usize)>::new());
     insta::assert_snapshot!(render(&p));
 }
 
