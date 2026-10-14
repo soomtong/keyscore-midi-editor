@@ -2,3 +2,16 @@
 //!
 //! CoreMIDI FFI 때문에 unsafe가 필요하다. crate 전체가 아니라 함수 단위로
 //! `#[allow(unsafe_code)]`와 이유 주석을 단다(plan/00-conventions.md).
+#![deny(unsafe_code)]
+
+mod client;
+mod error;
+mod port;
+mod time;
+mod ump;
+
+pub use client::{MAX_VIRTUAL_OUTPUTS, MidiClient, VirtualOutput, source_names};
+pub use error::MidiError;
+pub use port::MidiPort;
+pub use time::HostTime;
+pub use ump::ump_word_count;

@@ -9,5 +9,12 @@ publish.workspace = true
 [lints]
 workspace = true
 
+# 제품은 macOS 전용이다(REQ 9.1). CoreMIDI 의존을 target으로 가르지 않는다.
 [dependencies]
 keyscore-core.workspace = true
+thiserror.workspace = true
+coremidi-sys.workspace = true
+core-foundation.workspace = true
+
+[dev-dependencies]
+coremidi.workspace = true
