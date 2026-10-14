@@ -1,4 +1,4 @@
-# HANDOFF: KeyScore S0 진행 중 — S0-T8 남음
+# HANDOFF: KeyScore S0 완료 — 사람 서명 대기
 
 ## 목표
 
@@ -6,7 +6,7 @@
 
 ## 현재 브랜치
 
-`main` — S0-T1~T7 병합 완료(테스트 332개 통과). 다음은 S0-T8(`s0/t8-ksq-cli`).
+`main` — S0-T1~T8 병합 완료(테스트 471개 통과). `docs/reports/stage-0-exit.md` 사람 서명 대기. 서명 전에는 S1을 시작하지 않는다.
 
 ## 완료된 작업
 
@@ -18,6 +18,8 @@
 - [x] S0-T4 undo (`Document`가 프로젝트+히스토리 소유, 역편집은 crate 내부 `Op`, `TrackId`)
 - [x] S0-T6 `.ksq` (결정적 쓰기, 모르는 키 보존, 임시 파일 + rename, 10만 노트 읽기 15 ms)
 - [x] S0-T5 계이름 텍스트 파서·내보내기(리뷰 9회, 결정 `2026-10-13-ktext-export-voice-budget.md`와 개정). 엄격 모드 왕복의 알려진 예외와 출력 크기 상한(선형, 256배)은 `docs/decisions/2026-10-12-ktext-implementation-details.md`
+- [x] S0-T8 `ksq-cli`(리뷰 11회, 결정 `2026-10-14-ksq-cli-output-path-scope.md`: `-o`는 일반 파일만). 픽스처 8곡 `assets/fixtures/`, 원본 텍스트 `tools/ksq-cli/fixtures-src/`
+- [x] S0 출구 보고서 `docs/reports/stage-0-exit.md`(자동 게이트 통과, 사람 항목 대기)
 - [x] S0-T7 일괄 연산(퀀타이즈·조옮김·시간 이동·길이 스케일). 4회차 리뷰에서 병합 가능. 일괄 연산은 클립마다 `Edit::ReplaceNotes`(길이 늘리기 + 동시 치환, 꼬리는 편집 직전 길이로 판정)를 낸다
 
 ## 시도했으나 실패한 접근
@@ -33,12 +35,14 @@
 - `ReplaceNotes`를 pair 차례 적용: 앞 pair의 결과를 뒤 pair의 `from`으로 써서 분할 없이 꼬리가 생겼다. 동시 치환으로 바꿨다.
 - 리뷰마다 더 좁은 경계를 찾아 재리뷰가 9회까지 늘었다(S0-T5). 재리뷰 3회 뒤에는 결정 요청으로 넘기고, 이후 확인 리뷰는 직전 수정 범위로 좁힌다. 임의로 정한 수치(「64배」)를 완료 조건에 넣지 말고 측정으로 정한다.
 - 테스트를 커밋한 뒤 clippy를 돌림: 경고가 뒤늦게 발견됐다. 게이트는 커밋 전에 모두 돌린다.
+- 커널 경로 해석(링크, `/dev/fd`, `..`, 끝 `/`)을 도구가 흉내 내기(S0-T8 리뷰 2–8): 매 회차 새 구멍이 나왔다. 범위를 줄여(`-o`는 일반 파일만) 해결했다. 경계가 계속 나오면 일찍 범위 재정의를 묻는다.
+- 확인 리뷰에서 같은 갈래 지적이 두 번 이상 나오면 패턴을 하나씩 막지 말고 원인을 고친다.
 - 단계 파일 수치를 검증 없이 옮기기: S0-T3 「1시간 = 3,456,000틱」은 60 BPM 기준이었다(정정함).
 
 ## 남은 작업
 
-- [ ] S0-T8 `ksq-cli`(`tools/ksq-cli`): `ksq2txt`, `txt2ksq`, `ksq check`, 픽스처 8곡
-- [ ] S0 출구 게이트(`plan/stages/10-S0-foundation.md` 끝) + `docs/reports/stage-0-exit.md` 사람 서명. 수동 항목에 「원격 CI 첫 실행 확인」, 「벤치 기준값을 CI 러너에서 다시 잡기」 포함
+- [ ] 사람: `docs/reports/stage-0-exit.md`의 확인 항목(손으로 쓴 텍스트 왕복, 픽스처 원곡 확인, 원격 CI, 벤치 기준값, REQ 문구)과 서명
+- [ ] 서명 뒤 S1(`plan/stages/11-S1-*.md`) 시작
 - [ ] 사람의 수동 확인 대기: Surge XT 수신(SP-3), 실제 키보드·IME(SP-1), 120 Hz 디스플레이(SP-2)
 
 결정 대기(`rg -l "상태: 결정 대기" docs/decisions/`):
@@ -64,7 +68,7 @@
 
 ## 다음 에이전트에게
 
-1. S0-T8을 진행한다(`docs/reports/s0-t8/plan.md`가 있으면 그 상태부터).
+1. `docs/reports/stage-0-exit.md` 서명란을 본다. 비어 있으면 사람에게 확인 항목을 안내하고 기다린다. 서명되어 있으면 S1을 시작한다.
 2. Task 루프: 브랜치 `s0/t<번호>-<slug>` → `docs/reports/s0-t<번호>/plan.md` → 테스트 먼저(뼈대 `todo!()`로 실패 확인) → 구현 → 게이트 전부(커밋 전에) → `report.md` → 새 에이전트로 적대적 리뷰(`general-purpose`, 구현 맥락 없이, 양식 `plan/templates/adversarial-review.md`, 산출물만 남기고 커밋 금지, 기존 `.proptest-regressions` 삭제 금지) → 지적마다 커밋 하나 → 재리뷰(최대 3회) → `git merge --no-ff`.
 3. 자동 게이트: `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`, `cargo deny check`, `scripts/check-deps.sh`, `scripts/check-deps.test.sh`, `scripts/bench-check.test.sh`. `core`·`text`에 외부 의존을 더하면 `scripts/check-deps.sh`의 허용 목록도 고친다.
 4. REQ에 없는 결정은 임의로 정하지 말고 사람에게 묻거나 `docs/decisions/`에 결정 요청을 쓴다. 사람과의 대화는 한국어로 하고, 문서에 `**`를 쓰지 않는다.
