@@ -19,3 +19,4 @@ unicode-normalization.workspace = true
 
 [dev-dependencies]
 coremidi.workspace = true
+proptest.workspace = true
