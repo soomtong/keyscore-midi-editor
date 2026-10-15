@@ -12,6 +12,7 @@ use coremidi_sys::{
     MIDIReceivedEventList, MIDISourceCreateWithProtocol, kMIDIPropertyName, kMIDIProtocol_1_0,
 };
 use unicode_normalization::UnicodeNormalization;
+use unicode_normalization::char::is_combining_mark;
 
 use crate::{HostTime, MidiError, MidiPort, ump_word_count};
 
@@ -103,18 +104,59 @@ fn is_blank_looking(c: char) -> bool {
     )
 }
 
-/// 중복 판정 키. 정규화한 이름에서 허용한 표시되지 않는 문자와 빈칸 모양 문자를 뺀다. `PadSynth`와
-/// `Pad\u{200D}Synth`는 목록에서 같아 보이므로 같은 이름으로 본다(결정 2026-10-15 보이는 모양 기준).
+/// 중복 판정 키. 신디 목록에서 같아 보이는 이름이 같은 키를 갖고, 달라 보이는 이름은 다른 키를 갖게
+/// 한다(결정 `2026-10-15-port-name-visual-duplicates.md`).
+///
+/// - 앞뒤의 공백·빈칸 모양 문자·허용 예외 문자는 보이지 않으므로 뗀다.
+/// - 안쪽의 허용 예외 문자(ZWNJ, ZWJ, 이체자 선택자, 태그)는 뺀다. 다만 그것이 글자를 갈라 놓아 따로
+///   그려지게 하던 자리, 곧 ZWJ·ZWNJ 뒤의 결합 문자와 뺀 문자 뒤의 한글 중성·종성 낱자 앞에는 CGJ
+///   (U+034F)를 둔다. CGJ는 NFC 합성을 막고, 이름에서는 거부되는 문자라 실제 이름과 겹치지 않는다
+///   (리뷰 6 지적 1). 이체자 선택자는 결합 문자를 떼어 놓지 않으므로 그냥 뺀다.
+/// - 폭이 없는 주석 구분 문자(U+FFF9–FFFB)는 위와 같이 빼고, 점자 빈칸처럼 폭이 있는 빈칸 모양 문자는
+///   안쪽에서 남긴다.
+/// - 그 뒤 NFC로 맞추고 공백 연속을 한 칸으로 줄인다(빼낸 문자가 감싸던 공백이 다시 이웃하므로).
 fn duplicate_key(name: &str) -> String {
-    // 표시되지 않는 문자를 먼저 빼야, 그것이 감싸던 공백과 결합 문자가 다시 이웃해 같은 모양이 된다.
-    // 그래서 뺀 뒤에 NFC와 공백 정리를 다시 한다(리뷰 5 지적 1). 빈칸 모양 문자도 모양이 없으므로
-    // 뺀다(리뷰 5 제안 3).
-    let visible: String = name
-        .chars()
-        .filter(|&c| !allowed_ignorable(c) && !is_blank_looking(c))
-        .collect();
-    let nfc: String = visible.nfc().collect();
+    let chars: Vec<char> = name.chars().collect();
+    let edge = |c: char| c.is_whitespace() || is_blank_looking(c) || allowed_ignorable(c);
+    let start = chars.iter().position(|&c| !edge(c)).unwrap_or(chars.len());
+    let end = chars
+        .iter()
+        .rposition(|&c| !edge(c))
+        .map_or(start, |i| i + 1);
+    let mut kept = String::new();
+    let mut i = start;
+    while i < end {
+        if !removable(chars[i]) {
+            kept.push(chars[i]);
+            i += 1;
+            continue;
+        }
+        let run_start = i;
+        while i < end && removable(chars[i]) {
+            i += 1;
+        }
+        // `end` 바로 앞 글자는 가장자리 문자가 아니므로 이 묶음 뒤에는 항상 글자가 있다.
+        let next = chars[i];
+        let joiner = chars[run_start..i]
+            .iter()
+            .any(|&c| matches!(c, '\u{200C}' | '\u{200D}'));
+        if (joiner && is_combining_mark(next)) || is_hangul_medial_or_final(next) {
+            kept.push('\u{034F}');
+        }
+    }
+    let nfc: String = kept.nfc().collect();
     nfc.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// 키에서 빼는 문자: 허용한 표시되지 않는 문자와 폭이 없는 주석 구분 문자(U+FFF9–FFFB).
+/// 점자 빈칸처럼 폭이 있는 빈칸 모양 문자는 안쪽에서 남긴다.
+fn removable(c: char) -> bool {
+    allowed_ignorable(c) || matches!(c, '\u{FFF9}'..='\u{FFFB}')
+}
+
+/// 한글 자모의 중성·종성 낱자(옛한글 확장 포함). 앞 글자와 NFC로 합쳐져 음절이 될 수 있다.
+fn is_hangul_medial_or_final(c: char) -> bool {
+    matches!(c, '\u{1160}'..='\u{11FF}' | '\u{D7B0}'..='\u{D7FB}')
 }
 
 /// 프로세스의 CoreMIDI 클라이언트. 한 번 만들면 해제하지 않는다.
@@ -422,6 +464,34 @@ mod tests {
         assert_eq!(
             super::duplicate_key("Pad\u{200D}Synth\u{FE0F}"),
             super::duplicate_key("PadSynth")
+        );
+    }
+
+    #[test]
+    fn duplicate_key_keeps_separated_letters_and_inner_blanks_distinct() {
+        use super::duplicate_key;
+        // 결합자가 갈라 놓은 글자는 합쳐지지 않는다(따로 그려진다).
+        assert_ne!(
+            duplicate_key("Cafe\u{200D}\u{301}"),
+            duplicate_key("Caf\u{E9}")
+        );
+        assert_ne!(
+            duplicate_key("\u{1100}\u{200D}\u{1161}"),
+            duplicate_key("\u{AC00}")
+        );
+        // 이체자 선택자는 결합 문자를 떼어 놓지 않는다.
+        assert_eq!(
+            duplicate_key("Cafe\u{FE00}\u{301}"),
+            duplicate_key("Caf\u{E9}")
+        );
+        // 안쪽 빈칸 모양 문자는 폭이 있고, 끝의 것은 보이지 않는다.
+        assert_ne!(
+            duplicate_key("Lead\u{2800}Synth"),
+            duplicate_key("LeadSynth")
+        );
+        assert_eq!(
+            duplicate_key("Lead Synth\u{2800}"),
+            duplicate_key("Lead Synth")
         );
     }
 
