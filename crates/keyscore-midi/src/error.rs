@@ -15,8 +15,9 @@ pub enum MidiError {
     /// 가상 포트를 더 만들 수 없다(OUT-2 최대 16).
     #[error("가상 포트는 최대 {max}개다", max = crate::MAX_VIRTUAL_OUTPUTS)]
     TooManyPorts,
-    /// UMP 워드 수가 메시지 타입과 맞지 않는다.
-    #[error("UMP 메시지 길이가 메시지 타입과 맞지 않는다")]
+    /// 메시지를 만들거나 보낼 수 없는 입력이다: 빈 UMP, UMP 워드 수가 메시지 타입과 다름, 이벤트
+    /// 리스트에 담기지 않음, 그룹 16 이상, 채널 모드 컨트롤러 번호(120–127), 범위 밖 Song Position.
+    #[error("MIDI 메시지로 만들 수 없는 값이다")]
     InvalidMessage,
     /// 연결한 OS 출력 포트가 사라졌다.
     #[error("출력 포트가 사라졌다: {0}")]

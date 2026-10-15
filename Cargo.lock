@@ -444,6 +444,7 @@ dependencies = [
  "coremidi",
  "coremidi-sys",
  "keyscore-core",
+ "proptest",
  "thiserror",
  "unicode-normalization",
 ]
