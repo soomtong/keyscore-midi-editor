@@ -8,6 +8,7 @@
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::OnceLock;
 use std::sync::mpsc::{self, Receiver, Sender};
+use std::thread::ThreadId;
 use std::time::Duration;
 
 use core_foundation::runloop::{CFRunLoop, kCFRunLoopDefaultMode};
@@ -21,19 +22,26 @@ const RUN_SLICE: Duration = Duration::from_millis(20);
 
 const THREAD_NAME: &str = "keyscore-coremidi";
 
-// 스레드를 만들지 못했으면 `None`으로 남아, 이후 호출은 모두 오류다.
-static JOBS: OnceLock<Option<Sender<Job>>> = OnceLock::new();
+/// 작업 큐와 스레드 id. 스레드를 만들지 못했으면 `None`으로 남아, 이후 호출은 모두 오류다.
+/// 스레드는 이름이 아니라 id로 알아본다. 같은 이름의 다른 스레드를 CoreMIDI 스레드로 잘못 보지 않게
+/// 하려는 것이다(S1-T2 리뷰 1 제안 8).
+static JOBS: OnceLock<Option<(Sender<Job>, ThreadId)>> = OnceLock::new();
 
-fn jobs() -> Option<&'static Sender<Job>> {
+fn jobs() -> Option<&'static (Sender<Job>, ThreadId)> {
     JOBS.get_or_init(|| {
         let (tx, rx) = mpsc::channel::<Job>();
         std::thread::Builder::new()
             .name(THREAD_NAME.into())
             .spawn(move || run(&rx))
             .ok()
-            .map(|_| tx)
+            .map(|handle| (tx, handle.thread().id()))
     })
     .as_ref()
+}
+
+/// 지금 스레드가 CoreMIDI 스레드인가.
+pub(crate) fn is_midi_thread() -> bool {
+    jobs().is_some_and(|(_, id)| *id == std::thread::current().id())
 }
 
 fn thread_gone() -> MidiError {
@@ -65,7 +73,7 @@ fn run(rx: &Receiver<Job>) {
 pub(crate) fn on_midi_thread<T: Send + 'static>(
     f: impl FnOnce() -> T + Send + 'static,
 ) -> Result<T, MidiError> {
-    if std::thread::current().name() == Some(THREAD_NAME) {
+    if is_midi_thread() {
         return Ok(f());
     }
     let (tx, rx) = mpsc::channel();
@@ -74,6 +82,7 @@ pub(crate) fn on_midi_thread<T: Send + 'static>(
     });
     jobs()
         .ok_or_else(thread_gone)?
+        .0
         .send(job)
         .map_err(|_| thread_gone())?;
     rx.recv().map_err(|_| thread_gone())
