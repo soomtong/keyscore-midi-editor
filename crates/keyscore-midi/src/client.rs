@@ -34,13 +34,22 @@ fn check(call: &'static str, status: i32) -> Result<(), MidiError> {
 
 /// 앞뒤 공백을 뗀 이름. 신디의 입력 목록에서 공백만 다른 이름은 구분되지 않으므로, 떼어 낸 이름을
 /// 포트 이름으로 쓰고 중복도 그 이름으로 판정한다.
+///
+/// 제어 문자와 보이지 않는 서식 문자는 거부한다. CoreMIDI 서버는 이름을 NUL 앞에서 잘라 저장하므로
+/// `"X\0tail"`이 `"X"`와 같은 소스가 되고, 너비 없는 문자는 눈으로 구분되지 않는 이름을 만든다
+/// (S1-T1 리뷰 2 지적 2, 제안 7).
 fn normalized_name(name: &str) -> Result<&str, MidiError> {
     let name = name.trim();
-    if name.is_empty() {
+    if name.is_empty() || name.chars().any(|c| c.is_control() || is_invisible(c)) {
         Err(MidiError::InvalidName)
     } else {
         Ok(name)
     }
+}
+
+/// 너비가 없어 보이지 않는 서식 문자(ZWSP, ZWNJ, ZWJ, WJ, BOM 등).
+fn is_invisible(c: char) -> bool {
+    matches!(c, '\u{200B}'..='\u{200F}' | '\u{2060}'..='\u{2064}' | '\u{FEFF}' | '\u{00AD}')
 }
 
 /// 프로세스의 CoreMIDI 클라이언트. 한 번 만들면 해제하지 않는다.
