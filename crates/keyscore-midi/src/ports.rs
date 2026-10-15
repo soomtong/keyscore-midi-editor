@@ -259,7 +259,7 @@ mod tests {
         let old = p("Synth", 7).with_endpoint(100);
         let new = p("Synth", 7).with_endpoint(200);
         assert_eq!(
-            diff_ports(&[old.clone()], &[new.clone()]),
+            diff_ports(std::slice::from_ref(&old), std::slice::from_ref(&new)),
             vec![PortEvent::Disappeared(old), PortEvent::Appeared(new)]
         );
     }
