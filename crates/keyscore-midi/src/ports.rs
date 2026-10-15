@@ -209,8 +209,10 @@ impl Reconnector {
 pub enum Suggestion {
     /// 같은 이름의 포트가 있다.
     Present(PortInfo),
-    /// 없으므로 같은 이름의 가상 포트를 만들어 쓴다.
+    /// 없으므로 같은 이름의 가상 포트를 만들어 쓴다. `name`은 가상 포트 이름 규칙으로 정규화한 것이다.
     Virtual { name: String },
+    /// 없고, 그 이름으로는 가상 포트를 만들 수 없다(제어 문자 등). 사용자가 고른다(S2 UI).
+    Unavailable,
 }
 
 /// 저장된 이름마다 제안을 낸다(입력 순서 그대로).
@@ -221,7 +223,11 @@ pub fn suggest_mapping(saved: &[String], available: &[PortInfo]) -> Vec<(String,
         .map(|name| {
             let suggestion = match best_match(name, available) {
                 Some(p) => Suggestion::Present(p.clone()),
-                None => Suggestion::Virtual { name: name.clone() },
+                // 다른 Mac의 장치 이름에는 가상 포트로 만들 수 없는 문자가 있을 수 있다(리뷰 1 제안 9).
+                None => match crate::client::normalized_name(name) {
+                    Ok(name) => Suggestion::Virtual { name },
+                    Err(_) => Suggestion::Unavailable,
+                },
             };
             (name.clone(), suggestion)
         })
@@ -341,6 +347,8 @@ mod tests {
             "Surge XT".to_string(),
             "Dexed".to_string(),
             "iac bus 1".to_string(),
+            " Pad\u{00A0}Synth ".to_string(),
+            "Bad\u{0}Name".to_string(),
         ];
         assert_eq!(
             suggest_mapping(&saved, &available),
@@ -361,6 +369,13 @@ mod tests {
                         name: "iac bus 1".into()
                     }
                 ),
+                (
+                    " Pad\u{00A0}Synth ".to_string(),
+                    Suggestion::Virtual {
+                        name: "Pad Synth".into()
+                    }
+                ),
+                ("Bad\u{0}Name".to_string(), Suggestion::Unavailable),
             ]
         );
     }

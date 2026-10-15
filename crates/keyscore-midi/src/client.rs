@@ -45,7 +45,7 @@ pub(crate) fn check(call: &'static str, status: i32) -> Result<(), MidiError> {
 ///   순서를 뒤집어 다른 이름처럼 보이게 한다(리뷰 3 지적 2). 다만 이모지와 페르시아어 같은 정상
 ///   텍스트에 쓰이는 결합자(ZWNJ, ZWJ), 이체자 선택자, 태그 문자는 받는다(리뷰 3 제안 3).
 /// - 보이는 글자가 하나도 없으면(공백·점자 빈칸 등만 남으면) 거부한다.
-fn normalized_name(name: &str) -> Result<String, MidiError> {
+pub(crate) fn normalized_name(name: &str) -> Result<String, MidiError> {
     let nfc: String = name.nfc().collect();
     // 앞뒤 공백(탭·줄바꿈 포함)은 먼저 뗀다. 안쪽의 제어 문자·줄 구분자는 공백이기도 해서, 거부
     // 검사는 안쪽 공백을 줄이기 전에 한다.
