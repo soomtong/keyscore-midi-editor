@@ -45,7 +45,10 @@ fn loopback(name: &str) -> Loopback {
         .input_port("in", move |list: &coremidi::PacketList| {
             let arrived = HostTime::now().ticks();
             for p in list {
-                let _ = tx.send((arrived, p.timestamp(), p.data().to_vec()));
+                // CoreMIDI는 같은 타임스탬프의 메시지를 한 패킷으로 묶어 준다. 메시지마다 나눈다.
+                for msg in split(p.data()) {
+                    let _ = tx.send((arrived, p.timestamp(), msg));
+                }
             }
         })
         .unwrap();
@@ -64,6 +67,23 @@ fn loopback(name: &str) -> Loopback {
         _input: input,
         _client: receiver,
     }
+}
+
+/// MIDI 1.0 바이트 열을 메시지로 나눈다(running status 없음).
+fn split(data: &[u8]) -> Vec<Vec<u8>> {
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < data.len() {
+        let len = match (data[i] & 0xF0, data[i]) {
+            (0xC0 | 0xD0, _) | (0xF0, 0xF1 | 0xF3) => 2,
+            (0xF0, 0xF2) => 3,
+            (0xF0, _) => 1,
+            _ => 3,
+        };
+        out.push(data[i..(i + len).min(data.len())].to_vec());
+        i += len;
+    }
+    out
 }
 
 fn ch(n: u8) -> Channel {
@@ -90,14 +110,12 @@ fn snapshot(lb: &Loopback, events: Vec<ScheduledEvent>) -> Arc<Snapshot> {
     Arc::new(Snapshot::new(tempo_120(), vec![Arc::clone(&lb.port)], events).unwrap())
 }
 
-/// mach 틱 → ns 비율을 경과 시간으로 잰다(기기마다 다르다).
-fn ticks_per_ms() -> f64 {
-    let (t0, i0) = (HostTime::now(), Instant::now());
-    std::thread::sleep(Duration::from_millis(50));
-    let (t1, i1) = (HostTime::now(), Instant::now());
-    #[allow(clippy::cast_precision_loss)]
-    let r = (t1.ticks() - t0.ticks()) as f64 / i1.duration_since(i0).as_secs_f64() / 1000.0;
-    r
+/// 두 호스트 시각 사이(ms). `HostTime::duration_since`로 정확히 바꾼다.
+fn ms_between(earlier: u64, later: u64) -> f64 {
+    HostTime::from_ticks(later)
+        .duration_since(HostTime::from_ticks(earlier))
+        .as_secs_f64()
+        * 1000.0
 }
 
 /// 받은 메시지를 `limit` 동안 또는 `count`개까지 모은다.
@@ -149,20 +167,17 @@ fn play_sends_events_at_scheduled_host_times() {
     s.play(Tick::ZERO).unwrap();
     let got = collect(&lb.rx, 16, Duration::from_secs(3));
     assert_eq!(got.len(), 16);
-    let per_ms = ticks_per_ms();
-    // 패킷 타임스탬프 간격은 계산한 시각 그대로다(정수 계산, 125 ms·30 ms).
+    // 패킷 타임스탬프 간격은 계산한 시각 그대로다(120 BPM: 60틱 = 31.25 ms, 180틱 = 93.75 ms).
     for pair in got.windows(2) {
-        #[allow(clippy::cast_precision_loss)]
-        let gap_ms = (pair[1].1 - pair[0].1) as f64 / per_ms;
+        let gap_ms = ms_between(pair[0].1, pair[1].1);
         assert!(
-            (gap_ms - 30.0).abs() < 0.05 || (gap_ms - 95.0).abs() < 0.05,
+            (gap_ms - 31.25).abs() < 0.001 || (gap_ms - 93.75).abs() < 0.001,
             "{gap_ms}"
         );
     }
     // 노트는 늦지 않게, 예약 시각 근처에 도착한다.
     for (arrived, stamp, _) in &got {
-        #[allow(clippy::cast_precision_loss)]
-        let late_ms = (*arrived as f64 - *stamp as f64) / per_ms;
+        let late_ms = ms_between(*stamp, *arrived);
         assert!(late_ms < 2.0, "{late_ms}");
     }
 }
@@ -171,15 +186,13 @@ fn play_sends_events_at_scheduled_host_times() {
 fn send_now_latency_p99_within_3ms() {
     let lb = loopback("nf1");
     let mut s = Scheduler::start(snapshot(&lb, vec![]), SchedulerConfig::default()).unwrap();
-    let per_ms = ticks_per_ms();
     let mut lat = Vec::new();
     for i in 0..200u8 {
         let sent = HostTime::now().ticks();
         s.send_now(0, note_on(ch(1), pitch(i % 120), vel()))
             .unwrap();
         let (arrived, _, _) = lb.rx.recv_timeout(Duration::from_secs(1)).unwrap();
-        #[allow(clippy::cast_precision_loss)]
-        lat.push((arrived - sent) as f64 / per_ms);
+        lat.push(ms_between(sent, arrived));
         std::thread::sleep(Duration::from_millis(5));
     }
     let p = p99(lat);
@@ -205,16 +218,13 @@ fn jitter_and_drift(name: &str) -> (f64, f64, usize) {
         .filter(|(_, _, b)| b[0] == 0x90)
         .map(|(a, _, _)| *a)
         .collect();
-    let per_ms = ticks_per_ms();
-    #[allow(clippy::cast_precision_loss)]
     let deviations: Vec<f64> = ons
         .windows(2)
-        .map(|w| ((w[1] - w[0]) as f64 / per_ms - 125.0).abs())
+        .map(|w| (ms_between(w[0], w[1]) - 125.0).abs())
         .collect();
     #[allow(clippy::cast_precision_loss)]
     let expected = 125.0 * (ons.len() as f64 - 1.0);
-    #[allow(clippy::cast_precision_loss)]
-    let drift = ((ons[ons.len() - 1] - ons[0]) as f64 / per_ms - expected).abs();
+    let drift = (ms_between(ons[0], ons[ons.len() - 1]) - expected).abs();
     (p99(deviations), drift, ons.len())
 }
 
