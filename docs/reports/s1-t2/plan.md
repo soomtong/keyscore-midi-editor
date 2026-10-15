@@ -25,7 +25,8 @@ pub fn destinations() -> Vec<PortInfo>;                       // 열거 안정�
 
 pub struct OsOutput { /* 대상 고유 ID, 이름, 출력 포트 */ }
 impl OsOutput { pub fn open(client: &MidiClient, port: &PortInfo) -> Result<Self, MidiError>; }
-impl MidiPort for OsOutput { ... }                            // 대상이 사라지면 Err(PortGone)
+impl OsOutput { pub fn is_present(&self) -> bool; }          // 제어 스레드용 존재 확인
+impl MidiPort for OsOutput { ... }
 
 pub enum PortEvent { Disappeared(PortInfo), Appeared(PortInfo) }
 pub struct PortWatcher { /* 스레드, run loop 핸들 */ }       // Drop: run loop 멈춤 + join
@@ -61,9 +62,9 @@ pub fn suggest_mapping(saved: &[String], available: &[PortInfo]) -> Vec<(String,
 | --- | --- | --- | --- |
 | 1 | `destinations_lists_virtual_destination_created_by_other_client` | 통합 | `coremidi` crate로 만든 가상 목적지가 열거됨, 이름·ID |
 | 2 | `os_output_send_reaches_destination` | 통합 | `OsOutput`으로 보낸 Note On이 그 목적지에 도착 |
-| 3 | `os_output_send_after_destination_removed_fails_with_port_gone` | 통합 | 대상 소멸 뒤 송신 오류 |
+| 3 | `os_output_after_destination_removed_is_not_present_and_cannot_reopen` | 통합 | 대상 소멸 뒤 `is_present`가 거짓, 다시 열기는 `PortGone`. CoreMIDI는 사라진 목적지로의 송신을 오류 없이 버린다(구현 중 실측, 처음 계획은 송신 오류였다) |
 | 4 | `watcher_reports_disappear_then_appear_in_order` | 통합 | 목적지 생성·제거·재생성 시 이벤트 순서 |
-| 5 | `watcher_drop_stops_thread_promptly` | 통합 | drop 뒤 스레드가 1초 안에 끝남 |
+| 5 | `watcher_drop_closes_event_channel_promptly` | 통합 | drop이 1초 안에 끝나고 이벤트 채널이 닫힘 |
 | 6 | `reconnector_reconnects_when_same_name_returns` | 단위 | Lost → Reconnect, 다른 이름은 무시 |
 | 7 | `reconnector_picks_lowest_id_among_same_names` | 단위 | 결정적 선택 |
 | 8 | `diff_orders_disappeared_before_appeared_by_name` | 단위 | 비교 순서 규칙, 이름 바뀜 |

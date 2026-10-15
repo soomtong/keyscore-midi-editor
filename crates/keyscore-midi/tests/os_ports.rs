@@ -11,6 +11,13 @@ use keyscore_midi::{
     PortWatcher, Reconnector, destinations,
 };
 
+/// 이 바이너리에서 처음 만드는 CoreMIDI 클라이언트가 `keyscore-midi`의 것이어야 알림이 그 crate의
+/// CoreMIDI 스레드로 온다(`MIDIServices.h`: 알림은 프로세스에서 처음 클라이언트를 만든 스레드의 run
+/// loop으로 온다). 그래서 모든 테스트가 `coremidi` crate 클라이언트보다 먼저 이것을 부른다.
+fn init() -> MidiClient {
+    MidiClient::new("ks-os").unwrap()
+}
+
 fn unique(name: &str) -> String {
     format!("KS os {} {name}", std::process::id())
 }
@@ -67,6 +74,7 @@ fn collect(rx: &mpsc::Receiver<PortEvent>, names: &[&str], count: usize) -> Vec<
 
 #[test]
 fn destinations_lists_virtual_destination_created_by_other_client() {
+    let _midi = init();
     let other = coremidi::Client::new("ks-os-enum").unwrap();
     let name = unique("enum");
     let (dest, _rx) = destination(&other, &name);
@@ -79,6 +87,7 @@ fn destinations_lists_virtual_destination_created_by_other_client() {
 
 #[test]
 fn os_output_send_reaches_destination() {
+    let _midi = init();
     let other = coremidi::Client::new("ks-os-send").unwrap();
     let name = unique("send");
     let (_dest, rx) = destination(&other, &name);
@@ -86,6 +95,7 @@ fn os_output_send_reaches_destination() {
     let client = MidiClient::new("ks-os-send").unwrap();
     let out = OsOutput::open(&client, &find(&name).unwrap()).unwrap();
     assert_eq!(out.name(), name);
+    assert!(out.is_present());
     out.send(HostTime::now(), &[NOTE_ON]).unwrap();
     assert_eq!(
         rx.recv_timeout(Duration::from_secs(2)).unwrap(),
@@ -102,7 +112,8 @@ fn os_output_send_reaches_destination() {
 }
 
 #[test]
-fn os_output_send_after_destination_removed_fails_with_port_gone() {
+fn os_output_after_destination_removed_is_not_present_and_cannot_reopen() {
+    let _midi = init();
     let other = coremidi::Client::new("ks-os-gone").unwrap();
     let name = unique("gone");
     let (dest, _rx) = destination(&other, &name);
@@ -112,10 +123,10 @@ fn os_output_send_after_destination_removed_fails_with_port_gone() {
     let out = OsOutput::open(&client, &info).unwrap();
     drop(dest);
     assert!(wait_until(Duration::from_secs(2), || find(&name).is_none()));
-    assert_eq!(
-        out.send(HostTime::now(), &[NOTE_ON]),
-        Err(MidiError::PortGone(name.clone()))
-    );
+    // CoreMIDI는 사라진 목적지로의 송신을 오류 없이 버린다(실측). 송신 경로에서 매번 확인하지 않고,
+    // 감시 스레드의 이벤트나 `is_present`로 안다.
+    assert!(!out.is_present());
+    assert_eq!(out.send(HostTime::now(), &[NOTE_ON]), Ok(()));
     // 없는 포트는 열 수 없다.
     assert_eq!(
         OsOutput::open(&client, &info).err(),
@@ -125,6 +136,7 @@ fn os_output_send_after_destination_removed_fails_with_port_gone() {
 
 #[test]
 fn watcher_reports_disappear_then_appear_in_order() {
+    let _midi = init();
     let (watcher, events) = PortWatcher::start().unwrap();
     let other = coremidi::Client::new("ks-os-watch").unwrap();
     let a = unique("watch a");
@@ -159,7 +171,8 @@ fn watcher_reports_disappear_then_appear_in_order() {
 }
 
 #[test]
-fn watcher_drop_stops_thread_promptly() {
+fn watcher_drop_closes_event_channel_promptly() {
+    let _midi = init();
     let (watcher, events) = PortWatcher::start().unwrap();
     let start = Instant::now();
     drop(watcher);
@@ -168,16 +181,21 @@ fn watcher_drop_stops_thread_promptly() {
         "{:?}",
         start.elapsed()
     );
-    // 스레드가 끝나면 보내는 쪽이 사라져 채널이 닫힌다.
-    assert!(matches!(
-        events.recv_timeout(Duration::from_secs(1)),
-        Err(mpsc::RecvTimeoutError::Disconnected)
-    ));
+    // 보내는 쪽이 사라져 채널이 닫힌다. 다른 테스트가 만든 포트 변화가 먼저 쌓여 있을 수 있어 비운다.
+    let deadline = Instant::now() + Duration::from_secs(1);
+    loop {
+        match events.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+            Ok(_) => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            Err(mpsc::RecvTimeoutError::Timeout) => panic!("drop 뒤에도 채널이 열려 있다"),
+        }
+    }
 }
 
 /// 단계 게이트: 포트가 사라졌다 같은 이름으로 돌아오면 다시 연결해 송신이 새 포트에 도착한다.
 #[test]
 fn simulated_port_vanish_and_return_reconnects_end_to_end() {
+    let _midi = init();
     let (_watcher, events) = PortWatcher::start().unwrap();
     let other = coremidi::Client::new("ks-os-e2e").unwrap();
     let client = MidiClient::new("ks-os-e2e").unwrap();
