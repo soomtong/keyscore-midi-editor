@@ -6,10 +6,10 @@ pub enum MidiError {
     /// CoreMIDI 호출이 0이 아닌 `OSStatus`를 돌려줬다.
     #[error("CoreMIDI {call} 실패: OSStatus {status}")]
     Os { call: &'static str, status: i32 },
-    /// 포트 이름이 비었거나 공백뿐이다.
-    #[error("포트 이름이 비어 있다")]
+    /// 포트 이름에 보이는 글자가 없거나, 제어 문자·줄 구분자·표시되지 않는 문자가 있다.
+    #[error("포트 이름이 비었거나 쓸 수 없는 문자가 있다")]
     InvalidName,
-    /// 같은 클라이언트에 같은 이름의 가상 포트가 이미 있다.
+    /// 프로세스에 같은 이름(NFC, 앞뒤 공백 제외)의 가상 포트가 이미 있다.
     #[error("가상 포트 이름이 이미 쓰인다: {0}")]
     DuplicateName(String),
     /// 가상 포트를 더 만들 수 없다(OUT-2 최대 16).

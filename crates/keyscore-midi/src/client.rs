@@ -169,7 +169,7 @@ impl MidiClient {
     ///
     /// # Errors
     ///
-    /// 이름이 비었으면 `InvalidName`, CoreMIDI 호출이 실패하면 `Os`.
+    /// 이름이 `normalized_name` 규칙에 맞지 않으면 `InvalidName`, CoreMIDI 호출이 실패하면 `Os`.
     pub fn new(name: &str) -> Result<Self, MidiError> {
         let name = &normalized_name(name)?;
         Ok(MidiClient {
@@ -181,7 +181,8 @@ impl MidiClient {
     ///
     /// # Errors
     ///
-    /// 이름이 비었으면 `InvalidName`, 프로세스에 같은 이름의 가상 포트가 있으면 `DuplicateName`,
+    /// 이름이 `normalized_name` 규칙에 맞지 않으면 `InvalidName`, 프로세스에 같은 이름의 가상 포트가
+    /// 있으면 `DuplicateName`,
     /// 이미 16개면 `TooManyPorts`, CoreMIDI 호출이 실패하면 `Os`.
     #[allow(unsafe_code)]
     pub fn create_virtual_output(&self, name: &str) -> Result<VirtualOutput, MidiError> {
