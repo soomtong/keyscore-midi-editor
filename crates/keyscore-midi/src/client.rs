@@ -25,7 +25,7 @@ pub const DEFAULT_PORT_NAME: &str = "KeyScore Out";
 
 /// v1 가상 포트는 MIDI 1.0 프로토콜이다(OUT-1). 바인딩의 상수 타입이 `MIDIProtocolID`와 달라 맞춘다.
 #[allow(clippy::cast_possible_wrap)]
-const PROTOCOL_1_0: MIDIProtocolID = kMIDIProtocol_1_0 as MIDIProtocolID;
+pub(crate) const PROTOCOL_1_0: MIDIProtocolID = kMIDIProtocol_1_0 as MIDIProtocolID;
 
 pub(crate) fn check(call: &'static str, status: i32) -> Result<(), MidiError> {
     if status == 0 {

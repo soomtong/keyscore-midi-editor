@@ -4,15 +4,17 @@ use std::ffi::c_void;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex, PoisonError};
+use std::time::{Duration, Instant};
 
 use core_foundation::base::TCFType;
 use core_foundation::string::CFString;
 use coremidi_sys::{
-    MIDIClientCreate, MIDIClientDispose, MIDIClientRef, MIDINotification, kMIDIMsgSetupChanged,
+    MIDIClientCreate, MIDIClientDispose, MIDIClientRef, MIDIEndpointDispose, MIDIEndpointRef,
+    MIDINotification, MIDISourceCreateWithProtocol, kMIDIMsgSetupChanged,
 };
 
-use crate::client::check;
-use crate::midi_thread::on_midi_thread;
+use crate::client::{PROTOCOL_1_0, check};
+use crate::midi_thread::{is_midi_thread, on_midi_thread};
 use crate::{
     DEFAULT_PORT_NAME, MidiClient, MidiError, PortEvent, PortInfo, destinations, diff_ports,
 };
@@ -21,6 +23,9 @@ use crate::{
 struct State {
     last: Vec<PortInfo>,
     events: Sender<PortEvent>,
+    // 알림이 실제로 어느 스레드로 오는지(시작 때 확인한다).
+    seen_on_midi_thread: bool,
+    seen_elsewhere: bool,
 }
 
 impl State {
@@ -48,16 +53,19 @@ unsafe extern "C" fn on_notification(message: *const MIDINotification, refcon: *
         }
         // SAFETY: CoreMIDI가 넘기는 알림 포인터는 콜백 동안 유효하다. 머리 필드만 읽는다.
         let id = unsafe { (*message).messageID };
-        if id != kMIDIMsgSetupChanged.cast_signed() {
-            return;
-        }
-        // SAFETY: refcon은 `PortWatcher`가 `Arc::into_raw`로 붙잡은 `Shared`이고, 알림 클라이언트를
-        // 해제한 뒤에야 그 참조를 놓으므로 콜백 동안 살아 있다. 공유 참조만 만든다.
+        // SAFETY: refcon은 `PortWatcher`가 `Arc::into_raw`로 붙잡은 `Shared`다. 정상 경로에서는 콜백이
+        // CoreMIDI 스레드에서만 오고 해제도 그 스레드에서 하므로 콜백 동안 살아 있다. 다른 스레드로 오는
+        // 경우에는 `start`가 실패하며 그 참조를 놓지 않는다. 공유 참조만 만든다.
         let shared = unsafe { &*refcon.cast::<Shared>() };
-        shared
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .refresh();
+        let mut state = shared.lock().unwrap_or_else(PoisonError::into_inner);
+        if is_midi_thread() {
+            state.seen_on_midi_thread = true;
+        } else {
+            state.seen_elsewhere = true;
+        }
+        if id == kMIDIMsgSetupChanged.cast_signed() {
+            state.refresh();
+        }
     }));
 }
 
@@ -87,6 +95,8 @@ impl PortWatcher {
         let shared: Arc<Shared> = Arc::new(Mutex::new(State {
             last: destinations(),
             events: tx,
+            seen_on_midi_thread: false,
+            seen_elsewhere: false,
         }));
         let refcon = Arc::into_raw(Arc::clone(&shared)) as usize;
         let created = on_midi_thread(move || {
@@ -112,6 +122,18 @@ impl PortWatcher {
                 return Err(e);
             }
         };
+        // 알림이 정말 CoreMIDI 스레드로 오는지 확인한다. 다른 코드가 프로세스의 첫 CoreMIDI 클라이언트를
+        // 다른 스레드에서 만들었으면 알림은 그 스레드의 run loop으로 가서, 감시가 소리 없이 죽는다
+        // (리뷰 1 지적 3). 잠깐 가상 소스를 만들었다 지워 알림을 일으킨다.
+        if !probe_notifications(&shared) {
+            let _ = on_midi_thread(move || {
+                // SAFETY: 위에서 만든 클라이언트이고 한 번만 해제한다. 프로세스 클라이언트가 살아 있다.
+                let _ = unsafe { MIDIClientDispose(client) };
+            });
+            // 알림이 다른 스레드로 가고 있을 수 있어, 그 콜백이 해제 뒤에도 refcon을 쓸 가능성을 배제할 수
+            // 없다. 그래서 `into_raw`로 넘긴 참조를 놓지 않는다(오류 경로의 작은 누수).
+            return Err(MidiError::NotificationsUnavailable);
+        }
         // 클라이언트를 만들기 전과 사이에 생긴 변화를 놓치지 않게 한 번 다시 맞춘다.
         shared
             .lock()
@@ -119,6 +141,50 @@ impl PortWatcher {
             .refresh();
         Ok((PortWatcher { client, refcon }, rx))
     }
+}
+
+/// 알림이 오는지 시험할 때 기다리는 최대 시간.
+const PROBE_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// 잠깐 가상 소스를 만들었다 지워 알림을 일으키고, 그 알림이 CoreMIDI 스레드로만 왔는지 본다.
+#[allow(unsafe_code)]
+fn probe_notifications(shared: &Shared) -> bool {
+    let Ok(raw) = MidiClient::new(DEFAULT_PORT_NAME).and_then(|c| c.raw()) else {
+        return false;
+    };
+    let name = CFString::new("KeyScore watcher probe");
+    let mut probe: MIDIEndpointRef = 0;
+    // SAFETY: 프로세스 클라이언트는 해제되지 않아 유효하고, 이름 문자열은 호출 동안 살아 있으며, 출력
+    // 포인터는 이 스택 변수를 가리킨다. 포트 목록(16개 상한)에 넣지 않는 내부 소스다.
+    let status = unsafe {
+        MIDISourceCreateWithProtocol(
+            raw,
+            name.as_concrete_TypeRef(),
+            PROTOCOL_1_0,
+            &raw mut probe,
+        )
+    };
+    if status != 0 {
+        return false;
+    }
+    let start = Instant::now();
+    let seen = loop {
+        let state = shared.lock().unwrap_or_else(PoisonError::into_inner);
+        if state.seen_elsewhere {
+            break false;
+        }
+        if state.seen_on_midi_thread {
+            break true;
+        }
+        drop(state);
+        if start.elapsed() >= PROBE_TIMEOUT {
+            break false;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    };
+    // SAFETY: 위에서 만든 소스이고 한 번만 해제한다.
+    let _ = unsafe { MIDIEndpointDispose(probe) };
+    seen
 }
 
 impl Drop for PortWatcher {
