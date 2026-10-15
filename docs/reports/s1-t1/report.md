@@ -99,3 +99,16 @@ OUT-2(최대 16)는 핸들 단위라, 핸들을 둘 만들면 넘을 수 있다.
 | 7 | 보이지 않는 문자로 구분 안 되는 이름 (제안) | 2와 함께 반영. 내부 연속 공백은 허용한다(보이는 차이가 있다) | 2와 같음 |
 
 리뷰어 테스트를 바꾼 범위는 위 1의 설명이 전부다(실행 위치, 흔들 소스를 만드는 클라이언트, lint 허용). 워크스페이스 테스트 504개 통과.
+
+## 리뷰 대응 (review-3, 판정: 수정 후 재리뷰)
+
+| # | 지적 | 대응 | 커밋 |
+| --- | --- | --- | --- |
+| 1 | NFC·NFD 한글 이름이 둘 다 만들어짐 (수정) | 이름을 NFC로 맞춰 저장하고 그것으로 중복을 판정한다(`unicode-normalization`, MIT/Apache-2.0. unsafe FFI 대신 순수 Rust crate를 골랐다) | `midi: Normalize port names to NFC and reject default-ignorable characters` |
+| 2 | 보이지 않는 문자 거부 목록이 근거와 어긋남 (수정) | 기준을 유니코드 `Default_Ignorable_Code_Point`와 줄·문단 구분자로 바꿨다. 양방향 제어(U+202A–202E, U+2066–2069, U+061C)도 거부한다. 보이는 글자가 없는 이름(점자 빈칸 등만)도 거부한다 | 1과 같음 |
+| 3 | 과잉 거부(ZWJ 이모지, 페르시아어 ZWNJ)와 남은 빈틈(U+2028/2029, U+3164, U+2800) (제안) | 결합자·이체자 선택자·태그 문자는 받고, 나머지 빈틈은 막았다. 단위 테스트 둘을 더했다 | 1과 같음 |
+| 4 | `run_isolated`가 테스트 이름 오타를 놓침 (제안) | 계획자가 넣은 헬퍼 셋 모두 「정확히 1개 통과」도 확인한다 | `midi: Make isolated test runs fail when the child runs no test` |
+| 5 | 오류 문서가 옛 규칙 (제안) | `InvalidName`·`DuplicateName`과 `# Errors`를 고쳤다 | `midi: Bring error and Errors docs in line with the name rules` |
+| 6 | 반복 실행 중 원인 모를 일괄 실패 (제안) | S1-T2 이월로 단계 파일에 적었다(서버 재시작 감지와 함께 재현·원인 확인) | `plan: Carry the rare whole-binary MIDI test failure to S1-T2` |
+
+리뷰어 테스트는 바뀌지 않았다. 워크스페이스 테스트 509개 통과.
