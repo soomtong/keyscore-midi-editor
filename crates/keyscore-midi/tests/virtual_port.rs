@@ -306,3 +306,40 @@ fn virtual_output_and_client_are_send_and_sync() {
     let port = client.create_virtual_output(&unique("dyn")).unwrap();
     assert_object(&port);
 }
+
+/// 서버 재시작 뒤를 대비한 다시 등록(S1-T2 리뷰 1 지적 7). 실제 서버 재시작은 시스템 프로세스를
+/// 종료해야 해서 시험하지 않고, 다시 등록한 뒤에도 이름·열거·송신이 그대로인지 본다.
+#[test]
+fn reregister_keeps_name_listing_and_delivery() {
+    let client = MidiClient::new("ks-test-rereg").unwrap();
+    let name = unique("rereg");
+    let mut port = client.create_virtual_output(&name).unwrap();
+    assert!(port.is_registered());
+    port.reregister(&client).unwrap();
+    assert!(port.is_registered());
+    assert_eq!(port.name(), name);
+    assert!(wait_until(Duration::from_secs(2), || {
+        source_names().iter().filter(|n| **n == name).count() == 1
+    }));
+    let (tx, rx) = mpsc::channel::<Vec<u8>>();
+    let receiver = coremidi::Client::new("ks-test-rereg-rx").unwrap();
+    let input = receiver
+        .input_port("in", move |list: &coremidi::PacketList| {
+            for p in list {
+                let _ = tx.send(p.data().to_vec());
+            }
+        })
+        .unwrap();
+    input.connect_source(&find_source(&name)).unwrap();
+    port.send(HostTime::now(), &[note_on_ump(1, 61, 90)])
+        .unwrap();
+    assert_eq!(
+        rx.recv_timeout(Duration::from_secs(2)).unwrap(),
+        vec![0x91, 61, 90]
+    );
+    // 같은 이름 자리를 그대로 쓰므로 그 이름은 여전히 중복이다.
+    assert_eq!(
+        client.create_virtual_output(&name).err(),
+        Some(MidiError::DuplicateName(name.clone()))
+    );
+}
