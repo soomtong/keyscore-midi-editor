@@ -73,3 +73,27 @@ scripts/midi-soak.sh 4 6: 4회 가운데 0회 실패(회차 사이 6초, 서버 
 3. `Reconnector::apply`
    - `Disappeared`가 온 뒤 같은 이름의 다른 포트가 이미 있으면 Lost와 Reconnect를 함께 낸다.
    - 이벤트 순서(사라짐 먼저)에 기대므로, 같은 비교에서 사라짐과 나타남이 같이 오면 결과가 순서에 따라 달라지는지 봐 달라.
+
+## 리뷰 대응 (review-1, 판정: 수정 후 재리뷰)
+
+주 세션(구현자)이 직접 고쳤다.
+
+| # | 지적 | 대응 | 커밋 |
+| --- | --- | --- | --- |
+| 1 | 같은 이름·고유 ID로 곧바로 다시 만든 목적지를 놓침 (차단) | `PortInfo`에 CoreMIDI 객체 참조를 붙이고, `diff_ports`는 참조가 바뀌면 사라짐+나타남으로 본다. 같음 비교는 이름과 ID 그대로다. 리뷰 테스트가 기대값 그대로 통과한다 | `midi: Report a destination recreated with the same name and ID` |
+| 2 | `send` 오류 경로의 `String` 할당 (차단) | 송신 오류는 데이터 없는 `DestinationGone`으로 바꿨다. `PortGone(String)`은 스케줄러 밖의 `open`에만 쓴다(리뷰 테스트의 `PortGone(String)` 비교를 깨지 않으려고 타입은 그대로 뒀다) | `midi: Return an allocation-free error when a send target is gone` |
+| 3 | 다른 코드가 첫 클라이언트를 만들면 감시가 소리 없이 죽음 (수정) | `start`가 잠깐 탐침 소스를 만들었다 지워 알림이 CoreMIDI 스레드로 오는지 확인하고, 아니면 `NotificationsUnavailable`이다. 그 오류 경로에서는 공유 상태를 놓지 않는다(다른 스레드 콜백 대비) | `midi: Fail PortWatcher::start when notifications miss the CoreMIDI thread` |
+| 4 | 알림 묶음에 따라 재연결 대상이 달라짐 (수정) | 연결 대상은 언제나 지금 있는 같은 이름 포트 가운데 최소 ID다. 더 작은 ID가 나타나면 옮긴다. 이 규칙과 어긋나던 구현자 단위 테스트의 기대를 바꿨다 | `midi: Keep reconnection on the lowest unique ID among same-name ports` |
+| 5 | 서버 소멸 분류가 과잉·누락 (수정) | `kMIDIInvalidClient`, `kMIDIServerStartErr`, `MIG_SERVER_DIED`만 캐시를 버린다. -304 등은 생성 재시도가 다룬다 | `midi: Narrow server-gone statuses and test that the cache is cleared` |
+| 6 | 캐시 비우기를 실제로 시험하지 않음 (수정) | `forget_in`으로 떼어 단위 테스트가 슬롯을 직접 본다(새 클라이언트는 건드리지 않음 포함). 5와 한 커밋이다(테스트가 좁힌 분류를 함께 시험한다) | 5와 같음 |
+| 7 | 가상 포트 재등록을 결정 없이 미룸, 캐시를 버린 뒤 이름이 남음 (수정) | `VirtualOutput::is_registered`·`reregister`를 더했다(같은 이름·자리로 새 엔드포인트, 성공 뒤 옛 것 해제). 이름 목록은 살아 있는 `VirtualOutput`이 들고 있어 재등록에 그대로 쓴다. 서버 재시작을 알아차려 모든 포트를 다시 등록하는 일은 포트를 소유한 앱의 몫이라 S1·S2 단계 파일 이월에 적었다 | `midi: Let apps re-register virtual ports after a MIDI server restart` |
+| 8 | 스레드 이름으로 CoreMIDI 스레드를 판별 (제안) | 스레드 id로 판별한다 | `midi: Recognize the CoreMIDI thread by thread id instead of name` |
+| 9 | 만들 수 없는 `Virtual` 제안 (제안) | 가상 포트 이름 규칙으로 정규화하고, 안 되면 `Unavailable`이다 | `midi: Suggest only creatable virtual port names in port mapping` |
+| 10 | soak 스크립트가 이전 실패 로그를 지움 (제안) | 실행마다 새 디렉터리를 쓴다 | `midi: Keep soak logs from earlier runs in separate directories` |
+| 11 | 20 ms 처리 지연 (제안) | 코드 변경 없음. 클라이언트·포트 생성과 해제에만 드는 지연이고 송신 경로와 무관하다 | — |
+
+절차상 알릴 것:
+- 지적 1 커밋을 test 대상 clippy 전에 커밋해 lint 하나가 남았고, 바로 다음 커밋(`midi: Fix a clippy lint in the recreated port diff test`)으로 고쳤다.
+- 지적 7 커밋에 단계 파일 변경이 함께 들어갔다.
+
+리뷰어 테스트는 바뀌지 않았다. 워크스페이스 테스트 558개 통과. `midi-soak.sh 10 0` 0회 실패, `midi-soak.sh 3 6` 0회 실패.
