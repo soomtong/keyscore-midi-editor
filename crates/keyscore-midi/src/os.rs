@@ -51,7 +51,7 @@ fn port_info(endpoint: MIDIEndpointRef) -> Option<PortInfo> {
     // SAFETY: 출력 포인터는 이 스택 변수를 가리키고, 속성 키는 CoreMIDI 상수다.
     let status =
         unsafe { MIDIObjectGetIntegerProperty(endpoint, kMIDIPropertyUniqueID, &raw mut id) };
-    (status == 0).then(|| PortInfo::new(name, id))
+    (status == 0).then(|| PortInfo::new(name, id).with_endpoint(endpoint))
 }
 
 /// 고유 ID로 지금의 목적지 엔드포인트를 찾는다.

@@ -3,10 +3,29 @@
 //! CoreMIDI 호출과 분리해 두어, 핫플러그 순서와 재연결 규칙을 장치 없이 시험한다.
 
 /// OS 출력 포트(CoreMIDI 목적지) 하나.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+///
+/// 같음은 이름과 고유 ID로 정한다. 시스템 안의 객체 참조(`endpoint`)는 같은 포트가 다시 만들어지면
+/// 바뀌므로, 목록 비교(`diff_ports`)에서만 따로 본다.
+#[derive(Debug, Clone)]
 pub struct PortInfo {
     name: String,
     unique_id: i32,
+    endpoint: u32,
+}
+
+impl PartialEq for PortInfo {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name && self.unique_id == other.unique_id
+    }
+}
+
+impl Eq for PortInfo {}
+
+impl std::hash::Hash for PortInfo {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.name.hash(state);
+        self.unique_id.hash(state);
+    }
 }
 
 impl PortInfo {
@@ -15,7 +34,19 @@ impl PortInfo {
         PortInfo {
             name: name.into(),
             unique_id,
+            endpoint: 0,
         }
+    }
+
+    /// 열거에서 읽은 객체 참조를 붙인다.
+    pub(crate) fn with_endpoint(mut self, endpoint: u32) -> Self {
+        self.endpoint = endpoint;
+        self
+    }
+
+    /// 목록 비교에 쓰는 정체: 이름, 고유 ID, 객체 참조.
+    fn identity(&self) -> (&str, i32, u32) {
+        (&self.name, self.unique_id, self.endpoint)
     }
 
     #[must_use]
@@ -39,10 +70,14 @@ pub enum PortEvent {
 
 /// 두 목록을 비교해 이벤트를 만든다. 사라진 것을 모두 먼저, 나타난 것을 그 뒤에 내며, 각 무리는
 /// 이름순(같으면 고유 ID순)이다. 같은 ID의 이름이 바뀌면 옛 이름 `Disappeared`, 새 이름 `Appeared`다.
+///
+/// 이름과 고유 ID가 같아도 시스템 객체가 바뀌었으면(다른 앱이 같은 ID로 곧바로 다시 만듦) 사라지고
+/// 나타난 것으로 본다. 알림이 묶여 와도 다시 연결할 기회를 놓치지 않게 하려는 것이다(리뷰 1 지적 1).
 #[must_use]
 pub fn diff_ports(before: &[PortInfo], after: &[PortInfo]) -> Vec<PortEvent> {
-    let mut gone: Vec<&PortInfo> = before.iter().filter(|p| !after.contains(p)).collect();
-    let mut came: Vec<&PortInfo> = after.iter().filter(|p| !before.contains(p)).collect();
+    let has = |list: &[PortInfo], p: &PortInfo| list.iter().any(|q| q.identity() == p.identity());
+    let mut gone: Vec<&PortInfo> = before.iter().filter(|p| !has(after, p)).collect();
+    let mut came: Vec<&PortInfo> = after.iter().filter(|p| !has(before, p)).collect();
     gone.sort_by(|a, b| (&a.name, a.unique_id).cmp(&(&b.name, b.unique_id)));
     came.sort_by(|a, b| (&a.name, a.unique_id).cmp(&(&b.name, b.unique_id)));
     gone.into_iter()
@@ -216,6 +251,16 @@ mod tests {
                 PortEvent::Appeared(p("X", 2)),
                 PortEvent::Appeared(p("X", 9))
             ]
+        );
+    }
+
+    #[test]
+    fn diff_reports_recreated_port_with_same_name_and_id() {
+        let old = p("Synth", 7).with_endpoint(100);
+        let new = p("Synth", 7).with_endpoint(200);
+        assert_eq!(
+            diff_ports(&[old.clone()], &[new.clone()]),
+            vec![PortEvent::Disappeared(old), PortEvent::Appeared(new)]
         );
     }
 
