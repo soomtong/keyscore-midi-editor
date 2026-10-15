@@ -67,3 +67,13 @@ cargo test --workspace --no-fail-fast: 577 passed, 0 failed
    - 뱅크는 `bank_select`로만 보내야 하는지 판단해 달라.
 3. `Midi1Message::ump`의 내부 불변식
    - 쓰지 않는 데이터 바이트가 0이라는 내부 불변식에 기댄다. 생성자는 모두 비공개 헬퍼를 거친다.
+
+## 리뷰 대응 (review-1, 판정: 수정 후 재리뷰)
+
+| # | 지적 | 대응 | 커밋 |
+| --- | --- | --- | --- |
+| 1 | `ump(group)`의 `& 0x0F`로 그룹 16이 0으로 접힘 (수정) | 리뷰가 권한 대로 `Group` newtype(0–15, `TryFrom<u8>`은 16 이상을 `InvalidMessage`)을 만들고 `ump(&self, group: Group)`로 바꿨다. 마스킹은 지웠다. API가 바뀌어 리뷰어 테스트는 호출 방식만 바꿨고 기대값은 그대로다. 실패하던 테스트는 이름과 의도(16–255가 유효 그룹으로 접히지 않음)를 지킨 채 「`Group::try_from`이 거부」를 확인한다(계획자가 diff로 확인) | `midi: Reject out-of-range UMP groups with a Group newtype` |
+| 2 | 「벨로시티 0은 Note Off로」 해석을 단계 파일에 남길 것 (제안) | S1 단계 파일 S1-T3 절에 해석과 S1-T6에 대한 뜻을 적었다 | `plan: Record the velocity 0 reading and carry signed bend range to S6-T3` |
+| 3 | 벤드 레인 「가운데 0, ±8192」와 32비트 인코더 사이의 변환 (제안) | S6-T3 이월로 적었다 | 2와 같음 |
+
+워크스페이스 테스트 590개 통과.
