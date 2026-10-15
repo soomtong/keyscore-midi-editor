@@ -3,9 +3,6 @@
 //! 다운스케일은 MIDI 2.0 UMP 명세의 변환 규칙(오른쪽 시프트)을 따른다. 하위 비트만 남기는
 //! 절삭은 큰 값이 작은 값으로 접히므로 쓰지 않는다. 송신 경로에서 쓰이므로 할당·락·패닉이 없다.
 
-// 뼈대 커밋 전용. 구현 커밋에서 지운다.
-#![allow(unused_variables, clippy::todo)]
-
 use keyscore_core::{Bank, Channel, Pitch, Program, Velocity};
 
 use crate::MidiError;
@@ -17,60 +14,112 @@ pub struct Midi1Message {
     len: u8,
 }
 
+/// 상태 바이트 하위 니블로 쓰는 채널 번호(0–15).
+fn channel_nibble(ch: Channel) -> u8 {
+    // Channel은 1–16을 보장한다. 0이 되는 입력은 없지만 뺄셈이 넘치지 않게 포화시킨다.
+    ch.get().saturating_sub(1) & 0x0F
+}
+
+/// 값이 이미 7비트 안이라는 전제로 `u8`로 바꾼다. 시프트가 범위를 보장하므로 `unwrap_or`는
+/// 닿지 않는 분기이고, 패닉 대신 최댓값으로 막는다.
+fn to_7bit(v: u32) -> u8 {
+    u8::try_from(v & 0x7F).unwrap_or(0x7F)
+}
+
+fn short(status: u8, d1: u8, d2: u8, len: u8) -> Midi1Message {
+    Midi1Message {
+        bytes: [status, d1, d2],
+        len,
+    }
+}
+
+fn channel_msg(status: u8, ch: Channel, d1: u8, d2: u8, len: u8) -> Midi1Message {
+    short(status | channel_nibble(ch), d1, d2, len)
+}
+
+fn cc(ch: Channel, controller: u8, value: u8) -> Midi1Message {
+    channel_msg(0xB0, ch, controller & 0x7F, value & 0x7F, 3)
+}
+
+fn realtime(status: u8) -> Midi1Message {
+    short(status, 0, 0, 1)
+}
+
 impl Midi1Message {
     /// SMF에 쓰는 MIDI 1.0 바이트. 상태 바이트는 항상 포함한다(running status 없음).
     #[must_use]
     pub fn bytes(&self) -> &[u8] {
-        todo!()
+        &self.bytes[..usize::from(self.len)]
     }
 
     /// `MidiPort::send`에 넘길 UMP 한 워드. 채널 보이스는 타입 0x2, 시스템은 타입 0x1이다.
     /// 그룹은 하위 4비트만 쓴다(0–15).
     #[must_use]
     pub fn ump(&self, group: u8) -> u32 {
-        todo!()
+        let b = &self.bytes;
+        // 1바이트 메시지도 시스템 타입 워드에 data1·data2를 0으로 채운다.
+        let status = u32::from(b[0]);
+        let data = if self.len >= 3 {
+            (u32::from(b[1]) << 8) | u32::from(b[2])
+        } else if self.len == 2 {
+            u32::from(b[1]) << 8
+        } else {
+            0
+        };
+        let message_type = if b[0] >= 0xF0 { 0x1 } else { 0x2 };
+        (message_type << 28) | (u32::from(group & 0x0F) << 24) | (status << 16) | data
     }
 }
 
 /// 16비트 벨로시티를 7비트로 내린다(`v >> 9`). 0이 나올 수 있다.
 #[must_use]
 pub fn velocity_to_7bit(v: u16) -> u8 {
-    todo!()
+    to_7bit(u32::from(v) >> 9)
 }
 
 /// 32비트 컨트롤러 값을 7비트로 내린다(`v >> 25`).
 #[must_use]
 pub fn cc_to_7bit(v: u32) -> u8 {
-    todo!()
+    to_7bit(v >> 25)
 }
 
 /// 32비트 피치 벤드를 14비트로 내린다(`v >> 18`). 가운데 `0x8000_0000`은 `0x2000`이다.
 #[must_use]
 pub fn bend_to_14bit(v: u32) -> u16 {
-    todo!()
+    u16::try_from(v >> 18).unwrap_or(0x3FFF)
 }
 
 /// Note On. 내린 벨로시티가 0이면 1로 보낸다(MIDI 1.0의 벨로시티 0 Note On은 Note Off다).
 #[must_use]
 pub fn note_on(ch: Channel, pitch: Pitch, velocity: Velocity) -> Midi1Message {
-    todo!()
+    channel_msg(
+        0x90,
+        ch,
+        pitch.get(),
+        velocity_to_7bit(velocity.get()).max(1),
+        3,
+    )
 }
 
 /// Note Off. 릴리스 벨로시티는 `v >> 9` 그대로 보낸다.
 #[must_use]
 pub fn note_off(ch: Channel, pitch: Pitch, release: Velocity) -> Midi1Message {
-    todo!()
+    channel_msg(0x80, ch, pitch.get(), velocity_to_7bit(release.get()), 3)
 }
 
 #[must_use]
 pub fn program_change(ch: Channel, program: Program) -> Midi1Message {
-    todo!()
+    channel_msg(0xC0, ch, program.get() & 0x7F, 0, 2)
 }
 
 /// CC0(MSB), CC32(LSB) 순서.
 #[must_use]
 pub fn bank_select(ch: Channel, bank: Bank) -> [Midi1Message; 2] {
-    todo!()
+    let v = bank.get();
+    [
+        cc(ch, 0, to_7bit(u32::from(v >> 7))),
+        cc(ch, 32, to_7bit(u32::from(v))),
+    ]
 }
 
 /// # Errors
@@ -81,46 +130,64 @@ pub fn control_change(
     controller: u8,
     value32: u32,
 ) -> Result<Midi1Message, MidiError> {
-    todo!()
+    if controller >= 120 {
+        return Err(MidiError::InvalidMessage);
+    }
+    Ok(cc(ch, controller, cc_to_7bit(value32)))
 }
 
 /// 바이트 순서는 `E0 lsb msb`다.
 #[must_use]
 pub fn pitch_bend(ch: Channel, value32: u32) -> Midi1Message {
-    todo!()
+    let v = bend_to_14bit(value32);
+    channel_msg(
+        0xE0,
+        ch,
+        to_7bit(u32::from(v)),
+        to_7bit(u32::from(v >> 7)),
+        3,
+    )
 }
 
 #[must_use]
 pub fn timing_clock() -> Midi1Message {
-    todo!()
+    realtime(0xF8)
 }
 
 #[must_use]
 pub fn start() -> Midi1Message {
-    todo!()
+    realtime(0xFA)
 }
 
 #[must_use]
 pub fn continue_() -> Midi1Message {
-    todo!()
+    realtime(0xFB)
 }
 
 #[must_use]
 pub fn stop() -> Midi1Message {
-    todo!()
+    realtime(0xFC)
 }
 
 /// # Errors
 ///
 /// 14비트(16384) 이상이면 `InvalidMessage`.
 pub fn song_position(sixteenths: u16) -> Result<Midi1Message, MidiError> {
-    todo!()
+    if sixteenths >= 0x4000 {
+        return Err(MidiError::InvalidMessage);
+    }
+    Ok(short(
+        0xF2,
+        to_7bit(u32::from(sixteenths)),
+        to_7bit(u32::from(sixteenths >> 7)),
+        3,
+    ))
 }
 
 /// All Sound Off(CC120), All Notes Off(CC123), Sustain 0(CC64) 순서(OUT-6).
 #[must_use]
 pub fn panic_messages(ch: Channel) -> [Midi1Message; 3] {
-    todo!()
+    [cc(ch, 120, 0), cc(ch, 123, 0), cc(ch, 64, 0)]
 }
 
 #[cfg(test)]
