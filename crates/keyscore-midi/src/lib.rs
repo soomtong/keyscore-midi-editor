@@ -11,6 +11,7 @@ mod midi_thread;
 mod os;
 mod port;
 mod ports;
+mod rt;
 mod scheduler;
 mod time;
 mod ump;
