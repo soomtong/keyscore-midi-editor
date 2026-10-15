@@ -6,12 +6,20 @@
 
 mod client;
 mod error;
+mod os;
 mod port;
+mod ports;
 mod time;
 mod ump;
+mod watcher;
 
 pub use client::{DEFAULT_PORT_NAME, MAX_VIRTUAL_OUTPUTS, MidiClient, VirtualOutput, source_names};
 pub use error::MidiError;
+pub use os::{OsOutput, destinations};
 pub use port::MidiPort;
+pub use ports::{
+    Action, Link, PortEvent, PortInfo, Reconnector, Suggestion, diff_ports, suggest_mapping,
+};
 pub use time::HostTime;
 pub use ump::ump_word_count;
+pub use watcher::PortWatcher;

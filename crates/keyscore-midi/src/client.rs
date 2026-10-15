@@ -171,6 +171,26 @@ static PROCESS_CLIENT: Mutex<Option<MIDIClientRef>> = Mutex::new(None);
 /// 값이라 넉넉히 잡는다.
 const CLIENT_CREATE_PATIENCE: Duration = Duration::from_secs(10);
 
+/// `slot`에 클라이언트가 없으면 `create`로 만든다. 실패하면 `patience` 동안 다시 시도하되, 기다리는
+/// 동안에는 잠금을 놓는다(리뷰 5 제안 2: 잠금을 쥔 채 잠들면 동시에 부른 스레드가 차례로 막힌다).
+#[allow(dead_code)] // 실패 테스트 커밋용 뼈대. 구현 커밋에서 process_client가 쓴다.
+fn create_with_retry(
+    slot: &Mutex<Option<MIDIClientRef>>,
+    patience: Duration,
+    mut create: impl FnMut() -> Result<MIDIClientRef, i32>,
+) -> Result<MIDIClientRef, MidiError> {
+    let _ = (slot, patience, &mut create);
+    todo!()
+}
+
+/// MIDI 서버가 죽었거나 다시 뜨는 중임을 뜻하는 상태 값. CoreMIDI `kMIDIServerStartErr`와, 서버와의
+/// Mach IPC가 끊겼을 때 오는 MIG 오류(-300..=-308, 리뷰 4가 본 -304 포함)다.
+#[allow(dead_code)] // 실패 테스트 커밋용 뼈대.
+fn is_server_gone(status: i32) -> bool {
+    let _ = status;
+    todo!()
+}
+
 #[allow(unsafe_code)]
 fn process_client(name: &str) -> Result<MIDIClientRef, MidiError> {
     let mut slot = PROCESS_CLIENT
@@ -515,6 +535,62 @@ mod tests {
                 "{}",
                 name.escape_unicode()
             );
+        }
+    }
+
+    #[test]
+    fn process_client_retry_does_not_hold_lock_while_sleeping() {
+        use std::sync::{Arc, Mutex};
+        use std::time::{Duration, Instant};
+
+        let slot = Arc::new(Mutex::new(None));
+        let attempts = Arc::new(Mutex::new(0u32));
+        let worker = {
+            let (slot, attempts) = (Arc::clone(&slot), Arc::clone(&attempts));
+            std::thread::spawn(move || {
+                super::create_with_retry(&slot, Duration::from_millis(600), || {
+                    *attempts.lock().unwrap() += 1;
+                    Err(-304)
+                })
+            })
+        };
+        std::thread::sleep(Duration::from_millis(50));
+        // 재시도 사이에는 잠금이 풀려 있어야 한다.
+        let start = Instant::now();
+        drop(slot.lock().unwrap());
+        assert!(
+            start.elapsed() < Duration::from_millis(50),
+            "{:?}",
+            start.elapsed()
+        );
+        assert_eq!(
+            worker.join().unwrap(),
+            Err(MidiError::Os {
+                call: "MIDIClientCreate",
+                status: -304
+            })
+        );
+        assert!(*attempts.lock().unwrap() >= 2);
+        // 성공하면 저장하고, 다음 호출은 만들지 않고 돌려준다.
+        let mut tries = 0;
+        let got = super::create_with_retry(&slot, Duration::from_secs(1), || {
+            tries += 1;
+            if tries < 3 { Err(-10839) } else { Ok(42) }
+        });
+        assert_eq!(got, Ok(42));
+        assert_eq!(
+            super::create_with_retry(&slot, Duration::ZERO, || panic!("다시 만들었다")),
+            Ok(42)
+        );
+    }
+
+    #[test]
+    fn server_gone_status_clears_cached_client() {
+        for status in [-10839, -300, -304, -308] {
+            assert!(super::is_server_gone(status), "{status}");
+        }
+        for status in [0, -10842, -50, -309, -299] {
+            assert!(!super::is_server_gone(status), "{status}");
         }
     }
 }

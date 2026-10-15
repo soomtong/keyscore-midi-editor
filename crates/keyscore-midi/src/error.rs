@@ -18,6 +18,9 @@ pub enum MidiError {
     /// UMP 워드 수가 메시지 타입과 맞지 않는다.
     #[error("UMP 메시지 길이가 메시지 타입과 맞지 않는다")]
     InvalidMessage,
+    /// 연결한 OS 출력 포트가 사라졌다.
+    #[error("출력 포트가 사라졌다: {0}")]
+    PortGone(String),
     /// 타임스탬프 0은 「지금」이 아니다(CoreMIDI 헤더). 항상 실제 호스트 시각을 채운다.
     #[error("타임스탬프 0은 쓸 수 없다")]
     ZeroTimestamp,
