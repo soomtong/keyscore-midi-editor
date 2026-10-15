@@ -383,6 +383,44 @@ impl VirtualOutput {
         name.clone_into(&mut self.name);
         Ok(())
     }
+
+    /// CoreMIDI 서버에 이 포트가 아직 등록돼 있는가. MIDI 서버가 다시 뜨면 이전 서버의 엔드포인트는 사라지고
+    /// 이 값은 거짓이 된다. 제어 스레드에서 부른다(조회 호출이 든다).
+    #[must_use]
+    pub fn is_registered(&self) -> bool {
+        endpoint_name(self.endpoint).is_some()
+    }
+
+    /// 같은 이름으로 엔드포인트를 다시 만든다. MIDI 서버가 다시 뜬 뒤(`is_registered`가 거짓) 앱이
+    /// 부른다(S1-T2 리뷰 1 지적 7). 포트 목록의 자리(이름·상한)는 그대로 쓴다. 새 엔드포인트를 만든 뒤
+    /// 옛 것을 해제하므로, 실패하면 옛 엔드포인트가 그대로 남는다.
+    ///
+    /// # Errors
+    ///
+    /// CoreMIDI 호출이 실패하면 `Os`.
+    #[allow(unsafe_code)]
+    pub fn reregister(&mut self, client: &MidiClient) -> Result<(), MidiError> {
+        let raw = client.raw()?;
+        let cf_name = CFString::new(&self.name);
+        let mut endpoint: MIDIEndpointRef = 0;
+        // SAFETY: 클라이언트는 캐시에서 얻은 유효한 참조이고, 이름 문자열은 호출 동안 살아 있으며, 출력
+        // 포인터는 이 스택 변수를 가리킨다.
+        let status = unsafe {
+            MIDISourceCreateWithProtocol(
+                raw,
+                cf_name.as_concrete_TypeRef(),
+                PROTOCOL_1_0,
+                &raw mut endpoint,
+            )
+        };
+        forget_client_if_server_gone(raw, status);
+        check("MIDISourceCreateWithProtocol", status)?;
+        let old = std::mem::replace(&mut self.endpoint, endpoint);
+        // SAFETY: 이 값이 소유하던 옛 엔드포인트이고 한 번만 해제한다. 서버가 바뀌었으면 이미 사라져
+        // 오류가 오지만 할 일이 없다.
+        let _ = unsafe { MIDIEndpointDispose(old) };
+        Ok(())
+    }
 }
 
 impl Drop for VirtualOutput {
