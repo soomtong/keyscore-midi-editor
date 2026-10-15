@@ -11,6 +11,7 @@ use coremidi_sys::{
     MIDIObjectGetStringProperty, MIDIObjectSetStringProperty, MIDIProtocolID,
     MIDIReceivedEventList, MIDISourceCreateWithProtocol, kMIDIPropertyName, kMIDIProtocol_1_0,
 };
+use unicode_normalization::UnicodeNormalization;
 
 use crate::{HostTime, MidiError, MidiPort, ump_word_count};
 
@@ -32,24 +33,67 @@ fn check(call: &'static str, status: i32) -> Result<(), MidiError> {
     }
 }
 
-/// 앞뒤 공백을 뗀 이름. 신디의 입력 목록에서 공백만 다른 이름은 구분되지 않으므로, 떼어 낸 이름을
-/// 포트 이름으로 쓰고 중복도 그 이름으로 판정한다.
+/// 포트 이름으로 쓸 정규형. 신디의 입력 목록에서 구분되지 않는 이름이 둘 생기지 않게 한다.
 ///
-/// 제어 문자와 보이지 않는 서식 문자는 거부한다. CoreMIDI 서버는 이름을 NUL 앞에서 잘라 저장하므로
-/// `"X\0tail"`이 `"X"`와 같은 소스가 되고, 너비 없는 문자는 눈으로 구분되지 않는 이름을 만든다
-/// (S1-T1 리뷰 2 지적 2, 제안 7).
-fn normalized_name(name: &str) -> Result<&str, MidiError> {
+/// - NFC로 맞춘다. 한글 NFD(Finder에서 복사한 이름 등)와 NFC는 같은 이름이다(리뷰 3 지적 1).
+/// - 앞뒤 공백을 뗀다(리뷰 1 지적 4).
+/// - 제어 문자, 줄·문단 구분자, 표시되지 않는 문자(유니코드 `Default_Ignorable_Code_Point`)는
+///   거부한다. CoreMIDI 서버는 이름을 NUL 앞에서 잘라 저장하고(리뷰 2 지적 2), 양방향 제어 문자는 글자
+///   순서를 뒤집어 다른 이름처럼 보이게 한다(리뷰 3 지적 2). 다만 이모지와 페르시아어 같은 정상
+///   텍스트에 쓰이는 결합자(ZWNJ, ZWJ), 이체자 선택자, 태그 문자는 받는다(리뷰 3 제안 3).
+/// - 보이는 글자가 하나도 없으면(공백·점자 빈칸 등만 남으면) 거부한다.
+fn normalized_name(name: &str) -> Result<String, MidiError> {
+    let name: String = name.nfc().collect();
     let name = name.trim();
-    if name.is_empty() || name.chars().any(|c| c.is_control() || is_invisible(c)) {
-        Err(MidiError::InvalidName)
+    let mut visible = false;
+    for c in name.chars() {
+        if c.is_control() || matches!(c, '\u{2028}' | '\u{2029}') || rejected_ignorable(c) {
+            return Err(MidiError::InvalidName);
+        }
+        visible |= !(c.is_whitespace() || is_blank_looking(c) || allowed_ignorable(c));
+    }
+    if visible {
+        Ok(name.to_owned())
     } else {
-        Ok(name)
+        Err(MidiError::InvalidName)
     }
 }
 
-/// 너비가 없어 보이지 않는 서식 문자(ZWSP, ZWNJ, ZWJ, WJ, BOM 등).
-fn is_invisible(c: char) -> bool {
-    matches!(c, '\u{200B}'..='\u{200F}' | '\u{2060}'..='\u{2064}' | '\u{FEFF}' | '\u{00AD}')
+/// 정상 텍스트에 쓰이는 표시되지 않는 문자: ZWNJ·ZWJ(이모지, 페르시아어), 이체자 선택자, 태그 문자.
+fn allowed_ignorable(c: char) -> bool {
+    matches!(
+        c,
+        '\u{200C}' | '\u{200D}' | '\u{FE00}'..='\u{FE0F}' | '\u{E0020}'..='\u{E007F}' | '\u{E0100}'..='\u{E01EF}'
+    )
+}
+
+/// `Default_Ignorable_Code_Point`(Unicode `DerivedCoreProperties.txt`) 가운데 `allowed_ignorable`이 아닌 것.
+fn rejected_ignorable(c: char) -> bool {
+    !allowed_ignorable(c)
+        && matches!(
+            c,
+            '\u{00AD}'
+                | '\u{034F}'
+                | '\u{061C}'
+                | '\u{115F}'..='\u{1160}'
+                | '\u{17B4}'..='\u{17B5}'
+                | '\u{180B}'..='\u{180F}'
+                | '\u{200B}'..='\u{200F}'
+                | '\u{202A}'..='\u{202E}'
+                | '\u{2060}'..='\u{206F}'
+                | '\u{3164}'
+                | '\u{FEFF}'
+                | '\u{FFA0}'
+                | '\u{FFF0}'..='\u{FFF8}'
+                | '\u{1BCA0}'..='\u{1BCA3}'
+                | '\u{1D173}'..='\u{1D17A}'
+                | '\u{E0000}'..='\u{E0FFF}'
+        )
+}
+
+/// 보이는 모양이 없는 일반 문자(점자 빈칸).
+fn is_blank_looking(c: char) -> bool {
+    c == '\u{2800}'
 }
 
 /// 프로세스의 CoreMIDI 클라이언트. 한 번 만들면 해제하지 않는다.
@@ -127,7 +171,7 @@ impl MidiClient {
     ///
     /// 이름이 비었으면 `InvalidName`, CoreMIDI 호출이 실패하면 `Os`.
     pub fn new(name: &str) -> Result<Self, MidiError> {
-        let name = normalized_name(name)?;
+        let name = &normalized_name(name)?;
         Ok(MidiClient {
             raw: process_client(name)?,
         })
@@ -141,7 +185,7 @@ impl MidiClient {
     /// 이미 16개면 `TooManyPorts`, CoreMIDI 호출이 실패하면 `Os`.
     #[allow(unsafe_code)]
     pub fn create_virtual_output(&self, name: &str) -> Result<VirtualOutput, MidiError> {
-        let name = normalized_name(name)?;
+        let name = &normalized_name(name)?;
         // 검사와 등록 사이에 다른 스레드가 같은 이름을 넣지 못하게 끝까지 잠근다.
         let mut names = port_names();
         if names.iter().any(|n| n == name) {
@@ -185,8 +229,8 @@ impl VirtualOutput {
     /// `InvalidName`, `DuplicateName`, `Os`. 실패하면 이름은 그대로다.
     #[allow(unsafe_code)]
     pub fn rename(&mut self, name: &str) -> Result<(), MidiError> {
-        let name = normalized_name(name)?;
-        if name == self.name {
+        let name = &normalized_name(name)?;
+        if *name == self.name {
             return Ok(());
         }
         let mut names = port_names();
@@ -318,4 +362,48 @@ fn endpoint_name(endpoint: MIDIEndpointRef) -> Option<String> {
     // SAFETY: Get 계열 CoreMIDI 속성 함수는 호출자가 해제할 새 참조를 돌려준다(create rule).
     let name = unsafe { CFString::wrap_under_create_rule(raw) };
     Some(name.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalized_name;
+    use crate::MidiError;
+
+    #[test]
+    fn normalized_name_composes_nfd_and_keeps_joiners_in_real_text() {
+        // NFD 「드럼」은 NFC 「드럼」으로 저장된다.
+        assert_eq!(
+            normalized_name("\u{1103}\u{1173}\u{1105}\u{1165}\u{11B7}").unwrap(),
+            "\u{B4DC}\u{B7FC}"
+        );
+        // ZWJ 이모지 가족, ZWNJ가 든 페르시아어, 이체자 선택자는 정상 텍스트다.
+        for name in [
+            "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}",
+            "\u{0645}\u{06CC}\u{200C}\u{062E}\u{0648}\u{0627}\u{0647}\u{0645}",
+            "\u{2764}\u{FE0F} Out",
+        ] {
+            assert!(normalized_name(name).is_ok(), "{}", name.escape_unicode());
+        }
+    }
+
+    #[test]
+    fn normalized_name_rejects_separators_bidi_controls_and_blank_only_names() {
+        for name in [
+            "a\u{2028}b",
+            "a\u{2029}b",
+            "a\u{202E}b",
+            "a\u{2067}b",
+            "\u{200D}",
+            "\u{2800}",
+            "\u{3164}",
+            "\u{FE0F}",
+        ] {
+            assert_eq!(
+                normalized_name(name),
+                Err(MidiError::InvalidName),
+                "{}",
+                name.escape_unicode()
+            );
+        }
+    }
 }

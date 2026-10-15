@@ -31,6 +31,8 @@ serde_json = { version = "1", features = ["float_roundtrip"] }
 flate2 = "1"
 # CoreMIDI: 프로토콜 지정 가상 소스와 할당 없는 송신 때문에 sys를 직접 쓴다(SP-3 분기 B).
 coremidi-sys = "3.2.1"
+# 포트 이름을 NFC로 맞춰 정준 동치 이름을 같은 이름으로 본다(S1-T1 리뷰 3).
+unicode-normalization = "0.1"
 core-foundation = "0.10"
 # 통합 테스트의 독립 수신기(구현과 다른 경로로 받아 대조한다).
 coremidi = "0.9.2"
