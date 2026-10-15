@@ -1,6 +1,6 @@
 use std::mem::{MaybeUninit, size_of};
 use std::ptr;
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
 use core_foundation::base::TCFType;
@@ -14,6 +14,7 @@ use coremidi_sys::{
 use unicode_normalization::UnicodeNormalization;
 use unicode_normalization::char::is_combining_mark;
 
+use crate::midi_thread::on_midi_thread;
 use crate::{HostTime, MidiError, MidiPort, ump_word_count};
 
 /// 프로세스가 만들 수 있는 가상 출력 포트 수(OUT-2). 모든 `MidiClient` 핸들을 합친 수다.
@@ -26,7 +27,7 @@ pub const DEFAULT_PORT_NAME: &str = "KeyScore Out";
 #[allow(clippy::cast_possible_wrap)]
 const PROTOCOL_1_0: MIDIProtocolID = kMIDIProtocol_1_0 as MIDIProtocolID;
 
-fn check(call: &'static str, status: i32) -> Result<(), MidiError> {
+pub(crate) fn check(call: &'static str, status: i32) -> Result<(), MidiError> {
     if status == 0 {
         Ok(())
     } else {
@@ -173,52 +174,28 @@ const CLIENT_CREATE_PATIENCE: Duration = Duration::from_secs(10);
 
 /// `slot`에 클라이언트가 없으면 `create`로 만든다. 실패하면 `patience` 동안 다시 시도하되, 기다리는
 /// 동안에는 잠금을 놓는다(리뷰 5 제안 2: 잠금을 쥔 채 잠들면 동시에 부른 스레드가 차례로 막힌다).
-#[allow(dead_code)] // 실패 테스트 커밋용 뼈대. 구현 커밋에서 process_client가 쓴다.
 fn create_with_retry(
     slot: &Mutex<Option<MIDIClientRef>>,
     patience: Duration,
     mut create: impl FnMut() -> Result<MIDIClientRef, i32>,
 ) -> Result<MIDIClientRef, MidiError> {
-    let _ = (slot, patience, &mut create);
-    todo!()
-}
-
-/// MIDI 서버가 죽었거나 다시 뜨는 중임을 뜻하는 상태 값. CoreMIDI `kMIDIServerStartErr`와, 서버와의
-/// Mach IPC가 끊겼을 때 오는 MIG 오류(-300..=-308, 리뷰 4가 본 -304 포함)다.
-#[allow(dead_code)] // 실패 테스트 커밋용 뼈대.
-fn is_server_gone(status: i32) -> bool {
-    let _ = status;
-    todo!()
-}
-
-#[allow(unsafe_code)]
-fn process_client(name: &str) -> Result<MIDIClientRef, MidiError> {
-    let mut slot = PROCESS_CLIENT
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner);
-    if let Some(raw) = *slot {
-        return Ok(raw);
-    }
-    let cf_name = CFString::new(name);
     let start = Instant::now();
     let mut delay = Duration::from_millis(20);
     loop {
-        let mut raw: MIDIClientRef = 0;
-        // SAFETY: 이름 문자열은 호출 동안 살아 있고, 출력 포인터는 이 스택 변수를 가리킨다.
-        // 알림 함수가 없으므로 refCon은 쓰이지 않는다.
-        let status = unsafe {
-            MIDIClientCreate(
-                cf_name.as_concrete_TypeRef(),
-                None,
-                ptr::null_mut(),
-                &raw mut raw,
-            )
+        let status = {
+            let mut guard = slot.lock().unwrap_or_else(PoisonError::into_inner);
+            if let Some(raw) = *guard {
+                return Ok(raw);
+            }
+            match create() {
+                Ok(raw) => {
+                    *guard = Some(raw);
+                    return Ok(raw);
+                }
+                Err(status) => status,
+            }
         };
-        if status == 0 {
-            *slot = Some(raw);
-            return Ok(raw);
-        }
-        if start.elapsed() >= CLIENT_CREATE_PATIENCE {
+        if start.elapsed() >= patience {
             return Err(MidiError::Os {
                 call: "MIDIClientCreate",
                 status,
@@ -227,6 +204,51 @@ fn process_client(name: &str) -> Result<MIDIClientRef, MidiError> {
         std::thread::sleep(delay);
         delay = (delay * 2).min(Duration::from_millis(500));
     }
+}
+
+/// MIDI 서버가 죽었거나 다시 뜨는 중임을 뜻하는 상태 값. CoreMIDI `kMIDIServerStartErr`와, 서버와의
+/// Mach IPC가 끊겼을 때 오는 MIG 오류(-300..=-308, 리뷰 4가 본 -304 포함)다.
+fn is_server_gone(status: i32) -> bool {
+    status == -10839 || (-308..=-300).contains(&status)
+}
+
+/// 서버가 사라진 뒤의 오류를 받으면 캐시된 프로세스 클라이언트를 버린다. 다음 `MidiClient` 호출이 새
+/// 서버에 클라이언트를 다시 만든다. 그 서버의 가상 포트는 서버와 함께 사라졌으므로, 다시 등록하는 일은
+/// 앱(S2)이 맡는다.
+pub(crate) fn forget_client_if_server_gone(raw: MIDIClientRef, status: i32) {
+    if is_server_gone(status) {
+        let mut slot = PROCESS_CLIENT
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if *slot == Some(raw) {
+            *slot = None;
+        }
+    }
+}
+
+#[allow(unsafe_code)]
+fn process_client(name: &str) -> Result<MIDIClientRef, MidiError> {
+    create_with_retry(&PROCESS_CLIENT, CLIENT_CREATE_PATIENCE, || {
+        let name = name.to_owned();
+        // 클라이언트는 CoreMIDI 스레드에서 만든다. 알림이 그 스레드의 run loop으로 오게 하려는 것이다
+        // (`midi_thread` 모듈 문서).
+        on_midi_thread(move || {
+            let cf_name = CFString::new(&name);
+            let mut raw: MIDIClientRef = 0;
+            // SAFETY: 이름 문자열은 호출 동안 살아 있고, 출력 포인터는 이 스택 변수를 가리킨다.
+            // 알림 함수가 없으므로 refCon은 쓰이지 않는다.
+            let status = unsafe {
+                MIDIClientCreate(
+                    cf_name.as_concrete_TypeRef(),
+                    None,
+                    ptr::null_mut(),
+                    &raw mut raw,
+                )
+            };
+            if status == 0 { Ok(raw) } else { Err(status) }
+        })
+        .unwrap_or(Err(-1))
+    })
 }
 
 /// 프로세스의 가상 포트 이름의 중복 판정 키(`duplicate_key`) 목록. 16개 상한과 이름 중복은 프로세스 전체에서 지킨다(OUT-2,
@@ -242,7 +264,8 @@ fn port_names() -> MutexGuard<'static, Vec<String>> {
 /// 프로세스 CoreMIDI 클라이언트의 핸들. 몇 개를 만들든 같은 클라이언트와 같은 포트 목록을 쓴다.
 #[derive(Clone)]
 pub struct MidiClient {
-    raw: MIDIClientRef,
+    // 서버가 다시 떠 클라이언트를 새로 만들 때 같은 이름을 쓴다.
+    name: Arc<str>,
 }
 
 impl MidiClient {
@@ -257,9 +280,15 @@ impl MidiClient {
     /// 이름이 `normalized_name` 규칙에 맞지 않으면 `InvalidName`, CoreMIDI 호출이 실패하면 `Os`.
     pub fn new(name: &str) -> Result<Self, MidiError> {
         let name = &normalized_name(name)?;
+        process_client(name)?;
         Ok(MidiClient {
-            raw: process_client(name)?,
+            name: Arc::from(name.as_str()),
         })
+    }
+
+    /// 프로세스 클라이언트 핸들. 서버가 사라져 캐시가 비었으면 같은 이름으로 다시 만든다.
+    pub(crate) fn raw(&self) -> Result<MIDIClientRef, MidiError> {
+        process_client(&self.name)
     }
 
     /// MIDI 1.0 프로토콜 가상 소스(앱의 출력 포트)를 만든다(OUT-1, OUT-2).
@@ -281,18 +310,20 @@ impl MidiClient {
         if names.len() >= MAX_VIRTUAL_OUTPUTS {
             return Err(MidiError::TooManyPorts);
         }
+        let raw = self.raw()?;
         let cf_name = CFString::new(name);
         let mut endpoint: MIDIEndpointRef = 0;
         // SAFETY: 프로세스 클라이언트는 해제되지 않아 유효하고, 이름 문자열은 호출 동안 살아 있으며,
         // 출력 포인터는 이 스택 변수를 가리킨다.
         let status = unsafe {
             MIDISourceCreateWithProtocol(
-                self.raw,
+                raw,
                 cf_name.as_concrete_TypeRef(),
                 PROTOCOL_1_0,
                 &raw mut endpoint,
             )
         };
+        forget_client_if_server_gone(raw, status);
         check("MIDISourceCreateWithProtocol", status)?;
         names.push(key);
         Ok(VirtualOutput {
@@ -366,45 +397,61 @@ impl MidiPort for VirtualOutput {
 
     #[allow(unsafe_code)]
     fn send(&self, at: HostTime, ump: &[u32]) -> Result<(), MidiError> {
-        if at.ticks() == 0 {
-            return Err(MidiError::ZeroTimestamp);
-        }
-        let Some(&first) = ump.first() else {
-            return Err(MidiError::InvalidMessage);
-        };
-        if ump.len() != ump_word_count(first) {
-            return Err(MidiError::InvalidMessage);
-        }
-        // 실시간 스레드에서 불리므로 힙을 쓰지 않는다. `MIDIEventList`는 패킷 하나와 64워드를 담는
-        // 고정 크기 구조체라 메시지 하나(최대 4워드)에 충분하다.
-        let mut list = MaybeUninit::<MIDIEventList>::uninit();
-        let list_ptr = list.as_mut_ptr();
-        // 워드 수는 1–4다.
-        let words = ump.len() as ByteCount;
-        // SAFETY: `list_ptr`는 이 스택 버퍼를 가리키고, Init이 헤더를 채운 뒤 Add가 그 안에만 쓴다
-        // (버퍼 크기를 정확히 넘긴다). 워드 포인터는 길이를 검사한 슬라이스다. 엔드포인트는 이 값이
-        // 소유해 유효하다. 버퍼는 호출이 끝날 때까지 살아 있다.
-        let status = unsafe {
-            let packet = MIDIEventListInit(list_ptr, PROTOCOL_1_0);
-            let packet = MIDIEventListAdd(
-                list_ptr,
-                size_of::<MIDIEventList>() as ByteCount,
-                packet,
-                at.ticks(),
-                words,
-                ump.as_ptr(),
-            );
-            if packet.is_null() {
-                return Err(MidiError::InvalidMessage);
-            }
-            MIDIReceivedEventList(self.endpoint, list_ptr)
-        };
+        let status = with_event_list(at, ump, |list| {
+            // SAFETY: 리스트는 `with_event_list`가 만든 유효한 스택 버퍼이고, 엔드포인트는 이 값이
+            // 소유해 유효하다.
+            unsafe { MIDIReceivedEventList(self.endpoint, list) }
+        })?;
         check("MIDIReceivedEventList", status)
     }
 }
 
+/// UMP 메시지 하나를 검사해 스택의 `MIDIEventList`에 담고 `deliver`에 넘긴다. `deliver`의 상태 값을
+/// 돌려준다. 가상 포트와 OS 포트의 송신이 같이 쓴다.
+///
+/// 실시간 스레드에서 불리므로 힙을 쓰지 않는다. `MIDIEventList`는 패킷 하나와 64워드를 담는 고정 크기
+/// 구조체라 메시지 하나(최대 4워드)에 충분하다.
+#[allow(unsafe_code)]
+pub(crate) fn with_event_list(
+    at: HostTime,
+    ump: &[u32],
+    deliver: impl FnOnce(*const MIDIEventList) -> i32,
+) -> Result<i32, MidiError> {
+    if at.ticks() == 0 {
+        return Err(MidiError::ZeroTimestamp);
+    }
+    let Some(&first) = ump.first() else {
+        return Err(MidiError::InvalidMessage);
+    };
+    if ump.len() != ump_word_count(first) {
+        return Err(MidiError::InvalidMessage);
+    }
+    let mut list = MaybeUninit::<MIDIEventList>::uninit();
+    let list_ptr = list.as_mut_ptr();
+    // 워드 수는 1–4다.
+    let words = ump.len() as ByteCount;
+    // SAFETY: `list_ptr`는 이 스택 버퍼를 가리키고, Init이 헤더를 채운 뒤 Add가 그 안에만 쓴다
+    // (버퍼 크기를 정확히 넘긴다). 워드 포인터는 길이를 검사한 슬라이스다. 버퍼는 `deliver`가 끝날
+    // 때까지 살아 있다.
+    let packet = unsafe {
+        let packet = MIDIEventListInit(list_ptr, PROTOCOL_1_0);
+        MIDIEventListAdd(
+            list_ptr,
+            size_of::<MIDIEventList>() as ByteCount,
+            packet,
+            at.ticks(),
+            words,
+            ump.as_ptr(),
+        )
+    };
+    if packet.is_null() {
+        return Err(MidiError::InvalidMessage);
+    }
+    Ok(deliver(list_ptr))
+}
+
 /// 열거가 흔들릴 때 다시 시도하는 횟수. 소스가 계속 생기고 사라지면 마지막 결과를 쓴다.
-const ENUMERATION_ATTEMPTS: usize = 8;
+pub(crate) const ENUMERATION_ATTEMPTS: usize = 8;
 
 /// 시스템의 MIDI 소스 이름을 열거 순서대로 돌려준다. 이름을 읽지 못한 소스는 건너뛴다.
 ///
@@ -437,7 +484,7 @@ fn source_endpoints() -> Vec<MIDIEndpointRef> {
 }
 
 #[allow(unsafe_code)]
-fn endpoint_name(endpoint: MIDIEndpointRef) -> Option<String> {
+pub(crate) fn endpoint_name(endpoint: MIDIEndpointRef) -> Option<String> {
     if endpoint == 0 {
         return None;
     }

@@ -6,6 +6,7 @@
 
 mod client;
 mod error;
+mod midi_thread;
 mod os;
 mod port;
 mod ports;
