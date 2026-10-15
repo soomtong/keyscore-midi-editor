@@ -25,6 +25,7 @@
 
 - 범위: 채널 보이스(Note On/Off, Program Change, Bank Select, CC, Pitch Bend 14비트), 시스템 리얼타임(Clock, Start/Stop/Continue, SPP), All Notes Off/All Sound Off. 16비트 벨로시티·32비트 CC → 7비트 변환은 MIDI 2.0 명세의 변환 규칙(M2-1). Running status는 쓰지 않는다(수신 호환 우선).
 - 테스트 게이트: 변환 규칙 표(명세의 예시값)를 테이블 테스트로. 벨로시티 0은 Note Off로.
+- 해석(S1-T3 계획, 리뷰 1 제안 2): 「벨로시티 0은 Note Off로」는 MIDI 1.0의 의미(벨로시티 0인 Note On = Note Off)다. 모델의 Note On은 REQ M2-1이 따르라는 MIDI 2.0 변환 규칙대로 7비트 결과가 0이면 1로 보내고, 노트를 끄는 것은 Note Off(0x8n)로 보낸다. S1-T6(SMF)은 가져올 때 벨로시티 0인 Note On을 Note Off로 읽는다.
 - 리뷰 초점: 상위 비트 절삭을 쓴 곳이 없는가.
 - 이월(S1-T1 리뷰 1 제안 6, 리뷰 2 제안 6): `MidiPort::send`는 워드 수만 검사하고 UMP 메시지 타입은 거르지 않는다. MIDI 1.0 소스가 전달하지 않는 타입(0x0 NOOP, 0x4–0xF 등)은 CoreMIDI가 조용히 버린다. 인코더가 0x1·0x2·0x3 타입만 만들도록 하고, 그 밖의 타입을 송신 경로로 넘기지 않음을 테스트한다.
 
