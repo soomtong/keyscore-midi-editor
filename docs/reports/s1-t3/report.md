@@ -91,3 +91,15 @@ cargo test --workspace --no-fail-fast: 577 passed, 0 failed
 | 5 | 스케줄러가 `Group`을 거친 워드만 보내게 (제안) | S1-T4 이월로 적었다 | 2와 같음 |
 
 워크스페이스 테스트 594개 통과.
+
+## 리뷰 대응 (review-3, 판정: 병합 가능)
+
+| # | 제안 | 대응 | 커밋 |
+| --- | --- | --- | --- |
+| 1 | `InvalidMessage` 문서가 송신 경로 두 경우를 빠뜨림 | 빈 UMP와 이벤트 리스트에 담기지 않는 경우를 더했다 | `midi: List the send path cases in the InvalidMessage docs` |
+| 2 | 모델 벤드 저장 표현을 S1-T6에 적을 것 | S1-T6 이월로 적었다 | `plan: Add the velocity 0 case to the S1-T6 gate and the bend storage form` |
+| 3 | S1-T6 테스트 게이트 줄 자체에 사례가 없음 | 게이트 줄에 더했다 | 2와 같음 |
+
+## 맺음
+
+리뷰 3회로 「병합 가능」 판정을 받았다.
