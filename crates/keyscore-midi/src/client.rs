@@ -206,20 +206,30 @@ fn create_with_retry(
     }
 }
 
-/// MIDI 서버가 죽었거나 다시 뜨는 중임을 뜻하는 상태 값. CoreMIDI `kMIDIServerStartErr`와, 서버와의
-/// Mach IPC가 끊겼을 때 오는 MIG 오류(-300..=-308, 리뷰 4가 본 -304 포함)다.
+/// 캐시된 클라이언트가 더는 쓸 수 없음을 뜻하는 상태 값(S1-T2 리뷰 1 지적 5에서 좁혔다).
+///
+/// - `kMIDIInvalidClient`(-10830): 클라이언트 참조가 무효다(서버 재시작 뒤).
+/// - `kMIDIServerStartErr`(-10839): 서버를 띄우지 못했다.
+/// - `MIG_SERVER_DIED`(-308): 서버와의 Mach IPC 상대가 죽었다.
+///
+/// `MIG_BAD_ARGUMENTS`(-304) 같은 다른 MIG 오류는 서버 소멸이 아니라 생성 재시도(`create_with_retry`)가
+/// 다룬다. `kMIDIMessageSendErr`(-10838)는 송신 하나의 실패라 캐시를 버릴 근거가 아니다.
 fn is_server_gone(status: i32) -> bool {
-    status == -10839 || (-308..=-300).contains(&status)
+    matches!(status, -10830 | -10839 | -308)
 }
 
 /// 서버가 사라진 뒤의 오류를 받으면 캐시된 프로세스 클라이언트를 버린다. 다음 `MidiClient` 호출이 새
 /// 서버에 클라이언트를 다시 만든다. 그 서버의 가상 포트는 서버와 함께 사라졌으므로, 다시 등록하는 일은
 /// 앱(S2)이 맡는다.
 pub(crate) fn forget_client_if_server_gone(raw: MIDIClientRef, status: i32) {
+    forget_in(&PROCESS_CLIENT, raw, status);
+}
+
+/// `slot`이 아직 `raw`를 들고 있고 `status`가 서버 소멸이면 비운다. 그사이 다른 호출이 새 클라이언트를
+/// 만들었으면 그것은 건드리지 않는다.
+fn forget_in(slot: &Mutex<Option<MIDIClientRef>>, raw: MIDIClientRef, status: i32) {
     if is_server_gone(status) {
-        let mut slot = PROCESS_CLIENT
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
+        let mut slot = slot.lock().unwrap_or_else(PoisonError::into_inner);
         if *slot == Some(raw) {
             *slot = None;
         }
@@ -633,11 +643,25 @@ mod tests {
 
     #[test]
     fn server_gone_status_clears_cached_client() {
-        for status in [-10839, -300, -304, -308] {
+        use std::sync::Mutex;
+
+        for status in [-10830, -10839, -308] {
             assert!(super::is_server_gone(status), "{status}");
         }
-        for status in [0, -10842, -50, -309, -299] {
+        for status in [0, -10842, -10838, -50, -300, -304, -309] {
             assert!(!super::is_server_gone(status), "{status}");
         }
+        // 서버 소멸이면 캐시를 비운다.
+        let slot = Mutex::new(Some(7));
+        super::forget_in(&slot, 7, -10839);
+        assert_eq!(*slot.lock().unwrap(), None);
+        // 다른 오류는 그대로 둔다.
+        let slot = Mutex::new(Some(7));
+        super::forget_in(&slot, 7, -304);
+        assert_eq!(*slot.lock().unwrap(), Some(7));
+        // 그사이 새로 만든 클라이언트는 건드리지 않는다.
+        let slot = Mutex::new(Some(8));
+        super::forget_in(&slot, 7, -10839);
+        assert_eq!(*slot.lock().unwrap(), Some(8));
     }
 }
