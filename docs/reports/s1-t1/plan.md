@@ -9,7 +9,8 @@
 
 - `keyscore-midi`가 CoreMIDI 클라이언트와 가상 출력 포트(가상 소스)를 RAII 타입으로 제공한다.
   - 가상 소스는 MIDI 1.0 프로토콜(`MIDISourceCreateWithProtocol(kMIDIProtocol_1_0)`)로 만든다.
-  - 한 클라이언트에 최대 16개를 만들 수 있다. 이름을 바꿀 수 있고, 값이 drop되면 해제된다.
+  - 프로세스 전체에서 최대 16개를 만들 수 있고 이름은 프로세스 안에서 겹치지 않는다(결정 `2026-10-15-virtual-port-limit-scope.md`). 이름을 바꿀 수 있고, 값이 drop되면 해제된다.
+  - CoreMIDI 클라이언트는 프로세스에 하나만 만들고 해제하지 않는다. 마지막 클라이언트를 해제하면 MIDI 서버가 내려가 이후 생성이 모두 실패하기 때문이다(리뷰 1 지적 1). `MidiClient`는 그 클라이언트와 프로세스 포트 목록을 가리키는 핸들이다.
 - 가상·OS 포트 공통 트레이트 `MidiPort`를 둔다. 송신은 미래 호스트 시각(mach 틱)을 받는 UMP 메시지 송신이고, 힙 할당이 없다. OS 포트 구현은 S1-T2에서 한다.
 - 같은 프로세스의 수신 클라이언트가 가상 소스를 열거로 보고, 보낸 메시지를 받는다(통합 테스트).
 - 포트를 가진 프로세스가 `kill -9`로 죽으면 소스가 사라진다. 단계 파일은 수동 확인 항목으로 두었지만, 자식 프로세스를 띄우는 통합 테스트로 자동화한다. S1 출구의 수동 확인은 그대로 둔다.
@@ -20,13 +21,14 @@
 pub struct HostTime(u64);                    // mach_absolute_time 틱
 impl HostTime { pub fn now() -> Self; pub const fn from_ticks(u64) -> Self; pub const fn ticks(self) -> u64 }
 
-pub struct MidiClient { /* Arc<ClientInner> */ }
+pub struct MidiClient { /* 프로세스 클라이언트 핸들 */ }
 impl MidiClient {
     pub fn new(name: &str) -> Result<Self, MidiError>;
     pub fn create_virtual_output(&self, name: &str) -> Result<VirtualOutput, MidiError>;
 }
 
-pub struct VirtualOutput { /* 클라이언트 Arc, MIDIEndpointRef, 이름 */ }   // Drop: MIDIEndpointDispose
+pub struct VirtualOutput { /* MIDIEndpointRef, 이름 */ }   // Drop: MIDIEndpointDispose
+pub const DEFAULT_PORT_NAME: &str = "KeyScore Out";
 impl VirtualOutput { pub fn rename(&mut self, name: &str) -> Result<(), MidiError> }
 
 pub trait MidiPort: Send + Sync {
@@ -46,11 +48,11 @@ pub fn source_names() -> Vec<String>;        // 시스템 소스 이름 열거(�
 
 ## 세부 결정 (위임, 베스트 프랙티스)
 
-- 이름: 비어 있거나 공백뿐이면 `InvalidName`이다. 같은 클라이언트 안에서 이미 쓰는 이름은 `DuplicateName`이다. 신디의 입력 목록에서 구분되지 않기 때문이다. 다른 앱과의 이름 충돌은 막지 않는다.
+- 이름: 앞뒤 공백을 뗀 이름을 쓴다. 비었거나 제어 문자·보이지 않는 서식 문자가 있으면 `InvalidName`이다. 프로세스 안에서 이미 쓰는 이름은 `DuplicateName`이다. 신디의 입력 목록에서 구분되지 않기 때문이다. 다른 앱과의 이름 충돌은 막지 않는다.
 - 타임스탬프 0은 거부한다(`ZeroTimestamp`). SP-3 결론과 헤더 문서대로 항상 0이 아닌 mach 시각을 채운다.
 - UMP 길이는 메시지 타입(상위 4비트)이 정한 워드 수와 같아야 한다. 다르면 `InvalidMessage`다.
 - 송신 버퍼는 스택의 고정 크기 배열이다(실시간 스레드 규칙, 9.2).
-- 클라이언트는 `Arc`로 공유한다. 포트가 살아 있는 동안 클라이언트를 해제하지 않는다.
+- 클라이언트는 프로세스에 하나이고 해제하지 않는다. 생성은 MIDI 서버 재시작 중의 일시 실패를 3초까지 다시 시도한다.
 - 포트 수와 이름 관리에는 `Mutex`를 쓴다. 생성·이름 변경 경로에서만 쓰고, 송신 경로에는 락이 없다.
 - 영속 고유 ID(`kMIDIPropertyUniqueID`)는 이 Task 범위 밖이다. 신디가 재시작 뒤 포트를 기억하는 문제는 S2(프로젝트 저장)에서 본다.
 
@@ -85,3 +87,7 @@ pub fn source_names() -> Vec<String>;        // 시스템 소스 이름 열거(�
 - 헤드리스 CI 러너에서 CoreMIDI 서버가 동작하는지 모른다. remote가 없으므로 지금은 로컬에서만 확인한다.
 - 의존 추가: `coremidi-sys` 3.2.1(MIT), `core-foundation` 0.10(MIT/Apache-2.0), `thiserror`, dev: `coremidi` 0.9.2(MIT). 모두 허용 목록 라이선스다.
 - 결정 요청 없음.
+
+## 개정
+
+- 2026-10-15: 리뷰 1 지적 1(클라이언트 해제)과 리뷰 2 지적 1(OUT-2 범위 결정)에 따라 `MidiClient`의 의미, 포트 상한·이름 규칙을 고쳤다(리뷰 2 지적 3).
