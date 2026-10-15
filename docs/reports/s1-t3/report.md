@@ -77,3 +77,17 @@ cargo test --workspace --no-fail-fast: 577 passed, 0 failed
 | 3 | 벤드 레인 「가운데 0, ±8192」와 32비트 인코더 사이의 변환 (제안) | S6-T3 이월로 적었다 | 2와 같음 |
 
 워크스페이스 테스트 590개 통과.
+
+## 리뷰 대응 (review-2, 판정: 수정 후 재리뷰)
+
+계획자가 고쳤다(계획 문서와 문서·테스트의 작은 변경).
+
+| # | 지적 | 대응 | 커밋 |
+| --- | --- | --- | --- |
+| 1 | 벤드 변환 이월 위치가 늦음 (수정) | 이월을 레인을 만드는 S6-T1로 옮기고, S6-T2·T3가 그 결정을 따른다고 적었다 | `plan: Carry the bend lane conversion to S6-T1 where the lane is built` |
+| 2 | S1-T6 절에 벨로시티 0 해석 없음 (제안) | S1-T6 이월과 테스트 게이트 사례를 적었다 | `plan: Carry velocity 0 reading to S1-T6 and Group-built words to S1-T4` |
+| 3 | `InvalidMessage` 설명이 길이 불일치만 말함 (제안) | 오류 문서와 표시 문자열을 모든 경우를 덮게 고쳤다 | `midi: Describe every input InvalidMessage covers` |
+| 4 | 할당 테스트의 `unwrap_or(Group::ZERO)` (제안) | 세는 구간 밖에서 `unwrap()`으로 만든다 | `midi: Build the test group outside the counted span without a fallback` |
+| 5 | 스케줄러가 `Group`을 거친 워드만 보내게 (제안) | S1-T4 이월로 적었다 | 2와 같음 |
+
+워크스페이스 테스트 594개 통과.
