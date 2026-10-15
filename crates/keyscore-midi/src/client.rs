@@ -117,7 +117,9 @@ fn duplicate_key(name: &str) -> String {
 static PROCESS_CLIENT: Mutex<Option<MIDIClientRef>> = Mutex::new(None);
 
 /// 서버가 막 내려가거나 올라오는 중이면 생성이 잠깐 실패한다(리뷰 1 지적 3). 그동안만 다시 시도한다.
-const CLIENT_CREATE_PATIENCE: Duration = Duration::from_secs(3);
+/// 리뷰 4에서 `-304`가 3초 넘게 이어진 실행이 있었다(유휴 뒤 서버 재기동). 앱 시작 때 한 번만 기다리는
+/// 값이라 넉넉히 잡는다.
+const CLIENT_CREATE_PATIENCE: Duration = Duration::from_secs(10);
 
 #[allow(unsafe_code)]
 fn process_client(name: &str) -> Result<MIDIClientRef, MidiError> {
