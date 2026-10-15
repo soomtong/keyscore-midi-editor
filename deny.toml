@@ -15,6 +15,7 @@ yanked = "deny"
 allow = [
   "MIT",
   "Apache-2.0",
+  "BSD-1-Clause",
   "BSD-2-Clause",
   "BSD-3-Clause",
   "Zlib",
@@ -25,6 +26,7 @@ allow = [
   "bzip2-1.0.6",
   "MPL-2.0",
 ]
+# BSD-1-Clause(assert_no_alloc, S1-T4)는 REQ 8.4의 「BSD」 계열이고 BSD-2보다 조건이 적다.
 confidence-threshold = 0.9
 # 워크스페이스 crate 자신은 publish = false라 라이선스 검사 대상에서 뺀다.
 private = { ignore = true }
