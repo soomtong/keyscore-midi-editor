@@ -103,10 +103,18 @@ fn is_blank_looking(c: char) -> bool {
     )
 }
 
-/// 중복 판정 키. 정규화한 이름에서 허용한 표시되지 않는 문자를 뺀다. `PadSynth`와
+/// 중복 판정 키. 정규화한 이름에서 허용한 표시되지 않는 문자와 빈칸 모양 문자를 뺀다. `PadSynth`와
 /// `Pad\u{200D}Synth`는 목록에서 같아 보이므로 같은 이름으로 본다(결정 2026-10-15 보이는 모양 기준).
 fn duplicate_key(name: &str) -> String {
-    name.chars().filter(|&c| !allowed_ignorable(c)).collect()
+    // 표시되지 않는 문자를 먼저 빼야, 그것이 감싸던 공백과 결합 문자가 다시 이웃해 같은 모양이 된다.
+    // 그래서 뺀 뒤에 NFC와 공백 정리를 다시 한다(리뷰 5 지적 1). 빈칸 모양 문자도 모양이 없으므로
+    // 뺀다(리뷰 5 제안 3).
+    let visible: String = name
+        .chars()
+        .filter(|&c| !allowed_ignorable(c) && !is_blank_looking(c))
+        .collect();
+    let nfc: String = visible.nfc().collect();
+    nfc.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 /// 프로세스의 CoreMIDI 클라이언트. 한 번 만들면 해제하지 않는다.
