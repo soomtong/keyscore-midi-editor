@@ -36,24 +36,27 @@ fn check(call: &'static str, status: i32) -> Result<(), MidiError> {
 /// 포트 이름으로 쓸 정규형. 신디의 입력 목록에서 구분되지 않는 이름이 둘 생기지 않게 한다.
 ///
 /// - NFC로 맞춘다. 한글 NFD(Finder에서 복사한 이름 등)와 NFC는 같은 이름이다(리뷰 3 지적 1).
-/// - 앞뒤 공백을 뗀다(리뷰 1 지적 4).
+/// - 앞뒤 공백을 떼고, 안쪽 공백 연속은 종류(NBSP 등)와 상관없이 U+0020 한 칸으로 줄인다
+///   (리뷰 1 지적 4, 결정 `2026-10-15-port-name-visual-duplicates.md`).
 /// - 제어 문자, 줄·문단 구분자, 표시되지 않는 문자(유니코드 `Default_Ignorable_Code_Point`)는
 ///   거부한다. CoreMIDI 서버는 이름을 NUL 앞에서 잘라 저장하고(리뷰 2 지적 2), 양방향 제어 문자는 글자
 ///   순서를 뒤집어 다른 이름처럼 보이게 한다(리뷰 3 지적 2). 다만 이모지와 페르시아어 같은 정상
 ///   텍스트에 쓰이는 결합자(ZWNJ, ZWJ), 이체자 선택자, 태그 문자는 받는다(리뷰 3 제안 3).
 /// - 보이는 글자가 하나도 없으면(공백·점자 빈칸 등만 남으면) 거부한다.
 fn normalized_name(name: &str) -> Result<String, MidiError> {
-    let name: String = name.nfc().collect();
-    let name = name.trim();
+    let nfc: String = name.nfc().collect();
+    // 앞뒤 공백(탭·줄바꿈 포함)은 먼저 뗀다. 안쪽의 제어 문자·줄 구분자는 공백이기도 해서, 거부
+    // 검사는 안쪽 공백을 줄이기 전에 한다.
+    let nfc = nfc.trim();
     let mut visible = false;
-    for c in name.chars() {
+    for c in nfc.chars() {
         if c.is_control() || matches!(c, '\u{2028}' | '\u{2029}') || rejected_ignorable(c) {
             return Err(MidiError::InvalidName);
         }
         visible |= !(c.is_whitespace() || is_blank_looking(c) || allowed_ignorable(c));
     }
     if visible {
-        Ok(name.to_owned())
+        Ok(nfc.split_whitespace().collect::<Vec<_>>().join(" "))
     } else {
         Err(MidiError::InvalidName)
     }
@@ -91,9 +94,19 @@ fn rejected_ignorable(c: char) -> bool {
         )
 }
 
-/// 보이는 모양이 없는 일반 문자(점자 빈칸).
+/// 보이는 모양이 없는 일반 문자: 점자 빈칸, 음악 기호 빈 머리, 한자 빈칸, 주석 구분 문자
+/// (리뷰 4 제안 3).
 fn is_blank_looking(c: char) -> bool {
-    c == '\u{2800}'
+    matches!(
+        c,
+        '\u{2800}' | '\u{1D159}' | '\u{16FE4}' | '\u{FFF9}'..='\u{FFFB}'
+    )
+}
+
+/// 중복 판정 키. 정규화한 이름에서 허용한 표시되지 않는 문자를 뺀다. `PadSynth`와
+/// `Pad\u{200D}Synth`는 목록에서 같아 보이므로 같은 이름으로 본다(결정 2026-10-15 보이는 모양 기준).
+fn duplicate_key(name: &str) -> String {
+    name.chars().filter(|&c| !allowed_ignorable(c)).collect()
 }
 
 /// 프로세스의 CoreMIDI 클라이언트. 한 번 만들면 해제하지 않는다.
@@ -144,7 +157,7 @@ fn process_client(name: &str) -> Result<MIDIClientRef, MidiError> {
     }
 }
 
-/// 프로세스의 가상 포트 이름 목록. 16개 상한과 이름 중복은 프로세스 전체에서 지킨다(OUT-2,
+/// 프로세스의 가상 포트 이름의 중복 판정 키(`duplicate_key`) 목록. 16개 상한과 이름 중복은 프로세스 전체에서 지킨다(OUT-2,
 /// 결정 `docs/decisions/2026-10-15-virtual-port-limit-scope.md`). 생성·이름 변경·해제에서만 잠그고
 /// 송신 경로에서는 쓰지 않는다.
 static PORT_NAMES: Mutex<Vec<String>> = Mutex::new(Vec::new());
@@ -189,7 +202,8 @@ impl MidiClient {
         let name = &normalized_name(name)?;
         // 검사와 등록 사이에 다른 스레드가 같은 이름을 넣지 못하게 끝까지 잠근다.
         let mut names = port_names();
-        if names.iter().any(|n| n == name) {
+        let key = duplicate_key(name);
+        if names.contains(&key) {
             return Err(MidiError::DuplicateName(name.to_owned()));
         }
         if names.len() >= MAX_VIRTUAL_OUTPUTS {
@@ -208,7 +222,7 @@ impl MidiClient {
             )
         };
         check("MIDISourceCreateWithProtocol", status)?;
-        names.push(name.to_owned());
+        names.push(key);
         Ok(VirtualOutput {
             endpoint,
             name: name.to_owned(),
@@ -235,7 +249,8 @@ impl VirtualOutput {
             return Ok(());
         }
         let mut names = port_names();
-        if names.iter().any(|n| n == name) {
+        let (key, own) = (duplicate_key(name), duplicate_key(&self.name));
+        if key != own && names.contains(&key) {
             return Err(MidiError::DuplicateName(name.to_owned()));
         }
         let cf_name = CFString::new(name);
@@ -249,8 +264,8 @@ impl VirtualOutput {
             )
         };
         check("MIDIObjectSetStringProperty", status)?;
-        if let Some(slot) = names.iter_mut().find(|n| **n == self.name) {
-            name.clone_into(slot);
+        if let Some(slot) = names.iter_mut().find(|k| **k == own) {
+            *slot = key;
         }
         name.clone_into(&mut self.name);
         Ok(())
@@ -261,7 +276,8 @@ impl Drop for VirtualOutput {
     #[allow(unsafe_code)]
     fn drop(&mut self) {
         let mut names = port_names();
-        if let Some(i) = names.iter().position(|n| *n == self.name) {
+        let own = duplicate_key(&self.name);
+        if let Some(i) = names.iter().position(|k| *k == own) {
             names.swap_remove(i);
         }
         // SAFETY: 엔드포인트는 이 값만 소유하고 drop에서 한 번만 해제한다. 프로세스 클라이언트는
@@ -388,6 +404,18 @@ mod tests {
     }
 
     #[test]
+    fn normalized_name_collapses_inner_whitespace_and_key_ignores_joiners() {
+        assert_eq!(
+            normalized_name("Lead\u{00A0}\u{00A0} Synth").unwrap(),
+            "Lead Synth"
+        );
+        assert_eq!(
+            super::duplicate_key("Pad\u{200D}Synth\u{FE0F}"),
+            super::duplicate_key("PadSynth")
+        );
+    }
+
+    #[test]
     fn normalized_name_rejects_separators_bidi_controls_and_blank_only_names() {
         for name in [
             "a\u{2028}b",
@@ -398,6 +426,8 @@ mod tests {
             "\u{2800}",
             "\u{3164}",
             "\u{FE0F}",
+            "\u{1D159}",
+            "\u{FFFA}",
         ] {
             assert_eq!(
                 normalized_name(name),
