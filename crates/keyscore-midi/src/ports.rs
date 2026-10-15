@@ -113,7 +113,8 @@ pub enum Action {
     Reconnect { name: String, port: PortInfo },
 }
 
-/// 이름 기반 자동 재연결(OUT-3).
+/// 이름 기반 자동 재연결(OUT-3). 연결 대상은 늘 지금 있는 같은 이름 포트 가운데 고유 ID가 가장
+/// 작은 것이다.
 ///
 /// 지금 있는 포트 목록을 함께 들고 있어, 연결된 포트가 사라졌을 때 같은 이름의 다른 포트가 남아 있으면
 /// 바로 그것으로 옮긴다.
@@ -180,13 +181,21 @@ impl Reconnector {
                 if !self.present.contains(port) {
                     self.present.push(port.clone());
                 }
+                // 연결 대상은 언제나 지금 있는 같은 이름 포트 가운데 고유 ID가 가장 작은 것이다. 그래야
+                // 알림이 어떻게 묶여 와도 같은 최종 목록에서 같은 대상에 닿는다(리뷰 1 지적 4).
                 for (name, link) in &mut self.wanted {
-                    if *link == Link::Missing && port.name == *name {
+                    if port.name != *name {
+                        continue;
+                    }
+                    let Some(best) = best_match(name, &self.present) else {
+                        continue;
+                    };
+                    if *link != Link::Connected(best.clone()) {
                         actions.push(Action::Reconnect {
                             name: name.clone(),
-                            port: port.clone(),
+                            port: best.clone(),
                         });
-                        *link = Link::Connected(port.clone());
+                        *link = Link::Connected(best.clone());
                     }
                 }
             }
@@ -289,9 +298,17 @@ mod tests {
             }]
         );
         assert_eq!(r.link("Synth"), Some(&Link::Connected(p("Synth", 11))));
-        // 이미 연결돼 있으면 같은 이름이 하나 더 나타나도 바꾸지 않는다.
-        assert_eq!(r.apply(&PortEvent::Appeared(p("Synth", 3))), vec![]);
-        assert_eq!(r.link("Synth"), Some(&Link::Connected(p("Synth", 11))));
+        // 같은 이름에서 고유 ID가 더 작은 포트가 나타나면 그쪽으로 옮긴다(결정적 규칙, 리뷰 1 지적 4).
+        assert_eq!(
+            r.apply(&PortEvent::Appeared(p("Synth", 3))),
+            vec![Action::Reconnect {
+                name: "Synth".into(),
+                port: p("Synth", 3)
+            }]
+        );
+        assert_eq!(r.link("Synth"), Some(&Link::Connected(p("Synth", 3))));
+        // 더 큰 ID가 나타나면 그대로다.
+        assert_eq!(r.apply(&PortEvent::Appeared(p("Synth", 40))), vec![]);
         // 처음부터 없던 이름은 Missing으로 시작한다.
         assert_eq!(r.want("Ghost", &[]), &Link::Missing);
         assert_eq!(r.link("Nope"), None);
