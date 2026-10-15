@@ -48,11 +48,13 @@ fn encoding_does_not_allocate() {
     let prog = Program::new(5).unwrap();
     let bank = Bank::new(300).unwrap();
 
+    // 그룹은 세는 구간 밖에서 만든다. 생성 실패를 기본값으로 가리지 않게 한다(S1-T3 리뷰 2 제안 4).
+    let group = m::Group::try_from(1).unwrap();
+
     let before = COUNT.with(Cell::get);
     let mut sink = 0u32;
     let mut take = |msg: m::Midi1Message| {
-        sink = sink.wrapping_add(msg.ump(m::Group::try_from(1).unwrap_or(m::Group::ZERO)))
-            ^ u32::from(msg.bytes()[0]);
+        sink = sink.wrapping_add(msg.ump(group)) ^ u32::from(msg.bytes()[0]);
     };
     take(m::note_on(ch, pitch, vel));
     take(m::note_off(ch, pitch, vel));
