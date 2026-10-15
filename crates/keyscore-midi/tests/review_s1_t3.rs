@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 
 use keyscore_core::{Bank, Channel, Pitch, Program, Velocity};
 use keyscore_midi::{
-    HostTime, Midi1Message, MidiClient, MidiError, MidiPort, bank_select, bend_to_14bit,
+    Group, HostTime, Midi1Message, MidiClient, MidiError, MidiPort, bank_select, bend_to_14bit,
     cc_to_7bit, continue_, control_change, note_off, note_on, panic_messages, pitch_bend,
     program_change, song_position, source_names, start, stop, timing_clock, velocity_to_7bit,
 };
@@ -120,7 +120,7 @@ fn song_position_every_14bit_value_round_trips_and_16384_is_error() {
         assert_eq!(b[0], 0xF2);
         assert_eq!((u16::from(b[2]) << 7) | u16::from(b[1]), x);
         assert_eq!(
-            m.ump(0),
+            m.ump(Group::ZERO),
             0x10F2_0000 | (u32::from(b[1]) << 8) | u32::from(b[2])
         );
     }
@@ -143,7 +143,11 @@ fn every_channel_maps_to_status_nibble_zero_to_fifteen() {
         ];
         for (m, status) in msgs {
             assert_eq!(m.bytes()[0], status | nib, "ch={n}");
-            assert_eq!(m.ump(0) >> 16, 0x2000 | u32::from(status | nib), "ch={n}");
+            assert_eq!(
+                m.ump(Group::ZERO) >> 16,
+                0x2000 | u32::from(status | nib),
+                "ch={n}"
+            );
         }
         for m in panic_messages(c) {
             assert_eq!(m.bytes()[0], 0xB0 | nib, "ch={n}");
@@ -155,25 +159,23 @@ fn every_channel_maps_to_status_nibble_zero_to_fifteen() {
 fn ump_layout_matches_spec_for_two_byte_and_realtime_messages() {
     // 타입 0x2: [mt|group][status][data1][data2], 쓰지 않는 data2는 0.
     let pc = program_change(ch(3), Program::new(0x55).unwrap());
-    assert_eq!(pc.ump(0xA), 0x2AC2_5500);
+    assert_eq!(pc.ump(Group::try_from(0xA).unwrap()), 0x2AC2_5500);
     // 타입 0x1: 리얼타임은 data1·data2가 0.
-    assert_eq!(start().ump(15), 0x1FFA_0000);
-    assert_eq!(continue_().ump(0), 0x10FB_0000);
-    assert_eq!(stop().ump(1), 0x11FC_0000);
+    assert_eq!(start().ump(Group::try_from(15).unwrap()), 0x1FFA_0000);
+    assert_eq!(continue_().ump(Group::ZERO), 0x10FB_0000);
+    assert_eq!(stop().ump(Group::try_from(1).unwrap()), 0x11FC_0000);
     assert_eq!(timing_clock().bytes(), &[0xF8]);
 }
 
 #[test]
 fn ump_group_out_of_range_does_not_alias_valid_group() {
-    // 깨뜨린 사례: 그룹 16은 그룹 0, 그룹 17은 그룹 1과 같은 워드가 된다. 상위 비트 절삭으로
-    // 호출자의 범위 밖 값이 조용히 다른 그룹으로 간다. 거부하거나 타입으로 막아야 한다.
-    let m = note_on(ch(1), pitch(60), Velocity::new(0x8000));
+    // 깨뜨린 사례: 그룹 16은 그룹 0, 그룹 17은 그룹 1과 같은 워드가 됐다. 상위 비트 절삭으로
+    // 범위 밖 값이 조용히 다른 그룹으로 갔으므로, 이제 타입이 생성 시점에 거부한다.
     for g in 16..=u8::MAX {
-        assert_ne!(
-            m.ump(g),
-            m.ump(g & 0x0F),
-            "group={g}가 group={}로 접혔다",
-            g & 0x0F
+        assert_eq!(
+            Group::try_from(g),
+            Err(MidiError::InvalidMessage),
+            "group={g}"
         );
     }
 }
@@ -240,12 +242,12 @@ fn every_message_kind_reaches_receiver_with_same_bytes_through_coremidi() {
     ];
     msgs.extend(bank_select(c, Bank::new(Bank::MAX).unwrap()));
     for m in msgs {
-        port.send(HostTime::now(), &[m.ump(0)]).unwrap();
+        port.send(HostTime::now(), &[m.ump(Group::ZERO)]).unwrap();
         assert_eq!(
             rx.recv_timeout(Duration::from_secs(2)).unwrap(),
             m.bytes(),
             "ump={:#010x}",
-            m.ump(0)
+            m.ump(Group::ZERO)
         );
     }
 }

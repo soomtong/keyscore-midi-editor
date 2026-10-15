@@ -7,6 +7,34 @@ use keyscore_core::{Bank, Channel, Pitch, Program, Velocity};
 
 use crate::MidiError;
 
+/// UMP 그룹 0–15. 범위 밖 값이 상위 비트 절삭으로 다른 그룹에 접히지 않도록 생성 시점에 거부한다.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Group(u8);
+
+impl Group {
+    pub const ZERO: Group = Group(0);
+
+    #[must_use]
+    pub const fn get(self) -> u8 {
+        self.0
+    }
+}
+
+impl TryFrom<u8> for Group {
+    type Error = MidiError;
+
+    /// # Errors
+    ///
+    /// 16 이상이면 `InvalidMessage`.
+    fn try_from(value: u8) -> Result<Self, MidiError> {
+        if value < 16 {
+            Ok(Group(value))
+        } else {
+            Err(MidiError::InvalidMessage)
+        }
+    }
+}
+
 /// 1–3바이트짜리 MIDI 1.0 메시지. 고정 크기라 힙 할당이 없다.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Midi1Message {
@@ -53,9 +81,8 @@ impl Midi1Message {
     }
 
     /// `MidiPort::send`에 넘길 UMP 한 워드. 채널 보이스는 타입 0x2, 시스템은 타입 0x1이다.
-    /// 그룹은 하위 4비트만 쓴다(0–15).
     #[must_use]
-    pub fn ump(&self, group: u8) -> u32 {
+    pub fn ump(&self, group: Group) -> u32 {
         let b = &self.bytes;
         // 1바이트 메시지도 시스템 타입 워드에 data1·data2를 0으로 채운다.
         let status = u32::from(b[0]);
@@ -67,7 +94,7 @@ impl Midi1Message {
             0
         };
         let message_type = if b[0] >= 0xF0 { 0x1 } else { 0x2 };
-        (message_type << 28) | (u32::from(group & 0x0F) << 24) | (status << 16) | data
+        (message_type << 28) | (u32::from(group.get()) << 24) | (status << 16) | data
     }
 }
 
@@ -294,7 +321,7 @@ mod tests {
                 prop_assert!((1..=3).contains(&b.len()));
                 prop_assert!(b[0] >= 0x80);
                 prop_assert!(b[1..].iter().all(|&d| d < 0x80));
-                let ump = m.ump(group);
+                let ump = m.ump(Group::try_from(group).unwrap());
                 let expected_type = if b[0] >= 0xF0 { 0x1 } else { 0x2 };
                 prop_assert_eq!(ump >> 28, expected_type);
                 prop_assert_eq!((ump >> 24) & 0xF, u32::from(group));
@@ -352,8 +379,8 @@ mod tests {
         // 0x1234 = msb 0x24, lsb 0x34.
         assert_eq!(song_position(0x1234).unwrap().bytes(), &[0xF2, 0x34, 0x24]);
         assert_eq!(song_position(16383).unwrap().bytes(), &[0xF2, 0x7F, 0x7F]);
-        assert_eq!(timing_clock().ump(3), 0x13F8_0000);
-        assert_eq!(song_position(0x1234).unwrap().ump(0), 0x10F2_3424);
+        assert_eq!(timing_clock().ump(Group::try_from(3).unwrap()), 0x13F8_0000);
+        assert_eq!(song_position(0x1234).unwrap().ump(Group::ZERO), 0x10F2_3424);
     }
 
     #[test]

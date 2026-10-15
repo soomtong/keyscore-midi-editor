@@ -6,7 +6,7 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use keyscore_core::{Channel, Pitch, Velocity};
-use keyscore_midi::{HostTime, MidiClient, MidiPort, note_on, panic_messages, source_names};
+use keyscore_midi::{Group, HostTime, MidiClient, MidiPort, note_on, panic_messages, source_names};
 
 fn find_source(name: &str) -> coremidi::Source {
     let start = Instant::now();
@@ -43,7 +43,7 @@ fn encoded_note_on_reaches_virtual_port_receiver() {
 
     let ch = Channel::new(3).unwrap();
     let msg = note_on(ch, Pitch::new(64).unwrap(), Velocity::new(0xC924));
-    port.send(HostTime::now(), &[msg.ump(0)]).unwrap();
+    port.send(HostTime::now(), &[msg.ump(Group::ZERO)]).unwrap();
     assert_eq!(
         rx.recv_timeout(Duration::from_secs(2)).unwrap(),
         msg.bytes()
@@ -53,10 +53,11 @@ fn encoded_note_on_reaches_virtual_port_receiver() {
     // 시스템 메시지(타입 0x1)와 패닉 묶음도 같은 바이트로 도착한다.
     let panic = panic_messages(ch);
     for m in panic {
-        port.send(HostTime::now(), &[m.ump(0)]).unwrap();
+        port.send(HostTime::now(), &[m.ump(Group::ZERO)]).unwrap();
         assert_eq!(rx.recv_timeout(Duration::from_secs(2)).unwrap(), m.bytes());
     }
     let clock = keyscore_midi::timing_clock();
-    port.send(HostTime::now(), &[clock.ump(0)]).unwrap();
+    port.send(HostTime::now(), &[clock.ump(Group::ZERO)])
+        .unwrap();
     assert_eq!(rx.recv_timeout(Duration::from_secs(2)).unwrap(), vec![0xF8]);
 }
