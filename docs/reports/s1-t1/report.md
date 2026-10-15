@@ -85,3 +85,17 @@ keyscore-midi: 단위 2, 통합 9(+ 자식 프로세스 역할 1, ignored). 10�
 | 9 | kill 테스트 자식이 고아로 60초 남을 수 있음 (제안) | 자식이 부모가 바뀌면(재부모화) 곧 끝난다 | 위와 같음 |
 
 OUT-2(최대 16)는 핸들 단위라, 핸들을 둘 만들면 넘을 수 있다. 앱이 핸들을 하나만 두는 것은 S2(앱 셸)에서 지킨다. 리뷰 테스트 파일은 바뀌지 않았다. 워크스페이스 테스트 491개 통과.
+
+## 리뷰 대응 (review-2, 판정: 수정 후 재리뷰)
+
+| # | 지적 | 대응 | 커밋 |
+| --- | --- | --- | --- |
+| 1 | 16개 상한·이름 중복이 핸들 단위라 OUT-2 부분 충족 (차단) | 사람이 결정 `2026-10-15-virtual-port-limit-scope.md`에서 프로세스 단위를 골랐다. 모든 `MidiClient` 핸들이 프로세스 포트 목록을 나눠 쓴다. 상한을 채우거나 정확히 세는 테스트(구현자 1, 리뷰 1의 1, 리뷰 2의 2)는 자식 프로세스에서 돌게 했고, 입력과 기대는 그대로다. 리뷰 2의 거친 흔들기 테스트는 240개를 만들 수 없게 되어, 흔들 소스를 상한이 없는 `coremidi` crate 클라이언트로 만들도록 바꿨다(고정 소스는 그대로 `MidiClient`). `MidiClient`를 drop하는 리뷰 1 테스트 둘은 핸들이 해제할 것이 없어져 `clippy::drop_non_drop`만 껐다. 다른 핸들의 같은 이름을 허용하던 구현자 테스트는 거부를 기대하도록 바꿨다 | `plan: Decide the virtual port limit applies per process`, `midi: Enforce the 16 port limit and unique names per process` |
+| 2 | NUL이 든 이름으로 같은 이름 소스 둘 (수정) | 제어 문자와 보이지 않는 서식 문자(ZWSP 등, BOM, soft hyphen)가 든 이름은 `InvalidName`이다 | `midi: Reject control and invisible characters in port names` |
+| 3 | `plan.md` 미갱신 (수정) | `MidiClient` 의미, 상한·이름 규칙을 고치고 「개정」 절을 더했다 | `plan: Revise S1-T1 plan and carry review 2 suggestions to S1-T2 and S1-T3` |
+| 4 | `source_names` 포기를 알리지 않음 (제안) | 최선의 근사라는 점과, 소멸 판정은 S1-T2 알림과 함께 쓴다는 점을 문서에 적었다 | `midi: Document that source_names is best effort under constant churn` |
+| 5 | 서버 재시작 시 캐시된 클라이언트 회복 수단 없음 (제안) | S1-T2 이월로 단계 파일에 적었다 | 3과 같음 |
+| 6 | 리뷰 1 제안 6의 S1-T3 의무 기록 위치 (제안) | S1-T3 이월로 단계 파일에 적었다 | 3과 같음 |
+| 7 | 보이지 않는 문자로 구분 안 되는 이름 (제안) | 2와 함께 반영. 내부 연속 공백은 허용한다(보이는 차이가 있다) | 2와 같음 |
+
+리뷰어 테스트를 바꾼 범위는 위 1의 설명이 전부다(실행 위치, 흔들 소스를 만드는 클라이언트, lint 허용). 워크스페이스 테스트 504개 통과.
