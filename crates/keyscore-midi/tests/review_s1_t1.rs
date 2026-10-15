@@ -20,12 +20,18 @@ fn run_isolated(test: &str) -> bool {
     if std::env::var(ENV).as_deref() == Ok(test) {
         return false;
     }
-    let status = std::process::Command::new(std::env::current_exe().unwrap())
+    let out = std::process::Command::new(std::env::current_exe().unwrap())
         .args(["--exact", test, "--nocapture"])
         .env(ENV, test)
-        .status()
+        .output()
         .unwrap();
-    assert!(status.success(), "{test}: 자식 프로세스에서 실패했다");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    // 이름이 틀리면 자식은 아무것도 돌리지 않고 성공하므로, 정확히 하나가 돌았는지도 본다(리뷰 3 제안 4).
+    assert!(
+        out.status.success() && stdout.contains("test result: ok. 1 passed"),
+        "{test}: 자식 프로세스에서 실패했거나 테스트를 찾지 못했다\n{stdout}\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     true
 }
 
