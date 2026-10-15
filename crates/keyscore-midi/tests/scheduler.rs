@@ -200,6 +200,10 @@ fn send_now_latency_p99_within_3ms() {
     assert!(p <= 3.0, "{p}");
 }
 
+/// (간격 편차 p99, 도착 기준 드리프트, 노트 수). 표준편차와 패킷 타임스탬프 기준 드리프트도 출력한다.
+///
+/// REQ NF-3은 「송신 간격 표준편차」, NF-4는 「모노토닉 클록 vs 누적 틱 시간」이다. 도착 시각에는 수신
+/// 쪽 지터가 섞이므로, 스케줄러가 정한 패킷 타임스탬프 기준 값을 함께 적어 둘을 구분한다(리뷰 1 제안 16).
 fn jitter_and_drift(name: &str) -> (f64, f64, usize) {
     let lb = loopback(name);
     let length = long_duration();
@@ -213,18 +217,25 @@ fn jitter_and_drift(name: &str) -> (f64, f64, usize) {
         usize::try_from(notes * 2).unwrap(),
         length + Duration::from_secs(5),
     );
-    let ons: Vec<u64> = got
+    let ons: Vec<(u64, u64)> = got
         .iter()
         .filter(|(_, _, b)| b[0] == 0x90)
-        .map(|(a, _, _)| *a)
+        .map(|(a, stamp, _)| (*a, *stamp))
         .collect();
-    let deviations: Vec<f64> = ons
-        .windows(2)
-        .map(|w| (ms_between(w[0], w[1]) - 125.0).abs())
-        .collect();
+    let intervals: Vec<f64> = ons.windows(2).map(|w| ms_between(w[0].0, w[1].0)).collect();
+    let deviations: Vec<f64> = intervals.iter().map(|i| (i - 125.0).abs()).collect();
+    #[allow(clippy::cast_precision_loss)]
+    let n = intervals.len() as f64;
+    let mean = intervals.iter().sum::<f64>() / n;
+    let std_dev = (intervals.iter().map(|i| (i - mean).powi(2)).sum::<f64>() / n).sqrt();
     #[allow(clippy::cast_precision_loss)]
     let expected = 125.0 * (ons.len() as f64 - 1.0);
-    let drift = (ms_between(ons[0], ons[ons.len() - 1]) - expected).abs();
+    let last = ons.len() - 1;
+    let drift = (ms_between(ons[0].0, ons[last].0) - expected).abs();
+    let stamp_drift = (ms_between(ons[0].1, ons[last].1) - expected).abs();
+    println!(
+        "NF-3 간격 표준편차: {std_dev:.4} ms, NF-4 타임스탬프 기준 드리프트: {stamp_drift:.6} ms"
+    );
     (p99(deviations), drift, ons.len())
 }
 
