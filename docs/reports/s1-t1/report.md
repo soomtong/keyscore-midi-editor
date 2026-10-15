@@ -112,3 +112,16 @@ OUT-2(최대 16)는 핸들 단위라, 핸들을 둘 만들면 넘을 수 있다.
 | 6 | 반복 실행 중 원인 모를 일괄 실패 (제안) | S1-T2 이월로 단계 파일에 적었다(서버 재시작 감지와 함께 재현·원인 확인) | `plan: Carry the rare whole-binary MIDI test failure to S1-T2` |
 
 리뷰어 테스트는 바뀌지 않았다. 워크스페이스 테스트 509개 통과.
+
+## 리뷰 대응 (review-4, 판정: 수정 후 재리뷰 → 결정 요청 → 결정 A)
+
+재리뷰 3회를 마쳐 지적 1은 결정 요청 `docs/decisions/2026-10-15-port-name-visual-duplicates.md`로 넘겼고, 사람이 「보이는 모양 기준」을 골랐다.
+
+| # | 지적 | 대응 | 커밋 |
+| --- | --- | --- | --- |
+| 1 | NBSP·결합자만 다른 이름이 따로 만들어짐 (수정 → 결정) | 안쪽 공백 연속은 한 칸(U+0020)으로 줄여 저장하고, 중복은 허용 예외 문자를 뺀 키로 판정한다. 거부 검사는 앞뒤를 뗀 뒤, 안쪽 공백을 줄이기 전에 한다(안쪽 U+2028 등이 공백으로 바뀌어 빠져나가지 않게). 리뷰 4 실패 테스트 2개가 기대값 그대로 통과한다 | `plan: Decide port names are unique by visible form`, `midi: Collapse inner whitespace and ignore joiners in duplicate checks` |
+| 2 | `plan.md` 이름 규칙 미갱신 (제안) | 고쳤다 | `plan: Record S1-T1 review 4 responses` |
+| 3 | 빈칸으로 그려지는 비 ignorable 문자 하나만의 이름 (제안) | U+1D159, U+16FE4, U+FFF9–FFFB를 「보이는 글자 아님」으로 센다 | 1과 같음 |
+| 4 | 일괄 실패 출력(`MIDIClientCreate -304`가 3초 넘게) (제안) | 재시도 한도를 10초로 늘리고, S1-T2 이월 항목에 증거를 덧붙였다 | `midi: Wait up to 10 s for the MIDI server when creating the client` |
+
+리뷰어 테스트는 바뀌지 않았다. 워크스페이스 테스트 517개 통과.
