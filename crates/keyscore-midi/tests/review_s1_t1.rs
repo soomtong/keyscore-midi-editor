@@ -12,6 +12,23 @@ fn unique(name: &str) -> String {
     format!("KS review {} {name}", std::process::id())
 }
 
+/// 상한까지 포트를 채우거나 정확한 개수를 세는 테스트는 프로세스 전역 상한을 같은 바이너리의 다른
+/// 테스트와 나눠 쓰지 않게 자식 프로세스에서 돈다(결정 `2026-10-15-virtual-port-limit-scope.md`).
+/// 부모에서는 자식을 띄워 성공 여부만 보고 `true`를, 자식 안에서는 `false`를 돌려준다.
+fn run_isolated(test: &str) -> bool {
+    const ENV: &str = "KS_MIDI_ISOLATED_TEST";
+    if std::env::var(ENV).as_deref() == Ok(test) {
+        return false;
+    }
+    let status = std::process::Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", test, "--nocapture"])
+        .env(ENV, test)
+        .status()
+        .unwrap();
+    assert!(status.success(), "{test}: 자식 프로세스에서 실패했다");
+    true
+}
+
 fn wait_until(limit: Duration, mut cond: impl FnMut() -> bool) -> bool {
     let start = Instant::now();
     while start.elapsed() < limit {
@@ -47,6 +64,9 @@ const CHILD_ENV: &str = "KS_MIDI_REVIEW_CHILD";
 /// 다시 클라이언트를 만든다. 다른 테스트의 클라이언트와 섞이지 않게 별도 프로세스에서 돈다.
 #[test]
 #[ignore = "client_new_after_last_client_dropped_and_server_idle_succeeds가 자식 프로세스로 실행한다"]
+// 결정 2026-10-15로 `MidiClient`는 해제할 것이 없는 핸들이 되어 `drop`이 아무 일도 하지 않는다.
+// 테스트의 뜻(핸들을 모두 놓은 뒤에도 동작)은 그대로라 lint만 끈다.
+#[allow(clippy::drop_non_drop)]
 fn child_recreates_client_after_server_idle() {
     if std::env::var(CHILD_ENV).is_err() {
         return;
@@ -131,6 +151,9 @@ fn client_source_send_sync_auto_traits_suffice_has_no_unsafe_impl() {
 /// 경계. 여러 스레드가 한 클라이언트에 동시에 만들어도 정확히 16개만 성공하고, 이름이 겹치지 않는다.
 #[test]
 fn create_virtual_output_concurrent_threads_never_exceeds_max() {
+    if run_isolated("create_virtual_output_concurrent_threads_never_exceeds_max") {
+        return;
+    }
     let client = MidiClient::new("ks-review-concurrent").unwrap();
     let handles: Vec<_> = (0..MAX_VIRTUAL_OUTPUTS * 2)
         .map(|i| {
@@ -187,6 +210,9 @@ fn create_and_drop_same_name_concurrently_never_shows_two_sources() {
 /// 경계(RAII). 모든 `MidiClient` 복제본을 drop해도 포트가 클라이언트를 붙잡아 소스가 남고
 /// 송신이 된다.
 #[test]
+// 결정 2026-10-15로 `MidiClient`는 해제할 것이 없는 핸들이 되어 `drop`이 아무 일도 하지 않는다.
+// 테스트의 뜻(핸들을 모두 놓은 뒤에도 동작)은 그대로라 lint만 끈다.
+#[allow(clippy::drop_non_drop)]
 fn send_after_all_client_handles_dropped_succeeds() {
     let client = MidiClient::new("ks-review-outlive").unwrap();
     let copy = client.clone();

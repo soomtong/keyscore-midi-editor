@@ -1,6 +1,6 @@
 use std::mem::{MaybeUninit, size_of};
 use std::ptr;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
 use core_foundation::base::TCFType;
@@ -14,7 +14,7 @@ use coremidi_sys::{
 
 use crate::{HostTime, MidiError, MidiPort, ump_word_count};
 
-/// 한 `MidiClient`가 만들 수 있는 가상 출력 포트 수(OUT-2). 앱은 `MidiClient`를 하나만 둔다.
+/// 프로세스가 만들 수 있는 가상 출력 포트 수(OUT-2). 모든 `MidiClient` 핸들을 합친 수다.
 pub const MAX_VIRTUAL_OUTPUTS: usize = 16;
 
 /// 앱의 기본 가상 출력 포트 이름(OUT-1).
@@ -91,45 +91,36 @@ fn process_client(name: &str) -> Result<MIDIClientRef, MidiError> {
     }
 }
 
-/// 프로세스 클라이언트 핸들과, 이 `MidiClient`가 만든 가상 포트의 이름 목록.
-struct ClientInner {
-    raw: MIDIClientRef,
-    // 이름 중복·개수 검사용. 생성·이름 변경·해제에서만 잠그고 송신 경로에서는 쓰지 않는다.
-    names: Mutex<Vec<String>>,
+/// 프로세스의 가상 포트 이름 목록. 16개 상한과 이름 중복은 프로세스 전체에서 지킨다(OUT-2,
+/// 결정 `docs/decisions/2026-10-15-virtual-port-limit-scope.md`). 생성·이름 변경·해제에서만 잠그고
+/// 송신 경로에서는 쓰지 않는다.
+static PORT_NAMES: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+fn port_names() -> MutexGuard<'static, Vec<String>> {
+    // 잠근 쪽이 패닉해도 목록은 항상 일관된 상태로만 바뀌므로 그대로 쓴다.
+    PORT_NAMES.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-impl ClientInner {
-    fn names(&self) -> MutexGuard<'_, Vec<String>> {
-        // 잠근 쪽이 패닉해도 목록은 항상 일관된 상태로만 바뀌므로 그대로 쓴다.
-        self.names.lock().unwrap_or_else(PoisonError::into_inner)
-    }
-}
-
-/// CoreMIDI 클라이언트. 복제하면 같은 클라이언트를 공유한다.
+/// 프로세스 CoreMIDI 클라이언트의 핸들. 몇 개를 만들든 같은 클라이언트와 같은 포트 목록을 쓴다.
 #[derive(Clone)]
 pub struct MidiClient {
-    inner: Arc<ClientInner>,
+    raw: MIDIClientRef,
 }
 
 impl MidiClient {
-    /// 포트 목록을 따로 갖는 클라이언트 핸들을 만든다.
+    /// 클라이언트 핸들을 돌려준다.
     ///
     /// CoreMIDI 클라이언트 자체는 프로세스에 하나이고 해제하지 않는다(`PROCESS_CLIENT`). `name`은
-    /// 그 클라이언트를 처음 만들 때만 쓰인다. 16개 상한과 이름 중복 검사는 이 핸들 단위이므로, 앱은
-    /// 핸들을 하나만 만들어 복제해 쓴다. 알림 콜백은 두지 않는다. 핫플러그 알림은 run loop을 소유하는
-    /// S1-T2의 감시 스레드가 받는다.
+    /// 그 클라이언트를 처음 만들 때만 쓰인다. 알림 콜백은 두지 않는다. 핫플러그 알림은 run loop을
+    /// 소유하는 S1-T2의 감시 스레드가 받는다.
     ///
     /// # Errors
     ///
     /// 이름이 비었으면 `InvalidName`, CoreMIDI 호출이 실패하면 `Os`.
     pub fn new(name: &str) -> Result<Self, MidiError> {
         let name = normalized_name(name)?;
-        let raw = process_client(name)?;
         Ok(MidiClient {
-            inner: Arc::new(ClientInner {
-                raw,
-                names: Mutex::new(Vec::new()),
-            }),
+            raw: process_client(name)?,
         })
     }
 
@@ -137,13 +128,13 @@ impl MidiClient {
     ///
     /// # Errors
     ///
-    /// 이름이 비었으면 `InvalidName`, 같은 클라이언트에 같은 이름이 있으면 `DuplicateName`,
+    /// 이름이 비었으면 `InvalidName`, 프로세스에 같은 이름의 가상 포트가 있으면 `DuplicateName`,
     /// 이미 16개면 `TooManyPorts`, CoreMIDI 호출이 실패하면 `Os`.
     #[allow(unsafe_code)]
     pub fn create_virtual_output(&self, name: &str) -> Result<VirtualOutput, MidiError> {
         let name = normalized_name(name)?;
         // 검사와 등록 사이에 다른 스레드가 같은 이름을 넣지 못하게 끝까지 잠근다.
-        let mut names = self.inner.names();
+        let mut names = port_names();
         if names.iter().any(|n| n == name) {
             return Err(MidiError::DuplicateName(name.to_owned()));
         }
@@ -156,7 +147,7 @@ impl MidiClient {
         // 출력 포인터는 이 스택 변수를 가리킨다.
         let status = unsafe {
             MIDISourceCreateWithProtocol(
-                self.inner.raw,
+                self.raw,
                 cf_name.as_concrete_TypeRef(),
                 PROTOCOL_1_0,
                 &raw mut endpoint,
@@ -165,7 +156,6 @@ impl MidiClient {
         check("MIDISourceCreateWithProtocol", status)?;
         names.push(name.to_owned());
         Ok(VirtualOutput {
-            client: Arc::clone(&self.inner),
             endpoint,
             name: name.to_owned(),
         })
@@ -174,13 +164,12 @@ impl MidiClient {
 
 /// 가상 출력 포트. drop되면 CoreMIDI 쪽에서도 해제된다.
 pub struct VirtualOutput {
-    client: Arc<ClientInner>,
     endpoint: MIDIEndpointRef,
     name: String,
 }
 
 impl VirtualOutput {
-    /// 포트 이름을 바꾼다. 같은 클라이언트의 다른 포트 이름과 겹치면 안 된다.
+    /// 포트 이름을 바꾼다. 프로세스의 다른 가상 포트 이름과 겹치면 안 된다.
     ///
     /// # Errors
     ///
@@ -191,7 +180,7 @@ impl VirtualOutput {
         if name == self.name {
             return Ok(());
         }
-        let mut names = self.client.names();
+        let mut names = port_names();
         if names.iter().any(|n| n == name) {
             return Err(MidiError::DuplicateName(name.to_owned()));
         }
@@ -217,7 +206,7 @@ impl VirtualOutput {
 impl Drop for VirtualOutput {
     #[allow(unsafe_code)]
     fn drop(&mut self) {
-        let mut names = self.client.names();
+        let mut names = port_names();
         if let Some(i) = names.iter().position(|n| *n == self.name) {
             names.swap_remove(i);
         }

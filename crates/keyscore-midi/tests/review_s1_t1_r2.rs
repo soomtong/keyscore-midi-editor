@@ -13,6 +13,23 @@ fn unique(name: &str) -> String {
     format!("KS review2 {} {name}", std::process::id())
 }
 
+/// 상한까지 포트를 채우거나 정확한 개수를 세는 테스트는 프로세스 전역 상한을 같은 바이너리의 다른
+/// 테스트와 나눠 쓰지 않게 자식 프로세스에서 돈다(결정 `2026-10-15-virtual-port-limit-scope.md`).
+/// 부모에서는 자식을 띄워 성공 여부만 보고 `true`를, 자식 안에서는 `false`를 돌려준다.
+fn run_isolated(test: &str) -> bool {
+    const ENV: &str = "KS_MIDI_ISOLATED_TEST";
+    if std::env::var(ENV).as_deref() == Ok(test) {
+        return false;
+    }
+    let status = std::process::Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", test, "--nocapture"])
+        .env(ENV, test)
+        .status()
+        .unwrap();
+    assert!(status.success(), "{test}: 자식 프로세스에서 실패했다");
+    true
+}
+
 fn source_count(name: &str) -> usize {
     source_names().iter().filter(|n| *n == name).count()
 }
@@ -39,6 +56,11 @@ fn create_virtual_output_same_name_on_second_handle_fails() {
 /// 만든다.
 #[test]
 fn create_virtual_output_seventeenth_across_two_handles_fails_with_too_many_ports() {
+    if run_isolated(
+        "create_virtual_output_seventeenth_across_two_handles_fails_with_too_many_ports",
+    ) {
+        return;
+    }
     let first = MidiClient::new("ks-review2-max-a").unwrap();
     let second = MidiClient::new("ks-review2-max-b").unwrap();
     let mut ports = Vec::new();
@@ -94,6 +116,9 @@ fn virtual_output_name_with_nul_matches_enumerated_name() {
 #[test]
 fn client_new_concurrent_first_calls_all_succeed_and_create_ports() {
     const THREADS: usize = 16;
+    if run_isolated("client_new_concurrent_first_calls_all_succeed_and_create_ports") {
+        return;
+    }
     let barrier = Arc::new(Barrier::new(THREADS));
     let handles: Vec<_> = (0..THREADS)
         .map(|i| {
@@ -190,15 +215,18 @@ fn source_names_under_heavy_churn_never_misses_steady_source() {
     const CHURNERS: usize = 4;
     const PER_HANDLE: usize = 15;
     const HANDLES_PER_CHURNER: usize = 4;
-    let mut pools: Vec<Vec<keyscore_midi::VirtualOutput>> = Vec::new();
+    // 결정 2026-10-15(프로세스 단위 16개 상한)로 이 프로세스의 `MidiClient`는 240개를 만들 수 없다.
+    // 흔들 소스는 시스템에 있기만 하면 되므로 상한이 없는 `coremidi` crate 클라이언트로 만든다.
+    // 고정 소스는 그대로 `MidiClient`로 만들어 `source_names`를 시험한다.
+    let churn_client = coremidi::Client::new("ks-review2-churn").unwrap();
+    let mut pools: Vec<Vec<coremidi::VirtualSource>> = Vec::new();
     for c in 0..CHURNERS {
         let mut pool = Vec::new();
         for h in 0..HANDLES_PER_CHURNER {
-            let client = MidiClient::new("ks-review2-churn").unwrap();
             for i in 0..PER_HANDLE {
                 pool.push(
-                    client
-                        .create_virtual_output(&unique(&format!("churn {c} {h} {i}")))
+                    churn_client
+                        .virtual_source(&unique(&format!("churn {c} {h} {i}")))
                         .unwrap(),
                 );
             }

@@ -13,6 +13,23 @@ fn unique(name: &str) -> String {
     format!("KS test {} {name}", std::process::id())
 }
 
+/// 상한까지 포트를 채우거나 정확한 개수를 세는 테스트는 프로세스 전역 상한을 같은 바이너리의 다른
+/// 테스트와 나눠 쓰지 않게 자식 프로세스에서 돈다(결정 `2026-10-15-virtual-port-limit-scope.md`).
+/// 부모에서는 자식을 띄워 성공 여부만 보고 `true`를, 자식 안에서는 `false`를 돌려준다.
+fn run_isolated(test: &str) -> bool {
+    const ENV: &str = "KS_MIDI_ISOLATED_TEST";
+    if std::env::var(ENV).as_deref() == Ok(test) {
+        return false;
+    }
+    let status = std::process::Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", test, "--nocapture"])
+        .env(ENV, test)
+        .status()
+        .unwrap();
+    assert!(status.success(), "{test}: 자식 프로세스에서 실패했다");
+    true
+}
+
 /// 조건이 참이 될 때까지 기다린다. CoreMIDI 서버와의 동기화에 약간의 시간이 걸릴 수 있다.
 fn wait_until(limit: Duration, mut cond: impl FnMut() -> bool) -> bool {
     let start = Instant::now();
@@ -138,6 +155,9 @@ fn virtual_output_rename_updates_enumerated_name() {
 
 #[test]
 fn create_virtual_output_seventeenth_fails_with_too_many_ports() {
+    if run_isolated("create_virtual_output_seventeenth_fails_with_too_many_ports") {
+        return;
+    }
     let client = MidiClient::new("ks-test-max").unwrap();
     let mut ports: Vec<_> = (0..MAX_VIRTUAL_OUTPUTS)
         .map(|i| {
@@ -185,9 +205,12 @@ fn create_virtual_output_duplicate_or_blank_name_fails() {
     assert_eq!(other.name(), unique("dup-other"));
     // 자기 이름으로 바꾸는 것은 허용한다.
     other.rename(&unique("dup-other")).unwrap();
-    // 다른 클라이언트는 같은 이름을 쓸 수 있다(다른 앱과의 충돌은 막지 않는다).
+    // 다른 핸들도 같은 프로세스 목록을 쓰므로 같은 이름은 거부된다(결정 2026-10-15).
     let other_client = MidiClient::new("ks-test-names-2").unwrap();
-    let _same = other_client.create_virtual_output(&name).unwrap();
+    assert_eq!(
+        other_client.create_virtual_output(&name).err(),
+        Some(MidiError::DuplicateName(name.clone()))
+    );
     assert_eq!(MidiClient::new(" ").err(), Some(MidiError::InvalidName));
 }
 
