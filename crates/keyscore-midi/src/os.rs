@@ -132,9 +132,9 @@ impl MidiPort for OsOutput {
             unsafe { MIDISendEventList(self.port, self.destination, list) }
         })?;
         if is_endpoint_gone(status) {
-            // CoreMIDI가 이 오류를 돌려주는 경우에만 만든다(대개는 오류 없이 버린다, `is_present` 참고).
-            // 성공 경로에는 할당이 없다.
-            return Err(MidiError::PortGone(self.name.clone()));
+            // CoreMIDI가 이 오류를 돌려주는 경우에만 낸다(대개는 오류 없이 버린다, `is_present` 참고).
+            // 할당이 없는 변형이다(리뷰 1 지적 2).
+            return Err(MidiError::DestinationGone);
         }
         check("MIDISendEventList", status)
     }
