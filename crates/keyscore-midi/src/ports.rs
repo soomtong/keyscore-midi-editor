@@ -41,8 +41,25 @@ pub enum PortEvent {
 /// 이름순(같으면 고유 ID순)이다. 같은 ID의 이름이 바뀌면 옛 이름 `Disappeared`, 새 이름 `Appeared`다.
 #[must_use]
 pub fn diff_ports(before: &[PortInfo], after: &[PortInfo]) -> Vec<PortEvent> {
-    let _ = (before, after);
-    todo!()
+    let mut gone: Vec<&PortInfo> = before.iter().filter(|p| !after.contains(p)).collect();
+    let mut came: Vec<&PortInfo> = after.iter().filter(|p| !before.contains(p)).collect();
+    gone.sort_by(|a, b| (&a.name, a.unique_id).cmp(&(&b.name, b.unique_id)));
+    came.sort_by(|a, b| (&a.name, a.unique_id).cmp(&(&b.name, b.unique_id)));
+    gone.into_iter()
+        .map(|p| PortEvent::Disappeared(p.clone()))
+        .chain(came.into_iter().map(|p| PortEvent::Appeared(p.clone())))
+        .collect()
+}
+
+/// `name`과 정확히 같은 이름의 포트 가운데 고유 ID가 가장 작은 것(같은 이름이 여럿일 때 결정적으로 고른다).
+fn best_match<'a>(
+    name: &str,
+    ports: impl IntoIterator<Item = &'a PortInfo>,
+) -> Option<&'a PortInfo> {
+    ports
+        .into_iter()
+        .filter(|p| p.name == name)
+        .min_by_key(|p| p.unique_id)
 }
 
 /// 이름으로 원하는 포트의 연결 상태.
@@ -62,8 +79,15 @@ pub enum Action {
 }
 
 /// 이름 기반 자동 재연결(OUT-3).
+///
+/// 지금 있는 포트 목록을 함께 들고 있어, 연결된 포트가 사라졌을 때 같은 이름의 다른 포트가 남아 있으면
+/// 바로 그것으로 옮긴다.
 #[derive(Debug, Default)]
-pub struct Reconnector {}
+pub struct Reconnector {
+    present: Vec<PortInfo>,
+    // 등록 순서를 지켜 동작을 결정적으로 낸다.
+    wanted: Vec<(String, Link)>,
+}
 
 impl Reconnector {
     #[must_use]
@@ -73,21 +97,66 @@ impl Reconnector {
 
     /// `name`인 포트를 원한다고 등록하고, 지금 목록에서 연결 상태를 정한다.
     pub fn want(&mut self, name: &str, now: &[PortInfo]) -> &Link {
-        let _ = (name, now);
-        todo!()
+        now.clone_into(&mut self.present);
+        let link = match best_match(name, &self.present) {
+            Some(p) => Link::Connected(p.clone()),
+            None => Link::Missing,
+        };
+        let i = if let Some(i) = self.wanted.iter().position(|(n, _)| n == name) {
+            self.wanted[i].1 = link;
+            i
+        } else {
+            self.wanted.push((name.to_owned(), link));
+            self.wanted.len() - 1
+        };
+        &self.wanted[i].1
     }
 
     /// 등록된 이름의 현재 상태.
     #[must_use]
     pub fn link(&self, name: &str) -> Option<&Link> {
-        let _ = name;
-        todo!()
+        self.wanted.iter().find(|(n, _)| n == name).map(|(_, l)| l)
     }
 
     /// 이벤트 하나를 반영하고 필요한 동작을 돌려준다.
     pub fn apply(&mut self, event: &PortEvent) -> Vec<Action> {
-        let _ = event;
-        todo!()
+        let mut actions = Vec::new();
+        match event {
+            PortEvent::Disappeared(port) => {
+                self.present.retain(|p| p != port);
+                for (name, link) in &mut self.wanted {
+                    if *link != Link::Connected(port.clone()) {
+                        continue;
+                    }
+                    actions.push(Action::Lost { name: name.clone() });
+                    *link = match best_match(name, &self.present) {
+                        Some(p) => {
+                            actions.push(Action::Reconnect {
+                                name: name.clone(),
+                                port: p.clone(),
+                            });
+                            Link::Connected(p.clone())
+                        }
+                        None => Link::Missing,
+                    };
+                }
+            }
+            PortEvent::Appeared(port) => {
+                if !self.present.contains(port) {
+                    self.present.push(port.clone());
+                }
+                for (name, link) in &mut self.wanted {
+                    if *link == Link::Missing && port.name == *name {
+                        actions.push(Action::Reconnect {
+                            name: name.clone(),
+                            port: port.clone(),
+                        });
+                        *link = Link::Connected(port.clone());
+                    }
+                }
+            }
+        }
+        actions
     }
 }
 
@@ -103,8 +172,16 @@ pub enum Suggestion {
 /// 저장된 이름마다 제안을 낸다(입력 순서 그대로).
 #[must_use]
 pub fn suggest_mapping(saved: &[String], available: &[PortInfo]) -> Vec<(String, Suggestion)> {
-    let _ = (saved, available);
-    todo!()
+    saved
+        .iter()
+        .map(|name| {
+            let suggestion = match best_match(name, available) {
+                Some(p) => Suggestion::Present(p.clone()),
+                None => Suggestion::Virtual { name: name.clone() },
+            };
+            (name.clone(), suggestion)
+        })
+        .collect()
 }
 
 #[cfg(test)]
