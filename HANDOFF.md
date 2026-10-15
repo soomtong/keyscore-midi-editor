@@ -1,4 +1,4 @@
-# HANDOFF: KeyScore S1 진행 중 — S1-T1·T2 병합, S1-T3 다음
+# HANDOFF: KeyScore S1 진행 중 — S1-T1~T3 병합, S1-T4 다음
 
 ## 목표
 
@@ -6,7 +6,7 @@
 
 ## 현재 브랜치
 
-`main` — S0 완료·서명(2026-10-15), S1-T1·T2 병합(테스트 567개 통과). 다음은 S1-T3(`s1/t3-midi1-encoding`).
+`main` — S0 완료·서명(2026-10-15), S1-T1~T3 병합(테스트 597개 통과). 다음은 S1-T4(`s1/t4-scheduler`, 실시간 경로라 주 세션이 구현).
 
 ## 완료된 작업
 
@@ -20,6 +20,7 @@
 - [x] S0-T5 계이름 텍스트 파서·내보내기(리뷰 9회, 결정 `2026-10-13-ktext-export-voice-budget.md`와 개정). 엄격 모드 왕복의 알려진 예외와 출력 크기 상한(선형, 256배)은 `docs/decisions/2026-10-12-ktext-implementation-details.md`
 - [x] S0-T8 `ksq-cli`(리뷰 11회, 결정 `2026-10-14-ksq-cli-output-path-scope.md`: `-o`는 일반 파일만). 픽스처 8곡 `assets/fixtures/`, 원본 텍스트 `tools/ksq-cli/fixtures-src/`
 - [x] S0 출구 보고서 `docs/reports/stage-0-exit.md`(자동 게이트 통과, 사람 항목 대기)
+- [x] S1-T3 MIDI 1.0 인코딩(리뷰 3회, 경량 모델 구현). `Midi1Message`, `Group`, MIDI 2.0 변환 규칙(벨로시티 >>9·Note On 최소 1, CC >>25, 벤드 >>18)
 - [x] S1-T2 OS 포트 열거·핫플러그·재연결(리뷰 2회). CoreMIDI 클라이언트는 전용 run loop 스레드(`midi_thread`)에서 만든다. 알림은 프로세스의 첫 클라이언트를 만든 스레드로 오기 때문이다. 사라진 목적지로의 송신은 CoreMIDI가 오류 없이 버린다
 - [x] S1-T1 CoreMIDI 가상 출력 포트(리뷰 7회, 결정 `2026-10-15-virtual-port-limit-scope.md` 프로세스 단위 16개, `2026-10-15-port-name-visual-duplicates.md` 보이는 모양 기준 이름 중복). unsafe·FFI는 주 세션이 구현했다
 - [x] S0-T7 일괄 연산(퀀타이즈·조옮김·시간 이동·길이 스케일). 4회차 리뷰에서 병합 가능. 일괄 연산은 클립마다 `Edit::ReplaceNotes`(길이 늘리기 + 동시 치환, 꼬리는 편집 직전 길이로 판정)를 낸다
@@ -71,7 +72,7 @@ REQ 문구: 사람이 에이전트에게 수정을 허락한 범위(결정 문�
 
 ## 다음 에이전트에게
 
-1. S1-T3을 시작한다. `plan/stages/11-S1-midi-engine.md`의 S1-T3 「이월」 줄(UMP 타입 거르기)을 먼저 읽는다. MIDI 테스트 흔들림은 `scripts/midi-soak.sh N [쉬는 초]`로 본다.
+1. S1-T4를 시작한다. `plan/stages/11-S1-midi-engine.md`의 S1-T4 「이월」 줄(`Group`으로 만든 워드만 송신)을 먼저 읽는다. MIDI 테스트 흔들림은 `scripts/midi-soak.sh N [쉬는 초]`로 본다.
 2. Task 루프: 브랜치 `s0/t<번호>-<slug>` → `docs/reports/s0-t<번호>/plan.md` → 테스트 먼저(뼈대 `todo!()`로 실패 확인) → 구현 → 게이트 전부(커밋 전에) → `report.md` → 새 에이전트로 적대적 리뷰(`general-purpose`, 구현 맥락 없이, 양식 `plan/templates/adversarial-review.md`, 산출물만 남기고 커밋 금지, 기존 `.proptest-regressions` 삭제 금지) → 지적마다 커밋 하나 → 재리뷰(최대 3회) → `git merge --no-ff`.
 3. 자동 게이트: `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`, `cargo deny check`, `scripts/check-deps.sh`, `scripts/check-deps.test.sh`, `scripts/bench-check.test.sh`. `core`·`text`에 외부 의존을 더하면 `scripts/check-deps.sh`의 허용 목록도 고친다.
 4. REQ에 없는 결정은 임의로 정하지 말고 사람에게 묻거나 `docs/decisions/`에 결정 요청을 쓴다. 사람과의 대화는 한국어로 하고, 문서에 `**`를 쓰지 않는다.
