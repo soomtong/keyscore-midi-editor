@@ -34,7 +34,7 @@
 ## 테스트 결과
 
 ~~~
-cargo test --workspace --no-fail-fast: 827 passed, 0 failed
+cargo test --workspace --no-fail-fast: 827 passed, 0 failed(정정: 이 실행은 퍼징 테스트가 실패 입력을 우연히 만나지 않은 것이다. 리뷰 1 지적 1 참고)
 keyscore-app 테스트 9개 3회 반복 통과
 수동: 앱 바이너리를 임시 HOME으로 6초 실행 — 패닉 없이 창이 뜬 채로 있음
 ~~~
@@ -76,3 +76,21 @@ keyscore-app 테스트 9개 3회 반복 통과
 2. `ProjectWindow::new`가 창을 열 때의 설정 레이아웃을 복사한다. 창 둘이 각자 토글하면 마지막 변경이 설정에 남는다. 「다음 창은 마지막으로 바꾼 레이아웃」이 의도다.
 3. `AppSettings::update`의 디바운스 작업이 `pending`을 덮어써 앞 작업을 취소하는지(GPUI `Task` drop은 취소다).
 4. `core` 수정이 `.ksq` 출력 바이트를 바꾸지 않는지. 기본 feature에서는 `Map`이 이미 이름 순이라 같은 바이트다.
+
+## 리뷰 대응 (review-1, 판정: 수정 후 재리뷰)
+
+정정: 위 「827 passed」는 core 퍼징 테스트(`ksq_fuzz_near_valid_files_never_panic_and_are_stable`)가 그 실행에서 실패 입력을 만나지 않았을 뿐이다. 첫 core 수정이 포트·노트 객체의 모르는 키를 빠뜨려, 워크스페이스 빌드(`preserve_order` 켜짐)에서 쓰기가 결정적이지 않았다.
+
+| # | 지적 | 대응 |
+| --- | --- | --- |
+| 1 | `.ksq` 포트 객체의 모르는 키가 정렬되지 않음 | 포트와 노트 속성 객체도 `by_name`을 거친다. 쓰기의 모든 `Map` 순회를 확인했다. 실패를 찾은 proptest 시드를 커밋했다. 커밋 `core: Sort unknown port and note keys too when writing .ksq` |
+| 2 | 접힌 채 연 패널을 다른 패널 조절 뒤 펴면 최소 너비 | 접힌 패널을 펼 때 그 그룹의 `ResizableState`를 새로 만든다. 그래서 저장된 크기로 다시 그린다 |
+| 3 | 창에 포커스가 없으면 패널 토글이 무시됨 | `on_focus_lost`에서 창의 루트 핸들로 포커스를 되돌린다(Zed Workspace 방식) |
+| 4 | `layout` 안의 모르는 키가 저장 때 사라짐 | `layout`을 필드마다 읽고 나머지 키를 `layout_extra`로 보존한다 |
+| 5 | 창마다 레이아웃 전체를 써서 다른 창의 변경을 되돌림 (제안) | 반영. 바뀐 항목만 설정에 옮긴다(`merge_changes`) |
+| 6 | 빈 편집이 dirty를 남김 (제안) | 반영 |
+| 7 | `NOTICE` 버전, Lucide·Feather 고지 (제안) | 반영. `Cargo.lock` 버전, `LICENSE-LUCIDE` 전문 |
+| 8 | 깨진 설정을 백업 없이 덮어씀, 필드 하나로 레이아웃 전체가 기본값 (제안) | 반영. JSON 객체가 아니면 `settings.json.bak`으로 복사하고, 필드는 하나씩 기본값으로 둔다 |
+| 9 | `Quit` 밖의 종료에서 디바운스 중인 설정을 잃음 (제안) | 반영. `on_app_quit`에서 저장한다 |
+
+테스트를 셋 더했다: `broken_settings_are_backed_up_and_bad_fields_fall_back_alone`, `toggling_in_one_window_keeps_other_windows_changes`, `empty_edit_does_not_mark_document_dirty`. 리뷰어 테스트는 바뀌지 않았다. 워크스페이스 843개 통과.
