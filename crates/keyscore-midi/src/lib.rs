@@ -7,6 +7,7 @@
 mod client;
 mod encode;
 mod error;
+mod metronome;
 mod midi_thread;
 mod os;
 mod port;
@@ -24,6 +25,7 @@ pub use encode::{
     timing_clock, velocity_to_7bit,
 };
 pub use error::MidiError;
+pub use metronome::{Beat, DEFAULT_PREVIEW_LENGTH, MAX_NOTE_LENGTH, MetronomeConfig};
 pub use os::{OsOutput, destinations};
 pub use port::MidiPort;
 pub use ports::{

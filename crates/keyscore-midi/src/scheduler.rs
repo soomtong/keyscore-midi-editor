@@ -13,10 +13,11 @@ use std::sync::{Arc, mpsc};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-use keyscore_core::{MusicTime, TempoMap, Tick};
+use keyscore_core::{Channel, MeterMap, MusicTime, Pitch, TempoMap, Tick, Velocity};
 
+use crate::metronome::{Beat, MetronomeConfig, clamp_length};
 use crate::rt::{Timebase, make_realtime, wait_until};
-use crate::{Group, HostTime, Midi1Message, MidiError, MidiPort};
+use crate::{Group, HostTime, Midi1Message, MidiError, MidiPort, note_on};
 
 /// 한 스냅샷이 가질 수 있는 포트 수. 스케줄러의 상태 표를 시작할 때 이 크기로 미리 잡는다.
 pub const MAX_SCHEDULER_PORTS: usize = 32;
@@ -35,6 +36,10 @@ const PENDING_GARBAGE: usize = 4;
 const MAX_ITEMS_PER_PASS: usize = 4096;
 /// 재생 시작·위치 이동 뒤 첫 이벤트까지의 여유. 첫 이벤트가 늦게 예약되지 않게 한다.
 const START_MARGIN: Duration = Duration::from_millis(2);
+/// 끄기 대기 표의 칸 수(미리듣기·클릭 Note Off). 가득 차면 가장 이른 대기를 앞당겨 보낸다.
+const PENDING_OFFS: usize = 64;
+/// 박 보고 큐(MET-2). UI가 비우지 않으면 새 박을 버린다.
+const BEAT_QUEUE: usize = 256;
 
 /// 노트 사건을 노트 칸별로 모은다. 정렬된 `events`에서 만들므로 칸 안도 틱 순이다.
 /// 노트 칸별 노트 사건과 칸마다의 (시작, 개수).
@@ -118,6 +123,7 @@ fn order_class(msg: Midi1Message) -> u8 {
 /// 스케줄러가 재생하는 불변 묶음. 제어 스레드에서 만들어 `Arc`로 넘긴다.
 pub struct Snapshot {
     tempo: TempoMap,
+    meter: MeterMap,
     events: Vec<ScheduledEvent>,
     ports: Vec<Arc<dyn MidiPort>>,
     /// 노트(포트, 채널, 음높이)마다 노트 사건(틱, Note On인가)을 틱 순으로 모은 것과, 노트마다의
@@ -147,6 +153,7 @@ impl Snapshot {
         let (note_events, note_ranges) = index_notes(&events, ports.len());
         Ok(Snapshot {
             tempo,
+            meter: MeterMap::default(),
             events,
             ports,
             note_events,
@@ -170,6 +177,17 @@ impl Snapshot {
     #[must_use]
     pub fn events(&self) -> &[ScheduledEvent] {
         &self.events
+    }
+
+    /// 박자표 맵을 둔다(메트로놈 박 격자, MET-1). 기본은 4/4다.
+    #[must_use]
+    pub fn with_meter(self, meter: MeterMap) -> Self {
+        Snapshot { meter, ..self }
+    }
+
+    #[must_use]
+    pub fn meter(&self) -> &MeterMap {
+        &self.meter
     }
 
     /// `at` 이상인 첫 이벤트의 인덱스.
@@ -209,6 +227,10 @@ enum Command {
     Swap(Arc<Snapshot>),
     Clock(u16, bool),
     SendNow(u16, Midi1Message),
+    Metronome(MetronomeConfig),
+    MetronomeEnabled(bool),
+    MetronomeForced(bool),
+    Preview(u16, Midi1Message, Duration),
 }
 
 /// 제어 스레드와 스케줄러 스레드가 함께 보는 신호.
@@ -226,6 +248,7 @@ pub struct Scheduler {
     /// 큐에 넣은 명령 수.
     pushed: u64,
     garbage: rtrb::Consumer<Arc<Snapshot>>,
+    beats: rtrb::Consumer<Beat>,
     /// 스레드가 끝날 때 들고 있던 스냅샷을 넘겨받는 길. 끝난 뒤에만 쓰므로 할당이 있어도 된다.
     leftovers: mpsc::Receiver<Arc<Snapshot>>,
     signals: Arc<Signals>,
@@ -244,6 +267,7 @@ impl Scheduler {
         }
         let (commands, command_rx) = rtrb::RingBuffer::new(QUEUE);
         let (garbage_tx, garbage) = rtrb::RingBuffer::new(QUEUE);
+        let (beat_tx, beats) = rtrb::RingBuffer::new(BEAT_QUEUE);
         let (leftover_tx, leftovers) = mpsc::channel();
         let signals = Arc::new(Signals {
             quit: AtomicBool::new(false),
@@ -278,6 +302,15 @@ impl Scheduler {
             next_clock: 0,
             active: vec![0; MAX_SCHEDULER_PORTS * 16 * 128].into_boxed_slice(),
             chase: vec![NONE; MAX_SCHEDULER_PORTS * 16 * CHASE_SLOTS].into_boxed_slice(),
+            off_until: vec![0; MAX_SCHEDULER_PORTS * 16 * 128].into_boxed_slice(),
+            metronome: MetronomeConfig::default(),
+            click_length: timebase.ticks(MetronomeConfig::default().length()),
+            metronome_enabled: false,
+            metronome_forced: false,
+            next_beat: u64::MAX,
+            last_click: None,
+            beats: beat_tx,
+            offs: [None; PENDING_OFFS],
         };
         let period = config.wake;
         let thread = std::thread::Builder::new()
@@ -295,6 +328,7 @@ impl Scheduler {
             commands,
             pushed: 0,
             garbage,
+            beats,
             leftovers,
             signals,
             thread: Some(thread),
@@ -411,6 +445,65 @@ impl Scheduler {
         self.send(Command::SendNow(port, msg))
     }
 
+    /// 메트로놈 설정을 바꾼다(MET-1, MET-3).
+    ///
+    /// # Errors
+    ///
+    /// 포트 번호가 `MAX_SCHEDULER_PORTS` 밖이면 `InvalidMessage`, `QueueFull`, `Os`.
+    pub fn set_metronome(&mut self, config: MetronomeConfig) -> Result<(), MidiError> {
+        if usize::from(config.port()) >= MAX_SCHEDULER_PORTS {
+            return Err(MidiError::InvalidMessage);
+        }
+        self.send(Command::Metronome(config))
+    }
+
+    /// 트랜스포트의 메트로놈 버튼(기본 끔).
+    ///
+    /// # Errors
+    ///
+    /// `QueueFull`, `Os`.
+    pub fn set_metronome_enabled(&mut self, on: bool) -> Result<(), MidiError> {
+        self.send(Command::MetronomeEnabled(on))
+    }
+
+    /// 버튼과 무관하게 클릭을 켠다(Sequence 녹음, 카운트인, MET-1).
+    ///
+    /// # Errors
+    ///
+    /// `QueueFull`, `Os`.
+    pub fn set_metronome_forced(&mut self, on: bool) -> Result<(), MidiError> {
+        self.send(Command::MetronomeForced(on))
+    }
+
+    /// 재생 중 지난 박 하나를 꺼낸다(MET-2). UI가 주기적으로 불러 비운다. 비우지 않아 큐가 차면
+    /// 스케줄러는 새 박을 버린다.
+    pub fn poll_beat(&mut self) -> Option<Beat> {
+        self.beats.pop().ok()
+    }
+
+    /// 노트를 지금 켜고 `length` 뒤에 끈다(PRE-1, 기본 [`DEFAULT_PREVIEW_LENGTH`]). 같은 노트가
+    /// 아직 울리면 먼저 끄고 다시 켠다. 길이는 [1 ms, `MAX_NOTE_LENGTH`]로 맞춘다.
+    ///
+    /// [`DEFAULT_PREVIEW_LENGTH`]: crate::DEFAULT_PREVIEW_LENGTH
+    ///
+    /// # Errors
+    ///
+    /// 포트 번호가 `MAX_SCHEDULER_PORTS` 밖이면 `InvalidMessage`, `QueueFull`, `Os`.
+    pub fn preview(
+        &mut self,
+        port: u16,
+        channel: Channel,
+        pitch: Pitch,
+        velocity: Velocity,
+        length: Duration,
+    ) -> Result<(), MidiError> {
+        if usize::from(port) >= MAX_SCHEDULER_PORTS {
+            return Err(MidiError::InvalidMessage);
+        }
+        let on = note_on(channel, pitch, velocity);
+        self.send(Command::Preview(port, on, clamp_length(length)))
+    }
+
     /// 스케줄러가 돌려준, 더 쓰지 않는 스냅샷을 이 스레드에서 해제한다. 돌려받은 수를 돌려준다.
     pub fn collect_garbage(&mut self) -> usize {
         let mut count = 0;
@@ -499,12 +592,41 @@ struct Rt {
     active: Box<[u8]>,
     /// (포트, 채널)마다 chase 값.
     chase: Box<[u8]>,
+    /// (포트, 채널, 음높이)마다 지금까지 넘긴 가장 늦은 Note Off 시각. 넘긴 예약은 취소할 수 없으므로
+    /// 미리듣기·클릭의 Note On을 이 뒤로 미뤄, 앞서 넘긴 Note Off에 끊기지 않게 한다(S1-T5 리뷰 2).
+    off_until: Box<[u64]>,
+    metronome: MetronomeConfig,
+    /// 클릭 길이(호스트 틱). 설정이 바뀔 때 한 번 바꾼다.
+    click_length: u64,
+    metronome_enabled: bool,
+    metronome_forced: bool,
+    /// 다음 박 틱. `u64::MAX`는 「더 없음」이다. 박은 클릭이 꺼져 있어도 센다(박 보고, MET-2).
+    next_beat: u64,
+    /// 지금 기준점에서 마지막으로 처리한 박 틱. 교체 때 새 박자표로 다음 박을 다시 찾는 기준이다.
+    last_click: Option<u64>,
+    beats: rtrb::Producer<Beat>,
+    /// 시각이 오면 보낼 Note Off(미리듣기·클릭). 스택 배열이라 할당이 없다.
+    offs: [Option<PendingOff>; PENDING_OFFS],
+}
+
+/// 시각 `host`에 보낼 Note Off. `sent`면 이미 `CoreMIDI`에 넘겼고(취소할 수 없다) 시각이 지나면 칸을 비운다.
+#[derive(Clone, Copy)]
+struct PendingOff {
+    host: u64,
+    /// 짝인 Note On의 시각. 끄기를 앞당겨도 이보다 앞에 두지 않는다(S1-T5 리뷰 1 지적 1).
+    on_host: u64,
+    port: u16,
+    /// 상태 바이트(0x80 | 채널)와 노트.
+    status: u8,
+    note: u8,
+    sent: bool,
 }
 
 /// 다음에 처리할 것.
 #[derive(Clone, Copy)]
 enum Next {
     Event(usize),
+    Click,
     Clock,
     LoopEnd(Tick),
 }
@@ -574,6 +696,7 @@ impl Rt {
         if self.playing {
             self.schedule();
         }
+        self.flush_offs();
     }
 
     fn panic_if_due(&mut self, blocked: bool) {
@@ -623,6 +746,7 @@ impl Rt {
         self.base_time = self.snap.tempo.tick_to_time(tick);
         self.base_q = u128::from(host).saturating_mul(self.scale());
         self.sent_through = None;
+        self.last_click = None;
     }
 
     /// 기준점을 같은 계산 위의 틱 `t`로 옮긴다. 내림 없이 정확하다(교체).
@@ -686,6 +810,16 @@ impl Rt {
                 let now = now();
                 self.send_to(port, now, msg);
             }
+            Command::Metronome(config) => {
+                self.metronome = config;
+                self.click_length = self.timebase.ticks(config.length());
+            }
+            Command::MetronomeEnabled(on) => self.metronome_enabled = on,
+            Command::MetronomeForced(on) => self.metronome_forced = on,
+            Command::Preview(port, on, length) => {
+                let length = self.timebase.ticks(length);
+                self.play_note(port, on, now(), length);
+            }
         }
     }
 
@@ -706,6 +840,7 @@ impl Rt {
         self.cursor = self.snap.first_at_or_after(from);
         self.chase(from, host);
         self.next_clock = self.resync_clock(from, host, was_playing);
+        self.next_beat = beat_at_or_after(&self.snap.meter, from);
         self.playing = true;
     }
 
@@ -746,6 +881,7 @@ impl Rt {
             // 끈다. 같은 포트의 노트는 뒤따를 Note Off가 그대로 닿으므로 둔다(리뷰 3 지적 1).
             let at = self.release_time();
             self.release_changed_ports(&new, at);
+            self.forget_offs_on_changed_ports(&new);
             let old = std::mem::replace(&mut self.snap, new);
             self.pending[slot] = Some(old);
             self.flush_garbage();
@@ -758,11 +894,17 @@ impl Rt {
         // 지적 8).
         let sent = self.sent_through;
         let t = sent.unwrap_or(self.base_tick);
+        // 박은 마지막으로 처리한 박 뒤의 첫 박부터 새 박자표로 다시 찾는다. 이미 지난 시각의 박이면
+        // `floor`에 늦게 나간다(빠뜨리지 않는다).
+        let click_from = self
+            .last_click
+            .map_or(self.base_tick, |c| Tick::new(c.saturating_add(1)));
         if sent.is_some() {
             self.move_base(t);
         }
         // 새 스냅샷에서 T 뒤 첫 노트 사건이 Note Off이고 같은 포트면 이어서 울린다. 나머지는 끈다.
         self.release_unless_continued(&new, t, at);
+        self.forget_offs_on_changed_ports(&new);
         let old = std::mem::replace(&mut self.snap, new);
         self.pending[slot] = Some(old);
         self.base_time = self.snap.tempo.tick_to_time(self.base_tick);
@@ -774,6 +916,7 @@ impl Rt {
         } else {
             self.snap.first_at_or_after(t)
         };
+        self.next_beat = beat_at_or_after(&self.snap.meter, click_from);
         self.flush_garbage();
     }
 
@@ -811,6 +954,14 @@ impl Rt {
         if let Some(tick) = clock {
             consider(tick, Next::Clock);
         }
+        // 같은 틱이면 클릭이 Clock보다 먼저, 이벤트보다 뒤다. 루프 끝과 같은 틱의 박은 다음 바퀴의 것이다.
+        if self.next_beat != u64::MAX && loop_end.is_none_or(|(_, end)| self.next_beat < end.get())
+        {
+            let tick = Tick::new(self.next_beat);
+            if next.as_ref().is_none_or(|(t, _)| tick <= *t) {
+                next = Some((tick, Next::Click));
+            }
+        }
         // 같은 틱이면 이벤트가 먼저(클록·루프 끝보다). 루프 끝과 같은 틱의 이벤트는 다음 바퀴의 것이다.
         if let Some((tick, i)) = event
             && loop_end.is_none_or(|(_, end)| tick < end)
@@ -837,6 +988,7 @@ impl Rt {
                     self.cursor = i + 1;
                     self.send_to(e.port, host, e.msg);
                 }
+                Next::Click => self.click(tick, host),
                 Next::Clock => {
                     self.send_clock_message(host, 0xF8);
                     self.next_clock = self.next_clock.saturating_add(CLOCK_TICKS);
@@ -850,6 +1002,7 @@ impl Rt {
                     self.cursor = self.snap.first_at_or_after(start);
                     // 클록 장치도 루프 시작으로 다시 맞춘다(리뷰 1 지적 7).
                     self.next_clock = self.resync_clock(start, host, true);
+                    self.next_beat = beat_at_or_after(&self.snap.meter, start);
                 }
             }
         }
@@ -872,8 +1025,9 @@ impl Rt {
         }
         if let Some((tick, what)) = self.peek_next() {
             let pending = match what {
-                // 같은 틱의 이벤트는 다 보냈다(이벤트가 먼저). 그 틱의 Clock은 `next_clock`이 들고 있다.
-                Next::Clock => Some(tick),
+                // 같은 틱의 이벤트는 다 보냈다(이벤트가 먼저). 그 틱의 클릭·Clock은 `next_beat`·
+                // `next_clock`이 들고 있다.
+                Next::Click | Next::Clock => Some(tick),
                 // 그 틱의 이벤트는 아직이다. 상한에 걸려 같은 틱 일부를 보냈다면 교체 때 그 틱을 다시
                 // 보낸다(빠뜨리기보다 겹치기). 루프 끝 틱의 이벤트는 다음 바퀴의 것이다.
                 Next::Event(_) | Next::LoopEnd(_) => {
@@ -884,6 +1038,135 @@ impl Rt {
         }
         // 기준점 틱의 이벤트를 아직 보내지 않았을 수 있다. 보냈는지는 위에서 판단했다.
         (through >= self.base_tick).then_some(through)
+    }
+
+    /// 박 `tick`(호스트 시각 `host`)을 처리한다. 박을 보고하고, 클릭이 켜져 있으면 노트를 보낸다.
+    fn click(&mut self, tick: Tick, host: u64) {
+        let pos = self.snap.meter.position(tick);
+        // UI가 비우지 않아 큐가 가득이면 버린다. 시각 표시는 하나 빠져도 다음 박에서 맞는다.
+        let _ = self.beats.push(Beat {
+            bar: pos.bar(),
+            index: pos.beat(),
+            at: HostTime::from_ticks(host),
+        });
+        if self.metronome_enabled || self.metronome_forced {
+            let m = self.metronome;
+            let (pitch, velocity) = if pos.beat() == 0 {
+                (m.accent(), m.accent_velocity())
+            } else {
+                (m.beat(), m.beat_velocity())
+            };
+            let on = note_on(m.channel(), pitch, velocity);
+            self.play_note(m.port(), on, host, self.click_length);
+        }
+        self.last_click = Some(tick.get());
+        self.next_beat =
+            beat_at_or_after(&self.snap.meter, Tick::new(tick.get().saturating_add(1)));
+    }
+
+    /// Note On `on`을 `host`에 보내고 `length` 뒤의 Note Off를 끄기 대기 표에 둔다(미리듣기, 클릭).
+    ///
+    /// 같은 노트의 끄기가 기다리고 있으면 그 노트를 먼저 끈다(짝 Note On 시각 뒤에). 이미 `CoreMIDI`에
+    /// 넘긴 Note Off는 취소할 수 없으므로, 어느 경로로 넘겼든(`off_until`) 그 시각이 뒤면 새 Note On을
+    /// 그 뒤로 미룬다. 그래야 새 노트가 앞 노트의 Note Off로 끊기지 않는다. 넘긴 시각은 모두 lookahead
+    /// 창 안이라 미루는 폭은 lookahead(기본 10 ms)를 넘지 않는다.
+    fn play_note(&mut self, port: u16, on: Midi1Message, host: u64, length: u64) {
+        let [status, note, _] = on.bytes() else {
+            return;
+        };
+        let off_status = 0x80 | (status & 0x0F);
+        let mut host = host;
+        let mut slot = None;
+        for (i, entry) in self.offs.iter_mut().enumerate() {
+            match entry {
+                Some(off) if off.port == port && off.status == off_status && off.note == *note => {
+                    if off.sent {
+                        host = host.max(off.host);
+                    } else {
+                        // 짝인 Note On이 아직 미래면(lookahead로 미리 넘긴 클릭) 그 뒤에 끄고, 새 노트도
+                        // 그 뒤로 미룬다. 끄기가 짝보다 먼저 가면 그 노트가 남는다.
+                        let at = off.host.min(host).max(off.on_host);
+                        host = host.max(at);
+                        let msg = Midi1Message::from_status(off_status, *note, 0);
+                        *entry = None;
+                        self.send_to(port, at, msg);
+                    }
+                    slot = Some(i);
+                    break;
+                }
+                None if slot.is_none() => slot = Some(i),
+                _ => {}
+            }
+        }
+        let slot = slot.unwrap_or_else(|| self.free_earliest_off());
+        // 정지·패닉·표 넘침 등 어느 경로로든 미래로 넘긴 Note Off보다 앞에 켜지 않는다.
+        let key = active_index(port, status & 0x0F, *note);
+        let host = host.max(self.off_until.get(key).copied().unwrap_or(0));
+        self.send_to(port, host, on);
+        self.offs[slot] = Some(PendingOff {
+            host: host.saturating_add(length.max(1)),
+            on_host: host,
+            port,
+            status: off_status,
+            note: *note,
+            sent: false,
+        });
+    }
+
+    /// 끄기 대기 표가 가득일 때: 가장 이른 대기를 지금 보내고(넘기지 않았으면) 그 칸을 돌려준다.
+    /// Note Off를 잃는 일은 없다. 노트가 예정보다 일찍 끊길 뿐이다.
+    fn free_earliest_off(&mut self) -> usize {
+        let mut earliest = 0;
+        for (i, entry) in self.offs.iter().enumerate() {
+            if let (Some(a), Some(b)) = (entry, &self.offs[earliest])
+                && a.host < b.host
+            {
+                earliest = i;
+            }
+        }
+        if let Some(off) = self.offs[earliest].take()
+            && !off.sent
+        {
+            let at = now().max(self.last_sent.min(off.host)).max(off.on_host);
+            self.send_to(
+                off.port,
+                at,
+                Midi1Message::from_status(off.status, off.note, 0),
+            );
+        }
+        earliest
+    }
+
+    /// 시각이 lookahead 창에 들어온 Note Off를 예약 송신하고, 시각이 지난 칸을 비운다.
+    fn flush_offs(&mut self) {
+        let now = now();
+        let horizon = now.saturating_add(self.lookahead);
+        for i in 0..PENDING_OFFS {
+            let Some(mut off) = self.offs[i] else {
+                continue;
+            };
+            if !off.sent && off.host <= horizon {
+                self.send_to(
+                    off.port,
+                    off.host,
+                    Midi1Message::from_status(off.status, off.note, 0),
+                );
+                off.sent = true;
+            }
+            self.offs[i] = (!off.sent || off.host > now).then_some(off);
+        }
+    }
+
+    /// 교체 때: 같은 번호에 같은 포트가 없으면 그 번호의 끄기 대기를 버린다. 그 노트는 옛 포트로 이미
+    /// 껐고, 남겨 두면 새 포트로 엉뚱한 Note Off가 간다.
+    fn forget_offs_on_changed_ports(&mut self, new: &Snapshot) {
+        for entry in &mut self.offs {
+            if let Some(off) = entry
+                && !same_port_at(&self.snap, new, usize::from(off.port))
+            {
+                *entry = None;
+            }
+        }
     }
 
     /// 포트로 보낸다. 실패는 무시한다(포트가 사라져도 스케줄러는 계속 돈다). 울리는 노트를 센다.
@@ -903,6 +1186,9 @@ impl Rt {
                     *count = count.saturating_add(1);
                 } else {
                     *count = count.saturating_sub(1);
+                    if let Some(until) = self.off_until.get_mut(i) {
+                        *until = (*until).max(host);
+                    }
                 }
             }
         }
@@ -938,6 +1224,13 @@ impl Rt {
         }
         // 포트 수가 바뀐 스냅샷에서 남은 칸도 비운다(보낼 포트가 없다).
         self.active.fill(0);
+        // 방금 모두 껐으므로 아직 넘기지 않은 끄기 대기는 버린다. 넘긴 것은 시각이 지날 때까지 두어,
+        // 같은 노트를 다시 켤 때 그 뒤로 미루는 데 쓴다(`play_note`).
+        for entry in &mut self.offs {
+            if entry.is_some_and(|off| !off.sent) {
+                *entry = None;
+            }
+        }
     }
 
     /// 새 스냅샷에서 같은 번호에 같은 포트가 없으면 그 번호의 울리는 노트를 옛 포트로 끈다.
@@ -1089,6 +1382,26 @@ fn clock_after(t: u64) -> u64 {
 
 fn active_index(port: u16, ch: u8, note: u8) -> usize {
     (usize::from(port) * 16 + usize::from(ch & 0x0F)) * 128 + usize::from(note & 0x7F)
+}
+
+/// `at` 이상인 첫 박 틱. 박자표 변화는 새 마디(첫 박)를 시작한다. 없으면(틱 범위 끝) `u64::MAX`.
+fn beat_at_or_after(meter: &MeterMap, at: Tick) -> u64 {
+    let pos = meter.position(at);
+    if pos.tick() == 0 {
+        return at.get();
+    }
+    let beat = meter.signature_at(at).beat_ticks();
+    let next = (at.get() - pos.tick()).checked_add(beat);
+    let change = meter
+        .changes()
+        .map(|(tick, _)| tick.get())
+        .find(|&tick| tick > at.get());
+    match (next, change) {
+        (Some(n), Some(c)) => n.min(c),
+        (Some(n), None) => n,
+        (None, Some(c)) => c,
+        (None, None) => u64::MAX,
+    }
 }
 
 /// `port` 번호에 옛 스냅샷과 같은 포트 객체가 있는가. 번호가 같아도 포트가 바뀔 수 있다(출력 변경,
