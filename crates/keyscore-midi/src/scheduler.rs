@@ -502,6 +502,7 @@ struct Rt {
 }
 
 /// 다음에 처리할 것.
+#[derive(Clone, Copy)]
 enum Next {
     Event(usize),
     Clock,
@@ -552,6 +553,9 @@ impl Rt {
         self.flush_garbage();
         let mut blocked = false;
         for _ in 0..COMMANDS_PER_WAKE {
+            // 패닉은 그 앞에 넣은 명령까지 처리한 바로 그 자리에서 한다. 뒤에 넣은 명령(패닉 직후의
+            // 미리듣기 등)은 패닉 뒤에 처리한다(리뷰 2 지적 4, 리뷰 3 지적 2).
+            self.panic_if_due(false);
             // 교체 명령은 옛 스냅샷을 들고 있을 자리가 있을 때만 꺼낸다(스레드에서 해제하지 않으려고).
             if let Ok(Command::Swap(_)) = self.commands.peek()
                 && !self.pending.iter().any(Option::is_none)
@@ -565,15 +569,19 @@ impl Rt {
             self.popped += 1;
             self.handle(command);
         }
-        // 패닉은 그 앞에 넣은 명령을 처리한 뒤에 한다. 큐 머리가 교체로 막혔으면 기다리지 않는다.
+        // 큐 머리가 교체로 막혔으면 앞 명령을 기다리지 않는다.
+        self.panic_if_due(blocked);
+        if self.playing {
+            self.schedule();
+        }
+    }
+
+    fn panic_if_due(&mut self, blocked: bool) {
         if self.signals.panic.load(Ordering::Acquire)
             && (blocked || self.popped >= self.signals.panic_after.load(Ordering::Acquire))
         {
             self.signals.panic.store(false, Ordering::Release);
             self.panic();
-        }
-        if self.playing {
-            self.schedule();
         }
     }
 
@@ -734,6 +742,10 @@ impl Rt {
             return;
         };
         if !self.playing {
+            // 정지 중에도 미리듣기 노트가 울릴 수 있다. 포트가 바뀌거나 없어진 번호의 노트는 옛 포트로
+            // 끈다. 같은 포트의 노트는 뒤따를 Note Off가 그대로 닿으므로 둔다(리뷰 3 지적 1).
+            let at = self.release_time();
+            self.release_changed_ports(&new, at);
             let old = std::mem::replace(&mut self.snap, new);
             self.pending[slot] = Some(old);
             self.flush_garbage();
@@ -756,12 +768,12 @@ impl Rt {
         self.base_time = self.snap.tempo.tick_to_time(self.base_tick);
         // 새 이벤트를 이미 예약한 시각 앞에 두지 않는다. 늦은 바퀴면 버리지 않고 지금 보낸다.
         self.floor = self.floor.max(self.scheduled_until);
-        if sent.is_some() {
-            self.cursor = self.snap.first_after(t);
-            self.next_clock = clock_after(t.get().saturating_add(1));
+        // `next_clock`은 스냅샷과 무관한 절대 틱이고 보낸 구간 바로 뒤를 가리키므로 그대로 둔다.
+        self.cursor = if sent.is_some() {
+            self.snap.first_after(t)
         } else {
-            self.cursor = self.snap.first_at_or_after(t);
-        }
+            self.snap.first_at_or_after(t)
+        };
         self.flush_garbage();
     }
 
@@ -776,38 +788,43 @@ impl Rt {
         }
     }
 
+    /// 다음에 보낼 항목(이벤트, Clock, 루프 끝 가운데 가장 이른 것).
+    fn peek_next(&self) -> Option<(Tick, Next)> {
+        let event = self
+            .snap
+            .events
+            .get(self.cursor)
+            .map(|e| (e.tick, self.cursor));
+        // `u64::MAX`는 「더 보낼 Clock 없음」이다(넘침 대신, 리뷰 2 지적 5).
+        let clock = (self.clock_mask != 0 && self.next_clock != u64::MAX)
+            .then_some(Tick::new(self.next_clock));
+        let loop_end = self.looping.filter(|&(_, end)| end > self.base_tick);
+        let mut next: Option<(Tick, Next)> = None;
+        let mut consider = |tick: Tick, what: Next| {
+            if next.as_ref().is_none_or(|(t, _)| tick < *t) {
+                next = Some((tick, what));
+            }
+        };
+        if let Some((start, end)) = loop_end {
+            consider(end, Next::LoopEnd(start));
+        }
+        if let Some(tick) = clock {
+            consider(tick, Next::Clock);
+        }
+        // 같은 틱이면 이벤트가 먼저(클록·루프 끝보다). 루프 끝과 같은 틱의 이벤트는 다음 바퀴의 것이다.
+        if let Some((tick, i)) = event
+            && loop_end.is_none_or(|(_, end)| tick < end)
+            && next.as_ref().is_none_or(|(t, _)| tick <= *t)
+        {
+            next = Some((tick, Next::Event(i)));
+        }
+        next
+    }
+
     fn schedule(&mut self) {
         let horizon = now().saturating_add(self.lookahead);
         for _ in 0..MAX_ITEMS_PER_PASS {
-            let event = self
-                .snap
-                .events
-                .get(self.cursor)
-                .map(|e| (e.tick, self.cursor));
-            // `u64::MAX`는 「더 보낼 Clock 없음」이다(넘침 대신, 리뷰 2 지적 5).
-            let clock = (self.clock_mask != 0 && self.next_clock != u64::MAX)
-                .then_some(Tick::new(self.next_clock));
-            let loop_end = self.looping.filter(|&(_, end)| end > self.base_tick);
-            let mut next: Option<(Tick, Next)> = None;
-            let mut consider = |tick: Tick, what: Next| {
-                if next.as_ref().is_none_or(|(t, _)| tick < *t) {
-                    next = Some((tick, what));
-                }
-            };
-            if let Some((start, end)) = loop_end {
-                consider(end, Next::LoopEnd(start));
-            }
-            if let Some(tick) = clock {
-                consider(tick, Next::Clock);
-            }
-            // 같은 틱이면 이벤트가 먼저(클록·루프 끝보다). 루프 끝과 같은 틱의 이벤트는 다음 바퀴의 것이다.
-            if let Some((tick, i)) = event
-                && loop_end.is_none_or(|(_, end)| tick < end)
-                && next.as_ref().is_none_or(|(t, _)| tick <= *t)
-            {
-                next = Some((tick, Next::Event(i)));
-            }
-            let Some((tick, what)) = next else {
+            let Some((tick, what)) = self.peek_next() else {
                 break;
             };
             let host = self.host_of(tick).max(self.floor);
@@ -837,9 +854,36 @@ impl Rt {
             }
         }
         self.scheduled_until = self.scheduled_until.max(horizon);
-        if horizon >= self.base_host() {
-            self.sent_through = Some(self.tick_at(horizon));
+        self.sent_through = self.sent_through_now(horizon);
+    }
+
+    /// 보낸 구간의 끝 틱. 기준점 뒤로 아무것도 보내지 않았으면 `None`.
+    ///
+    /// 송신 판정과 같은 내림(`host_of(tick) <= horizon`)으로 구해야 교체 때 같은 틱을 두 번 보내지
+    /// 않는다. 항목 상한에 걸려 일찍 끝난 바퀴면 아직 보내지 않은 다음 항목 앞까지로 줄인다(리뷰 3
+    /// 지적 3).
+    fn sent_through_now(&self, horizon: u64) -> Option<Tick> {
+        if horizon < self.base_host() {
+            return None;
         }
+        let mut through = self.tick_at(horizon.saturating_add(1));
+        if through > self.base_tick && self.host_of(through) > horizon {
+            through = Tick::new(through.get() - 1);
+        }
+        if let Some((tick, what)) = self.peek_next() {
+            let pending = match what {
+                // 같은 틱의 이벤트는 다 보냈다(이벤트가 먼저). 그 틱의 Clock은 `next_clock`이 들고 있다.
+                Next::Clock => Some(tick),
+                // 그 틱의 이벤트는 아직이다. 상한에 걸려 같은 틱 일부를 보냈다면 교체 때 그 틱을 다시
+                // 보낸다(빠뜨리기보다 겹치기). 루프 끝 틱의 이벤트는 다음 바퀴의 것이다.
+                Next::Event(_) | Next::LoopEnd(_) => {
+                    (tick > self.base_tick).then(|| Tick::new(tick.get() - 1))
+                }
+            };
+            through = through.min(pending?);
+        }
+        // 기준점 틱의 이벤트를 아직 보내지 않았을 수 있다. 보냈는지는 위에서 판단했다.
+        (through >= self.base_tick).then_some(through)
     }
 
     /// 포트로 보낸다. 실패는 무시한다(포트가 사라져도 스케줄러는 계속 돈다). 울리는 노트를 센다.
@@ -896,6 +940,25 @@ impl Rt {
         self.active.fill(0);
     }
 
+    /// 새 스냅샷에서 같은 번호에 같은 포트가 없으면 그 번호의 울리는 노트를 옛 포트로 끈다.
+    fn release_changed_ports(&mut self, new: &Snapshot, host: u64) {
+        for port in 0..self.snap.ports.len() {
+            if same_port_at(&self.snap, new, port) {
+                continue;
+            }
+            let p = u16::try_from(port).unwrap_or(u16::MAX);
+            for ch in 0..16u8 {
+                for note in 0..128u8 {
+                    let i = active_index(p, ch, note);
+                    if self.active.get(i).copied().unwrap_or(0) > 0 {
+                        self.active[i] = 0;
+                        self.send_to(p, host, Midi1Message::from_status(0x80 | ch, note, 0));
+                    }
+                }
+            }
+        }
+    }
+
     /// 교체 때: 새 스냅샷에서 `t` 뒤 같은 노트의 첫 사건이 Note Off면 이어서 울리게 두고, 아니면 끈다.
     fn release_unless_continued(&mut self, new: &Snapshot, t: Tick, host: u64) {
         for port in 0..self.snap.ports.len() {
@@ -907,10 +970,7 @@ impl Rt {
                         continue;
                     }
                     // 같은 번호에 다른 포트가 왔으면 옛 포트의 노트는 끈다(리뷰 2 지적 3).
-                    let same_port = new.ports.get(port).is_some_and(|q| {
-                        std::ptr::addr_eq(Arc::as_ptr(q), Arc::as_ptr(&self.snap.ports[port]))
-                    });
-                    if same_port && new.next_note_is_off(i, t) {
+                    if same_port_at(&self.snap, new, port) && new.next_note_is_off(i, t) {
                         continue;
                     }
                     self.active[i] = 0;
@@ -1029,6 +1089,15 @@ fn clock_after(t: u64) -> u64 {
 
 fn active_index(port: u16, ch: u8, note: u8) -> usize {
     (usize::from(port) * 16 + usize::from(ch & 0x0F)) * 128 + usize::from(note & 0x7F)
+}
+
+/// `port` 번호에 옛 스냅샷과 같은 포트 객체가 있는가. 번호가 같아도 포트가 바뀔 수 있다(출력 변경,
+/// 재연결).
+fn same_port_at(old: &Snapshot, new: &Snapshot, port: usize) -> bool {
+    match (old.ports.get(port), new.ports.get(port)) {
+        (Some(a), Some(b)) => std::ptr::addr_eq(Arc::as_ptr(a), Arc::as_ptr(b)),
+        _ => false,
+    }
 }
 
 /// `from`에서 `to`까지의 시각(ns, 내림). `to`가 앞이면 0이다. 스케줄러는 내림 없이 `MusicTime` 단위로
