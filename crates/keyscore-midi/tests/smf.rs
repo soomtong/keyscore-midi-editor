@@ -82,13 +82,23 @@ fn channel_messages(file: &SmfFile) -> Vec<(u64, Vec<u8>)> {
     out
 }
 
-/// 채널별 이벤트 집합(Type 0으로 합치면 트랙 경계와 이름이 사라지므로 채널 단위로 비교한다).
+/// 채널별 이벤트 집합(Type 0으로 합치면 트랙 경계와 이름이 사라지므로 채널 단위로 비교한다). 채널은
+/// 1–16이라 키 0은 가사 몫이다.
 fn by_channel(song: &Song) -> BTreeMap<u8, Vec<String>> {
     let mut out: BTreeMap<u8, Vec<String>> = BTreeMap::new();
     for t in song.tracks() {
         let list = out.entry(t.channel().get()).or_default();
+        // 노트는 켜기·끄기 이벤트로 적는다. 같은 채널·음높이의 노트가 겹치면 Type 0 한 줄에서 어느
+        // Note Off가 어느 Note On의 짝인지 남지 않는다(MIDI 1.0의 한계). 이벤트 집합은 그대로다.
         for n in t.notes() {
-            list.push(format!("{n:?}"));
+            let end = n.start().get() + u64::from(n.length());
+            list.push(format!(
+                "on {:?} {:?} {:?}",
+                n.start(),
+                n.pitch(),
+                n.velocity()
+            ));
+            list.push(format!("off {end} {:?}", n.pitch()));
         }
         for p in t.programs() {
             list.push(format!("prog {p:?}"));
@@ -104,8 +114,13 @@ fn by_channel(song: &Song) -> BTreeMap<u8, Vec<String>> {
         for p in t.pressure() {
             list.push(format!("pressure {p:?}"));
         }
+    }
+    // 가사는 같은 틱에 노트가 시작하는 채널 트랙에 붙는다. Type 0으로 합치면 다른 SMF 트랙의 채널에
+    // 붙을 수 있어, 채널과 무관한 하나의 집합(키 0)으로 비교한다.
+    let lyrics = out.entry(0).or_default();
+    for t in song.tracks() {
         for l in t.lyrics() {
-            list.push(format!("lyric {l:?}"));
+            lyrics.push(format!("lyric {l:?}"));
         }
     }
     for list in out.values_mut() {
@@ -586,5 +601,53 @@ proptest! {
         prop_assert_eq!(&again, &first);
         let single = song_of(&first.to_smf(SmfFormat::Single).write());
         prop_assert_eq!(by_channel(&single), by_channel(&first));
+    }
+}
+
+#[test]
+fn many_tempo_and_lyric_events_import_without_quadratic_time() {
+    // 템포·가사 변화가 20만 개씩이어도 한 번에 만든다(항목마다 다시 계산하면 수 분이 걸린다).
+    let tempo: &[u8] = &[0xFF, 0x51, 0x03, 0x07, 0xA1, 0x20];
+    let lyric: &[u8] = &[0xFF, 0x05, 0x01, b'a'];
+    let mut events: Vec<(u32, &[u8])> = Vec::new();
+    for _ in 0..100_000 {
+        events.push((1, tempo));
+        events.push((0, lyric));
+        events.push((0, &[0x90, 60, 100]));
+        events.push((1, &[0x80, 60, 0]));
+    }
+    let bytes = smf(0, 960, &[track(&events)]);
+    let started = std::time::Instant::now();
+    let song = song_of(&bytes);
+    let project = song.to_project().unwrap();
+    assert_eq!(song.tracks()[0].notes().len(), 100_000);
+    assert!(project.tempo_map().changes().count() > 99_000);
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(20),
+        "{:?}",
+        started.elapsed()
+    );
+}
+
+#[test]
+fn lyrics_only_track_attaches_to_matching_voice() {
+    // LilyPond(bach)는 가사를 채널 메시지 없는 트랙에, aloha-oe는 노트 트랙에 둔다. 둘 다 가사를 잃지
+    // 않고, 모델에서는 노트에 붙는다(LYR-6).
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/smf");
+    for (file, count) in [("bach-sheep-safely-graze.mid", 110), ("aloha-oe.mid", 73)] {
+        let song = song_of(&std::fs::read(dir.join(file)).unwrap());
+        let kept: usize = song.tracks().iter().map(|t| t.lyrics().len()).sum();
+        assert_eq!(kept, count, "{file}");
+        let project = song.to_project().unwrap();
+        let on_notes: usize = project
+            .tracks()
+            .iter()
+            .flat_map(Track::clips)
+            .map(|(_, c)| c.notes().iter().filter(|n| n.lyric().is_some()).count())
+            .sum();
+        assert!(
+            on_notes * 10 >= count * 9,
+            "{file}: 노트에 붙은 가사 {on_notes}/{count}"
+        );
     }
 }

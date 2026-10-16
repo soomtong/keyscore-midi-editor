@@ -1392,10 +1392,7 @@ fn beat_at_or_after(meter: &MeterMap, at: Tick) -> u64 {
     }
     let beat = meter.signature_at(at).beat_ticks();
     let next = (at.get() - pos.tick()).checked_add(beat);
-    let change = meter
-        .changes()
-        .map(|(tick, _)| tick.get())
-        .find(|&tick| tick > at.get());
+    let change = meter.next_change_after(at).map(Tick::get);
     match (next, change) {
         (Some(n), Some(c)) => n.min(c),
         (Some(n), None) => n,
