@@ -230,13 +230,22 @@ fn note_line(n: &Note, delta: u64) -> String {
     line
 }
 
-/// 모르는 키를 알려진 키 뒤에 이름 순으로 붙인다(`Map`은 이름 순으로 정렬되어 있다).
+/// 모르는 키를 알려진 키 뒤에 이름 순으로 붙인다.
 fn push_extra(fields: &mut Vec<(String, Item)>, extra: &Map<String, Value>) {
     fields.extend(
-        extra
-            .iter()
+        by_name(extra)
+            .into_iter()
             .map(|(k, v)| (k.clone(), Item::Inline(inline(v)))),
     );
+}
+
+/// 객체의 항목을 이름 순으로. `serde_json::Map`의 순서는 feature에 따라 다르다. 다른 crate가
+/// `preserve_order`를 켜면(워크스페이스에서 gpui-kit, S2-T1) 넣은 순서가 된다. 그래서 순서에 기대지
+/// 않고 여기서 정렬해 쓰기를 결정적으로 둔다.
+fn by_name(map: &Map<String, Value>) -> Vec<(&String, &Value)> {
+    let mut items: Vec<_> = map.iter().collect();
+    items.sort_by(|a, b| a.0.cmp(b.0));
+    items
 }
 
 fn write_object(out: &mut String, fields: &[(String, Item)], indent: usize) {
@@ -292,7 +301,8 @@ fn inline(v: &Value) -> String {
         ),
         Value::Object(map) => format!(
             "{{{}}}",
-            map.iter()
+            by_name(map)
+                .into_iter()
                 .map(|(k, v)| format!("{}: {}", json_string(k), inline(v)))
                 .collect::<Vec<_>>()
                 .join(", ")
@@ -313,8 +323,8 @@ fn key_text(key: Key, extra: &Map<String, Value>) -> String {
         format!("\"mode\": \"{mode}\""),
     ];
     parts.extend(
-        extra
-            .iter()
+        by_name(extra)
+            .into_iter()
             .map(|(k, v)| format!("{}: {}", json_string(k), inline(v))),
     );
     format!("{{{}}}", parts.join(", "))
