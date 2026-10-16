@@ -247,10 +247,10 @@ fn sixty_fourth_note_triplets_round_trip() {
 #[test]
 fn grammar_decisions_hold() {
     let notes = |t: &str| view(parse(t, Mode::Lenient).unwrap().tracks()[0].clip());
-    // o4 c = 60, Q1: 음 바로 뒤 #는 올림표, 길이 뒤·공백 뒤는 주석
+    // o4 c = 60, Q1(2026-10-16 개정): 음 바로 뒤 #는 올림표, 주석은 // 뒤
     assert_eq!(notes("@track A ch1\no4 c")[0].2, 60);
     assert_eq!(
-        notes("@track A ch1\nc#4 d4# e\nf"),
+        notes("@track A ch1\nc#4 d4// e\nf"),
         vec![
             (0, 960, 61, None),
             (960, 960, 62, None),
