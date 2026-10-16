@@ -1066,9 +1066,10 @@ impl Rt {
 
     /// Note On `on`을 `host`에 보내고 `length` 뒤의 Note Off를 끄기 대기 표에 둔다(미리듣기, 클릭).
     ///
-    /// 같은 노트의 끄기가 기다리고 있으면 그 노트를 먼저 끈다. 이미 `CoreMIDI`에 넘긴 끄기는 취소할 수
-    /// 없으므로, 그 시각이 뒤면 새 Note On을 그 뒤로 미룬다. 그래야 새 노트가 앞 노트의 Note Off로
-    /// 끊기지 않는다.
+    /// 같은 노트의 끄기가 기다리고 있으면 그 노트를 먼저 끈다(짝 Note On 시각 뒤에). 이미 `CoreMIDI`에
+    /// 넘긴 Note Off는 취소할 수 없으므로, 어느 경로로 넘겼든(`off_until`) 그 시각이 뒤면 새 Note On을
+    /// 그 뒤로 미룬다. 그래야 새 노트가 앞 노트의 Note Off로 끊기지 않는다. 넘긴 시각은 모두 lookahead
+    /// 창 안이라 미루는 폭은 lookahead(기본 10 ms)를 넘지 않는다.
     fn play_note(&mut self, port: u16, on: Midi1Message, host: u64, length: u64) {
         let [status, note, _] = on.bytes() else {
             return;
