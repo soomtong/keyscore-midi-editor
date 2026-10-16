@@ -159,8 +159,9 @@ fn track_list_collapsed_after_open_reopens_after_inspector_resize(cx: &mut TestA
     start_with(cx, "track-after-open", |l| l.track_list_width = 260.0);
     let (handle, view) = open(cx);
     toggle(cx, handle, Box::new(ToggleTrackList));
-    // 트랙 목록이 숨어 크기 목록 길이는 그대로 3이다(gpui-base). 인스펙터는 인덱스 2.
-    resize(cx, handle, &view, false, 2, 330.0);
+    // 구현자 수정: 리뷰 2가 낸 근본 수정(펴진 패널만 그룹의 자식)으로 접힌 트랙 목록은 크기 상태에
+    // 없다. 자식은 [메인, 인스펙터]라 인스펙터는 인덱스 1이다. 검사 의도는 같다.
+    resize(cx, handle, &view, false, 1, 330.0);
     toggle(cx, handle, Box::new(ToggleTrackList));
     let (track, _) = region_size(cx, handle, "track-list");
     let (inspector, _) = region_size(cx, handle, "inspector");

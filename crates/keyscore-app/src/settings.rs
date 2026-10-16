@@ -134,8 +134,8 @@ impl Settings {
     /// 두고 경고를 돌려준다(설정 때문에 앱이 뜨지 않는 일이 없게).
     #[must_use]
     pub fn load(path: &Path) -> (Settings, Vec<String>) {
-        let text = match fs::read_to_string(path) {
-            Ok(t) => t,
+        let bytes = match fs::read(path) {
+            Ok(b) => b,
             Err(e) if e.kind() == io::ErrorKind::NotFound => return (Settings::default(), vec![]),
             Err(e) => {
                 return (
@@ -144,6 +144,8 @@ impl Settings {
                 );
             }
         };
+        // UTF-8이 아닌 파일도 깨진 파일과 같이 백업한다(리뷰 2 제안 2).
+        let text = String::from_utf8(bytes).unwrap_or_default();
         let mut warnings = Vec::new();
         let Ok(Value::Object(mut map)) = serde_json::from_str::<Value>(&text) else {
             // 첫 변경 때 덮어쓰기 전에 원본을 남긴다(사용자가 손으로 고칠 수 있게).

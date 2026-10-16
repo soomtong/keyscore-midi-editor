@@ -82,13 +82,14 @@ impl ProjectWindow {
         (horizontal, vertical, subscriptions)
     }
 
-    /// 가로 패널 그룹의 크기 상태(트랙 목록 0, 메인 1, 인스펙터 2).
+    /// 가로 패널 그룹의 크기 상태. 자식은 펴진 패널뿐이고 순서는 트랙 목록, 메인, 인스펙터다(접힌
+    /// 패널은 빠진다).
     #[must_use]
     pub fn horizontal_state(&self) -> &Entity<ResizableState> {
         &self.horizontal
     }
 
-    /// 세로 패널 그룹의 크기 상태(위 0, 하단 영역 1).
+    /// 세로 패널 그룹의 크기 상태. 위 영역, 그리고 펴져 있으면 하단 영역.
     #[must_use]
     pub fn vertical_state(&self) -> &Entity<ResizableState> {
         &self.vertical
@@ -122,12 +123,13 @@ impl ProjectWindow {
         let before = self.layout;
         edit(&mut self.layout);
         let after = self.layout;
-        // 접혀 있던 패널을 펴면 그 그룹의 크기 상태를 새로 만든다. gpui-base는 숨은 패널의 크기를
-        // 0(최소값)으로 덮어써 두므로, 새 상태여야 저장된 크기로 다시 그린다(리뷰 1 지적 2).
-        let reopened = (!before.track_list_open && after.track_list_open)
-            || (!before.inspector_open && after.inspector_open)
-            || (!before.bottom_open && after.bottom_open);
-        if reopened {
+        // 패널을 접거나 펴면 크기 상태를 새로 만든다. 그룹의 자식은 펴진 패널뿐이라(render) 자식 수가
+        // 바뀌고, 새 상태는 각 패널의 저장된 크기로 시작한다. 숨은 패널을 상태에 남기면 gpui-base가
+        // 그 크기를 합에 넣어 형제 패널의 크기가 틀어진다(리뷰 1 지적 2, 리뷰 2 지적 1).
+        let shape_changed = before.track_list_open != after.track_list_open
+            || before.inspector_open != after.inspector_open
+            || before.bottom_open != after.bottom_open;
+        if shape_changed {
             let (horizontal, vertical, subscriptions) = Self::fresh_states(cx);
             self.horizontal = horizontal;
             self.vertical = vertical;
@@ -141,21 +143,34 @@ impl ProjectWindow {
     /// 목록 길이가 다르면 그때는 저장하지 않는다(다음 조절에서 맞춘다).
     fn record_sizes(&mut self, group: Group, sizes: &[f32], cx: &mut Context<Self>) {
         let keep = |v: f32| PANEL_SIZE_RANGE.contains(&v);
-        match (group, sizes) {
-            (Group::Horizontal, &[track, _, inspector]) => self.change_layout(cx, |l| {
-                if l.track_list_open && keep(track) {
-                    l.track_list_width = track;
+        let l = self.layout;
+        // 그룹의 자식은 펴진 패널뿐이다(접힌 패널은 크기 상태에 없다). 자식 순서대로 인덱스를 매긴다.
+        match group {
+            Group::Horizontal => {
+                let expected = 1 + usize::from(l.track_list_open) + usize::from(l.inspector_open);
+                if sizes.len() != expected {
+                    return;
                 }
-                if l.inspector_open && keep(inspector) {
-                    l.inspector_width = inspector;
+                let track = l.track_list_open.then(|| sizes[0]);
+                let inspector = l.inspector_open.then(|| sizes[sizes.len() - 1]);
+                self.change_layout(cx, |l| {
+                    if let Some(v) = track.filter(|&v| keep(v)) {
+                        l.track_list_width = v;
+                    }
+                    if let Some(v) = inspector.filter(|&v| keep(v)) {
+                        l.inspector_width = v;
+                    }
+                });
+            }
+            Group::Vertical => {
+                if !l.bottom_open || sizes.len() != 2 {
+                    return;
                 }
-            }),
-            (Group::Vertical, &[_, bottom]) => self.change_layout(cx, |l| {
-                if l.bottom_open && keep(bottom) {
-                    l.bottom_height = bottom;
+                let bottom = sizes[1];
+                if keep(bottom) {
+                    self.change_layout(cx, |l| l.bottom_height = bottom);
                 }
-            }),
-            _ => {}
+            }
         }
     }
 
@@ -208,34 +223,45 @@ impl Render for ProjectWindow {
                             resizable_panel().child(
                                 h_resizable("main-horizontal")
                                     .with_state(&self.horizontal)
-                                    .child(
-                                        resizable_panel()
-                                            .visible(layout.track_list_open)
-                                            .size(px(layout.track_list_width))
-                                            .size_range(range.clone())
-                                            .child(Self::region("track-list", "트랙 목록", cx)),
-                                    )
+                                    .when(layout.track_list_open, |g| {
+                                        g.child(
+                                            resizable_panel()
+                                                .size(px(layout.track_list_width))
+                                                .size_range(range.clone())
+                                                .child(Self::region("track-list", "트랙 목록", cx)),
+                                        )
+                                    })
                                     .child(resizable_panel().child(Self::region(
                                         "main-view",
                                         "피아노롤 / 배치 뷰",
                                         cx,
                                     )))
-                                    .child(
-                                        resizable_panel()
-                                            .visible(layout.inspector_open)
-                                            .size(px(layout.inspector_width))
-                                            .size_range(range.clone())
-                                            .child(Self::region("inspector", "트랙 인스펙터", cx)),
-                                    ),
+                                    .when(layout.inspector_open, |g| {
+                                        g.child(
+                                            resizable_panel()
+                                                .size(px(layout.inspector_width))
+                                                .size_range(range.clone())
+                                                .child(Self::region(
+                                                    "inspector",
+                                                    "트랙 인스펙터",
+                                                    cx,
+                                                )),
+                                        )
+                                    }),
                             ),
                         )
-                        .child(
-                            resizable_panel()
-                                .visible(layout.bottom_open)
-                                .size(px(layout.bottom_height))
-                                .size_range(range)
-                                .child(Self::region("bottom-panel", "컨트롤러 레인 / 건반 뷰", cx)),
-                        ),
+                        .when(layout.bottom_open, |g| {
+                            g.child(
+                                resizable_panel()
+                                    .size(px(layout.bottom_height))
+                                    .size_range(range.clone())
+                                    .child(Self::region(
+                                        "bottom-panel",
+                                        "컨트롤러 레인 / 건반 뷰",
+                                        cx,
+                                    )),
+                            )
+                        }),
                 ),
             )
             .child(
