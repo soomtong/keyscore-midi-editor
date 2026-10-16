@@ -30,6 +30,9 @@ pub enum MidiError {
     /// 다른 코드가 만들었을 때다. 앱은 시작할 때 `MidiClient::new`를 가장 먼저 불러야 한다.
     #[error("CoreMIDI 알림을 받을 수 없다(첫 클라이언트를 다른 코드가 만들었다)")]
     NotificationsUnavailable,
+    /// 스케줄러 명령 큐가 가득 찼다. 잠시 뒤 다시 보낸다.
+    #[error("스케줄러 명령 큐가 가득 찼다")]
+    QueueFull,
     /// 타임스탬프 0은 「지금」이 아니다(CoreMIDI 헤더). 항상 실제 호스트 시각을 채운다.
     #[error("타임스탬프 0은 쓸 수 없다")]
     ZeroTimestamp,

@@ -11,6 +11,8 @@ mod midi_thread;
 mod os;
 mod port;
 mod ports;
+mod rt;
+mod scheduler;
 mod time;
 mod ump;
 mod watcher;
@@ -27,6 +29,7 @@ pub use port::MidiPort;
 pub use ports::{
     Action, Link, PortEvent, PortInfo, Reconnector, Suggestion, diff_ports, suggest_mapping,
 };
+pub use scheduler::{MAX_SCHEDULER_PORTS, ScheduledEvent, Scheduler, SchedulerConfig, Snapshot};
 pub use time::HostTime;
 pub use ump::ump_word_count;
 pub use watcher::PortWatcher;

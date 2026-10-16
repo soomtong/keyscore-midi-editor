@@ -74,6 +74,21 @@ fn realtime(status: u8) -> Midi1Message {
 }
 
 impl Midi1Message {
+    /// 이미 범위가 맞는 상태·데이터 바이트로 만든다(스케줄러의 chase·노트 끄기용, 크레이트 안에서만).
+    /// 데이터 바이트는 7비트로 가린다. 길이는 상태 바이트가 정한다.
+    pub(crate) fn from_status(status: u8, d1: u8, d2: u8) -> Midi1Message {
+        let len = match status & 0xF0 {
+            0xC0 | 0xD0 => 2,
+            0xF0 => match status {
+                0xF1 | 0xF3 => 2,
+                0xF2 => 3,
+                _ => 1,
+            },
+            _ => 3,
+        };
+        short(status, d1 & 0x7F, d2 & 0x7F, len)
+    }
+
     /// SMF에 쓰는 MIDI 1.0 바이트. 상태 바이트는 항상 포함한다(running status 없음).
     #[must_use]
     pub fn bytes(&self) -> &[u8] {

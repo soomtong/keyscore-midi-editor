@@ -25,6 +25,16 @@ impl HostTime {
     pub const fn ticks(self) -> u64 {
         self.0
     }
+
+    /// `earlier`부터 이 시각까지의 기간. `earlier`가 더 늦으면 0이다. 호스트 틱 비율
+    /// (`mach_timebase_info`)로 정확히 바꾼다.
+    #[must_use]
+    pub fn duration_since(self, earlier: HostTime) -> std::time::Duration {
+        let tb = crate::rt::Timebase::get();
+        let ticks = u128::from(self.0.saturating_sub(earlier.0));
+        let nanos = ticks * u128::from(tb.numer) / u128::from(tb.denom);
+        std::time::Duration::from_nanos(u64::try_from(nanos).unwrap_or(u64::MAX))
+    }
 }
 
 #[cfg(test)]

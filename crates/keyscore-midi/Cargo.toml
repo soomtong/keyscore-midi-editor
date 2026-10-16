@@ -16,6 +16,8 @@ thiserror.workspace = true
 coremidi-sys.workspace = true
 core-foundation.workspace = true
 unicode-normalization.workspace = true
+rtrb.workspace = true
+assert_no_alloc.workspace = true
 
 [dev-dependencies]
 coremidi.workspace = true
