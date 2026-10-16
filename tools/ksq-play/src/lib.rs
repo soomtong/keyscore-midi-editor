@@ -11,8 +11,8 @@ use std::sync::Arc;
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::time::{Duration, Instant};
 
-use keyscore_core::OutputPort;
 use keyscore_core::ksq::{self, KsqError};
+use keyscore_core::{OutputPort, Tick};
 use keyscore_midi::{
     MetronomeConfig, MidiClient, MidiError, MidiPort, OsOutput, Scheduler, SchedulerConfig,
     Snapshot, Suggestion, destinations, render, suggest_mapping,
@@ -196,10 +196,15 @@ pub fn run(
     }
 }
 
-/// 포트 이름 → 스냅샷 포트 번호. OS 목적지가 없으면 기본 가상 포트(0번)로 보내고 알린다.
+/// 포트 이름 → 스냅샷 포트 번호.
+///
+/// OS 목적지가 있으면 연다. 없으면 `suggest_mapping`의 제안대로 그 이름의 가상 포트를 따로 만든다
+/// (OUT-8). 기본 가상 포트에 합치면 같은 채널의 다른 트랙과 섞여 프로그램이 덮이고(SEQ-7), 메트로놈
+/// 클릭이 멜로디 신디로 간다(MET-3, S1-T7 리뷰 1 지적 1·2).
 struct Ports {
     list: Vec<Arc<dyn MidiPort>>,
     by_name: HashMap<String, u16>,
+    main_name: String,
 }
 
 impl Ports {
@@ -217,16 +222,34 @@ impl Ports {
         let suggestion = suggest_mapping(&[name.to_string()], &available)
             .pop()
             .map(|(_, s)| s);
-        let index = if let Some(Suggestion::Present(info)) = suggestion {
-            let port = OsOutput::open(client, &info)?;
-            self.list.push(Arc::new(port));
-            u16::try_from(self.list.len() - 1)
-                .map_err(|_| PlayError::Other("포트가 너무 많다".to_string()))?
-        } else {
-            // CLI에는 대체 매핑을 고르는 화면이 없다(OUT-8 제안은 S2 UI). 기본 가상 포트로 보낸다.
-            say!(err, "{what}의 출력 「{name}」이 없어 가상 포트로 보낸다");
-            0
+        let port: Arc<dyn MidiPort> = match suggestion {
+            Some(Suggestion::Present(info)) => Arc::new(OsOutput::open(client, &info)?),
+            Some(Suggestion::Virtual { name: virtual_name }) => {
+                if virtual_name == self.main_name {
+                    // 기본 가상 포트와 같은 이름이면 그 포트가 바로 그 목적지다.
+                    self.by_name.insert(name.to_string(), 0);
+                    return Ok(0);
+                }
+                say!(
+                    err,
+                    "{what}의 출력 「{name}」이 없어 같은 이름의 가상 포트를 만든다"
+                );
+                Arc::new(client.create_virtual_output(&virtual_name)?)
+            }
+            // 가상 포트 이름으로 쓸 수 없는 이름(제어 문자 등)이다. 번호를 붙인 이름으로 만든다.
+            Some(Suggestion::Unavailable) | None => {
+                let fallback = format!("{} {}", self.main_name, self.list.len() + 1);
+                say!(
+                    err,
+                    "{what}의 출력 「{}」이 없고 그 이름으로 가상 포트를 만들 수 없어 「{fallback}」을 만든다",
+                    name.escape_debug()
+                );
+                Arc::new(client.create_virtual_output(&fallback)?)
+            }
         };
+        self.list.push(port);
+        let index = u16::try_from(self.list.len() - 1)
+            .map_err(|_| PlayError::Other("포트가 너무 많다".to_string()))?;
         self.by_name.insert(name.to_string(), index);
         Ok(index)
     }
@@ -252,6 +275,7 @@ fn play(
     let mut ports = Ports {
         list: vec![Arc::new(virtual_out)],
         by_name: HashMap::new(),
+        main_name: options.port_name().to_string(),
     };
     let mut track_ports = Vec::new();
     for track in project.tracks() {
@@ -264,11 +288,24 @@ fn play(
         track_ports.push(index);
     }
     let metronome_port = match options.metronome_port() {
-        Some(name) => ports.index_of(&client, name, "메트로놈", err)?,
+        Some(name) if options.metronome() => ports.index_of(&client, name, "메트로놈", err)?,
+        Some(_) => {
+            say!(
+                err,
+                "--metronome 없이 --metronome-port를 줬다. 클릭은 나가지 않는다"
+            );
+            0
+        }
         None => 0,
     };
     let rendered = render(&project, |i, _| track_ports.get(i).copied());
     let end = rendered.end();
+    if from > end && end > Tick::ZERO {
+        return Err(PlayError::Other(format!(
+            "마디 {}가 곡 끝 뒤다",
+            options.from_bar()
+        )));
+    }
     let snapshot = Snapshot::new(
         project.tempo_map().clone(),
         ports.list,

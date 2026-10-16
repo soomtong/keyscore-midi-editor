@@ -2,6 +2,7 @@
 
 use std::io::BufRead;
 use std::process::ExitCode;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 
 fn main() -> ExitCode {
@@ -16,8 +17,13 @@ fn main() -> ExitCode {
             }
         }
     });
-    // 처리기를 못 달면 Ctrl-C가 기본 동작(즉시 종료)이 된다. 재생은 그래도 된다.
+    // 처리기를 못 달면 Ctrl-C가 기본 동작(즉시 종료)이 된다. 재생은 그래도 된다. 두 번째 Ctrl-C는
+    // 정리를 기다리지 않고 바로 끝낸다(정리가 멈췄을 때의 출구).
+    let pressed = AtomicBool::new(false);
     let _ = ctrlc::set_handler(move || {
+        if pressed.swap(true, Ordering::SeqCst) {
+            std::process::exit(130);
+        }
         let _ = tx.send(ksq_play::INTERRUPT.to_string());
     });
     let code = ksq_play::run(

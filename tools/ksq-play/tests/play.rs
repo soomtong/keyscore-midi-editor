@@ -329,7 +329,9 @@ fn quit_command_stops_and_releases_notes() {
 }
 
 #[test]
-fn named_port_missing_falls_back_to_virtual_with_warning() {
+fn named_port_missing_gets_its_own_virtual_port_with_warning() {
+    // 없는 OS 목적지는 같은 이름의 가상 포트로 따로 만든다. 기본 가상 포트에 합치면 같은 채널의 다른
+    // 트랙과 섞인다(SEQ-7, S1-T7 리뷰 1 지적 1).
     first_client();
     let dir = temp_dir("named");
     let missing = format!("No Such Port {}", std::process::id());
@@ -345,7 +347,8 @@ fn named_port_missing_falls_back_to_virtual_with_warning() {
     project.track_mut(0).unwrap().remove_clip(right);
     let path = write_fast(&dir, project, 480);
     let name = port_name("named");
-    let listener = listen(name.clone());
+    let main = listen(name.clone());
+    let own = listen(missing.clone());
     let (_tx, handle) = spawn_run(vec![
         path.into(),
         "--port".into(),
@@ -353,12 +356,15 @@ fn named_port_missing_falls_back_to_virtual_with_warning() {
         "--wait".into(),
         "0.5".into(),
     ]);
-    let receiver = listener.join().unwrap();
+    let main = main.join().unwrap();
+    let own = own.join().unwrap();
     let (code, err) = handle.join().unwrap();
     assert_eq!(code, 0, "{err}");
     assert!(err.contains(&missing), "경고 없음: {err}");
-    let msgs = drain(&receiver.rx, Duration::from_millis(200));
+    let msgs = drain(&own.rx, Duration::from_millis(200));
     assert_eq!(assert_all_released(&msgs), 1);
+    let stray = drain(&main.rx, Duration::from_millis(50));
+    assert!(stray.is_empty(), "기본 포트로 감: {stray:?}");
 }
 
 #[test]
