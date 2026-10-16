@@ -347,11 +347,14 @@ impl Track {
     /// `clip`의 구간이 `ignore`를 뺀 다른 클립과 겹치지 않는지.
     fn check_free(&self, clip: &Clip, ignore: &[ClipId]) -> Result<(), ModelError> {
         let (start, end) = (clip.start().get(), clip.end());
-        let hit = self
-            .clips
+        // 클립은 시작 순이고 겹치지 않으므로 끝도 정렬되어 있다. 끝이 `start` 뒤인 첫 클립부터 시작이
+        // `end` 앞인 동안만 보면 된다. 클립이 많은 곡(SMF 가져오기)에서 넣기가 O(n²)이 되지 않게
+        // 한다(S1-T6 리뷰 1 지적 3).
+        let first = self.clips.partition_point(|(_, c)| c.end() <= start);
+        let hit = self.clips[first..]
             .iter()
-            .filter(|(id, _)| !ignore.contains(id))
-            .any(|(_, c)| c.start().get() < end && start < c.end());
+            .take_while(|(_, c)| c.start().get() < end)
+            .any(|(id, _)| !ignore.contains(id));
         if hit {
             Err(ModelError::ClipOverlap { start, end })
         } else {

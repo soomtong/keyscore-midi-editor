@@ -125,6 +125,27 @@ impl TempoMap {
         }
     }
 
+    /// 변화 목록으로 한 번에 만든다. 순서는 상관없고, 같은 틱이 여럿이면 뒤의 것이 이긴다(`set`을
+    /// 차례로 부른 것과 같다). 틱 0의 변화가 없으면 `initial`이 틱 0이다. 항목마다 `set`하면 매번
+    /// 전체를 다시 계산해 O(n²)이 되므로, 변화가 많은 SMF 가져오기는 이것을 쓴다(S1-T6).
+    #[must_use]
+    pub fn from_changes(initial: Tempo, changes: impl IntoIterator<Item = (Tick, Tempo)>) -> Self {
+        let mut list: Vec<(Tick, Tempo)> = changes.into_iter().collect();
+        // 안정 정렬 뒤 같은 틱의 마지막 것만 남긴다.
+        list.sort_by_key(|c| c.0);
+        let mut deduped: Vec<(Tick, Tempo)> = Vec::with_capacity(list.len() + 1);
+        for c in list {
+            match deduped.last_mut() {
+                Some(prev) if prev.0 == c.0 => *prev = c,
+                _ => deduped.push(c),
+            }
+        }
+        if deduped.first().is_none_or(|c| c.0 != Tick::ZERO) {
+            deduped.insert(0, (Tick::ZERO, initial));
+        }
+        TempoMap::from_sorted(deduped)
+    }
+
     /// 틱 0부터 엄격히 늘어나는 변화 열로 만든다(파일 읽기 전용). 항목마다 `set`하면 매번 전체를
     /// 다시 계산해 O(n²)이 된다(S0-T6 리뷰 1 지적 3). 순서는 호출자가 검사했다.
     pub(crate) fn from_sorted(changes: Vec<(Tick, Tempo)>) -> Self {
@@ -325,5 +346,25 @@ mod tests {
             map.time_to_tick(MusicTime::from_units(u128::MAX)),
             Tick::new(u64::MAX)
         );
+    }
+
+    #[test]
+    fn from_changes_matches_sequential_set_with_last_wins() {
+        let a = Tempo::from_bpm(100).unwrap();
+        let b = Tempo::from_bpm(150).unwrap();
+        let c = Tempo::from_bpm(90).unwrap();
+        let changes = [
+            (Tick::new(960), a),
+            (Tick::new(480), b),
+            (Tick::new(960), c),
+        ];
+        let mut expected = TempoMap::new(Tempo::DEFAULT);
+        for (t, v) in changes {
+            expected.set(t, v);
+        }
+        assert_eq!(TempoMap::from_changes(Tempo::DEFAULT, changes), expected);
+        // 틱 0 변화가 있으면 initial을 쓰지 않는다.
+        let zero = TempoMap::from_changes(Tempo::DEFAULT, [(Tick::ZERO, a)]);
+        assert_eq!(zero, TempoMap::new(a));
     }
 }

@@ -103,6 +103,30 @@ impl MeterMap {
         }
     }
 
+    /// 변화 목록으로 한 번에 만든다. 순서는 상관없고, 같은 틱이 여럿이면 뒤의 것이 이긴다(`set`을
+    /// 차례로 부른 것과 같다). 틱 0의 변화가 없으면 `initial`이 틱 0이다. 항목마다 `set`하면 매번
+    /// 전체를 다시 계산해 O(n²)이 되므로, 변화가 많은 SMF 가져오기는 이것을 쓴다(S1-T6).
+    #[must_use]
+    pub fn from_changes(
+        initial: TimeSignature,
+        changes: impl IntoIterator<Item = (Tick, TimeSignature)>,
+    ) -> Self {
+        let mut list: Vec<(Tick, TimeSignature)> = changes.into_iter().collect();
+        // 안정 정렬 뒤 같은 틱의 마지막 것만 남긴다.
+        list.sort_by_key(|c| c.0);
+        let mut deduped: Vec<(Tick, TimeSignature)> = Vec::with_capacity(list.len() + 1);
+        for c in list {
+            match deduped.last_mut() {
+                Some(prev) if prev.0 == c.0 => *prev = c,
+                _ => deduped.push(c),
+            }
+        }
+        if deduped.first().is_none_or(|c| c.0 != Tick::ZERO) {
+            deduped.insert(0, (Tick::ZERO, initial));
+        }
+        MeterMap::from_sorted(deduped)
+    }
+
     /// 틱 0부터 엄격히 늘어나는 변화 열로 만든다(파일 읽기 전용). 순서는 호출자가 검사했다.
     pub(crate) fn from_sorted(changes: Vec<(Tick, TimeSignature)>) -> Self {
         let mut map = MeterMap {
@@ -158,6 +182,13 @@ impl MeterMap {
 
     pub fn changes(&self) -> impl Iterator<Item = (Tick, TimeSignature)> + '_ {
         self.changes.iter().map(|&(tick, sig, _)| (tick, sig))
+    }
+
+    /// `at`보다 뒤의 첫 변화 틱. 이분 탐색이라 스케줄러가 박마다 불러도 된다(S1-T5 리뷰 1 제안 4).
+    #[must_use]
+    pub fn next_change_after(&self, at: Tick) -> Option<Tick> {
+        let i = self.changes.partition_point(|c| c.0 <= at);
+        self.changes.get(i).map(|c| c.0)
     }
 
     #[must_use]
@@ -285,5 +316,37 @@ mod tests {
         assert_eq!(map.bar_start(u64::MAX / 3840 + 1), None);
         let last = map.position(Tick::new(u64::MAX));
         assert_eq!(last.bar(), u64::MAX / 3840);
+    }
+
+    #[test]
+    fn from_changes_matches_sequential_set_with_last_wins() {
+        let changes = [
+            (Tick::new(7680), sig(3, 4)),
+            (Tick::new(3840), sig(6, 8)),
+            (Tick::new(7680), sig(5, 4)),
+        ];
+        let mut expected = MeterMap::default();
+        for (t, s) in changes {
+            expected.set(t, s);
+        }
+        assert_eq!(
+            MeterMap::from_changes(TimeSignature::COMMON, changes),
+            expected
+        );
+        assert_eq!(
+            MeterMap::from_changes(TimeSignature::COMMON, [(Tick::ZERO, sig(3, 4))]),
+            MeterMap::new(sig(3, 4))
+        );
+    }
+
+    #[test]
+    fn next_change_after_finds_first_later_change() {
+        let mut m = MeterMap::default();
+        m.set(Tick::new(3840), sig(3, 4));
+        m.set(Tick::new(9600), sig(6, 8));
+        assert_eq!(m.next_change_after(Tick::ZERO), Some(Tick::new(3840)));
+        assert_eq!(m.next_change_after(Tick::new(3840)), Some(Tick::new(9600)));
+        assert_eq!(m.next_change_after(Tick::new(9599)), Some(Tick::new(9600)));
+        assert_eq!(m.next_change_after(Tick::new(9600)), None);
     }
 }
