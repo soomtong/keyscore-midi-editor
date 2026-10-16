@@ -31,14 +31,46 @@ pub struct ProjectWindow {
     /// 가로 그룹(트랙 목록 | 메인 | 인스펙터)과 세로 그룹(위 | 하단 영역)의 크기 상태.
     horizontal: Entity<ResizableState>,
     vertical: Entity<ResizableState>,
-    _subscriptions: [Subscription; 2],
+    /// 크기 상태 구독. 상태를 새로 만들 때 함께 바꾼다.
+    resize_subscriptions: [Subscription; 2],
+    _focus_lost: Subscription,
 }
 
 impl ProjectWindow {
-    pub fn new(document: Entity<ProjectDocument>, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        document: Entity<ProjectDocument>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let (horizontal, vertical, resize_subscriptions) = Self::fresh_states(cx);
+        // 창 안에 포커스가 없으면 Action이 루트(`Root`)에서 디스패치되어 이 뷰의 처리기에 닿지 않는다
+        // (gpui-component `Input`은 Esc에서 `window.blur()`를 부른다). 포커스를 잃으면 창의 루트
+        // 핸들로 되돌린다(Zed Workspace와 같은 방식, S2-T1 리뷰 1 지적 3).
+        let focus_lost = cx.on_focus_lost(window, |this, window, cx| {
+            window.focus(&this.focus, cx);
+        });
+        ProjectWindow {
+            document,
+            layout: AppSettings::get(cx).layout,
+            focus: cx.focus_handle(),
+            horizontal,
+            vertical,
+            resize_subscriptions,
+            _focus_lost: focus_lost,
+        }
+    }
+
+    /// 새 크기 상태 둘과 그 구독. 끌기와 프로그램 조절 모두 `Resized`를 낸다(gpui-base
+    /// `resize_panel`). 그때 크기를 남긴다.
+    fn fresh_states(
+        cx: &mut Context<Self>,
+    ) -> (
+        Entity<ResizableState>,
+        Entity<ResizableState>,
+        [Subscription; 2],
+    ) {
         let horizontal = cx.new(|_| ResizableState::default());
         let vertical = cx.new(|_| ResizableState::default());
-        // 끌기와 프로그램 조절 모두 `Resized`를 낸다(gpui-base `resize_panel`). 그때 크기를 남긴다.
         let subscriptions = [
             cx.subscribe(&horizontal, |this, state, _: &ResizablePanelEvent, cx| {
                 this.record_sizes(Group::Horizontal, &sizes_of(&state, cx), cx);
@@ -47,14 +79,7 @@ impl ProjectWindow {
                 this.record_sizes(Group::Vertical, &sizes_of(&state, cx), cx);
             }),
         ];
-        ProjectWindow {
-            document,
-            layout: AppSettings::get(cx).layout,
-            focus: cx.focus_handle(),
-            horizontal,
-            vertical,
-            _subscriptions: subscriptions,
-        }
+        (horizontal, vertical, subscriptions)
     }
 
     /// 가로 패널 그룹의 크기 상태(트랙 목록 0, 메인 1, 인스펙터 2).
@@ -91,11 +116,24 @@ impl ProjectWindow {
         self.change_layout(cx, |l| l.bottom_open = !l.bottom_open);
     }
 
-    /// 이 창의 레이아웃을 바꾸고 앱 설정에 남긴다. 다음에 여는 창이 이 레이아웃으로 열린다.
+    /// 이 창의 레이아웃을 바꾸고, 바뀐 항목만 앱 설정에 남긴다. 창마다 레이아웃 전체를 쓰면 한 창의
+    /// 토글이 다른 창에서 바꾼 너비를 되돌린다(리뷰 1 제안 5). 다음에 여는 창은 설정으로 열린다.
     fn change_layout(&mut self, cx: &mut Context<Self>, edit: impl FnOnce(&mut LayoutSettings)) {
+        let before = self.layout;
         edit(&mut self.layout);
-        let layout = self.layout;
-        AppSettings::update(cx, |s| s.layout = layout);
+        let after = self.layout;
+        // 접혀 있던 패널을 펴면 그 그룹의 크기 상태를 새로 만든다. gpui-base는 숨은 패널의 크기를
+        // 0(최소값)으로 덮어써 두므로, 새 상태여야 저장된 크기로 다시 그린다(리뷰 1 지적 2).
+        let reopened = (!before.track_list_open && after.track_list_open)
+            || (!before.inspector_open && after.inspector_open)
+            || (!before.bottom_open && after.bottom_open);
+        if reopened {
+            let (horizontal, vertical, subscriptions) = Self::fresh_states(cx);
+            self.horizontal = horizontal;
+            self.vertical = vertical;
+            self.resize_subscriptions = subscriptions;
+        }
+        AppSettings::update(cx, |s| merge_changes(&mut s.layout, before, after));
         cx.notify();
     }
 
@@ -217,4 +255,27 @@ fn sizes_of(state: &Entity<ResizableState>, cx: &App) -> Vec<f32> {
         .iter()
         .map(|p| f32::from(*p))
         .collect()
+}
+
+/// `before`에서 `after`로 바뀐 항목만 `target`에 옮긴다.
+// 「바뀌었는가」를 정확히 본다. 같은 값을 다시 쓴 것은 바뀐 것이 아니다.
+#[allow(clippy::float_cmp)]
+fn merge_changes(target: &mut LayoutSettings, before: LayoutSettings, after: LayoutSettings) {
+    macro_rules! copy_changed {
+        ($($field:ident),*) => {
+            $(
+                if before.$field != after.$field {
+                    target.$field = after.$field;
+                }
+            )*
+        };
+    }
+    copy_changed!(
+        track_list_open,
+        track_list_width,
+        inspector_open,
+        inspector_width,
+        bottom_open,
+        bottom_height
+    );
 }

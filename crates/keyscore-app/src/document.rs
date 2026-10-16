@@ -37,6 +37,10 @@ impl ProjectDocument {
     ///
     /// 모델 불변식을 어기는 편집이면 [`ModelError`]. 이때 문서는 바뀌지 않는다.
     pub fn apply(&mut self, edits: Vec<Edit>) -> Result<(), ModelError> {
+        // 빈 편집은 아무것도 바꾸지 않는다. 「바뀜」 표시를 남기지 않는다(리뷰 1 제안 6).
+        if edits.is_empty() {
+            return Ok(());
+        }
         self.document.apply(edits, None)?;
         self.dirty = true;
         Ok(())

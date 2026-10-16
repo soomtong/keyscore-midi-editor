@@ -283,3 +283,54 @@ fn resizing_panels_is_saved_for_next_window(cx: &mut TestAppContext) {
     })
     .unwrap();
 }
+
+#[test]
+fn broken_settings_are_backed_up_and_bad_fields_fall_back_alone() {
+    let path = temp_settings("backup");
+    std::fs::write(&path, "{ not json").unwrap();
+    let (_, warnings) = Settings::load(&path);
+    let backup = path.with_extension("json.bak");
+    assert_eq!(std::fs::read_to_string(&backup).unwrap(), "{ not json");
+    assert!(warnings[0].contains(".bak"), "{warnings:?}");
+    // 필드 하나만 틀리면 그 필드만 기본값이다.
+    std::fs::write(
+        &path,
+        r#"{"layout": {"track_list_open": "yes", "inspector_width": 300}}"#,
+    )
+    .unwrap();
+    let (s, warnings) = Settings::load(&path);
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert!(s.layout.track_list_open);
+    assert!((s.layout.inspector_width - 300.0).abs() < f32::EPSILON);
+}
+
+#[gpui_kit::test]
+fn toggling_in_one_window_keeps_other_windows_changes(cx: &mut TestAppContext) {
+    start(cx, temp_settings("two-windows"));
+    let (a, a_view) = open(cx, Project::new());
+    let (b, _) = open(cx, Project::new());
+    let h = cx.read(|cx| a_view.read(cx).horizontal_state().clone());
+    cx.update_window(a, |_, window, cx| {
+        h.update(cx, |s, cx| {
+            s.resize_panel(0, gpui_kit::px(310.), window, cx);
+        });
+        window.render_frame(cx);
+    })
+    .unwrap();
+    cx.update_window(b, |_, window, cx| {
+        window.dispatch_action(Box::new(ToggleBottomPanel), cx);
+        window.render_frame(cx);
+    })
+    .unwrap();
+    let layout = cx.read(|cx| AppSettings::get(cx).layout);
+    assert!((layout.track_list_width - 310.0).abs() < 1.0, "{layout:?}");
+    assert!(!layout.bottom_open);
+}
+
+#[test]
+fn empty_edit_does_not_mark_document_dirty() {
+    let mut d = keyscore_app::document::ProjectDocument::new(Project::new()).unwrap();
+    d.apply(vec![]).unwrap();
+    assert!(!d.is_dirty());
+    assert_eq!(d.undo_len(), 0);
+}

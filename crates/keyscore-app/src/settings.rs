@@ -26,8 +26,7 @@ pub enum ThemeChoice {
 }
 
 /// 7.1 레이아웃의 접히는 패널 셋.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct LayoutSettings {
     pub track_list_open: bool,
     pub track_list_width: f32,
@@ -51,6 +50,37 @@ impl Default for LayoutSettings {
 }
 
 impl LayoutSettings {
+    /// `layout` 객체를 필드마다 읽는다. 잘못된 필드 하나는 그 필드만 기본값으로 두고 경고한다.
+    /// 모르는 키는 돌려준다(다시 쓸 때 보존한다).
+    fn read(mut map: Map<String, Value>, warnings: &mut Vec<String>) -> (Self, Map<String, Value>) {
+        let mut layout = LayoutSettings::default();
+        let mut bool_field =
+            |name: &str, slot: &mut bool, map: &mut Map<String, Value>| match map.remove(name) {
+                None => {}
+                Some(Value::Bool(b)) => *slot = b,
+                Some(_) => warnings.push(format!("layout.{name}는 참·거짓이어야 해 기본값을 쓴다")),
+            };
+        bool_field("track_list_open", &mut layout.track_list_open, &mut map);
+        bool_field("inspector_open", &mut layout.inspector_open, &mut map);
+        bool_field("bottom_open", &mut layout.bottom_open, &mut map);
+        for (name, slot) in [
+            ("track_list_width", &mut layout.track_list_width),
+            ("inspector_width", &mut layout.inspector_width),
+            ("bottom_height", &mut layout.bottom_height),
+        ] {
+            match map.remove(name) {
+                None => {}
+                // 설정 파일의 크기는 f32로 충분하다(논리 픽셀). 범위는 아래 sanitize가 본다.
+                #[allow(clippy::cast_possible_truncation)]
+                Some(Value::Number(n)) if n.as_f64().is_some() => {
+                    *slot = n.as_f64().unwrap_or_default() as f32;
+                }
+                Some(_) => warnings.push(format!("layout.{name}는 숫자여야 해 기본값을 쓴다")),
+            }
+        }
+        (layout, map)
+    }
+
     /// 범위 밖·유한하지 않은 크기를 기본값으로 바꾸고, 바꾼 항목 이름을 돌려준다.
     fn sanitize(&mut self) -> Vec<&'static str> {
         let defaults = LayoutSettings::default();
@@ -88,6 +118,8 @@ pub struct Settings {
     pub theme: ThemeChoice,
     /// 모르는 최상위 키. 다시 쓸 때 그대로 둔다.
     extra: Map<String, Value>,
+    /// `layout` 객체 안의 모르는 키(뒤 버전이 더한 패널 등).
+    layout_extra: Map<String, Value>,
 }
 
 impl Settings {
@@ -114,15 +146,26 @@ impl Settings {
         };
         let mut warnings = Vec::new();
         let Ok(Value::Object(mut map)) = serde_json::from_str::<Value>(&text) else {
-            warnings.push("설정 파일이 JSON 객체가 아니라 기본값을 쓴다".to_string());
+            // 첫 변경 때 덮어쓰기 전에 원본을 남긴다(사용자가 손으로 고칠 수 있게).
+            let backup = path.with_extension("json.bak");
+            let note = match fs::copy(path, &backup) {
+                Ok(_) => format!(" 원본은 {}에 남겼다", backup.display()),
+                Err(_) => String::new(),
+            };
+            warnings.push(format!(
+                "설정 파일이 JSON 객체가 아니라 기본값을 쓴다.{note}"
+            ));
             return (Settings::default(), warnings);
         };
         let mut settings = Settings::default();
-        if let Some(v) = map.remove("layout") {
-            match serde_json::from_value::<LayoutSettings>(v) {
-                Ok(layout) => settings.layout = layout,
-                Err(e) => warnings.push(format!("layout 설정이 잘못되어 기본값을 쓴다: {e}")),
+        match map.remove("layout") {
+            None => {}
+            Some(Value::Object(layout)) => {
+                let (layout, rest) = LayoutSettings::read(layout, &mut warnings);
+                settings.layout = layout;
+                settings.layout_extra = rest;
             }
+            Some(_) => warnings.push("layout 설정이 객체가 아니라 기본값을 쓴다".to_string()),
         }
         if let Some(v) = map.remove("theme") {
             match serde_json::from_value::<ThemeChoice>(v) {
@@ -144,10 +187,11 @@ impl Settings {
     /// 입출력 실패.
     pub fn save(&self, path: &Path) -> io::Result<()> {
         let mut map = self.extra.clone();
-        map.insert(
-            "layout".to_string(),
-            serde_json::to_value(self.layout).map_err(io::Error::other)?,
-        );
+        let mut layout = self.layout_extra.clone();
+        if let Value::Object(known) = serde_json::to_value(self.layout).map_err(io::Error::other)? {
+            layout.extend(known);
+        }
+        map.insert("layout".to_string(), Value::Object(layout));
         map.insert(
             "theme".to_string(),
             serde_json::to_value(self.theme).map_err(io::Error::other)?,

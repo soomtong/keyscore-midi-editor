@@ -45,6 +45,12 @@ pub fn init(cx: &mut App, settings_path: PathBuf) {
         AppSettings::flush(cx);
         cx.quit();
     });
+    // Quit Action을 거치지 않는 종료(Dock 메뉴, 로그아웃)에서도 디바운스 중인 설정을 저장한다(리뷰 1 제안 9).
+    cx.on_app_quit(|cx| {
+        AppSettings::flush(cx);
+        async {}
+    })
+    .detach();
     cx.on_action(|_: &ThemeSystem, cx| theme::choose(ThemeChoice::System, cx));
     cx.on_action(|_: &ThemeLight, cx| theme::choose(ThemeChoice::Light, cx));
     cx.on_action(|_: &ThemeDark, cx| theme::choose(ThemeChoice::Dark, cx));
@@ -116,7 +122,7 @@ pub fn open_project_window(
     gpui_kit::open_window(options, cx, |window, cx| {
         let document = cx.new(|_| document);
         cx.new(|cx| {
-            let view = ProjectWindow::new(document, cx);
+            let view = ProjectWindow::new(document, window, cx);
             window.focus(&view.focus_handle(cx), cx);
             view
         })
