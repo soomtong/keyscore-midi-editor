@@ -1,4 +1,4 @@
-# HANDOFF: KeyScore S1 진행 중 — S1-T1~T6 병합, S1-T7 다음
+# HANDOFF: KeyScore S1 진행 중 — S1 Task 전부 병합, S1 출구 서명 대기
 
 ## 목표
 
@@ -6,7 +6,7 @@
 
 ## 현재 브랜치
 
-`main` — S0 완료·서명(2026-10-15), S1-T1~T6 병합(테스트 753개 통과). 다음은 S1-T7 `ksq-cli play`(`s1/t7-ksq-cli-play`).
+`main` — S0 완료·서명(2026-10-15), S1-T1~T7과 계이름 텍스트 주석 `//` 변경 병합(테스트 818개 통과). `docs/reports/stage-1-exit.md` 사람 서명 대기. 서명 전에는 S2를 시작하지 않는다.
 
 ## 완료된 작업
 
@@ -20,6 +20,9 @@
 - [x] S0-T5 계이름 텍스트 파서·내보내기(리뷰 9회, 결정 `2026-10-13-ktext-export-voice-budget.md`와 개정). 엄격 모드 왕복의 알려진 예외와 출력 크기 상한(선형, 256배)은 `docs/decisions/2026-10-12-ktext-implementation-details.md`
 - [x] S0-T8 `ksq-cli`(리뷰 11회, 결정 `2026-10-14-ksq-cli-output-path-scope.md`: `-o`는 일반 파일만). 픽스처 8곡 `assets/fixtures/`, 원본 텍스트 `tools/ksq-cli/fixtures-src/`
 - [x] S0 출구 보고서 `docs/reports/stage-0-exit.md`(자동 게이트 통과, 사람 항목 대기)
+- [x] 계이름 텍스트 주석을 `//`로(결정 Q1 개정, 2026-10-16 사람 지시). `#`는 음 뒤 올림표만. 헤더 영역의 `#`는 두 모드 오류, 트랙 안은 느슨 모드 경고. 리뷰 3회. `docs/reports/s0-t5-comments/`
+- [x] S1-T7 `render`(keyscore-midi)와 재생 도구 `tools/ksq-play`(ksq-cli는 core+text 유지). 없는 이름 포트는 같은 이름의 가상 포트를 따로 만든다. 뮤트+솔로는 솔로가 이김(`2026-10-16-mute-solo-precedence.md`). 리뷰 2회
+- [x] S1 출구 자동 게이트: 1시간판 NF-3 p99 0.104 ms, NF-4 0.0125–0.037 ms
 - [x] S1-T6 SMF 입출력(리뷰 1 + 재리뷰 3 + 결정 `2026-10-16-s1-t6-review-limit.md` A의 확인 리뷰). 직접 구현(`midly`는 Unlicense). `SmfFile`(원시) → `Song`(PPQ 960, CC는 32비트 포인트 열) → 모델. 곡 길이 상한 `MAX_SONG_TICKS = u32::MAX`. core에 `TempoMap/MeterMap::from_changes`, `MeterMap::next_change_after`, 클립 겹침 이분 탐색. 공개 샘플 10곡 `crates/keyscore-midi/tests/data/smf/`. CC 레인 모델 보존은 S6-T3 이월, 가져오기 UX는 S2-T7 이월
 - [x] S1-T5 메트로놈·미리듣기(리뷰 3회). 클릭은 스케줄 항목 `Next::Click`(이벤트 뒤, Clock 앞), 박 보고 `poll_beat`, 끄기 대기 표 64칸 + 노트별 `off_until`(넘긴 Note Off 뒤로 Note On을 미룸, 최대 lookahead). 기본 클릭 50 ms·벨로시티 127/100은 흔한 값
 - [x] S1-T4 스케줄러 스레드(리뷰 4회, 주 세션 구현). `rtrb` 명령 큐, `mach_wait_until`(결정 `2026-10-16-scheduler-wait-syscall.md` A: 시각 대기는 예외), 기준점은 `host × numer × 960`으로 정확히, 보낸 구간 `sent_through`는 다음 미송신 항목에서 구함, 패닉은 원자 플래그 + `panic_after` 순번. NF-1 p99 약 1.09 ms, 10분판 NF-3 p99 0.077 ms·NF-4 0.011–0.046 ms. 한계는 `docs/reports/s1-t4/report.md` 끝 표
@@ -50,7 +53,7 @@
 ## 남은 작업
 
 - [ ] 원격 CI 첫 실행과 CI 러너 벤치 기준값: remote가 생기면(사람이 건너뜀)
-- [ ] S1-T7 `ksq-cli play`, S1 출구 게이트(야간 1시간판, Surge XT·Dexed 수동, kill -9 뒤 포트 없음, 사람 서명)
+- [ ] S1 출구 사람 항목: Surge XT·Dexed 청취, kill -9 뒤 포트 없음, REQ 9.2 문구 허락, 옛 `#` 주석 이행 규칙 여부, 서명
 - [ ] REQ 9.2 문구에 「시각 대기 시스템 콜은 예외」 반영: 사람의 수정 허락 대기(결정 `2026-10-16-scheduler-wait-syscall.md`)
 - [ ] 사람의 수동 확인 대기: Surge XT 수신(SP-3), 실제 키보드·IME(SP-1), 120 Hz 디스플레이(SP-2)
 
@@ -79,8 +82,8 @@ REQ 문구: 사람이 에이전트에게 수정을 허락한 범위(결정 문�
 
 ## 다음 에이전트에게
 
-1. S1-T7을 시작한다: `.ksq`를 지정 포트로 재생, 메트로놈 옵션, 패닉. 모델(트랙·클립·뮤트·솔로) → 스케줄러 스냅샷 변환이 처음 생긴다. 테스트 게이트는 수동(Surge XT)이라 자동 테스트는 변환·CLI 인자·루프백으로 대신한다. MIDI 테스트 흔들림은 `scripts/midi-soak.sh N [쉬는 초]`로 본다.
+1. `docs/reports/stage-1-exit.md`의 사람 서명을 기다린다. 서명되면 S2(`plan/stages/12-S2-*.md`)를 시작한다. S2-T5·T7의 이월 줄과 결정 대기 문서(S2-T5 전, S2-T7 전)를 먼저 읽는다. MIDI 테스트 흔들림은 `scripts/midi-soak.sh N [쉬는 초]`로 본다.
 2. Task 루프: 브랜치 `s1/t<번호>-<slug>` → `docs/reports/s1-t<번호>/plan.md` → 테스트 먼저(뼈대 `todo!()`로 실패 확인) → 구현 → 게이트 전부(커밋 전에) → `report.md` → 새 에이전트로 적대적 리뷰(`general-purpose`, 구현 맥락 없이, 양식 `plan/templates/adversarial-review.md`, 산출물만 남기고 커밋 금지, 기존 `.proptest-regressions` 삭제 금지) → 지적마다 커밋 하나 → 재리뷰(최대 3회) → `git merge --no-ff`.
 3. 자동 게이트: `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`, `cargo deny check`, `scripts/check-deps.sh`, `scripts/check-deps.test.sh`, `scripts/bench-check.test.sh`. `core`·`text`에 외부 의존을 더하면 `scripts/check-deps.sh`의 허용 목록도 고친다.
 4. REQ에 없는 결정은 임의로 정하지 말고 사람에게 묻거나 `docs/decisions/`에 결정 요청을 쓴다. 사람과의 대화는 한국어로 하고, 문서에 `**`를 쓰지 않는다.
-5. S1-T7이 끝나면 S1 출구 게이트를 돌리고 `docs/reports/stage-1-exit.md`를 쓴 뒤 사람 서명을 받는다. 서명 전에는 S2를 시작하지 않는다.
+5. 긴 MIDI 측정 중에는 다른 루프백 테스트를 돌리지 않는다(수치가 흔들린다). 그동안 다른 crate 작업은 `CARGO_TARGET_DIR=target/alt`로 빌드 잠금을 피한다.
