@@ -128,8 +128,8 @@ fn track_fields(t: &Track) -> Vec<(String, Item)> {
                 OutputPort::Named(name) => {
                     let mut parts = vec![format!("\"named\": {}", json_string(name))];
                     parts.extend(
-                        t.port_extra()
-                            .iter()
+                        by_name(t.port_extra())
+                            .into_iter()
                             .map(|(k, v)| format!("{}: {}", json_string(k), inline(v))),
                     );
                     format!("{{{}}}", parts.join(", "))
@@ -218,8 +218,8 @@ fn note_line(n: &Note, delta: u64) -> String {
     }
     if let Some(Value::Object(extra)) = n.extra().and_then(|e| serde_json::from_str(e).ok()) {
         attrs.extend(
-            extra
-                .iter()
+            by_name(&extra)
+                .into_iter()
                 .map(|(k, v)| format!("{}: {}", json_string(k), inline(v))),
         );
     }

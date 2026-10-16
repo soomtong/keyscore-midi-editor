@@ -1,0 +1,10 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 3165300e0b43c445369c8a4c9a09f5a0da9ac0da20af33c3eb6e7aaee1659c26 # shrinks to v = Object {"name": Null, "color": Null}
+cc 9b826886e05c25b6403089809ad3ac78e53f6b176e180e980401f0f57fba1da8 # shrinks to pos = Index(16182708538860959507), byte = 32, delete = false
+cc 5f1cc889cff89f9aa7df3c9a27a9782197a8d6cea646c67ccd676557a7775ff5 # shrinks to text = "{\"tracks\":[{\"clips\":[{\"notes\":[[0,1,0,0,{\"lyric\":\" \",\"tonic\":null,\"mode\":null}]]}]}]}"
+cc 5d9238e8eeb7d42b4e18fde9f3ea2f5535145104fd1a75d31e7a8d0503f907b2 # shrinks to text = "{\"tracks\":[{\"clips\":[],\"port\":{\"mute\":null,\"named\":\"\",\"channel\":null}}]}"
