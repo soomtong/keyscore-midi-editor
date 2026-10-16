@@ -26,6 +26,21 @@ pub const PALETTE_NAMES: [&str; 12] = [
 /// 트랙 색 번호의 현재 테마 색.
 #[must_use]
 pub fn track_color(color: TrackColor, cx: &App) -> Hsla {
-    let _ = (color, cx.theme());
-    todo!()
+    let t = cx.theme();
+    // 순서는 PALETTE_NAMES와 같다. TrackColor는 0–11만 만들 수 있다.
+    let colors = [
+        t.red,
+        t.yellow,
+        t.green,
+        t.cyan,
+        t.blue,
+        t.magenta,
+        t.red_light,
+        t.yellow_light,
+        t.green_light,
+        t.cyan_light,
+        t.blue_light,
+        t.magenta_light,
+    ];
+    colors[usize::from(color.index()) % colors.len()]
 }

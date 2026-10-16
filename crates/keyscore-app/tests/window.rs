@@ -249,3 +249,37 @@ fn document_changes_only_through_edits() {
     assert!(d.redo().unwrap());
     assert!(d.project().track(id).is_some());
 }
+
+#[gpui_kit::test]
+fn resizing_panels_is_saved_for_next_window(cx: &mut TestAppContext) {
+    let path = temp_settings("resize");
+    start(cx, path.clone());
+    let (handle, view) = open(cx, Project::new());
+    let (h, v) = cx.read(|cx| {
+        let w = view.read(cx);
+        (w.horizontal_state().clone(), w.vertical_state().clone())
+    });
+    cx.update_window(handle, |_, window, cx| {
+        h.update(cx, |s, cx| {
+            s.resize_panel(0, gpui_kit::px(300.), window, cx);
+        });
+        v.update(cx, |s, cx| {
+            s.resize_panel(1, gpui_kit::px(250.), window, cx);
+        });
+        window.render_frame(cx);
+    })
+    .unwrap();
+    let layout = cx.read(|cx| AppSettings::get(cx).layout);
+    assert!((layout.track_list_width - 300.0).abs() < 1.0, "{layout:?}");
+    assert!((layout.bottom_height - 250.0).abs() < 1.0, "{layout:?}");
+    cx.update(AppSettings::flush);
+    let (saved, _) = Settings::load(&path);
+    assert!((saved.layout.track_list_width - 300.0).abs() < 1.0);
+    // 새 창은 저장된 크기로 열린다.
+    let (second, _) = open(cx, Project::new());
+    cx.update_window(second, |_, window, _| {
+        let width = f32::from(window.find("track-list").bounds().size.width);
+        assert!((width - 300.0).abs() < 2.0, "트랙 목록 너비 {width}");
+    })
+    .unwrap();
+}

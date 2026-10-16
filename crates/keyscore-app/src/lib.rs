@@ -36,6 +36,11 @@ pub fn init(cx: &mut App, settings_path: PathBuf) {
     cx.on_action(|_: &NewWindow, cx| {
         let _ = open_project_window(Project::new(), cx);
     });
+    cx.on_action(|_: &CloseWindow, cx| {
+        if let Some(window) = cx.active_window() {
+            let _ = window.update(cx, |_, window, _| window.remove_window());
+        }
+    });
     cx.on_action(|_: &Quit, cx| {
         AppSettings::flush(cx);
         cx.quit();
@@ -110,16 +115,11 @@ pub fn open_project_window(
     };
     gpui_kit::open_window(options, cx, |window, cx| {
         let document = cx.new(|_| document);
-        let view = cx.new(|cx| {
+        cx.new(|cx| {
             let view = ProjectWindow::new(document, cx);
             window.focus(&view.focus_handle(cx), cx);
             view
-        });
-        window.on_window_should_close(cx, |window, _| {
-            let _ = window;
-            true
-        });
-        view
+        })
     })
     .map_err(|e| OpenError::Window(e.to_string()))
 }
@@ -130,11 +130,6 @@ pub fn run() {
         .with_assets(gpui_kit::assets::Assets)
         .run(|cx| {
             init(cx, settings::Settings::default_path());
-            cx.on_action(|_: &CloseWindow, cx| {
-                if let Some(window) = cx.active_window() {
-                    let _ = window.update(cx, |_, window, _| window.remove_window());
-                }
-            });
             let _ = open_project_window(Project::new(), cx);
             cx.activate(true);
         });
