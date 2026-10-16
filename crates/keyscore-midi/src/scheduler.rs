@@ -487,7 +487,7 @@ impl Scheduler {
     ///
     /// # Errors
     ///
-    /// `QueueFull`, `Os`.
+    /// 포트 번호가 `MAX_SCHEDULER_PORTS` 밖이면 `InvalidMessage`, `QueueFull`, `Os`.
     pub fn preview(
         &mut self,
         port: u16,
@@ -496,6 +496,9 @@ impl Scheduler {
         velocity: Velocity,
         length: Duration,
     ) -> Result<(), MidiError> {
+        if usize::from(port) >= MAX_SCHEDULER_PORTS {
+            return Err(MidiError::InvalidMessage);
+        }
         let on = note_on(channel, pitch, velocity);
         self.send(Command::Preview(port, on, clamp_length(length)))
     }
@@ -606,6 +609,8 @@ struct Rt {
 #[derive(Clone, Copy)]
 struct PendingOff {
     host: u64,
+    /// 짝인 Note On의 시각. 끄기를 앞당겨도 이보다 앞에 두지 않는다(S1-T5 리뷰 1 지적 1).
+    on_host: u64,
     port: u16,
     /// 상태 바이트(0x80 | 채널)와 노트.
     status: u8,
@@ -1073,7 +1078,10 @@ impl Rt {
                     if off.sent {
                         host = host.max(off.host);
                     } else {
-                        let at = off.host.min(host);
+                        // 짝인 Note On이 아직 미래면(lookahead로 미리 넘긴 클릭) 그 뒤에 끄고, 새 노트도
+                        // 그 뒤로 미룬다. 끄기가 짝보다 먼저 가면 그 노트가 남는다.
+                        let at = off.host.min(host).max(off.on_host);
+                        host = host.max(at);
                         let msg = Midi1Message::from_status(off_status, *note, 0);
                         *entry = None;
                         self.send_to(port, at, msg);
@@ -1089,6 +1097,7 @@ impl Rt {
         self.send_to(port, host, on);
         self.offs[slot] = Some(PendingOff {
             host: host.saturating_add(length.max(1)),
+            on_host: host,
             port,
             status: off_status,
             note: *note,
@@ -1110,7 +1119,7 @@ impl Rt {
         if let Some(off) = self.offs[earliest].take()
             && !off.sent
         {
-            let at = now().max(self.last_sent.min(off.host));
+            let at = now().max(self.last_sent.min(off.host)).max(off.on_host);
             self.send_to(
                 off.port,
                 at,
