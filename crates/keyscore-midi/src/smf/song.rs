@@ -312,9 +312,11 @@ impl Song {
                 best = (i, hits);
             }
         }
-        for (tick, text) in lyrics {
-            self.tracks[best.0].add_lyric(tick, text);
-        }
+        // 한 번에 붙이고 안정 정렬한다. 1절·2절처럼 가사 트랙이 여럿이면 하나씩 정렬 삽입할 때 O(n²)이
+        // 된다(S1-T6 리뷰 2 지적 2). 같은 틱에서는 먼저 있던 가사가 앞이다.
+        let target = &mut self.tracks[best.0].lyrics;
+        target.extend(lyrics);
+        target.sort_by_key(|l| l.0);
     }
 
     /// SMF로 쓴다. Type 1은 첫 트랙에 템포·박자표를 두고 곡 트랙마다 하나씩, Type 0은 하나로 합친다.
@@ -391,12 +393,19 @@ impl Song {
             track.set_bank(bank_before(st, first_program.map_or(Tick::ZERO, |p| p.0)));
             for (start, length, notes) in bar_groups(&self.meter, st) {
                 let mut clip = Clip::new(start, length)?;
+                let mut model_notes = Vec::with_capacity(notes.len());
                 for (note, lyric) in notes {
                     let rel = Tick::new(note.start.get() - start.get());
                     let mut n = Note::new(rel, note.length, note.pitch, note.velocity)?;
                     if let Some(text) = lyric {
                         n = n.with_lyric(text);
                     }
+                    model_notes.push(n);
+                }
+                // 클립의 정렬 순서(시작, 음높이, …)로 미리 정렬해 넣으면 늘 끝에 붙는다. 곡의 순서
+                // (시작, 길이, …)로 넣으면 매번 앞쪽에 끼워 O(n²)이 된다(S1-T6 리뷰 2 지적 1).
+                model_notes.sort();
+                for n in model_notes {
                     clip.insert_note(n)?;
                 }
                 track.insert_clip(clip)?;
@@ -437,6 +446,7 @@ impl Song {
                     lyrics.push((
                         Tick::new(start),
                         std::cmp::Reverse(note.pitch()),
+                        length,
                         note.lyric(),
                     ));
                 }
@@ -445,14 +455,14 @@ impl Song {
             // SMF에는 가사가 어느 노트의 것인지 적을 자리가 없다. 그래서 가사가 있는 가장 낮은 음까지,
             // 가사 없는 위 음의 자리를 빈 가사로 채운다. 맨 위 음 하나에만 가사가 있으면 채울 것이 없다.
             st.notes.sort_unstable();
-            lyrics.sort_by_key(|l| (l.0, l.1));
+            lyrics.sort_by_key(|l| (l.0, l.1, l.2));
             let mut i = 0;
             while i < lyrics.len() {
                 let tick = lyrics[i].0;
                 let same = lyrics[i..].partition_point(|l| l.0 == tick);
                 let group = &lyrics[i..i + same];
-                if let Some(last) = group.iter().rposition(|l| l.2.is_some()) {
-                    for (_, _, text) in &group[..=last] {
+                if let Some(last) = group.iter().rposition(|l| l.3.is_some()) {
+                    for (_, _, _, text) in &group[..=last] {
                         st.add_lyric(tick, text.unwrap_or(""));
                     }
                 }
@@ -765,7 +775,9 @@ type NoteWithLyric = (SongNote, Option<String>);
 fn bar_groups(meter: &MeterMap, t: &SongTrack) -> Vec<(Tick, u64, Vec<NoteWithLyric>)> {
     // 가사는 그 틱에 시작하는 노트에 높은 음부터 차례로 붙인다. 가사가 하나면 가장 높은 음(선율)이다.
     // 화음에 가사가 여럿이면 `from_project`가 높은 음부터 내보낸 순서와 맞는다(리뷰 1 제안 5).
-    let mut lyric_of: BTreeMap<(Tick, Pitch), String> = BTreeMap::new();
+    // 노트 하나가 가사 한 자리다. 자리 순서는 (높은 음, 짧은 길이)이고 `from_project`가 같은 순서로
+    // 내보낸다. 같은 음높이·길이의 노트가 겹쳐도 자리를 따로 센다(S1-T6 리뷰 2 지적 3).
+    let mut lyric_of: BTreeMap<(Tick, Pitch, u32), VecDeque<String>> = BTreeMap::new();
     let mut i = 0;
     while i < t.lyrics.len() {
         let tick = t.lyrics[i].0;
@@ -773,13 +785,18 @@ fn bar_groups(meter: &MeterMap, t: &SongTrack) -> Vec<(Tick, u64, Vec<NoteWithLy
         // 노트는 시작 순이라 그 틱의 노트를 이분 탐색으로 찾는다(가사 수 × 노트 수가 되지 않게).
         let from = t.notes.partition_point(|n| n.start < tick);
         let to = t.notes.partition_point(|n| n.start <= tick);
-        let mut pitches: Vec<Pitch> = t.notes[from..to].iter().map(|n| n.pitch).collect();
-        pitches.sort_unstable_by(|a, b| b.cmp(a));
-        pitches.dedup();
-        for (p, (_, text)) in pitches.into_iter().zip(&t.lyrics[i..i + same]) {
+        let mut slots: Vec<(Pitch, u32)> = t.notes[from..to]
+            .iter()
+            .map(|n| (n.pitch, n.length))
+            .collect();
+        slots.sort_unstable_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+        for ((p, len), (_, text)) in slots.into_iter().zip(&t.lyrics[i..i + same]) {
             // 빈 가사는 자리만 채운다(`from_project`가 가사 없는 위 음 자리에 넣는다).
             if !text.is_empty() {
-                lyric_of.insert((tick, p), text.clone());
+                lyric_of
+                    .entry((tick, p, len))
+                    .or_default()
+                    .push_back(text.clone());
             }
         }
         i += same;
@@ -797,7 +814,9 @@ fn bar_groups(meter: &MeterMap, t: &SongTrack) -> Vec<(Tick, u64, Vec<NoteWithLy
         .collect();
     by_bar.sort_by_key(|g| (g.0, g.2));
     for (first, last, note) in by_bar {
-        let lyric = lyric_of.remove(&(note.start, note.pitch));
+        let lyric = lyric_of
+            .get_mut(&(note.start, note.pitch, note.length))
+            .and_then(VecDeque::pop_front);
         match groups.last_mut() {
             Some(g) if first <= g.1.saturating_add(1) => {
                 g.1 = g.1.max(last);

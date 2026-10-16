@@ -735,3 +735,23 @@ fn chord_lyrics_round_trip_through_smf_to_same_notes() {
         .collect();
     assert_eq!(lyrics, vec![(48, Some("bass".to_string())), (72, None)]);
 }
+
+#[test]
+fn huge_deltas_within_limit_write_bounded_size() {
+    // 상한 안에서 가장 큰 델타(28비트)를 15번 쓴 곡. 다시 쓴 크기는 입력과 같은 차수다(채움 메타는
+    // 트랙마다 최대 16개).
+    let gap: &[u8] = &[0xFF, 0x01, 0x00];
+    let mut events: Vec<(u32, &[u8])> = (0..15).map(|_| (0x0FFF_FFFF, gap)).collect();
+    events.push((0, &[0x90, 60, 100]));
+    events.push((10, &[0x80, 60, 0]));
+    let input = smf(1, 960, &[track(&events)]);
+    let song = song_of(&input);
+    for format in [SmfFormat::Parallel, SmfFormat::Single] {
+        let written = song.to_smf(format).unwrap().write();
+        assert!(written.len() <= 2 * input.len() + 64, "{} B", written.len());
+        assert_eq!(
+            song_of(&written).tracks()[0].notes(),
+            song.tracks()[0].notes()
+        );
+    }
+}
