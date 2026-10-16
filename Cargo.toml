@@ -28,6 +28,7 @@ keyscore-midi = { path = "crates/keyscore-midi" }
 keyscore-ai = { path = "crates/keyscore-ai" }
 thiserror = "2"
 # float_roundtrip: 모르는 키의 실수가 저장할 때마다 바뀌지 않게 한다(S0-T6 리뷰 1 지적 2).
+serde = "1"
 serde_json = { version = "1", features = ["float_roundtrip"] }
 flate2 = "1"
 # CoreMIDI: 프로토콜 지정 가상 소스와 할당 없는 송신 때문에 sys를 직접 쓴다(SP-3 분기 B).
@@ -44,6 +45,8 @@ insta = "1"
 proptest = "1"
 # 그래프(plotters)·병렬(rayon)을 빼서 의존 트리를 줄인다. 수치 비교만 쓴다.
 criterion = { version = "0.7", default-features = false, features = ["cargo_bench_support"] }
+# 앱 UI(S2-T1). GPUI는 gpui-kit이 고정한 gpui-pre 스냅샷을 따른다(REQ 9.1, SP-1). gpui를 따로 적지 않는다.
+gpui-kit = "=0.7.1"
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

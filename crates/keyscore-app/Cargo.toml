@@ -14,3 +14,10 @@ keyscore-core.workspace = true
 keyscore-text.workspace = true
 keyscore-midi.workspace = true
 keyscore-ai.workspace = true
+gpui-kit.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+gpui-kit = { workspace = true, features = ["test-support"] }
