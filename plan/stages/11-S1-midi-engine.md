@@ -52,6 +52,7 @@
 ### S1-T7 `ksq-cli play`
 
 - 범위: CLI에서 `.ksq`를 지정 포트로 재생. 메트로놈 옵션. 스케줄러의 첫 실사용.
+- 구현 메모(S1-T7 계획): `ksq-cli`는 CoreMIDI 없이 돌아야 해서(00-conventions), 재생은 별도 도구 crate `tools/ksq-play`(바이너리 `ksq-play`, core + midi)에 둔다.
 - 테스트 게이트(수동): Surge XT가 `KeyScore Out`을 입력으로 잡고 픽스처 1곡을 끝까지 재생. 패닉 명령으로 걸린 노트가 없음.
 
 ## 출구 게이트
