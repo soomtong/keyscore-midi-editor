@@ -94,3 +94,12 @@ keyscore-app 테스트 9개 3회 반복 통과
 | 9 | `Quit` 밖의 종료에서 디바운스 중인 설정을 잃음 (제안) | 반영. `on_app_quit`에서 저장한다 |
 
 테스트를 셋 더했다: `broken_settings_are_backed_up_and_bad_fields_fall_back_alone`, `toggling_in_one_window_keeps_other_windows_changes`, `empty_edit_does_not_mark_document_dirty`. 리뷰어 테스트는 바뀌지 않았다. 워크스페이스 843개 통과.
+
+## 리뷰 대응 (review-2, 판정: 수정 후 재리뷰)
+
+| # | 지적 | 대응 |
+| --- | --- | --- |
+| 1 | 리뷰 1 지적 2가 증상만 덮음. 접힌 패널이 gpui-base 크기 상태에 남아 형제 패널 조절이 틀어짐 | 리뷰의 첫째 방법. 펴진 패널만 그룹의 자식으로 두고, 접거나 펼 때마다 크기 상태를 새로 만들며, 크기를 펴진 패널 순서로 매핑한다. 커밋 `app: Keep collapsed panels out of the resizable groups` |
+| 2 | UTF-8이 아닌 설정 파일은 `.bak` 없이 덮어씀 (제안) | 반영 |
+
+리뷰어 테스트 변경: `track_list_collapsed_after_open_reopens_after_inspector_resize`는 트랙 목록이 접힌 동안 인스펙터를 자식 2로 가리켰다(옛 구조). 수정 뒤 자식은 [메인, 인스펙터]라 1로 바꿨다. 검사 의도는 같다. 워크스페이스 857개 통과.
