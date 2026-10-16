@@ -8,7 +8,7 @@
 //! 오간다. 교체된 스냅샷을 돌려받아 제어 스레드에서 해제하므로, 할당 해제도 스케줄러 스레드에서
 //! 일어나지 않는다.
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, mpsc};
 use std::thread::JoinHandle;
 use std::time::Duration;
@@ -31,6 +31,8 @@ const QUEUE: usize = 256;
 const COMMANDS_PER_WAKE: usize = 64;
 /// 돌려받기 큐가 가득할 때 잠시 들고 있을 수 있는 스냅샷 수.
 const PENDING_GARBAGE: usize = 4;
+/// 한 바퀴에 예약하는 항목 수 상한. 무엇이 잘못돼도 스레드가 명령을 계속 받게 한다.
+const MAX_ITEMS_PER_PASS: usize = 4096;
 /// 재생 시작·위치 이동 뒤 첫 이벤트까지의 여유. 첫 이벤트가 늦게 예약되지 않게 한다.
 const START_MARGIN: Duration = Duration::from_millis(2);
 
@@ -214,11 +216,15 @@ struct Signals {
     quit: AtomicBool,
     /// 패닉 요청. 명령 큐와 따로 두어, 큐가 막혀도 패닉은 닿게 한다(S1-T4 리뷰 1 지적 9).
     panic: AtomicBool,
+    /// 패닉 요청 때까지 큐에 넣은 명령 수. 그 명령들을 먼저 처리한 뒤 패닉한다(리뷰 2 지적 4).
+    panic_after: AtomicU64,
 }
 
 /// 스케줄러 스레드의 손잡이. drop하면 울리는 노트를 끄고 스레드를 끝낸다.
 pub struct Scheduler {
     commands: rtrb::Producer<Command>,
+    /// 큐에 넣은 명령 수.
+    pushed: u64,
     garbage: rtrb::Consumer<Arc<Snapshot>>,
     /// 스레드가 끝날 때 들고 있던 스냅샷을 넘겨받는 길. 끝난 뒤에만 쓰므로 할당이 있어도 된다.
     leftovers: mpsc::Receiver<Arc<Snapshot>>,
@@ -242,6 +248,7 @@ impl Scheduler {
         let signals = Arc::new(Signals {
             quit: AtomicBool::new(false),
             panic: AtomicBool::new(false),
+            panic_after: AtomicU64::new(0),
         });
         let timebase = Timebase::get();
         // 상태 표는 여기(제어 스레드)에서 할당해 넘긴다. 스케줄러 스레드는 할당하지 않는다.
@@ -259,7 +266,9 @@ impl Scheduler {
             playing: false,
             base_tick: Tick::ZERO,
             base_time: MusicTime::ZERO,
-            base_host: 0,
+            base_q: 0,
+            sent_through: None,
+            popped: 0,
             cursor: 0,
             looping: None,
             last_sent: 0,
@@ -284,6 +293,7 @@ impl Scheduler {
             })?;
         Ok(Scheduler {
             commands,
+            pushed: 0,
             garbage,
             leftovers,
             signals,
@@ -299,7 +309,9 @@ impl Scheduler {
                 status: -1,
             });
         }
-        push(&mut self.commands, command)
+        push(&mut self.commands, command)?;
+        self.pushed += 1;
+        Ok(())
     }
 
     /// `from`부터 재생한다. 그 위치까지의 프로그램·뱅크·CC·프레셔·벤드 값을 먼저 보낸다(chase).
@@ -371,6 +383,9 @@ impl Scheduler {
                 status: -1,
             });
         }
+        self.signals
+            .panic_after
+            .store(self.pushed, Ordering::Release);
         self.signals.panic.store(true, Ordering::Release);
         Ok(())
     }
@@ -428,8 +443,16 @@ const PROGRAM_SLOT: usize = 120;
 const PRESSURE_SLOT: usize = 121;
 const BEND_LSB_SLOT: usize = 122;
 const BEND_MSB_SLOT: usize = 123;
-const CHASE_SLOTS: usize = 124;
+/// 마지막으로 고른 파라미터 종류: `RPN` 또는 `NRPN`(값 없음이면 `NONE`).
+const SELECT_KIND_SLOT: usize = 124;
+const CHASE_SLOTS: usize = 125;
+const RPN: u8 = 0;
+const NRPN: u8 = 1;
 /// RPN·NRPN 선택 CC. 데이터 엔트리보다 먼저 보내야 값이 맞는 파라미터에 들어간다(리뷰 1 지적 10).
+/// 데이터 엔트리는 마지막으로 고른 파라미터에 들어가므로, 마지막에 고른 종류를 나중에 보낸다
+/// (리뷰 2 지적 7).
+const RPN_SELECT: [usize; 2] = [101, 100];
+const NRPN_SELECT: [usize; 2] = [99, 98];
 const PARAMETER_SELECT: [usize; 4] = [99, 98, 101, 100];
 /// 데이터 엔트리 MSB·LSB.
 const DATA_ENTRY: [usize; 2] = [6, 38];
@@ -452,7 +475,14 @@ struct Rt {
     /// 재생 기준점: 이 틱이 이 호스트 시각에 울린다.
     base_tick: Tick,
     base_time: MusicTime,
-    base_host: u64,
+    /// 기준 호스트 시각 × `scale`(= numer × 960). 교체마다 기준점을 옮겨도 내림 오차가 쌓이지 않게
+    /// 정확한 값으로 든다(리뷰 2 지적 8).
+    base_q: u128,
+    /// 지금 기준점에서 보낸 마지막 틱. `None`이면 기준점 이후로 아직 아무것도 보내지 않았다
+    /// (재생 시작·위치 이동·루프 되감기 직후, 리뷰 2 지적 1·2).
+    sent_through: Option<Tick>,
+    /// 처리한(꺼낸) 명령 수. 패닉 순서를 맞추는 데 쓴다(리뷰 2 지적 4).
+    popped: u64,
     /// 다음에 보낼 이벤트 인덱스.
     cursor: usize,
     looping: Option<(Tick, Tick)>,
@@ -520,50 +550,86 @@ impl Rt {
 
     fn step_inner(&mut self) {
         self.flush_garbage();
-        if self.signals.panic.swap(false, Ordering::AcqRel) {
-            self.panic();
-        }
+        let mut blocked = false;
         for _ in 0..COMMANDS_PER_WAKE {
             // 교체 명령은 옛 스냅샷을 들고 있을 자리가 있을 때만 꺼낸다(스레드에서 해제하지 않으려고).
             if let Ok(Command::Swap(_)) = self.commands.peek()
                 && !self.pending.iter().any(Option::is_none)
             {
+                blocked = true;
                 break;
             }
             let Ok(command) = self.commands.pop() else {
                 break;
             };
+            self.popped += 1;
             self.handle(command);
+        }
+        // 패닉은 그 앞에 넣은 명령을 처리한 뒤에 한다. 큐 머리가 교체로 막혔으면 기다리지 않는다.
+        if self.signals.panic.load(Ordering::Acquire)
+            && (blocked || self.popped >= self.signals.panic_after.load(Ordering::Acquire))
+        {
+            self.signals.panic.store(false, Ordering::Release);
+            self.panic();
         }
         if self.playing {
             self.schedule();
         }
     }
 
+    /// 기준 호스트 시각을 정확히 나타내는 배율(`base_q` 단위).
+    fn scale(&self) -> u128 {
+        u128::from(self.timebase.numer.max(1)) * MusicTime::UNITS_PER_NANO
+    }
+
+    /// 기준점(내림한 호스트 시각).
+    fn base_host(&self) -> u64 {
+        u64::try_from(self.base_q / self.scale()).unwrap_or(u64::MAX)
+    }
+
     /// 기준점에서 `tick`까지의 호스트 시각.
     fn host_of(&self, tick: Tick) -> u64 {
-        let ns = nanos_between(&self.snap.tempo, self.base_tick, tick);
-        let ticks = nanos_to_host_ticks(ns, self.timebase.numer, self.timebase.denom);
-        self.base_host.saturating_add(ticks)
+        let units = self
+            .snap
+            .tempo
+            .tick_to_time(tick)
+            .units()
+            .saturating_sub(self.base_time.units());
+        let q = self
+            .base_q
+            .saturating_add(units.saturating_mul(u128::from(self.timebase.denom)));
+        u64::try_from(q / self.scale()).unwrap_or(u64::MAX)
     }
 
     /// 호스트 시각 `host`에 닿은 틱(내림).
     fn tick_at(&self, host: u64) -> Tick {
-        let elapsed = host.saturating_sub(self.base_host);
-        let ns =
-            u128::from(elapsed) * u128::from(self.timebase.numer) / u128::from(self.timebase.denom);
-        let time = MusicTime::from_units(
-            self.base_time
-                .units()
-                .saturating_add(ns.saturating_mul(MusicTime::UNITS_PER_NANO)),
-        );
+        let q = u128::from(host).saturating_mul(self.scale());
+        let units = q.saturating_sub(self.base_q) / u128::from(self.timebase.denom.max(1));
+        let time = MusicTime::from_units(self.base_time.units().saturating_add(units));
         self.snap.tempo.time_to_tick(time).max(self.base_tick)
     }
 
+    /// 기준점을 정수 호스트 시각에 새로 잡는다(재생 시작, 위치 이동, 루프 되감기).
     fn set_base(&mut self, tick: Tick, host: u64) {
         self.base_tick = tick;
         self.base_time = self.snap.tempo.tick_to_time(tick);
-        self.base_host = host;
+        self.base_q = u128::from(host).saturating_mul(self.scale());
+        self.sent_through = None;
+    }
+
+    /// 기준점을 같은 계산 위의 틱 `t`로 옮긴다. 내림 없이 정확하다(교체).
+    fn move_base(&mut self, t: Tick) {
+        let units = self
+            .snap
+            .tempo
+            .tick_to_time(t)
+            .units()
+            .saturating_sub(self.base_time.units());
+        self.base_q = self
+            .base_q
+            .saturating_add(units.saturating_mul(u128::from(self.timebase.denom)));
+        self.base_tick = t;
+        self.base_time = self.snap.tempo.tick_to_time(t);
     }
 
     fn handle(&mut self, command: Command) {
@@ -599,8 +665,10 @@ impl Rt {
                 if on {
                     self.clock_mask |= bit;
                     if self.playing {
-                        let sent = self.tick_at(self.scheduled_until.max(now()));
-                        self.next_clock = clock_after(sent.get().saturating_add(1));
+                        self.next_clock = match self.sent_through {
+                            Some(t) => clock_after(t.get().saturating_add(1)),
+                            None => clock_after(self.base_tick.get()),
+                        };
                     }
                 } else {
                     self.clock_mask &= !bit;
@@ -671,21 +739,29 @@ impl Rt {
             self.flush_garbage();
             return;
         }
-        // 옛 스냅샷으로 `scheduled_until`까지는 모두 예약했다. 그 시각의 틱 T(내림)까지가 보낸 구간이다.
-        // 새 기준점은 옛 계산의 정확한 시각(T, host_of(T))으로 잡아 교체마다 오차가 쌓이지 않게 한다
-        // (리뷰 1 지적 4). 새 스냅샷은 T 뒤의 이벤트부터 보낸다(리뷰 1 지적 3, 5).
-        let sent_until = self.scheduled_until.max(now());
-        let t = self.tick_at(sent_until);
-        let t_host = self.host_of(t);
         let at = self.release_time();
-        // 새 스냅샷에서 T 뒤 첫 노트 사건이 Note Off인 노트는 이어서 울린다. 나머지는 끈다(리뷰 1 지적 3).
+        // 보낸 구간: 지금 기준점에서 보낸 마지막 틱 T까지. 아무것도 보내지 않았으면 기준점부터 새로 보낸다.
+        // 같은 바퀴에 교체가 거듭돼도 T는 그대로라 보내지 않은 틱을 보낸 것으로 치지 않는다(리뷰 2
+        // 지적 1·2). 기준점은 옛 계산 위에서 정확히 옮겨 오차가 쌓이지 않는다(리뷰 1 지적 4, 리뷰 2
+        // 지적 8).
+        let sent = self.sent_through;
+        let t = sent.unwrap_or(self.base_tick);
+        if sent.is_some() {
+            self.move_base(t);
+        }
+        // 새 스냅샷에서 T 뒤 첫 노트 사건이 Note Off이고 같은 포트면 이어서 울린다. 나머지는 끈다.
         self.release_unless_continued(&new, t, at);
         let old = std::mem::replace(&mut self.snap, new);
         self.pending[slot] = Some(old);
-        self.set_base(t, t_host);
-        self.floor = sent_until;
-        self.cursor = self.snap.first_after(t);
-        self.next_clock = clock_after(t.get().saturating_add(1));
+        self.base_time = self.snap.tempo.tick_to_time(self.base_tick);
+        // 새 이벤트를 이미 예약한 시각 앞에 두지 않는다. 늦은 바퀴면 버리지 않고 지금 보낸다.
+        self.floor = self.floor.max(self.scheduled_until);
+        if sent.is_some() {
+            self.cursor = self.snap.first_after(t);
+            self.next_clock = clock_after(t.get().saturating_add(1));
+        } else {
+            self.cursor = self.snap.first_at_or_after(t);
+        }
         self.flush_garbage();
     }
 
@@ -702,13 +778,15 @@ impl Rt {
 
     fn schedule(&mut self) {
         let horizon = now().saturating_add(self.lookahead);
-        loop {
+        for _ in 0..MAX_ITEMS_PER_PASS {
             let event = self
                 .snap
                 .events
                 .get(self.cursor)
                 .map(|e| (e.tick, self.cursor));
-            let clock = (self.clock_mask != 0).then_some(Tick::new(self.next_clock));
+            // `u64::MAX`는 「더 보낼 Clock 없음」이다(넘침 대신, 리뷰 2 지적 5).
+            let clock = (self.clock_mask != 0 && self.next_clock != u64::MAX)
+                .then_some(Tick::new(self.next_clock));
             let loop_end = self.looping.filter(|&(_, end)| end > self.base_tick);
             let mut next: Option<(Tick, Next)> = None;
             let mut consider = |tick: Tick, what: Next| {
@@ -748,6 +826,9 @@ impl Rt {
                 }
                 Next::LoopEnd(start) => {
                     self.release_notes(host);
+                    // 루프 한 바퀴가 호스트 틱 하나보다 짧으면 같은 시각을 끝없이 되감는다. 적어도 한 틱은
+                    // 나아가게 한다(리뷰 2 지적 6).
+                    let host = host.max(self.base_host().saturating_add(1));
                     self.set_base(start, host);
                     self.cursor = self.snap.first_at_or_after(start);
                     // 클록 장치도 루프 시작으로 다시 맞춘다(리뷰 1 지적 7).
@@ -756,6 +837,9 @@ impl Rt {
             }
         }
         self.scheduled_until = self.scheduled_until.max(horizon);
+        if horizon >= self.base_host() {
+            self.sent_through = Some(self.tick_at(horizon));
+        }
     }
 
     /// 포트로 보낸다. 실패는 무시한다(포트가 사라져도 스케줄러는 계속 돈다). 울리는 노트를 센다.
@@ -822,7 +906,11 @@ impl Rt {
                     if self.active.get(i).copied().unwrap_or(0) == 0 {
                         continue;
                     }
-                    if port < new.ports.len() && new.next_note_is_off(i, t) {
+                    // 같은 번호에 다른 포트가 왔으면 옛 포트의 노트는 끈다(리뷰 2 지적 3).
+                    let same_port = new.ports.get(port).is_some_and(|q| {
+                        std::ptr::addr_eq(Arc::as_ptr(q), Arc::as_ptr(&self.snap.ports[port]))
+                    });
+                    if same_port && new.next_note_is_off(i, t) {
                         continue;
                     }
                     self.active[i] = 0;
@@ -841,7 +929,13 @@ impl Rt {
             let base = (usize::from(e.port) * 16 + ch) * CHASE_SLOTS;
             match (b[0] & 0xF0, b.len()) {
                 (0xB0, 3) if usize::from(b[1]) < PROGRAM_SLOT => {
-                    self.chase[base + usize::from(b[1])] = b[2];
+                    let cc = usize::from(b[1]);
+                    self.chase[base + cc] = b[2];
+                    if RPN_SELECT.contains(&cc) {
+                        self.chase[base + SELECT_KIND_SLOT] = RPN;
+                    } else if NRPN_SELECT.contains(&cc) {
+                        self.chase[base + SELECT_KIND_SLOT] = NRPN;
+                    }
                 }
                 (0xC0, 2) => self.chase[base + PROGRAM_SLOT] = b[1],
                 (0xD0, 2) => self.chase[base + PRESSURE_SLOT] = b[1],
@@ -866,7 +960,12 @@ impl Rt {
                 if v != NONE {
                     self.send_to(p, host, Midi1Message::from_status(0xC0 | ch, v, 0));
                 }
-                for slot in PARAMETER_SELECT.into_iter().chain(DATA_ENTRY) {
+                let (first, last) = if self.chase[base + SELECT_KIND_SLOT] == NRPN {
+                    (RPN_SELECT, NRPN_SELECT)
+                } else {
+                    (NRPN_SELECT, RPN_SELECT)
+                };
+                for slot in first.into_iter().chain(last).chain(DATA_ENTRY) {
                     self.chase_cc(p, ch, host, base, slot, cc(slot));
                 }
                 for slot in 1..PROGRAM_SLOT {
@@ -924,6 +1023,7 @@ fn now() -> u64 {
 
 /// `t` 이상인 첫 Clock 틱(40의 배수). 넘치면 가장 큰 값(리뷰 1 지적 8).
 fn clock_after(t: u64) -> u64 {
+    // 포화하면 `u64::MAX`(40의 배수가 아니다)가 되어 「더 보낼 Clock 없음」을 뜻한다.
     t.div_ceil(CLOCK_TICKS).saturating_mul(CLOCK_TICKS)
 }
 
@@ -931,8 +1031,9 @@ fn active_index(port: u16, ch: u8, note: u8) -> usize {
     (usize::from(port) * 16 + usize::from(ch & 0x0F)) * 128 + usize::from(note & 0x7F)
 }
 
-/// `from`에서 `to`까지의 시각(ns, 내림). 정수 산술이라 템포 변화가 있어도 오차가 쌓이지 않는다.
-/// `to`가 앞이면 0이다.
+/// `from`에서 `to`까지의 시각(ns, 내림). `to`가 앞이면 0이다. 스케줄러는 내림 없이 `MusicTime` 단위로
+/// 계산하고(`Rt::host_of`), 이 함수는 그 산술을 단위 테스트로 확인하는 데 쓴다.
+#[cfg(test)]
 pub(crate) fn nanos_between(tempo: &TempoMap, from: Tick, to: Tick) -> u128 {
     tempo
         .tick_to_time(to)
