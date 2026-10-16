@@ -271,52 +271,78 @@ impl Song {
                 // Type 0의 이름은 대개 곡 제목이라 채널 트랙에 붙이지 않는다.
                 SmfFormat::Single => None,
             };
-            if has_channel_messages(track) {
-                song.tracks
-                    .extend(split_track(track, name.as_deref(), scale));
+            // 곡 트랙이 남지 않는 SMF 트랙의 가사(가사만 담은 트랙, 폴리 프레셔·짝 없는 Note Off만 있는
+            // 트랙)는 따로 모아 맞는 곡 트랙에 붙인다(S1-T6 리뷰 3 지적 3).
+            let (tracks, orphans) = if has_channel_messages(track) {
+                split_track(track, name.as_deref(), scale)
             } else {
-                // 가사만 담은 트랙(LilyPond, 노래방 파일)은 따로 모아 맞는 곡 트랙에 붙인다.
-                orphan_lyrics.push(lyrics_of(track, scale));
-            }
+                (Vec::new(), lyrics_of(track, scale))
+            };
+            song.tracks.extend(tracks);
+            orphan_lyrics.push(orphans);
         }
-        for lyrics in orphan_lyrics {
-            song.attach_lyrics(lyrics);
-        }
+        song.attach_lyrics(orphan_lyrics);
         Ok(song)
     }
 
-    /// 가사 열을 가사 틱에 노트가 가장 많이 시작하는 트랙(같으면 앞 트랙)에 붙인다. 맞는 트랙이
+    /// 가사 묶음마다, 가사 틱에 노트가 가장 많이 시작하는 트랙(같으면 앞 트랙)에 붙인다. 맞는 트랙이
     /// 없으면 첫 트랙에, 트랙이 없으면 버린다.
-    fn attach_lyrics(&mut self, lyrics: Vec<(Tick, String)>) {
-        if lyrics.is_empty() || self.tracks.is_empty() {
+    ///
+    /// 모든 묶음을 한 번에 센다. 곡 트랙의 노트 시작을 한 번씩만 보고, 그 틱에 가사가 있는 묶음에만
+    /// 더하므로 비용은 (노트 + 가사 + 맞은 수)다. 묶음마다 노트 전체를 다시 훑으면 (묶음 × 노트)가
+    /// 된다(S1-T6 리뷰 2 지적 2, 리뷰 3 지적 1).
+    fn attach_lyrics(&mut self, groups: Vec<Vec<(Tick, String)>>) {
+        let groups: Vec<_> = groups.into_iter().filter(|g| !g.is_empty()).collect();
+        if groups.is_empty() || self.tracks.is_empty() {
             return;
         }
-        // 가사 틱마다 개수를 세고, 그 틱에 노트가 시작하는 트랙에 더한다. 노트를 한 번씩만 보므로
-        // (노트 수 + 가사 수)에 비례한다(S1-T6 리뷰 1 지적 2).
-        let mut per_tick: BTreeMap<Tick, usize> = BTreeMap::new();
-        for (tick, _) in &lyrics {
-            *per_tick.entry(*tick).or_default() += 1;
+        // 틱 → (묶음 번호, 그 틱의 가사 수). 묶음 안의 가사는 틱 순이다.
+        let mut per_tick: BTreeMap<Tick, Vec<(usize, usize)>> = BTreeMap::new();
+        for (g, lyrics) in groups.iter().enumerate() {
+            for (tick, _) in lyrics {
+                let list = per_tick.entry(*tick).or_default();
+                match list.last_mut() {
+                    Some((group, count)) if *group == g => *count += 1,
+                    _ => list.push((g, 1)),
+                }
+            }
         }
-        let mut best = (0usize, 0usize);
+        let mut best = vec![(0usize, 0usize); groups.len()];
+        let mut hits = vec![0usize; groups.len()];
+        let mut touched = Vec::new();
         for (i, t) in self.tracks.iter().enumerate() {
-            let mut hits = 0;
             let mut last = None;
             for n in &t.notes {
                 if last == Some(n.start) {
                     continue;
                 }
                 last = Some(n.start);
-                hits += per_tick.get(&n.start).copied().unwrap_or(0);
+                for &(g, count) in per_tick.get(&n.start).into_iter().flatten() {
+                    if hits[g] == 0 {
+                        touched.push(g);
+                    }
+                    hits[g] += count;
+                }
             }
-            if hits > best.1 {
-                best = (i, hits);
+            for g in touched.drain(..) {
+                if hits[g] > best[g].1 {
+                    best[g] = (i, hits[g]);
+                }
+                hits[g] = 0;
             }
         }
-        // 한 번에 붙이고 안정 정렬한다. 1절·2절처럼 가사 트랙이 여럿이면 하나씩 정렬 삽입할 때 O(n²)이
-        // 된다(S1-T6 리뷰 2 지적 2). 같은 틱에서는 먼저 있던 가사가 앞이다.
-        let target = &mut self.tracks[best.0].lyrics;
-        target.extend(lyrics);
-        target.sort_by_key(|l| l.0);
+        // 한 번에 붙이고 바뀐 트랙만 한 번씩 안정 정렬한다. 같은 틱에서는 먼저 있던 가사가 앞이다.
+        let mut changed = vec![false; self.tracks.len()];
+        for (g, lyrics) in groups.into_iter().enumerate() {
+            let target = best[g].0;
+            self.tracks[target].lyrics.extend(lyrics);
+            changed[target] = true;
+        }
+        for (t, changed) in self.tracks.iter_mut().zip(changed) {
+            if changed {
+                t.lyrics.sort_by_key(|l| l.0);
+            }
+        }
     }
 
     /// SMF로 쓴다. Type 1은 첫 트랙에 템포·박자표를 두고 곡 트랙마다 하나씩, Type 0은 하나로 합친다.
@@ -447,6 +473,7 @@ impl Song {
                         Tick::new(start),
                         std::cmp::Reverse(note.pitch()),
                         length,
+                        note.velocity(),
                         note.lyric(),
                     ));
                 }
@@ -455,14 +482,16 @@ impl Song {
             // SMF에는 가사가 어느 노트의 것인지 적을 자리가 없다. 그래서 가사가 있는 가장 낮은 음까지,
             // 가사 없는 위 음의 자리를 빈 가사로 채운다. 맨 위 음 하나에만 가사가 있으면 채울 것이 없다.
             st.notes.sort_unstable();
-            lyrics.sort_by_key(|l| (l.0, l.1, l.2));
+            // 숨김 꼬리가 잘려 (음높이, 길이)가 같아진 노트도 벨로시티로 가져오기와 같은 순서가 된다
+            // (S1-T6 리뷰 3 지적 2). 넷이 모두 같은 노트는 SMF에서 구별할 수 없다.
+            lyrics.sort_by_key(|l| (l.0, l.1, l.2, l.3));
             let mut i = 0;
             while i < lyrics.len() {
                 let tick = lyrics[i].0;
                 let same = lyrics[i..].partition_point(|l| l.0 == tick);
                 let group = &lyrics[i..i + same];
-                if let Some(last) = group.iter().rposition(|l| l.3.is_some()) {
-                    for (_, _, _, text) in &group[..=last] {
+                if let Some(last) = group.iter().rposition(|l| l.4.is_some()) {
+                    for (_, _, _, _, text) in &group[..=last] {
                         st.add_lyric(tick, text.unwrap_or(""));
                     }
                 }
@@ -563,7 +592,12 @@ fn downscale7(v: u32) -> u8 {
 }
 
 /// SMF 트랙 하나를 채널마다 곡 트랙으로 나눈다. 채널 메시지가 없는 채널은 만들지 않는다.
-fn split_track(track: &SmfTrack, name: Option<&str>, scale: Rescale) -> Vec<SongTrack> {
+/// 곡 트랙이 하나도 남지 않으면 가사를 둘째 값으로 돌려준다(전역으로 붙인다).
+fn split_track(
+    track: &SmfTrack,
+    name: Option<&str>,
+    scale: Rescale,
+) -> (Vec<SongTrack>, Vec<(Tick, String)>) {
     let mut by_channel: Vec<Option<SongTrack>> = (0..16).map(|_| None).collect();
     // (채널, 음높이)마다 켜진 노트(원본 틱, 벨로시티).
     let mut open: Vec<VecDeque<(u64, u8)>> = (0..16 * 128).map(|_| VecDeque::new()).collect();
@@ -627,6 +661,9 @@ fn split_track(track: &SmfTrack, name: Option<&str>, scale: Rescale) -> Vec<Song
         .flatten()
         .filter(|t| !t.is_empty())
         .collect();
+    if tracks.is_empty() {
+        return (tracks, lyrics);
+    }
     // 가사는 그 틱에 노트가 시작하는 채널 트랙(낮은 채널부터)에, 없으면 첫 트랙에 붙인다.
     for (tick, text) in lyrics {
         let target = tracks
@@ -637,7 +674,7 @@ fn split_track(track: &SmfTrack, name: Option<&str>, scale: Rescale) -> Vec<Song
             tracks[i].add_lyric(tick, text);
         }
     }
-    tracks
+    (tracks, Vec::new())
 }
 
 fn make_note(scale: Rescale, start: u64, end: u64, pitch: u8, velocity: u8) -> SongNote {
@@ -775,9 +812,9 @@ type NoteWithLyric = (SongNote, Option<String>);
 fn bar_groups(meter: &MeterMap, t: &SongTrack) -> Vec<(Tick, u64, Vec<NoteWithLyric>)> {
     // 가사는 그 틱에 시작하는 노트에 높은 음부터 차례로 붙인다. 가사가 하나면 가장 높은 음(선율)이다.
     // 화음에 가사가 여럿이면 `from_project`가 높은 음부터 내보낸 순서와 맞는다(리뷰 1 제안 5).
-    // 노트 하나가 가사 한 자리다. 자리 순서는 (높은 음, 짧은 길이)이고 `from_project`가 같은 순서로
+    // 노트 하나가 가사 한 자리다. 자리 순서는 (높은 음, 짧은 길이, 작은 벨로시티)이고 `from_project`가 같은 순서로
     // 내보낸다. 같은 음높이·길이의 노트가 겹쳐도 자리를 따로 센다(S1-T6 리뷰 2 지적 3).
-    let mut lyric_of: BTreeMap<(Tick, Pitch, u32), VecDeque<String>> = BTreeMap::new();
+    let mut lyric_of: BTreeMap<(Tick, Pitch, u32, Velocity), VecDeque<String>> = BTreeMap::new();
     let mut i = 0;
     while i < t.lyrics.len() {
         let tick = t.lyrics[i].0;
@@ -785,16 +822,16 @@ fn bar_groups(meter: &MeterMap, t: &SongTrack) -> Vec<(Tick, u64, Vec<NoteWithLy
         // 노트는 시작 순이라 그 틱의 노트를 이분 탐색으로 찾는다(가사 수 × 노트 수가 되지 않게).
         let from = t.notes.partition_point(|n| n.start < tick);
         let to = t.notes.partition_point(|n| n.start <= tick);
-        let mut slots: Vec<(Pitch, u32)> = t.notes[from..to]
+        let mut slots: Vec<(Pitch, u32, Velocity)> = t.notes[from..to]
             .iter()
-            .map(|n| (n.pitch, n.length))
+            .map(|n| (n.pitch, n.length, n.velocity))
             .collect();
-        slots.sort_unstable_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
-        for ((p, len), (_, text)) in slots.into_iter().zip(&t.lyrics[i..i + same]) {
+        slots.sort_unstable_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)).then(a.2.cmp(&b.2)));
+        for ((p, len, v), (_, text)) in slots.into_iter().zip(&t.lyrics[i..i + same]) {
             // 빈 가사는 자리만 채운다(`from_project`가 가사 없는 위 음 자리에 넣는다).
             if !text.is_empty() {
                 lyric_of
-                    .entry((tick, p, len))
+                    .entry((tick, p, len, v))
                     .or_default()
                     .push_back(text.clone());
             }
@@ -815,7 +852,7 @@ fn bar_groups(meter: &MeterMap, t: &SongTrack) -> Vec<(Tick, u64, Vec<NoteWithLy
     by_bar.sort_by_key(|g| (g.0, g.2));
     for (first, last, note) in by_bar {
         let lyric = lyric_of
-            .get_mut(&(note.start, note.pitch, note.length))
+            .get_mut(&(note.start, note.pitch, note.length, note.velocity))
             .and_then(VecDeque::pop_front);
         match groups.last_mut() {
             Some(g) if first <= g.1.saturating_add(1) => {
