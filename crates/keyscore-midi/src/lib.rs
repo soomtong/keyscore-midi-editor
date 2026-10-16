@@ -14,6 +14,7 @@ mod port;
 mod ports;
 mod rt;
 mod scheduler;
+mod smf;
 mod time;
 mod ump;
 mod watcher;
@@ -32,6 +33,10 @@ pub use ports::{
     Action, Link, PortEvent, PortInfo, Reconnector, Suggestion, diff_ports, suggest_mapping,
 };
 pub use scheduler::{MAX_SCHEDULER_PORTS, ScheduledEvent, Scheduler, SchedulerConfig, Snapshot};
+pub use smf::{
+    SmfError, SmfEvent, SmfEventKind, SmfFile, SmfFormat, SmfLimits, SmfTrack, Song, SongNote,
+    SongTrack,
+};
 pub use time::HostTime;
 pub use ump::ump_word_count;
 pub use watcher::PortWatcher;
