@@ -182,19 +182,18 @@ fn hash_in_token_positions_inside_track_is_unknown() {
 /// 첫 @track 앞(헤더 영역)에서는 그렇지 않고 오류로 끝난다. 옛 # 주석 파일(옛 REQ 예시,
 /// 옛 픽스처 원본)의 첫 줄이 바로 이 자리다.
 #[test]
-fn hash_before_first_track_is_lenient_warning() {
+fn hash_before_first_track_is_error_with_slash_hint() {
     for text in [
         "# 옛 주석\n@track A ch1\nc",
         "@tempo 120          # 선택\n@track A ch1\nc",
         "@key C major # 선택\n@track A ch1\nc",
     ] {
-        assert!(parse(text, Mode::Strict).is_err(), "{text}");
-        let p = parse(text, Mode::Lenient);
-        assert!(
-            p.is_ok(),
-            "{text}: 느슨 모드가 오류로 끝난다: {:?}",
-            p.err().map(|e| e.diagnostic().clone())
-        );
+        // 구현자 수정: 리뷰가 낸 방법 (b)를 택했다. 헤더 영역의 모르는 토큰은 두 모드 모두 오류이고,
+        // `#`면 「주석은 //」를 알린다(결정 Q1 개정 문구를 그에 맞게 좁혔다).
+        for mode in [Mode::Strict, Mode::Lenient] {
+            let e = parse(text, mode).unwrap_err();
+            assert!(e.diagnostic().message().contains("//"), "{text}: {e}");
+        }
     }
 }
 

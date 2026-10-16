@@ -281,9 +281,12 @@ impl Parser {
             if c == '@' {
                 self.directive(pos)?;
             } else if self.voice.is_none() {
+                // 첫 @track 앞에는 헤더만 온다. 모르는 토큰은 두 모드 모두 오류다(트랙 밖의 음, 겹친 BOM
+                // 등). 옛 문법의 `#` 주석이면 고칠 방법을 알린다(결정 Q1 개정, 리뷰 지적 1).
+                let hint = if c == '#' { " (주석은 //)" } else { "" };
                 return Err(error(
                     pos,
-                    "@track 블록 밖에는 헤더(@tempo·@time·@key)만 쓸 수 있다",
+                    format!("@track 블록 밖에는 헤더(@tempo·@time·@key)만 쓸 수 있다{hint}"),
                 ));
             } else {
                 self.body_token(pos)?;
@@ -1023,7 +1026,9 @@ impl Parser {
             }
             None => {}
         }
-        self.lenient(pos, format!("모르는 토큰 '{text}'를 건너뛴다"))
+        // 옛 문법의 `#` 주석을 쓴 입력이 많을 것이라 고칠 방법을 함께 알린다(리뷰 제안 3).
+        let hint = if text == "#" { " (주석은 //)" } else { "" };
+        self.lenient(pos, format!("모르는 토큰 '{text}'를 건너뛴다{hint}"))
     }
 
     /// 사건 하나를 성부에 넣고 커서를 명목 길이만큼 옮긴다.
