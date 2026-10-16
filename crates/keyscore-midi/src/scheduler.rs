@@ -13,8 +13,9 @@ use std::sync::{Arc, mpsc};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-use keyscore_core::{MusicTime, TempoMap, Tick};
+use keyscore_core::{Channel, MeterMap, MusicTime, Pitch, TempoMap, Tick, Velocity};
 
+use crate::metronome::{Beat, MetronomeConfig};
 use crate::rt::{Timebase, make_realtime, wait_until};
 use crate::{Group, HostTime, Midi1Message, MidiError, MidiPort};
 
@@ -170,6 +171,18 @@ impl Snapshot {
     #[must_use]
     pub fn events(&self) -> &[ScheduledEvent] {
         &self.events
+    }
+
+    /// 박자표 맵을 둔다(메트로놈 박 격자, MET-1). 기본은 4/4다.
+    #[must_use]
+    pub fn with_meter(self, meter: MeterMap) -> Self {
+        drop(meter);
+        todo!()
+    }
+
+    #[must_use]
+    pub fn meter(&self) -> &MeterMap {
+        todo!()
     }
 
     /// `at` 이상인 첫 이벤트의 인덱스.
@@ -409,6 +422,62 @@ impl Scheduler {
     /// `QueueFull`, `Os`.
     pub fn send_now(&mut self, port: u16, msg: Midi1Message) -> Result<(), MidiError> {
         self.send(Command::SendNow(port, msg))
+    }
+
+    /// 메트로놈 설정을 바꾼다(MET-1, MET-3).
+    ///
+    /// # Errors
+    ///
+    /// 포트 번호가 `MAX_SCHEDULER_PORTS` 밖이면 `InvalidMessage`, `QueueFull`, `Os`.
+    pub fn set_metronome(&mut self, config: MetronomeConfig) -> Result<(), MidiError> {
+        let _ = config;
+        todo!()
+    }
+
+    /// 트랜스포트의 메트로놈 버튼(기본 끔).
+    ///
+    /// # Errors
+    ///
+    /// `QueueFull`, `Os`.
+    pub fn set_metronome_enabled(&mut self, on: bool) -> Result<(), MidiError> {
+        let _ = on;
+        todo!()
+    }
+
+    /// 버튼과 무관하게 클릭을 켠다(Sequence 녹음, 카운트인, MET-1).
+    ///
+    /// # Errors
+    ///
+    /// `QueueFull`, `Os`.
+    pub fn set_metronome_forced(&mut self, on: bool) -> Result<(), MidiError> {
+        let _ = on;
+        todo!()
+    }
+
+    /// 재생 중 지난 박 하나를 꺼낸다(MET-2). UI가 주기적으로 불러 비운다. 비우지 않아 큐가 차면
+    /// 스케줄러는 새 박을 버린다.
+    pub fn poll_beat(&mut self) -> Option<Beat> {
+        todo!()
+    }
+
+    /// 노트를 지금 켜고 `length` 뒤에 끈다(PRE-1, 기본 [`DEFAULT_PREVIEW_LENGTH`]). 같은 노트가
+    /// 아직 울리면 먼저 끄고 다시 켠다. 길이는 [1 ms, `MAX_NOTE_LENGTH`]로 맞춘다.
+    ///
+    /// [`DEFAULT_PREVIEW_LENGTH`]: crate::DEFAULT_PREVIEW_LENGTH
+    ///
+    /// # Errors
+    ///
+    /// `QueueFull`, `Os`.
+    pub fn preview(
+        &mut self,
+        port: u16,
+        channel: Channel,
+        pitch: Pitch,
+        velocity: Velocity,
+        length: Duration,
+    ) -> Result<(), MidiError> {
+        let _ = (port, channel, pitch, velocity, length);
+        todo!()
     }
 
     /// 스케줄러가 돌려준, 더 쓰지 않는 스냅샷을 이 스레드에서 해제한다. 돌려받은 수를 돌려준다.
