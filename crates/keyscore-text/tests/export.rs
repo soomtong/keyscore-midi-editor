@@ -317,3 +317,19 @@ fn export_folds_overlaps_after_long_rest_and_stays_linear() {
     // 예산이 실제로 바닥나 겹쳐 적기 경로를 지나는지(지금은 60사례 모두).
     assert!(folded >= 50, "겹쳐 적은 사례 {folded}");
 }
+
+#[test]
+fn track_names_with_hash_stay_bare_and_comment_marks_are_quoted() {
+    // 결정 Q1 개정: #는 이름에 쓸 수 있고, //는 주석 시작이라 따옴표로 감싼다.
+    let c = clip(3840, &[n(0, 960, 60)]);
+    for (name, line) in [
+        ("Lead#2", "@track Lead#2 ch1"),
+        ("A//B", "@track \"A//B\" ch1"),
+        ("A/B", "@track A/B ch1"),
+    ] {
+        let text = export(&Header::default(), &[track(name, 1, &c)]);
+        assert!(text.lines().any(|l| l == line), "{name}: {text}");
+        let p = ok(&text, Mode::Strict);
+        assert_eq!(p.tracks()[0].name(), name);
+    }
+}

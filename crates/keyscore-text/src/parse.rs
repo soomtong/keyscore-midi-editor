@@ -143,6 +143,11 @@ impl Scanner {
         }
     }
 
+    /// 주석 시작(`//`)인가.
+    fn at_comment(&self) -> bool {
+        self.peek() == Some('/') && self.peek_at(1) == Some('/')
+    }
+
     fn skip_to_line_end(&mut self) -> String {
         let mut s = String::new();
         while let Some(c) = self.peek().filter(|&c| c != '\n') {
@@ -276,9 +281,12 @@ impl Parser {
             if c == '@' {
                 self.directive(pos)?;
             } else if self.voice.is_none() {
+                // 첫 @track 앞에는 헤더만 온다. 모르는 토큰은 두 모드 모두 오류다(트랙 밖의 음, 겹친 BOM
+                // 등). 옛 문법의 `#` 주석이면 고칠 방법을 알린다(결정 Q1 개정, 리뷰 지적 1).
+                let hint = if c == '#' { " (주석은 //)" } else { "" };
                 return Err(error(
                     pos,
-                    "@track 블록 밖에는 헤더(@tempo·@time·@key)만 쓸 수 있다",
+                    format!("@track 블록 밖에는 헤더(@tempo·@time·@key)만 쓸 수 있다{hint}"),
                 ));
             } else {
                 self.body_token(pos)?;
@@ -287,13 +295,13 @@ impl Parser {
         self.end_voice()
     }
 
-    /// 공백과 주석. 이 함수가 부르는 자리는 토큰 첫머리라서 `#`는 언제나 주석이다(결정 Q1).
-    /// 음 바로 뒤의 `#`는 [`Parser::note_head`]가 먼저 올림표로 가져간다.
+    /// 공백과 주석. 주석은 `//`부터 줄 끝까지다(결정 Q1, 2026-10-16 개정). `#`는 주석이 아니다.
+    /// 음 바로 뒤의 `#`는 [`Parser::note_head`]가 올림표로 가져가고, 토큰 자리의 `#`는 모르는 토큰이다.
     fn skip_trivia(&mut self) {
         while let Some(c) = self.s.peek() {
             if c.is_whitespace() {
                 self.s.bump();
-            } else if c == '#' {
+            } else if self.s.at_comment() {
                 self.s.skip_to_line_end();
             } else {
                 break;
@@ -442,11 +450,11 @@ impl Parser {
             self.quoted()?
         } else {
             let mut name = String::new();
-            while let Some(c) = self
-                .s
-                .peek()
-                .filter(|&c| !c.is_whitespace() && c != '#' && c != '"')
-            {
+            // 따옴표 없는 이름은 공백, `"`, 주석 시작(`//`)에서 끝난다. `#`는 이름에 쓸 수 있다.
+            while let Some(c) = self.s.peek().filter(|&c| !c.is_whitespace() && c != '"') {
+                if self.s.at_comment() {
+                    break;
+                }
                 name.push(c);
                 self.s.bump();
             }
@@ -707,6 +715,7 @@ impl Parser {
     }
 
     /// 음이름과 바로 붙은 변화표. 변화표 뒤의 `#`도 올림표다(결정 Q1).
+    /// 음이름 없이 홀로 선 `#`는 여기 오지 않고 모르는 토큰이 된다.
     fn note_head(&mut self, pos: Pos) -> R<u8> {
         let pc = self.s.lower_at(0).and_then(pitch_class_of).unwrap_or(0);
         self.s.bump();
@@ -1017,7 +1026,9 @@ impl Parser {
             }
             None => {}
         }
-        self.lenient(pos, format!("모르는 토큰 '{text}'를 건너뛴다"))
+        // 옛 문법의 `#` 주석을 쓴 입력이 많을 것이라 고칠 방법을 함께 알린다(리뷰 제안 3).
+        let hint = if text == "#" { " (주석은 //)" } else { "" };
+        self.lenient(pos, format!("모르는 토큰 '{text}'를 건너뛴다{hint}"))
     }
 
     /// 사건 하나를 성부에 넣고 커서를 명목 길이만큼 옮긴다.

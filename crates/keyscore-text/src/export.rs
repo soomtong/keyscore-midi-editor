@@ -110,11 +110,10 @@ fn quote(s: &str) -> String {
 }
 
 fn track_line(t: &ExportTrack<'_>) -> String {
-    // 파서의 따옴표 없는 이름은 공백·#·"에서 끝난다.
+    // 파서의 따옴표 없는 이름은 공백·"·주석 시작(//)에서 끝난다(결정 Q1, 2026-10-16 개정).
     let bare = !t.name.is_empty()
-        && t.name
-            .chars()
-            .all(|c| !c.is_whitespace() && c != '#' && c != '"');
+        && !t.name.contains("//")
+        && t.name.chars().all(|c| !c.is_whitespace() && c != '"');
     let mut line = format!(
         "@track {} ch{}",
         if bare {

@@ -9,10 +9,10 @@ use keyscore_core::{Key, PitchClass, Tempo, TimeSignature};
 use keyscore_text::{Mode, parse};
 
 /// REQ 5.14의 예시 블록 원문.
-const REQ_EXAMPLE: &str = r"# 주석은 # 뒤
-@tempo 120          # 선택. 없으면 프로젝트 값
-@time 4/4           # 선택
-@key C major        # 선택. 'none' 가능
+const REQ_EXAMPLE: &str = r"// 주석은 // 뒤
+@tempo 120          // 선택. 없으면 프로젝트 값
+@time 4/4           // 선택
+@key C major        // 선택. 'none' 가능
 
 @track Lead ch1 prog0
 o4 l8 c d e f g4 r4 | e d c4 c2 | [c e g]4 r4 c8&c8 d4 |
@@ -116,10 +116,10 @@ fn drum_label_on_melody_track_is_error() {
 }
 
 #[test]
-fn hash_is_sharp_after_note_else_comment() {
-    // 결정 Q1: 음이름 또는 앞선 변화표 바로 뒤의 #만 올림표다.
+fn hash_is_sharp_after_note_and_comment_starts_with_slashes() {
+    // 결정 Q1: 음이름 또는 앞선 변화표 바로 뒤의 #만 올림표다. 주석은 //부터다(2026-10-16 개정).
     assert_eq!(
-        notes(&melody("c# d #e f\ng")),
+        notes(&melody("c# d //e f\ng")),
         vec![n(0, 960, 61), n(960, 960, 62), n(1920, 960, 67)]
     );
     assert_eq!(
@@ -131,17 +131,55 @@ fn hash_is_sharp_after_note_else_comment() {
             n(2880, 960, 62)
         ]
     );
-    // 길이 뒤, 공백 뒤, 줄 첫머리의 #는 주석이다.
+    // 주석은 //부터 줄 끝까지다. 길이 바로 뒤, 공백 뒤, 줄 첫머리 어디서든 된다(결정 Q1 개정).
     assert_eq!(
-        notes(&melody("c4# d\n# e\nf")),
+        notes(&melody("c4// d\n// e\nf")),
         vec![n(0, 960, 60), n(960, 960, 65)]
     );
     assert_eq!(
-        notes(&melody("c #d\ne")),
+        notes(&melody("c //d\ne")),
         vec![n(0, 960, 60), n(960, 960, 64)]
     );
-    // 따옴표 안의 #는 글자다.
+    // 따옴표 안의 #와 //는 글자다.
     assert_eq!(notes(&melody("c\"#1\"")), vec![nl(0, 960, 60, "#1")]);
+    assert_eq!(notes(&melody("c\"//1\"")), vec![nl(0, 960, 60, "//1")]);
+}
+
+#[test]
+fn hash_is_not_a_comment() {
+    // 결정 Q1 개정: #는 음이름·변화표 바로 뒤의 올림표일 뿐이다. 토큰 자리의 #는 모르는 토큰이다.
+    for text in [
+        "@track T ch1\nc # d",
+        "@track T ch1\nc4# d",
+        "@track T ch1\n# e",
+    ] {
+        let (line, _, msg) = err(text, Mode::Strict);
+        assert_eq!(line, 2, "{text}");
+        assert!(msg.contains('#'), "{msg}");
+        // 느슨 모드는 # 한 글자를 건너뛰고 경고한다. 뒤의 음은 그대로 읽는다.
+        let p = ok(text, Mode::Lenient);
+        assert_eq!(p.warnings().len(), 1, "{text}");
+    }
+    assert_eq!(
+        notes(&melody("c # d")),
+        vec![n(0, 960, 60), n(960, 960, 62)]
+    );
+    // 홑 /도 모르는 토큰이다.
+    let p = ok("@track T ch1\nc / d", Mode::Lenient);
+    assert_eq!(warning_positions(&p), vec![(2, 3)]);
+    // 올림표 #는 그대로다.
+    assert_eq!(
+        notes(&melody("c# c+# d#+")),
+        vec![n(0, 960, 61), n(960, 960, 62), n(1920, 960, 64)]
+    );
+}
+
+#[test]
+fn track_name_may_contain_hash_and_ends_at_comment() {
+    let p = ok("@track Lead#2 ch3\nc", Mode::Strict);
+    assert_eq!(p.tracks()[0].name(), "Lead#2");
+    let p = ok("@track Lead// 멜로디\nch3\nc", Mode::Lenient);
+    assert_eq!(p.tracks()[0].name(), "Lead");
 }
 
 #[test]
