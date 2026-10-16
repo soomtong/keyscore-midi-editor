@@ -31,21 +31,34 @@ impl MetronomeConfig {
     /// 벨로시티와 길이는 기본값(강박 127, 약박 100, 50 ms)이다.
     #[must_use]
     pub fn new(port: u16, channel: Channel, accent: Pitch, beat: Pitch) -> Self {
-        let _ = (port, channel, accent, beat, DEFAULT_CLICK_LENGTH);
-        todo!()
+        MetronomeConfig {
+            port,
+            channel,
+            accent,
+            beat,
+            // 7비트 127과 100. 강박이 더 크게 들리게 한다(값은 REQ에 없어 흔한 값을 쓴다).
+            accent_velocity: Velocity::new(0xFFFF),
+            beat_velocity: Velocity::from_midi1(100).unwrap_or(Velocity::new(100 << 9)),
+            length: DEFAULT_CLICK_LENGTH,
+        }
     }
 
     #[must_use]
     pub fn with_velocities(self, accent: Velocity, beat: Velocity) -> Self {
-        let _ = (accent, beat);
-        todo!()
+        MetronomeConfig {
+            accent_velocity: accent,
+            beat_velocity: beat,
+            ..self
+        }
     }
 
     /// 클릭 길이. 0이면 1 ms, [`MAX_NOTE_LENGTH`]를 넘으면 상한으로 줄인다.
     #[must_use]
     pub fn with_length(self, length: Duration) -> Self {
-        let _ = clamp_length(length);
-        todo!()
+        MetronomeConfig {
+            length: clamp_length(length),
+            ..self
+        }
     }
 
     #[must_use]
@@ -89,7 +102,11 @@ impl MetronomeConfig {
 impl Default for MetronomeConfig {
     /// 포트 0, 채널 10, 강박 37, 약박 42(MET-1).
     fn default() -> Self {
-        todo!()
+        // 채널 10은 GM 드럼 채널이고, 37은 사이드 스틱, 42는 닫힌 하이햇이다.
+        let channel = Channel::DRUMS;
+        let accent = Pitch::new(37).unwrap_or(Pitch::MIN);
+        let beat = Pitch::new(42).unwrap_or(Pitch::MIN);
+        MetronomeConfig::new(0, channel, accent, beat)
     }
 }
 
