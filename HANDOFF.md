@@ -1,4 +1,4 @@
-# HANDOFF: KeyScore S1 진행 중 — S1 완료·서명, S2 다음
+# HANDOFF: KeyScore S1 진행 중 — S2 진행 중 — S2-T1 병합, S2-T2 다음
 
 ## 목표
 
@@ -6,7 +6,7 @@
 
 ## 현재 브랜치
 
-`main` — S0 완료·서명(2026-10-15), S1-T1~T7과 계이름 텍스트 주석 `//` 변경 병합(테스트 818개 통과). S1 출구 서명(YoungTaek, 2026-10-16). 다음은 S2.
+`main` — S0 완료·서명(2026-10-15), S1-T1~T7과 계이름 텍스트 주석 `//` 변경 병합(테스트 818개 통과). S1 출구 서명(YoungTaek, 2026-10-16). S2-T1 병합(테스트 861개). 다음은 S2-T2 키맵 엔진(`s2/t2-keymap`).
 
 ## 완료된 작업
 
@@ -20,6 +20,7 @@
 - [x] S0-T5 계이름 텍스트 파서·내보내기(리뷰 9회, 결정 `2026-10-13-ktext-export-voice-budget.md`와 개정). 엄격 모드 왕복의 알려진 예외와 출력 크기 상한(선형, 256배)은 `docs/decisions/2026-10-12-ktext-implementation-details.md`
 - [x] S0-T8 `ksq-cli`(리뷰 11회, 결정 `2026-10-14-ksq-cli-output-path-scope.md`: `-o`는 일반 파일만). 픽스처 8곡 `assets/fixtures/`, 원본 텍스트 `tools/ksq-cli/fixtures-src/`
 - [x] S0 출구 보고서 `docs/reports/stage-0-exit.md`(자동 게이트 통과, 사람 항목 대기)
+- [x] S2-T1 GPUI 앱과 창 모델(리뷰 3회). gpui-kit `=0.7.1`(결정 `2026-10-16-gpui-kit-licenses-and-advisories.md` A: 0BSD·CC0 허용, 권고 넷 무시). 창 = 프로젝트, `ProjectDocument`가 undo 엔진만 거침, 펴진 패널만 Resizable 자식, 설정 `settings.json`(모르는 키 보존, `.bak`). core `.ksq` 쓰기는 모르는 키를 직접 정렬(워크스페이스에서 `serde_json` `preserve_order`가 켜짐)
 - [x] 계이름 텍스트 주석을 `//`로(결정 Q1 개정, 2026-10-16 사람 지시). `#`는 음 뒤 올림표만. 헤더 영역의 `#`는 두 모드 오류, 트랙 안은 느슨 모드 경고. 리뷰 3회. `docs/reports/s0-t5-comments/`
 - [x] S1-T7 `render`(keyscore-midi)와 재생 도구 `tools/ksq-play`(ksq-cli는 core+text 유지). 없는 이름 포트는 같은 이름의 가상 포트를 따로 만든다. 뮤트+솔로는 솔로가 이김(`2026-10-16-mute-solo-precedence.md`). 리뷰 2회
 - [x] S1 출구 자동 게이트: 1시간판 NF-3 p99 0.104 ms, NF-4 0.0125–0.037 ms
@@ -47,6 +48,7 @@
 - 커널 경로 해석(링크, `/dev/fd`, `..`, 끝 `/`)을 도구가 흉내 내기(S0-T8 리뷰 2–8): 매 회차 새 구멍이 나왔다. 범위를 줄여(`-o`는 일반 파일만) 해결했다. 경계가 계속 나오면 일찍 범위 재정의를 묻는다.
 - 유니코드 이름 규칙처럼 끝없는 모서리 영역은 확인 리뷰에 판정 기준(회귀·결정 위반·결함만 「수정」)을 명시해 좁힌다(S1-T1 리뷰 7).
 - 확인 리뷰에서 같은 갈래 지적이 두 번 이상 나오면 패턴을 하나씩 막지 말고 원인을 고친다.
+- `serde_json::Map` 순서에 기대지 않는다. 워크스페이스에 gpui-kit이 있으면 feature 통합으로 `preserve_order`가 켜진다(S2-T1).
 - 파서·변환에서 「정렬 삽입을 하나씩」은 악의적 입력에서 O(n²)이 된다(S1-T6 리뷰 1–3). 모아서 한 번 정렬하고, 반복 안의 전체 훑기를 피한다.
 - 단계 파일 수치를 검증 없이 옮기기: S0-T3 「1시간 = 3,456,000틱」은 60 BPM 기준이었다(정정함).
 
@@ -82,7 +84,7 @@ REQ 문구: 사람이 에이전트에게 수정을 허락한 범위(결정 문�
 
 ## 다음 에이전트에게
 
-1. S2(`plan/stages/12-S2-*.md`)를 시작한다. S2-T5·T7의 이월 줄과 결정 대기 문서(S2-T5 전, S2-T7 전)를 먼저 읽는다. MIDI 테스트 흔들림은 `scripts/midi-soak.sh N [쉬는 초]`로 본다.
+1. S2-T2(키맵 엔진, REQ 7.3·KM-*)를 시작한다. 앱 테스트는 `#[gpui_kit::test]` 헤드리스. GPUI 빌드가 무거워 전체 게이트는 백그라운드로 돌린다. S2-T5·T7의 이월 줄과 결정 대기 문서(S2-T5 전, S2-T7 전)를 먼저 읽는다. MIDI 테스트 흔들림은 `scripts/midi-soak.sh N [쉬는 초]`로 본다.
 2. Task 루프: 브랜치 `s1/t<번호>-<slug>` → `docs/reports/s1-t<번호>/plan.md` → 테스트 먼저(뼈대 `todo!()`로 실패 확인) → 구현 → 게이트 전부(커밋 전에) → `report.md` → 새 에이전트로 적대적 리뷰(`general-purpose`, 구현 맥락 없이, 양식 `plan/templates/adversarial-review.md`, 산출물만 남기고 커밋 금지, 기존 `.proptest-regressions` 삭제 금지) → 지적마다 커밋 하나 → 재리뷰(최대 3회) → `git merge --no-ff`.
 3. 자동 게이트: `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`, `cargo deny check`, `scripts/check-deps.sh`, `scripts/check-deps.test.sh`, `scripts/bench-check.test.sh`. `core`·`text`에 외부 의존을 더하면 `scripts/check-deps.sh`의 허용 목록도 고친다.
 4. REQ에 없는 결정은 임의로 정하지 말고 사람에게 묻거나 `docs/decisions/`에 결정 요청을 쓴다. 사람과의 대화는 한국어로 하고, 문서에 `**`를 쓰지 않는다.
