@@ -50,6 +50,8 @@ expected_internal() {
     keyscore-app) echo "keyscore-ai keyscore-core keyscore-midi keyscore-text" ;;
     # 픽스처·변환 도구는 앱 없이 돌아야 하므로 core와 text만 쓴다(plan/00-conventions.md).
     ksq-cli) echo "keyscore-core keyscore-text" ;;
+    # 재생 도구는 모델을 읽어 MIDI로 보낸다(S1-T7). text·ai·app에 기대지 않는다.
+    ksq-play) echo "keyscore-core keyscore-midi" ;;
   esac
 }
 
@@ -70,7 +72,7 @@ allowed_external() {
 # 허용 목록을 거친 전이 의존에서도 UI·MIDI·네트워크가 들어오지 않아야 한다(core·text·ksq-cli).
 forbidden='^(gpui|gpui[-_].*|zed[-_].*|coremidi.*|core[-_]midi.*|objc|objc2.*|cocoa.*|core[-_]foundation.*|core[-_]graphics.*|metal|block2?|dispatch2?|reqwest|ureq|hyper|hyper[-_].*|h2|h3|http|http[-_].*|tokio|tokio[-_].*|async[-_]std|smol|mio|socket2|rustls.*|native[-_]tls|openssl.*|security[-_]framework.*|curl|curl[-_]sys|isahc|surf|tungstenite|tokio[-_]tungstenite)$'
 
-crates="keyscore-core keyscore-text keyscore-midi keyscore-ai keyscore-app ksq-cli"
+crates="keyscore-core keyscore-text keyscore-midi keyscore-ai keyscore-app ksq-cli ksq-play"
 
 for crate in $crates; do
   if ! tree=$(tree_of "$crate" --depth 1); then

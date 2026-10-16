@@ -135,5 +135,10 @@ expect fail "ksq-cli의 target-specific reqwest" ksq-cli \
   "[target.'cfg(windows)'.dependencies]
 reqwest = { path = \"$fake/reqwest\" }"
 
+reason="ksq-play 내부 의존이 다르다"
+expect fail "ksq-play → keyscore-text" ksq-play \
+  "[target.'cfg(all())'.dependencies]
+keyscore-text.workspace = true"
+
 echo "check-deps.test: $passed passed, $failed failed"
 [ "$failed" -eq 0 ]

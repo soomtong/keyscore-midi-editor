@@ -111,7 +111,7 @@ impl ScheduledEvent {
 }
 
 /// 같은 틱 안의 순서: Note Off(벨로시티 0인 Note On 포함), 그 밖, Note On.
-fn order_class(msg: Midi1Message) -> u8 {
+pub(crate) fn order_class(msg: Midi1Message) -> u8 {
     let b = msg.bytes();
     match (b[0] & 0xF0, b.get(2).copied().unwrap_or(0)) {
         (0x80, _) | (0x90, 0) => 0,

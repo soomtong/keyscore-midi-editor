@@ -1,0 +1,21 @@
+[package]
+name = "ksq-play"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+# .ksq를 CoreMIDI로 재생한다(S1-T7). ksq-cli는 CoreMIDI 없이 돌아야 해서 따로 둔다(plan/00-conventions.md).
+[dependencies]
+keyscore-core.workspace = true
+keyscore-midi.workspace = true
+thiserror.workspace = true
+# Ctrl-C에 패닉·정지를 보내고 끝내려고 쓴다(걸린 노트를 남기지 않는다, OUT-6).
+ctrlc = "3"
+
+[dev-dependencies]
+coremidi.workspace = true
