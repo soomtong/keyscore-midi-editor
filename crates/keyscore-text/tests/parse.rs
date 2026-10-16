@@ -117,9 +117,9 @@ fn drum_label_on_melody_track_is_error() {
 
 #[test]
 fn hash_is_sharp_after_note_and_comment_starts_with_slashes() {
-    // 결정 Q1: 음이름 또는 앞선 변화표 바로 뒤의 #만 올림표다.
+    // 결정 Q1: 음이름 또는 앞선 변화표 바로 뒤의 #만 올림표다. 주석은 //부터다(2026-10-16 개정).
     assert_eq!(
-        notes(&melody("c# d #e f\ng")),
+        notes(&melody("c# d //e f\ng")),
         vec![n(0, 960, 61), n(960, 960, 62), n(1920, 960, 67)]
     );
     assert_eq!(
@@ -170,7 +170,7 @@ fn hash_is_not_a_comment() {
     // 올림표 #는 그대로다.
     assert_eq!(
         notes(&melody("c# c+# d#+")),
-        vec![n(0, 960, 61), n(960, 960, 62), n(1920, 960, 63)]
+        vec![n(0, 960, 61), n(960, 960, 62), n(1920, 960, 64)]
     );
 }
 
@@ -178,7 +178,7 @@ fn hash_is_not_a_comment() {
 fn track_name_may_contain_hash_and_ends_at_comment() {
     let p = ok("@track Lead#2 ch3\nc", Mode::Strict);
     assert_eq!(p.tracks()[0].name(), "Lead#2");
-    let p = ok("@track Lead// 멜로디\nch3", Mode::Lenient);
+    let p = ok("@track Lead// 멜로디\nch3\nc", Mode::Lenient);
     assert_eq!(p.tracks()[0].name(), "Lead");
 }
 
