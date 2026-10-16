@@ -7,9 +7,14 @@ Copyright (c) 2026, the KeyScore authors
 Apache-2.0 구성요소는 각자의 NOTICE 내용을 아래에 옮긴다.
 구성요소를 의존성으로 추가하는 Task가 해당 항목을 함께 추가한다.
 
-현재 포함된 제3자 구성요소: 없음
+현재 포함된 제3자 구성요소
 
-추가 예정(REQ 9.1, 9.4)
-- gpui-kit (Apache-2.0)
-- GPUI, gpui-pre 스냅샷 (Apache-2.0)
+- gpui-kit 0.7.1(gpui-kit, gpui-base, gpui-component, gpui-kit-assets), Apache-2.0
+  - 아이콘은 gpui-kit-assets가 묶은 Lucide 세트다(ISC).
+- GPUI, Zed의 gpui-pre 0.3.8 스냅샷(gpui-pre와 그 플랫폼 crate), Apache-2.0
+- 위 구성요소는 배포 패키지에 NOTICE 파일을 두지 않는다. Apache-2.0 4(d)에 따라 옮길 고지문이 없다.
+  라이선스 전문은 각 crate의 LICENSE-APACHE에 있다.
+- 그 밖의 전이 의존은 `cargo deny`가 허용 목록(deny.toml)으로 검사한다.
+
+추가 예정(REQ 9.4)
 - Ely GPUI Components (Apache-2.0)

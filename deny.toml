@@ -10,6 +10,15 @@ all-features = true
 
 [advisories]
 yanked = "deny"
+# 결정 2026-10-16-gpui-kit-licenses-and-advisories A: gpui-kit이 고정한 GPUI 스냅샷(REQ 9.1)의 전이
+# 의존에 걸린 유지보수 중단 알림이다. 취약점이 아니고 안전한 업그레이드가 없다. gpui-kit을 올릴 때마다
+# 이 목록을 다시 본다.
+ignore = [
+  { id = "RUSTSEC-2024-0384", reason = "instant: GPUI 스냅샷 전이 의존, 업그레이드 없음" },
+  { id = "RUSTSEC-2024-0436", reason = "paste: gpui-component·metal 전이 의존, 업그레이드 없음" },
+  { id = "RUSTSEC-2026-0206", reason = "rustybuzz: usvg ← gpui-pre 전이 의존, 업그레이드 없음" },
+  { id = "RUSTSEC-2026-0192", reason = "ttf-parser: 폰트 경로 전이 의존, 업그레이드 없음" },
+]
 
 [licenses]
 allow = [
@@ -25,6 +34,10 @@ allow = [
   "Unicode-3.0",
   "bzip2-1.0.6",
   "MPL-2.0",
+  # 결정 2026-10-16-gpui-kit-licenses-and-advisories A: gpui-kit의 전이 의존.
+  # enum-iterator(0BSD, 고지 의무도 없는 BSD 계열), notify(CC0-1.0, 퍼블릭 도메인 헌정).
+  "0BSD",
+  "CC0-1.0",
 ]
 # BSD-1-Clause(assert_no_alloc, S1-T4)는 REQ 8.4의 「BSD」 계열이고 BSD-2보다 조건이 적다.
 confidence-threshold = 0.9
