@@ -302,6 +302,7 @@ impl Scheduler {
             next_clock: 0,
             active: vec![0; MAX_SCHEDULER_PORTS * 16 * 128].into_boxed_slice(),
             chase: vec![NONE; MAX_SCHEDULER_PORTS * 16 * CHASE_SLOTS].into_boxed_slice(),
+            off_until: vec![0; MAX_SCHEDULER_PORTS * 16 * 128].into_boxed_slice(),
             metronome: MetronomeConfig::default(),
             click_length: timebase.ticks(MetronomeConfig::default().length()),
             metronome_enabled: false,
@@ -591,6 +592,9 @@ struct Rt {
     active: Box<[u8]>,
     /// (포트, 채널)마다 chase 값.
     chase: Box<[u8]>,
+    /// (포트, 채널, 음높이)마다 지금까지 넘긴 가장 늦은 Note Off 시각. 넘긴 예약은 취소할 수 없으므로
+    /// 미리듣기·클릭의 Note On을 이 뒤로 미뤄, 앞서 넘긴 Note Off에 끊기지 않게 한다(S1-T5 리뷰 2).
+    off_until: Box<[u64]>,
     metronome: MetronomeConfig,
     /// 클릭 길이(호스트 틱). 설정이 바뀔 때 한 번 바꾼다.
     click_length: u64,
@@ -1094,6 +1098,9 @@ impl Rt {
             }
         }
         let slot = slot.unwrap_or_else(|| self.free_earliest_off());
+        // 정지·패닉·표 넘침 등 어느 경로로든 미래로 넘긴 Note Off보다 앞에 켜지 않는다.
+        let key = active_index(port, status & 0x0F, *note);
+        let host = host.max(self.off_until.get(key).copied().unwrap_or(0));
         self.send_to(port, host, on);
         self.offs[slot] = Some(PendingOff {
             host: host.saturating_add(length.max(1)),
@@ -1178,6 +1185,9 @@ impl Rt {
                     *count = count.saturating_add(1);
                 } else {
                     *count = count.saturating_sub(1);
+                    if let Some(until) = self.off_until.get_mut(i) {
+                        *until = (*until).max(host);
+                    }
                 }
             }
         }
