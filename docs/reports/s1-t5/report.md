@@ -82,3 +82,14 @@ keyscore-midi 3회 반복: 모두 통과
    - 루프 되감기에서도 불린다. 되감기 직전에 켠 미리듣기 노트는 되감기 때 꺼진다.
    - S1-T4부터 `send_now` 노트에 대해 같은 동작이었다.
 4. `forget_offs_on_changed_ports`와 `release_changed_ports`·`release_unless_continued`의 순서. 둘 다 옛 스냅샷이 아직 `self.snap`일 때 불린다.
+
+## 리뷰 대응 (review-1, 판정: 수정 후 재리뷰)
+
+| # | 지적 | 대응 |
+| --- | --- | --- |
+| 1 | lookahead로 미리 넘긴 클릭 Note On보다 같은 노트의 미리듣기가 먼저 오면, 앞당긴 끄기가 짝 Note On보다 앞서 노트가 남음 | 끄기 대기 칸에 짝 Note On 시각(`on_host`)을 둔다. 다시 켜기와 표 넘침 때 앞당기는 끄기는 그 시각 뒤에 보내고, 새 Note On도 그 뒤로 미룬다(최대 lookahead). 커밋 `midi: Keep a retrigger's note off after its pending note on` |
+| 2 | `preview`가 포트 번호를 검사하지 않음 (제안) | 반영. 범위 밖이면 `InvalidMessage` |
+| 3 | 박 큐가 차면 최신 박을 잃음 (제안) | 반영하지 않았다. SPSC 큐의 생산자 쪽에서는 옛 항목을 버릴 수 없다. UI가 프레임마다 비우면 256박(수십 초)이 쌓이지 않는다. S2 UI 연결 때 비우는 주기를 정한다 |
+| 4 | `beat_at_or_after`가 박자표 변화를 선형 탐색 (제안) | 반영하지 않았다. 박마다 한 번이고 할당이 없다. 변화가 수천 개인 SMF를 S1-T6에서 다룰 때 이분 탐색으로 바꾼다 |
+
+리뷰어 테스트는 바뀌지 않았다. 실패하던 2개가 통과한다. `keyscore-midi` 테스트 3회 반복 통과, 워크스페이스 688개 통과.
