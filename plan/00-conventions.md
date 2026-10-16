@@ -17,6 +17,7 @@ keyscore/
     keyscore-app/            # GPUI UI (gpui-kit), 키맵, 모드 FSM, 온보딩, 설정
   tools/
     ksq-cli/                 # core+text만 쓰는 CLI (ksq↔mid↔txt 변환, 픽스처 생성)
+    ksq-play/                # core+midi로 .ksq를 재생하는 CLI (S1-T7, 스케줄러 첫 실사용)
   assets/
     prompts/                 # 시스템·과제 템플릿 (Markdown)
     fixtures/                # 실험실 픽스처 (.ksq)
