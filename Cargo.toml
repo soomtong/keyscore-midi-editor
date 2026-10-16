@@ -7,6 +7,7 @@ members = [
   "crates/keyscore-ai",
   "crates/keyscore-app",
   "tools/ksq-cli",
+  "tools/ksq-play",
 ]
 # 스파이크는 제품 빌드에 섞이지 않는다(plan/02-spikes.md 게이트).
 exclude = ["spikes"]

@@ -12,6 +12,7 @@ mod midi_thread;
 mod os;
 mod port;
 mod ports;
+mod render;
 mod rt;
 mod scheduler;
 mod smf;
@@ -32,6 +33,7 @@ pub use port::MidiPort;
 pub use ports::{
     Action, Link, PortEvent, PortInfo, Reconnector, Suggestion, diff_ports, suggest_mapping,
 };
+pub use render::{Rendered, render};
 pub use scheduler::{MAX_SCHEDULER_PORTS, ScheduledEvent, Scheduler, SchedulerConfig, Snapshot};
 pub use smf::{
     MAX_SONG_TICKS, SmfError, SmfEvent, SmfEventKind, SmfFile, SmfFormat, SmfLimits, SmfTrack,
