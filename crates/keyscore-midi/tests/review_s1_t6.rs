@@ -159,8 +159,14 @@ fn low_ppq_huge_delta_does_not_amplify_written_size() {
     events.push((0, vec![0x90, 60, 100]));
     events.push((1, vec![0x80, 60, 0]));
     let input = smf(0, 1, &[track_body(&events)]);
-    let song = song_of(&input);
-    let written = song.to_smf(SmfFormat::Parallel).write();
+    // 곡 길이 상한(`MAX_SONG_TICKS`)을 넘는 곡은 읽기에서 `TooLong`이다(구현자 수정: 이 리뷰의 제안대로
+    // 상한을 두었다). 상한 안이면 쓰기가 불어나지 않아야 한다.
+    let file = keyscore_midi::SmfFile::read(&input).unwrap();
+    let song = match keyscore_midi::Song::from_smf(&file) {
+        Err(keyscore_midi::SmfError::TooLong { .. }) => return,
+        other => other.unwrap(),
+    };
+    let written = song.to_smf(SmfFormat::Parallel).unwrap().write();
     assert!(
         written.len() <= 100 * input.len(),
         "입력 {} B → 출력 {} B",
@@ -220,7 +226,7 @@ fn cc_pressure_and_bend_upscale_match_midi2_reference_for_every_value() {
     assert_eq!(bend[0x2000], 0x8000_0000);
     assert_eq!(bend[0x3FFF], 0xFFFF_FFFF);
     // 다시 쓰면 7·14비트 원래 값이다.
-    let again = song_of(&song.to_smf(SmfFormat::Single).write());
+    let again = song_of(&song.to_smf(SmfFormat::Single).unwrap().write());
     assert_eq!(again, song);
 }
 
@@ -364,9 +370,9 @@ fn smf_song_smf_reaches_byte_fixed_point() {
     for name in ["aloha-oe.mid", "terzetto-012.mid", "gm-128-sounds-demo.mid"] {
         let first = song_of(&std::fs::read(dir.join(name)).unwrap());
         for format in [SmfFormat::Parallel, SmfFormat::Single] {
-            let a = first.to_smf(format).write();
-            let b = song_of(&a).to_smf(format).write();
-            let c = song_of(&b).to_smf(format).write();
+            let a = first.to_smf(format).unwrap().write();
+            let b = song_of(&a).to_smf(format).unwrap().write();
+            let c = song_of(&b).to_smf(format).unwrap().write();
             assert_eq!(b, c, "{name} {format:?}");
         }
     }

@@ -91,6 +91,9 @@ pub enum SmfError {
     /// 이벤트에 쓸 수 없는 상태 바이트(0xF1–0xF6, 0xF8–0xFE)가 왔다.
     #[error("{offset}바이트에 SMF에 올 수 없는 상태 바이트 {status:#04x}")]
     BadStatus { offset: usize, status: u8 },
+    /// 곡이 [`MAX_SONG_TICKS`](crate::MAX_SONG_TICKS)(PPQ 960)보다 길다.
+    #[error("곡이 너무 길다(틱 {tick})")]
+    TooLong { tick: u64 },
     /// 채널 메시지의 데이터 바이트가 7비트가 아니다.
     #[error("{offset}바이트의 데이터 바이트가 7비트가 아니다")]
     BadData { offset: usize },

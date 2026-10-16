@@ -10,6 +10,14 @@ use keyscore_core::{
 use super::raw::{SmfError, SmfEvent, SmfEventKind, SmfFile, SmfFormat, SmfTrack};
 use crate::{Midi1Message, note_on, pitch_bend, program_change};
 
+/// 곡의 최대 길이(PPQ 960 틱). 4분음표 약 447만 개로, 가장 느린 템포에서도 몇 년이다. 노트 길이(u32)가
+/// 잘리지 않고, SMF로 쓸 때 가변 길이 수(28비트)를 넘는 델타를 채우는 메타가 트랙마다 16개를 넘지
+/// 않는다. 이보다 긴 곡은 읽기·쓰기에서 `SmfError::TooLong`이다(S1-T6 리뷰 1 지적 4).
+pub const MAX_SONG_TICKS: u64 = u32::MAX as u64;
+
+/// SMF 트랙 수 상한(헤더 u16). Type 1은 템포 트랙 하나를 더 쓴다.
+const MAX_SMF_TRACKS: usize = u16::MAX as usize;
+
 /// 곡 트랙의 노트. 시작은 곡의 절대 틱이다.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SongNote {
@@ -214,9 +222,18 @@ impl Song {
     ///
     /// # Errors
     ///
-    /// 지금은 오류를 내지 않는다. 형식 검사를 늘릴 자리로 `Result`를 둔다.
+    /// 재배율한 곡이 [`MAX_SONG_TICKS`]보다 길면 [`SmfError::TooLong`].
     pub fn from_smf(file: &SmfFile) -> Result<Song, SmfError> {
         let scale = Rescale(u128::from(file.ppq().max(1)));
+        // 끝 틱은 트랙의 모든 이벤트 이상이다. 재배율한 끝이 상한 안이면 모든 틱이 상한 안이다.
+        if let Some(tick) = file
+            .tracks()
+            .iter()
+            .map(|t| scale.tick(t.end()))
+            .find(|&t| t > MAX_SONG_TICKS)
+        {
+            return Err(SmfError::TooLong { tick });
+        }
         let mut tempos = Vec::new();
         let mut meters = Vec::new();
         for track in file.tracks() {
@@ -274,12 +291,23 @@ impl Song {
         if lyrics.is_empty() || self.tracks.is_empty() {
             return;
         }
+        // 가사 틱마다 개수를 세고, 그 틱에 노트가 시작하는 트랙에 더한다. 노트를 한 번씩만 보므로
+        // (노트 수 + 가사 수)에 비례한다(S1-T6 리뷰 1 지적 2).
+        let mut per_tick: BTreeMap<Tick, usize> = BTreeMap::new();
+        for (tick, _) in &lyrics {
+            *per_tick.entry(*tick).or_default() += 1;
+        }
         let mut best = (0usize, 0usize);
         for (i, t) in self.tracks.iter().enumerate() {
-            let hits = lyrics
-                .iter()
-                .filter(|(tick, _)| t.has_note_at(*tick))
-                .count();
+            let mut hits = 0;
+            let mut last = None;
+            for n in &t.notes {
+                if last == Some(n.start) {
+                    continue;
+                }
+                last = Some(n.start);
+                hits += per_tick.get(&n.start).copied().unwrap_or(0);
+            }
             if hits > best.1 {
                 best = (i, hits);
             }
@@ -290,8 +318,17 @@ impl Song {
     }
 
     /// SMF로 쓴다. Type 1은 첫 트랙에 템포·박자표를 두고 곡 트랙마다 하나씩, Type 0은 하나로 합친다.
-    #[must_use]
-    pub fn to_smf(&self, format: SmfFormat) -> SmfFile {
+    ///
+    /// # Errors
+    ///
+    /// 어떤 이벤트가 [`MAX_SONG_TICKS`] 뒤면 [`SmfError::TooLong`], 트랙이 SMF 헤더에 담기지 않으면
+    /// [`SmfError::TooManyTracks`]. 조용히 자르거나 버리지 않는다.
+    pub fn to_smf(&self, format: SmfFormat) -> Result<SmfFile, SmfError> {
+        if format == SmfFormat::Parallel && self.tracks.len() >= MAX_SMF_TRACKS {
+            return Err(SmfError::TooManyTracks {
+                max: MAX_SMF_TRACKS - 1,
+            });
+        }
         let mut conductor = Vec::new();
         for (tick, tempo) in self.tempo.changes() {
             let [_, a, b, c] = tempo.micros_per_quarter().to_be_bytes();
@@ -308,6 +345,14 @@ impl Song {
             .iter()
             .map(|t| track_events(t, format == SmfFormat::Parallel))
             .collect();
+        if let Some(tick) = conductor
+            .iter()
+            .chain(per_track.iter().flatten())
+            .map(|e| e.tick)
+            .find(|&t| t > MAX_SONG_TICKS)
+        {
+            return Err(SmfError::TooLong { tick });
+        }
         let tracks = match format {
             SmfFormat::Parallel => std::iter::once(conductor)
                 .chain(per_track)
@@ -319,7 +364,7 @@ impl Song {
                 vec![finish_track(all)]
             }
         };
-        SmfFile::from_parts(format, 960, tracks)
+        Ok(SmfFile::from_parts(format, 960, tracks))
     }
 
     /// 모델 프로젝트로 옮긴다. 노트가 있는 마디를 이어 클립으로 묶는다(SEQ-9). 레인(CC·벤드·프레셔)과
@@ -376,22 +421,42 @@ impl Song {
             if let Some(program) = track.program() {
                 st.add_program(Tick::ZERO, program);
             }
+            let mut lyrics = Vec::new();
             for (_, clip) in track.clips() {
                 for note in clip.notes() {
                     let start = clip.start().get().saturating_add(note.start().get());
                     // 숨김 꼬리는 클립 끝에서 자른다(결정 2026-10-12 Q1).
                     let end = note.end().min(clip.length());
                     let length = u32::try_from(end - note.start().get()).unwrap_or(u32::MAX);
-                    st.add_note(SongNote::new(
+                    st.notes.push(SongNote::new(
                         Tick::new(start),
                         length,
                         note.pitch(),
                         note.velocity(),
                     ));
-                    if let Some(text) = note.lyric() {
-                        st.add_lyric(Tick::new(start), text);
+                    lyrics.push((
+                        Tick::new(start),
+                        std::cmp::Reverse(note.pitch()),
+                        note.lyric(),
+                    ));
+                }
+            }
+            // 노트는 한 번에 정렬한다. 같은 틱의 가사는 높은 음부터 둔다(`bar_groups`가 같은 순서로 붙인다).
+            // SMF에는 가사가 어느 노트의 것인지 적을 자리가 없다. 그래서 가사가 있는 가장 낮은 음까지,
+            // 가사 없는 위 음의 자리를 빈 가사로 채운다. 맨 위 음 하나에만 가사가 있으면 채울 것이 없다.
+            st.notes.sort_unstable();
+            lyrics.sort_by_key(|l| (l.0, l.1));
+            let mut i = 0;
+            while i < lyrics.len() {
+                let tick = lyrics[i].0;
+                let same = lyrics[i..].partition_point(|l| l.0 == tick);
+                let group = &lyrics[i..i + same];
+                if let Some(last) = group.iter().rposition(|l| l.2.is_some()) {
+                    for (_, _, text) in &group[..=last] {
+                        st.add_lyric(tick, text.unwrap_or(""));
                     }
                 }
+                i += same;
             }
             song.push_track(st);
         }
@@ -509,7 +574,7 @@ fn split_track(track: &SmfTrack, name: Option<&str>, scale: Rescale) -> Vec<Song
                     0x90 if d2 > 0 => open[ch * 128 + usize::from(d1)].push_back((e.tick(), d2)),
                     0x80 | 0x90 => {
                         if let Some((start, v)) = open[ch * 128 + usize::from(d1)].pop_front() {
-                            st.add_note(make_note(scale, start, e.tick(), d1, v));
+                            st.notes.push(make_note(scale, start, e.tick(), d1, v));
                         }
                     }
                     0xB0 => st.add_cc(d1, CcPoint::new(at, upscale7(d2))),
@@ -538,9 +603,14 @@ fn split_track(track: &SmfTrack, name: Option<&str>, scale: Rescale) -> Vec<Song
             if let Some(st) = by_channel[key / 128].as_mut() {
                 let end = track.end().max(start);
                 let pitch = u8::try_from(key % 128).unwrap_or(0);
-                st.add_note(make_note(scale, start, end, pitch, v));
+                st.notes.push(make_note(scale, start, end, pitch, v));
             }
         }
+    }
+    // 노트는 끝나는 순서로 모였다. 한 번에 정렬한다(끄는 순서가 켜는 순서와 달라도 정렬 삽입이
+    // O(n²)이 되지 않게, S1-T6 리뷰 1 지적 1).
+    for st in by_channel.iter_mut().flatten() {
+        st.notes.sort_unstable();
     }
     let mut tracks: Vec<SongTrack> = by_channel
         .into_iter()
@@ -693,16 +763,26 @@ type NoteWithLyric = (SongNote, Option<String>);
 
 /// 노트가 걸친 마디를 이어 (클립 시작, 길이, 노트와 가사) 묶음으로 나눈다(SEQ-9).
 fn bar_groups(meter: &MeterMap, t: &SongTrack) -> Vec<(Tick, u64, Vec<NoteWithLyric>)> {
-    // 가사는 그 틱에 시작하는 노트 가운데 가장 높은 음에 붙인다.
+    // 가사는 그 틱에 시작하는 노트에 높은 음부터 차례로 붙인다. 가사가 하나면 가장 높은 음(선율)이다.
+    // 화음에 가사가 여럿이면 `from_project`가 높은 음부터 내보낸 순서와 맞는다(리뷰 1 제안 5).
     let mut lyric_of: BTreeMap<(Tick, Pitch), String> = BTreeMap::new();
-    for (tick, text) in &t.lyrics {
+    let mut i = 0;
+    while i < t.lyrics.len() {
+        let tick = t.lyrics[i].0;
+        let same = t.lyrics[i..].partition_point(|l| l.0 == tick);
         // 노트는 시작 순이라 그 틱의 노트를 이분 탐색으로 찾는다(가사 수 × 노트 수가 되지 않게).
-        let from = t.notes.partition_point(|n| n.start < *tick);
-        let to = t.notes.partition_point(|n| n.start <= *tick);
-        let highest = t.notes[from..to].iter().map(|n| n.pitch).max();
-        if let Some(p) = highest {
-            lyric_of.entry((*tick, p)).or_insert_with(|| text.clone());
+        let from = t.notes.partition_point(|n| n.start < tick);
+        let to = t.notes.partition_point(|n| n.start <= tick);
+        let mut pitches: Vec<Pitch> = t.notes[from..to].iter().map(|n| n.pitch).collect();
+        pitches.sort_unstable_by(|a, b| b.cmp(a));
+        pitches.dedup();
+        for (p, (_, text)) in pitches.into_iter().zip(&t.lyrics[i..i + same]) {
+            // 빈 가사는 자리만 채운다(`from_project`가 가사 없는 위 음 자리에 넣는다).
+            if !text.is_empty() {
+                lyric_of.insert((tick, p), text.clone());
+            }
         }
+        i += same;
     }
     let mut groups: Vec<(u64, u64, Vec<NoteWithLyric>)> = Vec::new();
     let mut by_bar: Vec<(u64, u64, SongNote)> = t

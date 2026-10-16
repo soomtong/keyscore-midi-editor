@@ -11,4 +11,4 @@ mod raw;
 mod song;
 
 pub use raw::{SmfError, SmfEvent, SmfEventKind, SmfFile, SmfFormat, SmfLimits, SmfTrack};
-pub use song::{Song, SongNote, SongTrack};
+pub use song::{MAX_SONG_TICKS, Song, SongNote, SongTrack};

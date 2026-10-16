@@ -149,10 +149,10 @@ fn public_samples_round_trip_event_sets() {
             "{path:?}: 노트가 없다"
         );
         // Type 1로 다시 쓰면 곡이 그대로다.
-        let again = song_of(&first.to_smf(SmfFormat::Parallel).write());
+        let again = song_of(&first.to_smf(SmfFormat::Parallel).unwrap().write());
         assert_eq!(again, first, "{path:?}: Type 1 왕복");
         // Type 0으로 합치면 채널별 이벤트 집합과 템포·박자표가 그대로다.
-        let single = song_of(&first.to_smf(SmfFormat::Single).write());
+        let single = song_of(&first.to_smf(SmfFormat::Single).unwrap().write());
         assert_eq!(
             by_channel(&single),
             by_channel(&first),
@@ -205,7 +205,7 @@ fn lyrics_round_trip_through_smf_and_project() {
         .collect();
     assert_eq!(lyrics, ["도", "fé"]);
     let back = Song::from_project(&project);
-    let again = song_of(&back.to_smf(SmfFormat::Parallel).write());
+    let again = song_of(&back.to_smf(SmfFormat::Parallel).unwrap().write());
     assert_eq!(again.tracks()[0].lyrics(), t.lyrics());
     assert_eq!(again.tracks()[0].notes(), t.notes());
 }
@@ -231,7 +231,7 @@ fn velocity_and_cc_survive_round_trip() {
     let bytes = smf(1, 960, &[track(&refs)]);
     let original = SmfFile::read(&bytes).unwrap();
     let song = Song::from_smf(&original).unwrap();
-    let written = SmfFile::read(&song.to_smf(SmfFormat::Parallel).write()).unwrap();
+    let written = SmfFile::read(&song.to_smf(SmfFormat::Parallel).unwrap().write()).unwrap();
     assert_eq!(channel_messages(&written), channel_messages(&original));
     // 곡 계층의 값은 32비트다: CC 127은 꼭대기, 벤드 가운데는 0x8000_0000이다.
     let t = &song.tracks()[0];
@@ -438,7 +438,7 @@ fn from_project_flattens_clips_and_cuts_hidden_tails() {
         .collect();
     assert_eq!(notes, [(3840, 960, 64), (3840 + 3000, 200, 60)]);
     // 뱅크(MSB 1, LSB 2)와 프로그램이 틱 0에 이 순서로 나간다.
-    let file = song.to_smf(SmfFormat::Parallel);
+    let file = song.to_smf(SmfFormat::Parallel).unwrap();
     let first: Vec<Vec<u8>> = channel_messages(&file)
         .into_iter()
         .filter(|(t, _)| *t == 0)
@@ -560,8 +560,8 @@ fn smpte_division_and_type2_are_rejected() {
 #[test]
 fn written_smf_is_byte_stable() {
     let song = note_song(&[(0, 960), (100, 50), (5000, 1)]);
-    let a = song.to_smf(SmfFormat::Parallel).write();
-    let b = song.clone().to_smf(SmfFormat::Parallel).write();
+    let a = song.to_smf(SmfFormat::Parallel).unwrap().write();
+    let b = song.clone().to_smf(SmfFormat::Parallel).unwrap().write();
     assert_eq!(a, b);
     assert_eq!(&a[..4], b"MThd");
     // 960 PPQ로 쓴다.
@@ -597,9 +597,9 @@ proptest! {
         let refs: Vec<(u32, &[u8])> = events.iter().map(|(d, b)| (*d, b.as_slice())).collect();
         let bytes = smf(1, ppq, &[track(&refs)]);
         let first = song_of(&bytes);
-        let again = song_of(&first.to_smf(SmfFormat::Parallel).write());
+        let again = song_of(&first.to_smf(SmfFormat::Parallel).unwrap().write());
         prop_assert_eq!(&again, &first);
-        let single = song_of(&first.to_smf(SmfFormat::Single).write());
+        let single = song_of(&first.to_smf(SmfFormat::Single).unwrap().write());
         prop_assert_eq!(by_channel(&single), by_channel(&first));
     }
 }
@@ -650,4 +650,88 @@ fn lyrics_only_track_attaches_to_matching_voice() {
             "{file}: 노트에 붙은 가사 {on_notes}/{count}"
         );
     }
+}
+
+#[test]
+fn song_longer_than_limit_is_rejected_on_read_and_write() {
+    // PPQ 1에서 델타 (2^28 - 1) 다섯 번 = 960배로 약 1.3 × 10^12틱 > MAX_SONG_TICKS.
+    let gap: &[u8] = &[0xFF, 0x01, 0x00];
+    let events: Vec<(u32, &[u8])> = (0..5).map(|_| (0x0FFF_FFFF, gap)).collect();
+    let file = SmfFile::read(&smf(0, 1, &[track(&events)])).unwrap();
+    assert!(matches!(
+        Song::from_smf(&file),
+        Err(SmfError::TooLong { .. })
+    ));
+    // 공개 API로 상한 뒤 노트를 넣어도 쓰기는 조용히 자르지 않고 `Err`다.
+    let mut song = Song::new(TempoMap::default(), MeterMap::default());
+    let mut t = keyscore_midi::SongTrack::new(None, ch(1));
+    t.add_note(keyscore_midi::SongNote::new(
+        Tick::new(keyscore_midi::MAX_SONG_TICKS),
+        10,
+        pitch(60),
+        vel(100),
+    ));
+    song.push_track(t);
+    assert!(matches!(
+        song.to_smf(SmfFormat::Parallel),
+        Err(SmfError::TooLong { .. })
+    ));
+}
+
+#[test]
+fn chord_lyrics_round_trip_through_smf_to_same_notes() {
+    // 화음 C·E·G 가운데 C와 G에 가사가 있으면, 모델 → SMF → 모델에서 같은 노트에 돌아온다.
+    let mut project = Project::new();
+    let mut track = Track::new("Choir", ch(1), TrackColor::new(0).unwrap());
+    let mut clip = Clip::new(Tick::ZERO, 3840).unwrap();
+    for (p, lyric) in [(60, Some("lo")), (64, None), (67, Some("hi"))] {
+        let mut n = Note::new(Tick::ZERO, 960, pitch(p), vel(100)).unwrap();
+        if let Some(l) = lyric {
+            n = n.with_lyric(l);
+        }
+        clip.insert_note(n).unwrap();
+    }
+    track.insert_clip(clip).unwrap();
+    project.push_track(track).unwrap();
+    let bytes = Song::from_project(&project)
+        .to_smf(SmfFormat::Parallel)
+        .unwrap()
+        .write();
+    let back = song_of(&bytes).to_project().unwrap();
+    let lyrics: Vec<(u8, Option<String>)> = back.tracks()[0]
+        .clips()
+        .flat_map(|(_, c)| c.notes().iter())
+        .map(|n| (n.pitch().get(), n.lyric().map(str::to_string)))
+        .collect();
+    let want: Vec<(u8, Option<String>)> = vec![
+        (60, Some("lo".to_string())),
+        (64, None),
+        (67, Some("hi".to_string())),
+    ];
+    assert_eq!(lyrics, want);
+    // 아래 음 하나에만 가사가 있어도 그 음으로 돌아온다(빈 가사가 위 음의 자리를 채운다).
+    let mut project = Project::new();
+    let mut track = Track::new("Low", ch(1), TrackColor::new(0).unwrap());
+    let mut clip = Clip::new(Tick::ZERO, 3840).unwrap();
+    clip.insert_note(
+        Note::new(Tick::ZERO, 960, pitch(48), vel(100))
+            .unwrap()
+            .with_lyric("bass"),
+    )
+    .unwrap();
+    clip.insert_note(Note::new(Tick::ZERO, 960, pitch(72), vel(100)).unwrap())
+        .unwrap();
+    track.insert_clip(clip).unwrap();
+    project.push_track(track).unwrap();
+    let bytes = Song::from_project(&project)
+        .to_smf(SmfFormat::Parallel)
+        .unwrap()
+        .write();
+    let back = song_of(&bytes).to_project().unwrap();
+    let lyrics: Vec<(u8, Option<String>)> = back.tracks()[0]
+        .clips()
+        .flat_map(|(_, c)| c.notes().iter())
+        .map(|n| (n.pitch().get(), n.lyric().map(str::to_string)))
+        .collect();
+    assert_eq!(lyrics, vec![(48, Some("bass".to_string())), (72, None)]);
 }
