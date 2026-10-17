@@ -17,5 +17,5 @@ mod parsed;
 
 pub use diag::{Diagnostic, Mode, ParseError};
 pub use export::{ExportTrack, export};
-pub use parse::parse;
+pub use parse::{ParseOptions, parse, parse_with};
 pub use parsed::{Header, Parsed, ParsedTrack};

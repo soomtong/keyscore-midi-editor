@@ -48,6 +48,28 @@ const TEMPO_DIGITS: usize = 12;
 ///
 /// 문법 오류(엄격 모드에서는 경고가 될 것도)의 첫 위치를 담은 [`ParseError`].
 pub fn parse(text: &str, mode: Mode) -> Result<Parsed, ParseError> {
+    parse_old(text, mode)
+}
+
+/// 읽기 선택 사항.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ParseOptions {
+    /// 레거시 지원: `#`로 시작하는 줄(앞 공백 무시)을 줄 전체 주석으로 읽는다. 주석이 `#`였던 옛
+    /// 기록을 위한 것이다(결정 Q1 2차 개정). 기본은 꺼짐이고, 꺼져 있으면 주석은 `//`뿐이다.
+    pub legacy_hash_comments: bool,
+}
+
+/// [`parse`]에 선택 사항을 더한 것.
+///
+/// # Errors
+///
+/// [`parse`]와 같다.
+pub fn parse_with(text: &str, mode: Mode, options: ParseOptions) -> Result<Parsed, ParseError> {
+    let _ = (text, mode, options);
+    todo!()
+}
+
+fn parse_old(text: &str, mode: Mode) -> Result<Parsed, ParseError> {
     let mut p = Parser::new(text, mode);
     p.run()?;
     p.finish()
