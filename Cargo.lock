@@ -3828,10 +3828,12 @@ name = "keyscore-app"
 version = "0.1.0"
 dependencies = [
  "gpui-kit",
+ "insta",
  "keyscore-ai",
  "keyscore-core",
  "keyscore-midi",
  "keyscore-text",
+ "schemars",
  "serde",
  "serde_json",
  "thiserror 2.0.21",

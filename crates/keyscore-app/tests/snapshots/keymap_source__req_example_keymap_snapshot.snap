@@ -1,0 +1,25 @@
+---
+source: crates/keyscore-app/tests/keymap_source.rs
+expression: render(REQ_EXAMPLE)
+---
+5:7 [Normal] left -> cursor::Left
+6:7 [Normal] h -> cursor::Left
+7:7 [Normal] shift-left -> select::ExtendLeft
+8:7 [Normal] ctrl-l -> cursor::NextBar
+9:7 [Normal] alt-k -> note::TransposeUp
+10:7 [Normal] alt-shift-l -> note::Lengthen
+11:7 [Normal] enter -> mode::Step
+12:7 [Normal] v -> view::Toggle
+13:7 [Normal] r -> edit::Repeat
+14:7 [Normal] / -> edit::Split
+15:7 [Normal] cmd-j -> edit::Join
+16:7 [Normal] 5 -> note::SetLength "sixteenth"
+17:7 [Normal] space -> transport::Toggle
+23:7 [Normal > Arrangement] enter -> clip::Open
+24:7 [Normal > Arrangement] alt-l -> clip::MoveLater
+25:7 [Normal > Arrangement] alt-shift-l -> clip::Lengthen
+31:7 [Step] space -> step::Rest
+32:7 [Step] backspace -> step::Back
+33:7 [Step] tab -> step::Confirm
+34:7 [Step] escape -> mode::Normal
+40:7 [Keymap > Editing] escape -> keymap::CancelCapture

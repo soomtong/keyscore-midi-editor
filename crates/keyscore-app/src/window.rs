@@ -11,7 +11,7 @@ use gpui_kit::{
     Window, div, prelude::FluentBuilder as _, px,
 };
 
-use crate::actions::{ToggleBottomPanel, ToggleInspector, ToggleTrackList};
+use crate::actions::view::{ToggleBottomPanel, ToggleInspector, ToggleTrackList};
 use crate::app_state::AppSettings;
 use crate::document::ProjectDocument;
 use crate::settings::{LayoutSettings, PANEL_SIZE_RANGE};
@@ -198,6 +198,8 @@ impl Render for ProjectWindow {
         let range = px(*PANEL_SIZE_RANGE.start())..px(*PANEL_SIZE_RANGE.end());
         div()
             .id("project-window")
+            // 키맵 컨텍스트. 모드·뷰에 따른 컨텍스트 전환(Step, Arrangement 등)은 S2-T3이다.
+            .key_context("Normal")
             .track_focus(&self.focus)
             .on_action(cx.listener(Self::toggle_track_list))
             .on_action(cx.listener(Self::toggle_inspector))

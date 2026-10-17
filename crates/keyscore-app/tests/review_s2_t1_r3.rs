@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 use gpui_kit::test::TestWindowExt as _;
 use gpui_kit::{AnyWindowHandle, AppContext as _, Entity, TestAppContext, px};
-use keyscore_app::actions::{ToggleBottomPanel, ToggleInspector, ToggleTrackList};
+use keyscore_app::actions::view::{ToggleBottomPanel, ToggleInspector, ToggleTrackList};
 use keyscore_app::app_state::AppSettings;
 use keyscore_app::settings::{LayoutSettings, Settings};
 use keyscore_app::window::ProjectWindow;

@@ -6,6 +6,7 @@
 pub mod actions;
 pub mod app_state;
 pub mod document;
+pub mod keymap;
 pub mod palette;
 pub mod settings;
 pub mod theme;
@@ -14,15 +15,14 @@ pub mod window;
 use std::path::PathBuf;
 
 use gpui_kit::{
-    AnyWindowHandle, App, AppContext as _, Focusable as _, KeyBinding, Menu, MenuItem,
-    TitlebarOptions, WindowOptions,
+    AnyWindowHandle, App, AppContext as _, Focusable as _, Menu, MenuItem, TitlebarOptions,
+    WindowOptions,
 };
 use keyscore_core::Project;
 
-use crate::actions::{
-    CloseWindow, NewWindow, Quit, ThemeDark, ThemeLight, ThemeSystem, ToggleBottomPanel,
-    ToggleInspector, ToggleTrackList,
-};
+use crate::actions::args::ThemeKind;
+use crate::actions::view::{SetTheme, ToggleBottomPanel, ToggleInspector, ToggleTrackList};
+use crate::actions::{app::Quit, file::New, window::Close};
 use crate::app_state::AppSettings;
 use crate::document::ProjectDocument;
 use crate::settings::ThemeChoice;
@@ -31,12 +31,14 @@ use crate::window::ProjectWindow;
 /// 앱을 초기화한다. 창을 열기 전에 한 번 부른다. `settings_path`는 설정 파일 위치다(테스트가 주입).
 pub fn init(cx: &mut App, settings_path: PathBuf) {
     gpui_kit::init(cx);
+    // 사용자 키맵은 설정 파일 옆에 둔다(KM-6: ~/Library/Application Support/KeyScore/keymap.json).
+    let keymap_path = settings_path.with_file_name("keymap.json");
     AppSettings::install(settings_path, cx);
     theme::apply(AppSettings::get(cx).theme, cx);
-    cx.on_action(|_: &NewWindow, cx| {
+    cx.on_action(|_: &New, cx| {
         let _ = open_project_window(Project::new(), cx);
     });
-    cx.on_action(|_: &CloseWindow, cx| {
+    cx.on_action(|_: &Close, cx| {
         if let Some(window) = cx.active_window() {
             let _ = window.update(cx, |_, window, _| window.remove_window());
         }
@@ -51,16 +53,29 @@ pub fn init(cx: &mut App, settings_path: PathBuf) {
         async {}
     })
     .detach();
-    cx.on_action(|_: &ThemeSystem, cx| theme::choose(ThemeChoice::System, cx));
-    cx.on_action(|_: &ThemeLight, cx| theme::choose(ThemeChoice::Light, cx));
-    cx.on_action(|_: &ThemeDark, cx| theme::choose(ThemeChoice::Dark, cx));
-    // 키 바인딩을 먼저 걸어야 메뉴에 단축키가 표시된다(gpui-kit 코딩 가이드). 키맵 엔진은 S2-T2다.
-    cx.bind_keys([
-        KeyBinding::new("cmd-n", NewWindow, None),
-        KeyBinding::new("cmd-w", CloseWindow, None),
-        KeyBinding::new("cmd-q", Quit, None),
-        KeyBinding::new("cmd-i", ToggleInspector, None),
-    ]);
+    cx.on_action(|action: &SetTheme, cx| {
+        let choice = match action.0 {
+            ThemeKind::System => ThemeChoice::System,
+            ThemeKind::Light => ThemeChoice::Light,
+            ThemeKind::Dark => ThemeChoice::Dark,
+        };
+        theme::choose(choice, cx);
+    });
+    // 키맵을 건 뒤에 메뉴를 건다(메뉴는 걸 때의 단축키를 구워 둔다). 다시 걸 때마다 메뉴도 다시 건다.
+    let km = AppSettings::get(cx).keymap;
+    keymap::install(
+        cx,
+        keymap_path,
+        keymap::KeymapOptions {
+            preset: km.preset,
+            swap_alt_cmd: km.swap_alt_cmd,
+        },
+        set_menus,
+    );
+}
+
+/// 앱 메뉴. 메뉴 7개 전체는 S2-T4다.
+fn set_menus(cx: &mut App) {
     cx.set_menus([
         Menu {
             name: "KeyScore".into(),
@@ -70,8 +85,8 @@ pub fn init(cx: &mut App, settings_path: PathBuf) {
         Menu {
             name: "파일".into(),
             items: vec![
-                MenuItem::action("새 창", NewWindow),
-                MenuItem::action("창 닫기", CloseWindow),
+                MenuItem::action("새 창", New),
+                MenuItem::action("창 닫기", Close),
             ],
             disabled: false,
         },
@@ -82,9 +97,9 @@ pub fn init(cx: &mut App, settings_path: PathBuf) {
                 MenuItem::action("트랙 인스펙터", ToggleInspector),
                 MenuItem::action("하단 영역", ToggleBottomPanel),
                 MenuItem::separator(),
-                MenuItem::action("시스템 테마", ThemeSystem),
-                MenuItem::action("라이트 테마", ThemeLight),
-                MenuItem::action("다크 테마", ThemeDark),
+                MenuItem::action("시스템 테마", SetTheme(ThemeKind::System)),
+                MenuItem::action("라이트 테마", SetTheme(ThemeKind::Light)),
+                MenuItem::action("다크 테마", SetTheme(ThemeKind::Dark)),
             ],
             disabled: false,
         },

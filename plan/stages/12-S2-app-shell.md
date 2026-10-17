@@ -29,12 +29,16 @@
 - 범위: UI-2·UI-11·KM-13·7.6. 모든 Action이 이름·설명·현재 단축키와 함께 팔레트에 나옴, `:`도 팔레트, 7.6의 메뉴 7개와 항목, 메뉴 항목 = Action 1:1(자동 생성).
 - 테스트 게이트: 등록된 Action 수 = 팔레트 항목 수 = 메뉴 항목 수 + 메뉴에 없다고 명시한 Action 수(검사 테스트). 단축키 표시가 현재 키맵을 반영.
 
+- 이월(S2-T2, 결정 `docs/decisions/2026-10-17-count-and-non-key-dispatch.md` C): 팔레트 실행은 앱의 실행 함수 하나로 하고, 그 함수가 카운트(`keymap::clear_count`)를 먼저 비운다. `crates/keyscore-app/tests/deferred/count_non_key_paths.rs`를 이 결정에 맞게 고쳐 `tests/` 아래로 옮겨 켠다(메뉴 막대 경로는 한계라 그 경우는 팔레트 경로로 바꾼다).
+
 ### S2-T5 트랜스포트·트랙 목록·인스펙터·상태줄
 
 - 범위: TRN-1·TRN-4, UI-5·UI-12, SEQ-7·SEQ-8 UI, 7.6의 해당 행. 재생·정지·녹음 버튼(녹음은 S5까지 비활성), 템포·박자표·조성 필드, 메트로놈 토글, `AI✦` 토글(S7까지 비활성), 포트 드롭다운, 트랙 목록(M/S, 포트·채널 표시, `+`), 인스펙터(이름·색·포트·채널·뱅크·프로그램·기본 벨로시티·가사 언어·테스트 버튼), 상태줄.
 - 테스트 게이트: 트랜스포트 버튼이 S1 스케줄러를 실제로 돌린다(루프백에서 Note 수신). 채널 충돌 경고가 뜬다. 인스펙터 편집이 undo 단위로 들어간다.
 - 이월(S0-T6 리뷰 2 제안 4): 포트·조성을 바꿀 때 `.ksq` 모르는 키 처리. 결정 요청 `docs/decisions/2026-10-12-ksq-unknown-keys-on-value-change.md`.
 - 이월(S1-T1·S1-T2): 앱은 시작할 때 CoreMIDI 관련 호출 가운데 `MidiClient::new`를 가장 먼저 부른다(알림 전달 조건, `PortWatcher::start`가 아니면 `NotificationsUnavailable`). `MidiClient` 핸들은 하나를 만들어 복제해 쓴다. MIDI 서버 재시작을 알아차리면(`VirtualOutput::is_registered`가 거짓) 모든 가상 포트에 `reregister`를 부르고 상태줄에 알린다. `PortWatcher` 이벤트로 상태줄 표시와 `Reconnector` 재연결을 하고, 열려 있는 `OsOutput`은 `is_present`로 확인한다. `PortWatcher::start`는 탐침 때문에 약 0.25초(최악 2초) 블로킹하므로 메인 스레드가 아닌 곳에서 부르고, 서버 재시작 뒤에는 감시자도 다시 시작한다. `suggest_mapping`의 `Virtual` 제안은 서로 겹치거나 16개를 넘을 수 있으므로 UI에서 만들기 전에 확인한다(S1-T2 리뷰 2 제안 3, 6, 8).
+
+- 이월(S2-T2, 결정 C): 트랜스포트 툴바 버튼은 S2-T4의 실행 함수를 거쳐 Action을 실행한다(카운트를 비운다).
 
 ### S2-T6 설정 화면과 키맵 편집기
 
