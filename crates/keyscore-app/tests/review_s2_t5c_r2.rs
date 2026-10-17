@@ -527,3 +527,38 @@ fn test_note_missing_named_port_reports_reason(cx: &mut TestAppContext) {
         Some(last.as_str())
     );
 }
+
+// ---------- 리뷰 2 부록 A(지적 1·2) ----------
+
+/// 상태줄 빈 자리를 눌러도 문서로 포커스가 돌아와야 한다. `main`(S2-T5b)에서는 상태줄이 겹 안이라 돌아왔다.
+#[gpui_kit::test]
+fn clicking_status_bar_returns_focus_to_document(cx: &mut TestAppContext) {
+    start(cx, "status-click");
+    let (handle, view) = open(cx, two_tracks());
+    dirty_tempo(cx, handle, "95");
+    click(cx, handle, "status-bar");
+    press(cx, handle, "m");
+    assert!(
+        project_of(cx, &view).tracks()[0].mute(),
+        "상태줄을 누른 뒤에도 포커스가 템포 입력란에 남는다: tempo={:?}",
+        shown(cx, handle, "transport-tempo")
+    );
+}
+
+/// 인스펙터 빈 자리를 오른쪽 버튼으로 눌러도 문서로 돌아와야 한다(GPUI `track_focus`는 모든 버튼에서 옮긴다).
+#[gpui_kit::test]
+fn right_clicking_inspector_background_returns_focus(cx: &mut TestAppContext) {
+    start(cx, "inspector-right");
+    let (handle, view) = open(cx, two_tracks());
+    dirty_name(cx, handle, "Zz");
+    cx.update_window(handle, |_, window, cx| window.right_click("inspector", cx))
+        .unwrap();
+    cx.run_until_parked();
+    render(cx, handle);
+    press(cx, handle, "m");
+    assert!(
+        project_of(cx, &view).tracks()[0].mute(),
+        "오른쪽 클릭 뒤에도 포커스가 이름 입력란에 남는다: name={:?}",
+        shown(cx, handle, "inspector-name")
+    );
+}

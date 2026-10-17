@@ -26,7 +26,7 @@ use keyscore_midi::{DEFAULT_PREVIEW_LENGTH, MidiError, bank_select, program_chan
 
 use crate::actions::{midi, track};
 use crate::dispatch::run_action;
-use crate::engine::{Engine, TransportState};
+use crate::engine::{Engine, PortProblem, TransportState};
 use crate::fields::Field;
 use crate::gm::{GM_PROGRAMS, program_label};
 use crate::tracks::{
@@ -367,12 +367,24 @@ impl ProjectWindow {
                 send_test_note(engine, port, &track, true)
             });
             // 포트를 열지 못한 이유(없음·열기 실패·상한)를 재생 시작과 같은 말로 알린다(리뷰 1 제안 5)
-            self.report_missing(
-                &missing
-                    .into_iter()
-                    .filter(|(name, _)| *name == destination)
-                    .collect::<Vec<_>>(),
-            );
+            let missing: Vec<_> = missing
+                .into_iter()
+                .filter(|(name, _)| *name == destination)
+                .collect();
+            // 이유와 결과를 한 메시지로 알린다. 상태줄은 마지막 메시지만 보이므로 이유가 따로 앞에 있으면
+            // 보이는 말과 실제 이유가 어긋난다(리뷰 2 제안 3).
+            if let Some((name, problem)) = missing.first() {
+                let reason = match problem {
+                    PortProblem::NotFound => format!("출력 포트 「{name}」이 없어"),
+                    PortProblem::OpenFailed(e) => format!("출력 포트 「{name}」을 열지 못해({e})"),
+                    PortProblem::TooMany => format!(
+                        "출력 포트가 너무 많아(최대 {}) 「{name}」을 열지 못해",
+                        keyscore_midi::MAX_SCHEDULER_PORTS
+                    ),
+                };
+                self.say(format!("{reason} 테스트 노트를 보내지 못했다"), cx);
+                return;
+            }
             result
         };
         let virtual_name = crate::engine::virtual_port_name(cx);

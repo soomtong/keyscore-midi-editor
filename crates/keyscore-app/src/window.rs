@@ -11,10 +11,9 @@ use gpui_kit::component::{
 };
 use gpui_kit::{
     Action, Anchor, AnyElement, App, AppContext as _, Bounds, Context, DismissEvent, Div, Entity,
-    FocusHandle, Focusable, InteractiveElement as _, IntoElement, MouseButton, ParentElement as _,
-    Pixels, Point, Render, Role, Stateful, StatefulInteractiveElement as _, Styled as _,
-    Subscription, TestSupportExt as _, Window, anchored, deferred, div, point,
-    prelude::FluentBuilder as _, px,
+    FocusHandle, Focusable, InteractiveElement as _, IntoElement, ParentElement as _, Pixels,
+    Point, Render, Role, Stateful, StatefulInteractiveElement as _, Styled as _, Subscription,
+    TestSupportExt as _, Window, anchored, deferred, div, point, prelude::FluentBuilder as _, px,
 };
 
 use crate::actions::view::{ToggleBottomPanel, ToggleInspector, ToggleTrackList};
@@ -631,6 +630,20 @@ impl ProjectWindow {
             .on_click(cx.listener(|this, _, window, cx| this.open_mode_menu(window, cx)))
     }
 
+    /// 겹 바깥 자리(패널·상태줄)를 누르면(어느 버튼이든) 문서로 포커스를 옮기는 처리기. 겹이 창 전체를
+    /// 감쌀 때 GPUI 포커스 요소(`track_focus`, 모든 버튼)가 하던 일이다(리뷰 1 지적 1, 리뷰 2 지적 1·2).
+    /// 안쪽에서 입력란·버튼처럼 포커스를 받는 요소가 먼저 받았으면(`default_prevented`) 건드리지 않는다.
+    fn focus_document_on_press(
+        cx: &mut Context<Self>,
+    ) -> impl Fn(&gpui_kit::MouseDownEvent, &mut Window, &mut App) + 'static {
+        cx.listener(|this, _, window, cx| {
+            if !window.default_prevented() {
+                this.focus_document(window, cx);
+                window.prevent_default();
+            }
+        })
+    }
+
     /// 상태줄(UI-5, 7.1 아래): 왼쪽 모드, 가운데 현재 트랙·포트·채널, 오른쪽 키맵 오류(KM-6) 또는 마지막
     /// 메시지. 길이 코드·옥타브는 Step 입력(S5)과 함께 넣는다.
     fn render_status_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -667,24 +680,29 @@ impl ProjectWindow {
                 .text_color(cx.theme().muted_foreground)
                 .child(message)
         };
-        div().id("status-bar").test_support().flex_none().child(
-            StatusBar::new()
-                .left(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap_3()
-                        .child(self.mode_indicator(cx))
-                        .child(
-                            div()
-                                .id("status-track")
-                                .aria_label(track.clone())
-                                .test_support()
-                                .child(track),
-                        ),
-                )
-                .right(right),
-        )
+        div()
+            .id("status-bar")
+            .test_support()
+            .flex_none()
+            .on_any_mouse_down(Self::focus_document_on_press(cx))
+            .child(
+                StatusBar::new()
+                    .left(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap_3()
+                            .child(self.mode_indicator(cx))
+                            .child(
+                                div()
+                                    .id("status-track")
+                                    .aria_label(track.clone())
+                                    .test_support()
+                                    .child(track),
+                            ),
+                    )
+                    .right(right),
+            )
     }
 
     /// 열린 모드 메뉴. 컨텍스트 겹 바깥(루트의 자식)에 그린다. 안쪽에 그리면 메뉴 포커스의 디스패치
@@ -823,20 +841,10 @@ impl Render for ProjectWindow {
             .border_b_1()
             .border_color(cx.theme().border)
             .child(transport_bar);
-        // 겹 바깥 패널(트랙 목록·인스펙터·아래 패널)의 빈 자리를 눌러도 문서로 포커스가 온다. 겹이 창 전체를
-        // 감쌀 때 GPUI가 포커스 요소(`track_focus`)로 해 주던 일이다(리뷰 1 지적 1). 안쪽에서 입력란·버튼처럼
-        // 포커스를 받는 요소가 먼저 받았으면(`default_prevented`) 건드리지 않는다.
+        // 겹 바깥 패널의 빈 자리를 눌러도 문서로 포커스가 온다(`focus_document_on_press`).
         let content = div()
             .id("content")
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|this, _, window, cx| {
-                    if !window.default_prevented() {
-                        this.focus_document(window, cx);
-                        window.prevent_default();
-                    }
-                }),
-            )
+            .on_any_mouse_down(Self::focus_document_on_press(cx))
             .flex_1()
             .min_h_0()
             .child(
