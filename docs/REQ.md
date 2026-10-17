@@ -176,7 +176,7 @@ o4 l4 c c g g a a g2  f f e e d d c2
   Normal ──Cmd+K──▶ Play(건반)       ──Esc──▶ Normal
   Normal ──a──────▶ AI 패널          ──Tab(수락) / Esc──▶ Normal
 
-  Esc는 가장 안쪽 것 하나만 닫는다: 진행 중 조작(드래그·키 캡처·AI 요청) → 팝업·패널
+  Esc는 가장 안쪽 것 하나만 닫는다: 진행 중 조작(드래그·키 캡처·AI 요청) → 팝업·AI 패널
   → AI 고스트 → 입력 모드 → 선택. 닫을 것이 없으면 아무 일도 없다. 뷰 전환은 v.
 ```
 
