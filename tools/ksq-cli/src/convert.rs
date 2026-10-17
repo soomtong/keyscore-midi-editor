@@ -4,7 +4,9 @@ use std::fmt;
 use keyscore_core::{
     Clip, MeterMap, Note, PitchOffset, Project, TempoMap, Tick, Track, TrackColor, Velocity, ksq,
 };
-use keyscore_text::{Diagnostic, ExportTrack, Header, Mode, export, parse};
+use keyscore_text::{
+    Diagnostic, ExportTrack, Header, Mode, ParseOptions, export, parse, parse_with,
+};
 use serde_json::{Map, Value};
 
 use crate::CliError;
@@ -669,6 +671,15 @@ fn extra_keys(object: &Map<String, Value>, known: &[&str], path: &str, out: &mut
     }
 }
 
+/// [`text_to_project_with`]의 레거시 꺼짐.
+///
+/// # Errors
+///
+/// [`text_to_project_with`]와 같다.
+pub fn text_to_project(text: &str, mode: Mode) -> Result<(Project, Vec<Diagnostic>), CliError> {
+    text_to_project_with(text, mode, ParseOptions::default())
+}
+
 /// 계이름 텍스트를 프로젝트로 읽는다. 헤더는 템포·박자 맵의 틱 0 값과 조가 되고, 트랙 블록마다
 /// 트랙 하나와 시작 0 클립 하나가 된다. 텍스트에 없는 헤더는 [`Project::new`]의 기본값이다.
 /// 트랙 색은 순번대로 팔레트를 돈다(텍스트가 색을 나르지 않는다).
@@ -676,8 +687,12 @@ fn extra_keys(object: &Map<String, Value>, known: &[&str], path: &str, out: &mut
 /// # Errors
 ///
 /// 문법 오류면 [`CliError::Parse`].
-pub fn text_to_project(text: &str, mode: Mode) -> Result<(Project, Vec<Diagnostic>), CliError> {
-    let parsed = parse(text, mode)?;
+pub fn text_to_project_with(
+    text: &str,
+    mode: Mode,
+    options: ParseOptions,
+) -> Result<(Project, Vec<Diagnostic>), CliError> {
+    let parsed = parse_with(text, mode, options)?;
     let mut project = Project::new();
     let header = parsed.header();
     if let Some(tempo) = header.tempo() {

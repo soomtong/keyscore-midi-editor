@@ -374,6 +374,33 @@ fn txt2ksq_skips_one_leading_utf8_bom() {
     let _ = fs::remove_dir_all(&dir);
 }
 
+/// 레거시 `#` 주석 줄은 `--legacy`로만 받는다(결정 Q1 2차 개정).
+#[test]
+fn txt2ksq_legacy_option_reads_hash_comment_lines() {
+    let dir = temp_dir("legacy");
+    let old = dir.join("old.txt");
+    fs::write(
+        &old,
+        "# 옛 픽스처 머리말
+@track A ch1
+# 옛 주석
+c4
+",
+    )
+    .unwrap();
+    let without = run(TXT2KSQ, &[&old]);
+    let with = run(TXT2KSQ, &[&old, Path::new("--legacy")]);
+    let strict = run(
+        TXT2KSQ,
+        &[&old, Path::new("--legacy"), Path::new("--strict")],
+    );
+    assert_eq!(without.status.code(), Some(1), "{}", stderr(&without));
+    assert!(stderr(&without).contains("//"), "{}", stderr(&without));
+    assert_eq!(with.status.code(), Some(0), "{}", stderr(&with));
+    assert_eq!(strict.status.code(), Some(0), "{}", stderr(&strict));
+    let _ = fs::remove_dir_all(&dir);
+}
+
 /// FIFO 대상에서 바이너리가 막히면(대상을 열면 읽는 쪽이 없어 막힌다) 테스트가 멈추지 않고 실패하게
 /// 하는 시간 한도.
 const SPECIAL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);

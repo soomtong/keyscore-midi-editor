@@ -531,3 +531,60 @@ fn offset_suffix_is_capped_in_both_modes() {
         assert!(parse(text, Mode::Strict).is_err());
     }
 }
+
+// ---------- 레거시 `#` 주석 줄(결정 Q1 2차 개정, 2026-10-17) ----------
+
+fn legacy(text: &str, mode: Mode) -> Result<keyscore_text::Parsed, keyscore_text::ParseError> {
+    keyscore_text::parse_with(
+        text,
+        mode,
+        keyscore_text::ParseOptions {
+            legacy_hash_comments: true,
+        },
+    )
+}
+
+#[test]
+fn legacy_mode_treats_hash_lines_as_comments() {
+    let text = "# 옛 주석\n@tempo 120   // 새 주석\n  # 들여 쓴 옛 주석\n@track A ch1\nc d\n# 트랙 안의 옛 주석 c c c\n\t# 탭 뒤\ne";
+    for mode in [Mode::Lenient, Mode::Strict] {
+        let p = legacy(text, mode).unwrap();
+        assert!(p.warnings().is_empty(), "{mode:?}: {:?}", p.warnings());
+        assert_eq!(
+            notes(p.tracks()[0].clip()),
+            vec![n(0, 960, 60), n(960, 960, 62), n(1920, 960, 64)]
+        );
+    }
+    // 레거시 모드가 꺼져 있으면 지금 규칙 그대로다: 헤더 영역의 `#`는 오류다.
+    assert!(parse(text, Mode::Lenient).is_err());
+}
+
+#[test]
+fn legacy_mode_keeps_sharp_and_error_rules_for_other_hashes() {
+    // 노트 뒤의 `#`는 레거시 모드에서도 올림표다.
+    let p = legacy("@track A ch1\nc# d#", Mode::Strict).unwrap();
+    assert_eq!(
+        notes(p.tracks()[0].clip()),
+        vec![n(0, 960, 61), n(960, 960, 63)]
+    );
+    // 줄 중간의 `#`는 줄 주석이 아니다: 엄격 모드는 오류, 느슨 모드는 경고 후 건너뛴다.
+    let text = "@track A ch1\nc # d";
+    let (line, column, msg) = match legacy(text, Mode::Strict) {
+        Err(e) => {
+            let d = e.diagnostic();
+            (d.line(), d.column(), d.message().to_owned())
+        }
+        Ok(p) => panic!("오류여야 한다: {p:?}"),
+    };
+    assert_eq!((line, column), (2, 3));
+    assert!(msg.contains("//"), "{msg}");
+    let p = legacy(text, Mode::Lenient).unwrap();
+    assert_eq!(p.warnings().len(), 1);
+    assert_eq!(
+        notes(p.tracks()[0].clip()),
+        vec![n(0, 960, 60), n(960, 960, 62)]
+    );
+    // 따옴표 안의 `#`로 시작하는 줄은 가사의 글자다.
+    let p = legacy("@track A ch1\nc\"가\n# 나\"", Mode::Strict).unwrap();
+    assert_eq!(p.tracks()[0].clip().notes()[0].lyric(), Some("가\n# 나"));
+}

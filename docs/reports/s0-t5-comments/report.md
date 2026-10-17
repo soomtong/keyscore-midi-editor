@@ -72,3 +72,23 @@ keyscore-midi·ksq-play 루프백 테스트는 같은 시각에 돈 S1 출구 �
 | 2 | 이름을 바꾼 리뷰어 테스트의 doc 주석이 옛 결정 문구를 결함으로 인용 (제안) | 반영. 주석만 고쳤다 |
 | 3 | 헤더 값 자리의 `#`에는 안내 없음 (제안) | 반영하지 않았다. 헤더 값 오류(「@tempo는 BPM 숫자다」 등)가 이미 그 자리를 가리킨다 |
 | 4 | `#`뿐인 트랙은 「음이나 쉼표가 없다」로 끝나 안내가 사라짐 (제안) | 반영하지 않았다. 경고 목록은 오류와 함께 버려지는 기존 동작이고, 빈 블록 오류가 원인을 가리킨다 |
+
+## 2차 개정: 레거시 `#` 주석 줄 (2026-10-17)
+
+- 근거: 결정 Q1 2차 개정(사람 지시). 「리뷰어에게」 1에서 사람에게 맡긴 「`#` 줄 이행 규칙」의 답이다.
+- 브랜치: `s0/t5-legacy-hash-comments`
+
+| 파일 | 내용 |
+| --- | --- |
+| `crates/keyscore-text/src/parse.rs` | `ParseOptions { legacy_hash_comments }`, `parse_with`. 켜져 있으면 줄 첫머리(앞 공백 무시)의 `#` 줄을 주석으로 건너뛴다. `parse`는 꺼짐과 같다 |
+| `tools/ksq-cli` | `txt2ksq --legacy`, `text_to_project_with`, README |
+| 테스트 | `legacy_mode_treats_hash_lines_as_comments`, `legacy_mode_keeps_sharp_and_error_rules_for_other_hashes`, `txt2ksq_legacy_option_reads_hash_comment_lines` |
+
+레거시 모드에서도 노트 뒤의 `#`는 올림표다. 줄 중간의 그 밖의 `#`는 1차 개정의 규칙(엄격 오류, 느슨 경고)을 그대로 따른다.
+
+### 리뷰 대응 (review-legacy-1, 판정: 병합 가능)
+
+| # | 지적 | 대응 |
+| --- | --- | --- |
+| 1 | 줄 끝 `# 메모`는 레거시 모드에서도 주석이 아님을 알리기 (제안) | `txt2ksq` 도움말과 README에 「줄 첫머리 `#` 줄만」을 적었다 |
+| 2 | REQ 5.14 토큰 표에 레거시 읽기 한 줄 (제안) | 반영(2026-10-17 문구 수정 승인) |

@@ -14,7 +14,7 @@ use keyscore_core::ksq::{self, Compression, KsqError};
 use keyscore_text::Mode;
 
 use crate::{
-    CliError, Loss, check, project_to_text, project_to_text_limited, text_to_project,
+    CliError, Loss, check, project_to_text, project_to_text_limited, text_to_project_with,
     write_fixtures,
 };
 
@@ -24,7 +24,7 @@ const USAGE: u8 = 2;
 
 const USAGE_KSQ: &str = "사용법: ksq check <파일.ksq|.ksqz>...\n       ksq fixtures <디렉터리>";
 const USAGE_KSQ2TXT: &str = "사용법: ksq2txt <입력.ksq> [-o 출력.txt] [--max-output <바이트>]";
-const USAGE_TXT2KSQ: &str = "사용법: txt2ksq <입력.txt> [-o 출력.ksq|.ksqz] [--strict]";
+const USAGE_TXT2KSQ: &str = "사용법: txt2ksq <입력.txt> [-o 출력.ksq|.ksqz] [--strict] [--legacy]\n  --legacy  줄 첫머리(앞 공백 무시)가 `#`인 줄을 통째로 주석으로 읽는다(옛 기록). 줄 끝의 `# 메모`는 주석이 아니다";
 
 // 표준 오류에 쓰지 못하면 알릴 곳이 없으므로 쓰기 실패는 무시한다(`eprintln!`과 같은 태도이되
 // 패닉하지 않는다). 표준 출력의 결과 쓰기는 따로 검사한다.
@@ -113,6 +113,8 @@ struct Options {
     input: PathBuf,
     output: Option<PathBuf>,
     strict: bool,
+    /// 레거시 `#` 주석 줄(결정 Q1 2차 개정).
+    legacy: bool,
     max_output: Option<u64>,
 }
 
@@ -138,6 +140,7 @@ fn parse_options(args: &[OsString], tool: Tool) -> Result<Options, String> {
     let mut input = None;
     let mut output = None;
     let mut strict = false;
+    let mut legacy = false;
     let mut max_output = None;
     let mut rest = args.iter();
     while let Some(arg) = rest.next() {
@@ -170,6 +173,8 @@ fn parse_options(args: &[OsString], tool: Tool) -> Result<Options, String> {
             }
         } else if tool == Tool::Txt2Ksq && arg == "--strict" {
             strict = true;
+        } else if tool == Tool::Txt2Ksq && arg == "--legacy" {
+            legacy = true;
         } else if is_option(arg) {
             return Err(format!("모르는 옵션: {}", arg.to_string_lossy()));
         } else if input.replace(PathBuf::from(arg)).is_some() {
@@ -182,6 +187,7 @@ fn parse_options(args: &[OsString], tool: Tool) -> Result<Options, String> {
         input,
         output,
         strict,
+        legacy,
         max_output,
     })
 }
@@ -565,13 +571,17 @@ fn run_txt2ksq(
         Mode::Lenient
     };
     // 텍스트 오류는 경로가 없는 CliError::Parse라서, 어느 파일인지 여기서 붙인다.
-    let (project, diagnostics) = text_to_project(text, mode).map_err(|e| match e {
-        CliError::Parse(source) => CliError::TextFile {
-            path: input.clone(),
-            source,
-        },
-        other => other,
-    })?;
+    let parse_options = keyscore_text::ParseOptions {
+        legacy_hash_comments: options.legacy,
+    };
+    let (project, diagnostics) =
+        text_to_project_with(text, mode, parse_options).map_err(|e| match e {
+            CliError::Parse(source) => CliError::TextFile {
+                path: input.clone(),
+                source,
+            },
+            other => other,
+        })?;
     for d in diagnostics {
         say!(err, "{}: 경고: {d}", input.display());
     }
