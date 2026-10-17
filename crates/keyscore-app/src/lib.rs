@@ -15,7 +15,10 @@ pub mod mode;
 pub mod palette;
 pub mod settings;
 pub mod theme;
+mod track_list;
+pub mod tracks;
 mod transport;
+mod transport_bar;
 pub mod window;
 
 use std::path::PathBuf;
