@@ -1,9 +1,10 @@
-//! 트랙 목록·트랜스포트 바의 계산(S2-T5b). GPUI와 무관한 함수라 단위 테스트한다.
+//! 트랙 목록·트랜스포트 바·인스펙터·상태줄의 계산(S2-T5b, S2-T5c). GPUI와 무관한 함수라 단위 테스트한다.
 
 use std::collections::{BTreeSet, HashMap};
 
 use keyscore_core::{
-    Channel, Key, OutputPort, PitchClass, Project, Tempo, Tick, TimeSignature, TrackId,
+    Bank, Channel, Key, OutputPort, PitchClass, Project, Tempo, Tick, TimeSignature, TrackColor,
+    TrackId, Velocity,
 };
 
 /// 템포 필드가 받는 범위(BPM의 10배). 너무 느리거나 빠른 값은 입력 실수로 본다.
@@ -144,4 +145,48 @@ pub fn port_label(port: &OutputPort, virtual_name: &str) -> String {
         OutputPort::Virtual => virtual_name.to_owned(),
         OutputPort::Named(name) => name.clone(),
     }
+}
+
+/// 뱅크 입력(0–16383, 비우면 없음).
+///
+/// # Errors
+///
+/// 숫자가 아니거나 범위 밖이면 사람이 읽을 이유.
+pub fn parse_bank(text: &str) -> Result<Option<Bank>, String> {
+    let _ = text;
+    todo!()
+}
+
+/// 기본 벨로시티 입력(1–127).
+///
+/// # Errors
+///
+/// 숫자가 아니거나 범위 밖이면 사람이 읽을 이유.
+pub fn parse_velocity(text: &str) -> Result<Velocity, String> {
+    let _ = text;
+    todo!()
+}
+
+/// 트랙 색 인자: 팔레트 이름(`red` …) 또는 번호 0–11.
+///
+/// # Errors
+///
+/// 모르는 이름이거나 범위 밖이면 사람이 읽을 이유.
+pub fn parse_color(text: &str) -> Result<TrackColor, String> {
+    let _ = text;
+    todo!()
+}
+
+/// 색 메뉴의 표시 이름.
+#[must_use]
+pub fn color_label(color: TrackColor) -> String {
+    let _ = color;
+    todo!()
+}
+
+/// 상태줄 가운데: `트랙 이름 · 포트 chN`. 이름이 비면 `트랙 N`(목록 순서).
+#[must_use]
+pub fn status_track_text(project: &Project, track: TrackId, virtual_name: &str) -> String {
+    let _ = (project, track, virtual_name);
+    todo!()
 }

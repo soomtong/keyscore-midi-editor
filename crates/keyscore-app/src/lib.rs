@@ -10,6 +10,7 @@ pub mod commands;
 pub mod dispatch;
 pub mod document;
 pub mod engine;
+pub mod gm;
 pub mod keymap;
 pub mod mode;
 pub mod palette;
