@@ -1,7 +1,7 @@
 # 결정 요청: 키맵 충돌 13건과 키 표기(A1–A13, B25)
 
 - 날짜: 2026-10-17
-- 상태: 결정 대기
+- 상태: A13 결정됨(2026-10-17). 나머지 결정 대기
 - 관련: REQ 5.7, 5.8, 5.8.1, 5.9, 5.11, 5.12, 5.15, 7.3 KM-4·KM-7, LYR-8, `docs/reports/s2-t2/action-catalog.md`(번호 A1–A13, B24·B25), S2-T2
 
 ## 상황
@@ -124,6 +124,34 @@
   - b. 모드 안의 `Esc`는 늘 Normal로 돌아가고(고스트·선택은 그대로), 한 단계씩 나가는 동작은 Normal에서만 한다.
   - c. 고스트만 단계적으로 닫고(5.12), 그 밖은 항상 즉시 Normal로 간다.
 - 권고: c. 5.12의 명시와 7.3 예를 모두 지키고 규칙이 두 줄이다. 구현은 컨텍스트 깊이(`Step > Ghost`가 `Step`보다 깊음)만으로 된다.
+- 결정(2026-10-17, YoungTaek): 「ESC 키는 패널이 열리면 닫힘. 입력 모드에서 노멀 모드로 벗어남. 결정/선택 동작에서 작업을 취소 등 기본적인 통상의 취소/cancel 작업으로 대응한다. 그 외 No-OP 동작입니다.」
+  - 선택지 c에 「Normal에서 피아노롤 → 배치 뷰로 나가지 않는다」를 더한 것과 같다. 뷰 전환은 `v`만 한다. `mode::Back`은 카탈로그에서 뺐다.
+  - 해석(Fable 5.1 검토, 사용자 결정의 취지 안에서 통상 의미로 채움). 한 번에 가장 안쪽 것 하나만 닫는다(깊은 컨텍스트가 이긴다).
+
+    | 컨텍스트 | `escape` | 반영 |
+    | --- | --- | --- |
+    | PopupMenu 등 gpui-component | 컴포넌트 기본(닫기) | S2-T3(바탕 레이어) |
+    | Dialog | `dialog::Cancel`(신규) | S2-T6 |
+    | Palette | `palette::Close`(신규) | S2-T4 |
+    | Overlay(`?`) | `help::CloseOverlay`(신규) | S2-T6 |
+    | Keymap > Editing | `keymap::CancelCapture` | 있음 |
+    | Dragging | `edit::CancelDrag` | 있음 |
+    | AI > Requesting(신규 컨텍스트) | `ai::CancelRequest`(신규): 요청만 취소, 패널 유지 | S7 |
+    | AI | `ai::Dismiss`: 결과 버리고 패널 닫고 Normal | 있음 |
+    | Step > Ghost | `ai::DismissGhost`: Step에 머묾(5.12) | S2-T3 |
+    | Step, Sequence, Play, Lyric, Controller | `mode::Normal`: 선택·뷰 유지 | S2-T3 |
+    | Normal > Selection | `select::Clear` | S2-T3 |
+    | Normal(선택 없음) | 없음(No-op) | S2-T3 |
+    | Normal > Operator(vim) | `operator::Cancel`(신규): 오퍼레이터 대기·카운트 비움 | S3 |
+    | 레이아웃 패널(트랙 목록·인스펙터·레인·건반 뷰) 포커스 | 없음. 일시적 패널만 닫고 토글 키가 있는 레이아웃 패널은 닫지 않는다 | 포커스 규칙 결정 때 |
+
+  - Esc는 기록된 것을 지우지 않는다. Step의 조합 중 입력(`5c_`)은 모드를 나갈 때 확정하고(S3), Sequence 녹음은 테이크를 남기고 끝낸다(S5). 버리기는 `Cmd+Z`·`Shift+Tab`.
+  - Esc는 뷰와 커서를 바꾸지 않는다.
+  - 해석 확인(2026-10-17, YoungTaek, S2-T3 리뷰 3 지적 2에 대한 답)
+    - Step의 조합 중 입력(`5c_`)에서 Esc: 확정 후 Normal.
+    - Normal에서 열린 레이아웃 패널(인스펙터·트랙 목록·하단 패널): 닫지 않는다. Esc가 닫는 패널은 팝업·팔레트·대화상자·AI 패널처럼 잠깐 뜨는 것뿐이다.
+  - 멀티키 시퀀스 대기 중(`g` 뒤)의 Esc는 시퀀스만 취소해야 한다. GPUI 기본은 대기를 풀고 Esc를 디스패치하므로 S3에서 확인한다.
+  - REQ 반영(개발 단계 문구 수정 승인, `2026-10-17-req-wording-approval.md`): P2, 5.2, 5.3, 5.5 도식, 5.6 확정 시점, 5.8 표, 5.10, UI-2.
 
 ## B24. 수식키 단독 바인딩(`play::Sustain`)
 

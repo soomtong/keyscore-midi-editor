@@ -7,6 +7,7 @@ pub mod actions;
 pub mod app_state;
 pub mod document;
 pub mod keymap;
+pub mod mode;
 pub mod palette;
 pub mod settings;
 pub mod theme;

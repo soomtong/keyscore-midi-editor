@@ -93,7 +93,7 @@
 | `mode::Cycle` | 모드 순환 Normal → Step → Sequence → Play | - | `ctrl-tab` (전역) | - | - | 5.5, 5.11 |
 | `mode::CycleBack` | 모드 역순환 | - | `ctrl-shift-tab` (전역) | - | - | 5.11 |
 | `mode::Normal` | Normal로 복귀 | - | `escape` (Step, Sequence, Play, Lyric, Controller) | - | - | 5.1, 5.2, 5.4, 5.15, 5.9, 7.3 |
-| `mode::Back` | Esc 한 단계 나가기(선택 → 모드 → 피아노롤 → 배치 뷰) | - | `escape` (Normal) | - | - | 5.3, 5.5, 5.8 |
+| ~~`mode::Back`~~ | 삭제(A13 결정, S2-T3): Esc는 피아노롤에서 배치 뷰로 나가지 않는다 | - | - | - | - | 5.3, 5.5, 5.8 |
 | `mode::ShowMenu` | 상태줄 모드 표시를 눌러 모드 메뉴 열기 | - | - | - | - (상태줄 클릭) | 7.6 |
 
 ## cursor
@@ -504,7 +504,7 @@ namespace별 Action 수는 다음과 같다(`operator` 표에는 `object::*` 3�
 | help | 5 |
 | settings | 3 |
 | window | 3 |
-| 합계 | 285 (표 25개, object를 별도 namespace로 세면 26개) |
+| 합계 | 285 (표 25개, object를 별도 namespace로 세면 26개). S2-T3에서 `mode::Back`을 뺐다(A13 결정) |
 
 바인딩 수는 표의 키 칸을 기계적으로 세었다(스크립트: 백틱 토큰을 (컨텍스트, 키)로 분해해 중복 제거).
 

@@ -210,6 +210,21 @@ fn all_bindings(preset: Preset) -> Vec<Binding> {
     layers.iter().cloned().collect()
 }
 
+/// 그 키에 그 Action을 거는 바탕 레이어 바인딩이 있는가.
+fn from_base(cx: &mut TestAppContext, key: &str, action: &str) -> bool {
+    cx.update(|cx| {
+        keymap::base_bindings(cx).iter().any(|b| {
+            b.action().name() == action
+                && b.keystrokes()
+                    .iter()
+                    .map(gpui_kit::KeybindingKeystroke::unparse)
+                    .collect::<Vec<_>>()
+                    .join(" ")
+                    == key
+        })
+    })
+}
+
 fn describe(action: &dyn Action) -> String {
     format!("{} {:?}", action.name(), action)
 }
@@ -279,6 +294,8 @@ fn check_single_keys(cx: &mut TestAppContext, preset: Preset, name: &str) -> Str
             }
             let ok = match (&want, got.as_slice()) {
                 (None, []) => true,
+                // 우리 레이어가 비운 키에는 바탕 레이어(gpui-component 바인딩, S2-T3에서 보존)가 남는다.
+                (None, [g]) => from_base(cx, &key, g.name()),
                 (Some(w), [g]) => same(cx, g.as_ref(), w),
                 _ => false,
             };
