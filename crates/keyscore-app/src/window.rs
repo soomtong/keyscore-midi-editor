@@ -81,7 +81,7 @@ impl ProjectWindow {
     ) -> Self {
         let (horizontal, vertical, resize_subscriptions) = Self::fresh_states(cx);
         // 창 안에 포커스가 없으면 Action이 루트(`Root`)에서 디스패치되어 이 뷰의 처리기에 닿지 않는다
-        // (gpui-component `Input`은 Esc에서 `window.blur()`를 부른다). 포커스를 잃으면 창의 루트
+        // (팝업·패널이 닫히며 포커스한 요소가 사라질 때 등). 포커스를 잃으면 창의 루트
         // 핸들로 되돌린다(Zed Workspace와 같은 방식, S2-T1 리뷰 1 지적 3).
         let focus_lost = cx.on_focus_lost(window, |this, window, cx| {
             window.focus(&this.focus, cx);
@@ -274,6 +274,11 @@ impl ProjectWindow {
         cx.notify();
     }
 
+    /// 포커스가 텍스트 입력란(gpui-component `Input` 컨텍스트) 안에 있는가.
+    fn text_input_focused(window: &Window) -> bool {
+        window.context_stack().iter().any(|c| c.contains("Input"))
+    }
+
     /// 문서(모드 키 컨텍스트 안쪽)의 포커스 핸들.
     pub(crate) fn document_focus(&self) -> FocusHandle {
         self.focus.clone()
@@ -290,10 +295,12 @@ impl ProjectWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        // 입력란 안의 `cmd-z`·`cmd-shift-z`는 입력란을 되돌린다(KM-14). 처리하지 않고 넘기면 입력란의
-        // 바인딩이 받는다.
-        if self.transport_field_focused(window, cx) {
-            cx.propagate();
+        // 포커스가 입력란(트랜스포트 필드, 명령 팔레트 질의, 이후 인스펙터)에 있으면 그 입력란을 되돌린다
+        // (KM-14). 키로 왔든 메뉴로 왔든 입력란의 `input::Undo`로 보낸다(리뷰 3 지적 1·2).
+        if Self::text_input_focused(window) {
+            if let Ok(action) = cx.build_action("input::Undo", None) {
+                window.dispatch_action(action, cx);
+            }
             return;
         }
         let result = self.document.update(cx, |doc, cx| {
@@ -313,10 +320,12 @@ impl ProjectWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        // 입력란 안의 `cmd-z`·`cmd-shift-z`는 입력란을 되돌린다(KM-14). 처리하지 않고 넘기면 입력란의
-        // 바인딩이 받는다.
-        if self.transport_field_focused(window, cx) {
-            cx.propagate();
+        // 포커스가 입력란(트랜스포트 필드, 명령 팔레트 질의, 이후 인스펙터)에 있으면 그 입력란을 되돌린다
+        // (KM-14). 키로 왔든 메뉴로 왔든 입력란의 `input::Redo`로 보낸다(리뷰 3 지적 1·2).
+        if Self::text_input_focused(window) {
+            if let Ok(action) = cx.build_action("input::Redo", None) {
+                window.dispatch_action(action, cx);
+            }
             return;
         }
         let result = self.document.update(cx, |doc, cx| {

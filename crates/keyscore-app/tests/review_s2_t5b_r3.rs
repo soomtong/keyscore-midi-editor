@@ -397,3 +397,89 @@ fn leaving_dirty_field_by_click_reverts_it(cx: &mut TestAppContext) {
         assert_eq!(tempo(cx, &view), Tempo::DEFAULT, "{target}");
     }
 }
+
+// ---------- 리뷰 3 부록 C(지적 1-3, 제안 4) ----------
+
+fn undo_len(cx: &mut TestAppContext, view: &Entity<ProjectWindow>) -> usize {
+    cx.read(|cx| view.read(cx).document().read(cx).undo_len())
+}
+
+#[gpui_kit::test]
+fn cmd_z_in_palette_query_does_not_undo_document(cx: &mut TestAppContext) {
+    start(cx, "palette-cmd-z");
+    let (handle, view) = open(cx, three_tracks());
+    run(cx, handle, track::Delete);
+    press(cx, handle, "cmd-shift-p x");
+    assert_eq!(
+        cx.read(|cx| view.read(cx).palette_query(cx)).as_deref(),
+        Some("x")
+    );
+    press(cx, handle, "cmd-z");
+    assert_eq!(
+        ids(cx, &view).len(),
+        2,
+        "팔레트 질의의 cmd-z가 문서를 되돌렸다"
+    );
+}
+
+#[gpui_kit::test]
+fn menu_undo_in_dirty_field_undoes_field_text(cx: &mut TestAppContext) {
+    start(cx, "menu-undo-field");
+    let (handle, view) = open(cx, three_tracks());
+    run(cx, handle, track::Delete);
+    click(cx, handle, "transport-tempo");
+    press(cx, handle, "cmd-a 9");
+    // 메뉴 막대는 포커스로 `edit::Undo`를 디스패치한다
+    run(cx, handle, edit::Undo);
+    assert_eq!(ids(cx, &view).len(), 2);
+    assert_eq!(
+        shown(cx, handle, "transport-tempo").as_deref(),
+        Some("120.0"),
+        "메뉴 되돌리기가 입력란 글자를 되돌리지 않는다"
+    );
+    run(cx, handle, edit::Redo);
+    assert_eq!(shown(cx, handle, "transport-tempo").as_deref(), Some("9"));
+    assert_eq!(ids(cx, &view).len(), 2);
+}
+
+#[gpui_kit::test]
+fn key_menu_same_key_makes_no_undo_unit(cx: &mut TestAppContext) {
+    start(cx, "key-same");
+    let (handle, view) = open(cx, three_tracks());
+    run(cx, handle, track::Delete);
+    let before = undo_len(cx, &view);
+    click(cx, handle, "transport-key");
+    click_menu_item(cx, handle, 0); // 지금 조성(조성 없음)
+    assert_eq!(undo_len(cx, &view), before);
+    run(cx, handle, edit::Undo);
+    assert_eq!(ids(cx, &view).len(), 3);
+}
+
+#[gpui_kit::test]
+fn port_menu_same_port_makes_no_undo_unit(cx: &mut TestAppContext) {
+    start(cx, "port-same");
+    let (handle, view) = open(cx, three_tracks());
+    run(cx, handle, track::Delete);
+    let before = undo_len(cx, &view);
+    click(cx, handle, "transport-port");
+    click_menu_item(cx, handle, 0); // 지금 포트(가상 포트)
+    assert_eq!(undo_len(cx, &view), before);
+    run(cx, handle, edit::Undo);
+    assert_eq!(ids(cx, &view).len(), 3);
+}
+
+/// 제안 4. 고치던 필드가 있는 동안 문서 값이 바뀌어도, 옛 값과 같은 글자를 친 확정은 적용된다.
+#[gpui_kit::test]
+fn typed_old_value_after_document_change_commits(cx: &mut TestAppContext) {
+    start(cx, "stale-shown");
+    let (handle, view) = open(cx, Project::new());
+    click(cx, handle, "transport-tempo");
+    press(cx, handle, "cmd-a 9");
+    run(cx, handle, set_tempo(100.0));
+    press(cx, handle, "cmd-a 1 2 0 . 0 enter");
+    assert_eq!(
+        tempo(cx, &view),
+        Tempo::DEFAULT,
+        "친 120.0이 확정되지 않았다"
+    );
+}

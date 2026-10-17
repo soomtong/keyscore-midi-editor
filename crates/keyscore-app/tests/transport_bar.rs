@@ -22,6 +22,10 @@ fn start(cx: &mut TestAppContext, name: &str) -> PathBuf {
 
 fn open(cx: &mut TestAppContext, p: Project) -> (AnyWindowHandle, Entity<ProjectWindow>) {
     let (handle, view) = cx.update(|cx| open_project_window(p, cx)).unwrap();
+    // 시험 창은 활성이 아니면 포커스·Blur 사건이 나지 않는다. 실제 앱처럼 활성으로 둔다(리뷰 3 제안 6)
+    cx.update_window(handle, |_, window, _| window.activate_window())
+        .unwrap();
+    cx.run_until_parked();
     render(cx, handle);
     (handle, view)
 }

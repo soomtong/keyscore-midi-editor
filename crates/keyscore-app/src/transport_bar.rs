@@ -125,16 +125,20 @@ impl ProjectWindow {
     }
 
     /// 문서가 바뀌었다(undo, 탭 템포, `SetTempo`). 사람이 고치지 않은 필드를 문서 값으로 맞춘다. 고친 필드는
-    /// 확정·취소할 때까지 건드리지 않는다(리뷰 1 지적 2, 리뷰 2 지적 3, 제안 2: 필드마다 따로 본다).
+    /// 확정·취소할 때까지 글자를 건드리지 않는다(리뷰 1 지적 2, 리뷰 2 지적 3, 제안 2: 필드마다 따로 본다).
+    /// 고친 필드의 기준은 새 문서 값으로 옮긴다. 옛 기준과 같은 글자를 친 확정이 「고치지 않음」으로
+    /// 버려지지 않게 하기 위해서다(리뷰 3 제안 4).
     pub(crate) fn sync_transport_fields(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         for field in Field::ALL {
-            if !self.field_dirty(field, cx) {
+            if self.field_dirty(field, cx) {
+                self.transport_bar.shown[field.index()] = self.field_document_text(field, cx);
+            } else {
                 self.reset_field(field, window, cx);
             }
         }
     }
 
-    /// 입력란에 포커스가 있는가. 입력란 안의 `cmd-z`는 문서가 아니라 입력란을 되돌린다(KM-14).
+    /// 트랜스포트 입력란에 포커스가 있는가(모드가 바뀔 때 고치던 입력을 버리려고 본다).
     pub(crate) fn transport_field_focused(&self, window: &Window, cx: &gpui_kit::App) -> bool {
         Field::ALL.iter().any(|f| {
             self.field_state(*f)
@@ -314,7 +318,10 @@ impl ProjectWindow {
                         .checked(key == current)
                         .on_click(move |_, _, cx| {
                             let _ = me.update(cx, |this, cx| {
-                                this.edit_document(vec![Edit::SetKey(key)], cx);
+                                // 같은 값을 다시 고르면 되돌리기 단계를 만들지 않는다(리뷰 3 지적 3)
+                                if this.document.read(cx).project().key() != key {
+                                    this.edit_document(vec![Edit::SetKey(key)], cx);
+                                }
                             });
                         }),
                 );
@@ -360,6 +367,17 @@ impl ProjectWindow {
                         .on_click(move |_, _, cx| {
                             let port = port.clone();
                             let _ = me.update(cx, |this, cx| {
+                                // 같은 포트를 다시 고르면 되돌리기 단계를 만들지 않는다(리뷰 3 지적 3)
+                                let same = this
+                                    .document
+                                    .read(cx)
+                                    .project()
+                                    .tracks()
+                                    .iter()
+                                    .any(|t| t.id() == track && *t.port() == port);
+                                if same {
+                                    return;
+                                }
                                 this.edit_document(
                                     vec![Edit::SetTrackProp {
                                         track,
