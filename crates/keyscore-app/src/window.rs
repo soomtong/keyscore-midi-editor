@@ -1,20 +1,24 @@
 //! 프로젝트 창(창 하나 = 프로젝트 하나). 7.1의 레이아웃 골격.
 
+use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
 use gpui_kit::component::status_bar::StatusBar;
 use gpui_kit::component::{
     ActiveTheme as _, ResizablePanelEvent, ResizableState, h_resizable, resizable_panel,
     v_resizable,
 };
 use gpui_kit::{
-    App, AppContext as _, Context, Entity, FocusHandle, Focusable, InteractiveElement as _,
-    IntoElement, ParentElement as _, Render, Styled as _, Subscription, TestSupportExt as _,
-    Window, div, prelude::FluentBuilder as _, px,
+    Action, Anchor, AnyElement, App, AppContext as _, Context, DismissEvent, Div, Entity,
+    FocusHandle, Focusable, InteractiveElement as _, IntoElement, ParentElement as _, Render, Role,
+    Stateful, StatefulInteractiveElement as _, Styled as _, Subscription, TestSupportExt as _,
+    Window, anchored, deferred, div, prelude::FluentBuilder as _, px,
 };
 
 use crate::actions::view::{ToggleBottomPanel, ToggleInspector, ToggleTrackList};
+use crate::actions::{ai, clip, mode, select, view};
 use crate::app_state::AppSettings;
 use crate::document::ProjectDocument;
-use crate::mode::{ModeEvent, ModeState};
+use crate::keymap;
+use crate::mode::{Mode, ModeEvent, ModeState, View};
 use crate::settings::{LayoutSettings, PANEL_SIZE_RANGE};
 
 /// 크기를 저장하는 패널 그룹.
@@ -35,6 +39,10 @@ pub struct ProjectWindow {
     /// 크기 상태 구독. 상태를 새로 만들 때 함께 바꾼다.
     resize_subscriptions: [Subscription; 2],
     _focus_lost: Subscription,
+    /// 모드 FSM 상태. 키 컨텍스트와 상태줄이 이것을 따른다.
+    mode: ModeState,
+    /// 열린 상태줄 모드 메뉴와 그 닫힘 구독.
+    mode_menu: Option<(Entity<PopupMenu>, Subscription)>,
 }
 
 impl ProjectWindow {
@@ -58,6 +66,8 @@ impl ProjectWindow {
             vertical,
             resize_subscriptions,
             _focus_lost: focus_lost,
+            mode: ModeState::INITIAL,
+            mode_menu: None,
         }
     }
 
@@ -101,28 +111,151 @@ impl ProjectWindow {
         &self.document
     }
 
-    #[must_use]
     /// 모드 FSM의 현재 상태.
-    pub fn mode_state(&self) -> ModeState {
-        todo!()
+    #[must_use]
+    pub const fn mode_state(&self) -> ModeState {
+        self.mode
     }
 
-    /// 모드 사건을 넣는다. 선택(S3)·클립 끝(S5)·고스트(S7)가 부른다.
+    /// 모드 사건을 넣는다. Action 처리기와 이후 단계(선택 S3, 클립 끝 S5, 고스트 S7)가 부른다.
     pub fn apply_mode_event(
         &mut self,
         event: ModeEvent,
-        window: &mut Window,
+        _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let _ = (event, window, cx);
-        todo!()
+        let next = self.mode.apply(event);
+        if next != self.mode {
+            self.mode = next;
+            cx.notify();
+        }
     }
 
     /// 상태줄 모드 메뉴가 열려 있는가.
-    pub fn mode_menu_open(&self) -> bool {
-        todo!()
+    #[must_use]
+    pub const fn mode_menu_open(&self) -> bool {
+        self.mode_menu.is_some()
     }
 
+    /// 상태줄 모드 메뉴를 연다(7.6 「모드 전환」: 모드 표시 클릭, `mode::ShowMenu`).
+    fn open_mode_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let current = self.mode.mode();
+        let this = cx.entity().downgrade();
+        let menu = PopupMenu::build(window, cx, |mut menu, _, _| {
+            for mode in Mode::MENU {
+                let this = this.clone();
+                menu = menu.item(
+                    PopupMenuItem::new(mode.label())
+                        .checked(mode == current)
+                        .on_click(move |_, window, cx| {
+                            // 키가 아닌 실행 경로라 쌓인 카운트를 먼저 비운다(결정 C). S2-T4가
+                            // 실행 함수를 하나로 모으면 그 함수로 옮긴다.
+                            keymap::clear_count(cx);
+                            let _ = this.update(cx, |this, cx| {
+                                this.apply_mode_event(ModeEvent::Enter(mode), window, cx);
+                            });
+                        }),
+                );
+            }
+            menu
+        });
+        let dismissed = cx.subscribe_in(&menu, window, |this, _, _: &DismissEvent, window, cx| {
+            this.mode_menu = None;
+            window.focus(&this.focus, cx);
+            cx.notify();
+        });
+        window.focus(&menu.focus_handle(cx), cx);
+        self.mode_menu = Some((menu, dismissed));
+        cx.notify();
+    }
+
+    fn show_mode_menu(&mut self, _: &mode::ShowMenu, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_mode_menu(window, cx);
+    }
+
+    /// Action `A`가 오면 사건 `event`를 넣는 처리기를 단다.
+    fn on_mode<A: Action>(
+        element: Stateful<Div>,
+        event: ModeEvent,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
+        element.on_action(cx.listener(move |this, _: &A, window, cx| {
+            this.apply_mode_event(event, window, cx);
+        }))
+    }
+
+    /// 모드 FSM에 사건을 넣는 Action 처리기들(전이 표: `docs/reports/s2-t3/plan.md`).
+    fn mode_handlers(element: Stateful<Div>, cx: &mut Context<Self>) -> Stateful<Div> {
+        use ModeEvent::{
+            Back, ClearSelection, Cycle, CycleBack, DismissGhost, Enter, OpenClip, ToNormal,
+            ToggleView,
+        };
+        let e = element;
+        let e = Self::on_mode::<clip::Open>(e, OpenClip, cx);
+        let e = Self::on_mode::<view::Toggle>(e, ToggleView, cx);
+        let e = Self::on_mode::<mode::Step>(e, Enter(Mode::Step), cx);
+        let e = Self::on_mode::<mode::StepAfterNote>(e, Enter(Mode::Step), cx);
+        let e = Self::on_mode::<mode::StepAtBarStart>(e, Enter(Mode::Step), cx);
+        let e = Self::on_mode::<mode::StepAtBarEnd>(e, Enter(Mode::Step), cx);
+        let e = Self::on_mode::<mode::StepOverwrite>(e, Enter(Mode::Step), cx);
+        let e = Self::on_mode::<mode::Sequence>(e, Enter(Mode::Sequence), cx);
+        let e = Self::on_mode::<mode::Play>(e, Enter(Mode::Play), cx);
+        let e = Self::on_mode::<mode::Lyric>(e, Enter(Mode::Lyric), cx);
+        let e = Self::on_mode::<mode::Controller>(e, Enter(Mode::Controller), cx);
+        let e = Self::on_mode::<mode::Cycle>(e, Cycle, cx);
+        let e = Self::on_mode::<mode::CycleBack>(e, CycleBack, cx);
+        let e = Self::on_mode::<mode::Normal>(e, ToNormal, cx);
+        let e = Self::on_mode::<mode::Back>(e, Back, cx);
+        let e = Self::on_mode::<select::Clear>(e, ClearSelection, cx);
+        let e = Self::on_mode::<ai::OpenPanel>(e, Enter(Mode::Ai), cx);
+        let e = Self::on_mode::<ai::Accept>(e, ToNormal, cx);
+        let e = Self::on_mode::<ai::Dismiss>(e, ToNormal, cx);
+        let e = Self::on_mode::<ai::DismissGhost>(e, DismissGhost, cx);
+        e.on_action(cx.listener(Self::show_mode_menu))
+    }
+
+    /// 키 컨텍스트 경로대로 `div`를 겹친다. GPUI는 요소 하나에 컨텍스트 하나를 쌓아 깊이를 만들고,
+    /// `Normal > PianoRoll` 같은 술어는 그 깊이로 맞춘다. 가장 안쪽이 창 포커스를 잡아야 경로 전체가
+    /// 디스패치 경로가 된다.
+    fn wrap_in_contexts(&self, content: AnyElement) -> AnyElement {
+        let path = self.mode.context_path();
+        let (innermost, outer) = path.split_last().expect("컨텍스트 경로는 비지 않는다");
+        let mut element = div()
+            .size_full()
+            .key_context(*innermost)
+            .track_focus(&self.focus)
+            .child(content)
+            .into_any_element();
+        for context in outer.iter().rev() {
+            element = div()
+                .size_full()
+                .key_context(*context)
+                .child(element)
+                .into_any_element();
+        }
+        element
+    }
+
+    /// 상태줄 왼쪽의 모드 표시. 누르면 모드 메뉴가 열린다.
+    fn mode_indicator(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let label = self.mode.mode().label();
+        div()
+            .id("status-mode")
+            .role(Role::Button)
+            .aria_label(label)
+            .test_support()
+            .px_1()
+            .cursor_pointer()
+            .child(label)
+            .on_click(cx.listener(|this, _, window, cx| this.open_mode_menu(window, cx)))
+            .when_some(self.mode_menu.as_ref(), |d, (menu, _)| {
+                d.child(deferred(
+                    anchored().anchor(Anchor::BottomLeft).child(menu.clone()),
+                ))
+            })
+    }
+
+    #[must_use]
     pub const fn layout(&self) -> LayoutSettings {
         self.layout
     }
@@ -200,6 +333,7 @@ impl ProjectWindow {
     fn region(id: &'static str, label: &'static str, cx: &App) -> impl IntoElement {
         div()
             .id(id)
+            .aria_label(label)
             .test_support()
             .size_full()
             .p_2()
@@ -218,14 +352,11 @@ impl Render for ProjectWindow {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let layout = self.layout;
         let range = px(*PANEL_SIZE_RANGE.start())..px(*PANEL_SIZE_RANGE.end());
-        div()
-            .id("project-window")
-            // 키맵 컨텍스트. 모드·뷰에 따른 컨텍스트 전환(Step, Arrangement 등)은 S2-T3이다.
-            .key_context("Normal")
-            .track_focus(&self.focus)
-            .on_action(cx.listener(Self::toggle_track_list))
-            .on_action(cx.listener(Self::toggle_inspector))
-            .on_action(cx.listener(Self::toggle_bottom))
+        let main_label = match self.mode.view() {
+            View::Arrangement => "배치 뷰",
+            View::PianoRoll => "피아노롤",
+        };
+        let content = div()
             .size_full()
             .flex()
             .flex_col()
@@ -257,7 +388,7 @@ impl Render for ProjectWindow {
                                     })
                                     .child(resizable_panel().child(Self::region(
                                         "main-view",
-                                        "피아노롤 / 배치 뷰",
+                                        main_label,
                                         cx,
                                     )))
                                     .when(layout.inspector_open, |g| {
@@ -293,8 +424,17 @@ impl Render for ProjectWindow {
                     .id("status-bar")
                     .test_support()
                     .flex_none()
-                    .when(true, |d| d.child(StatusBar::new().left("NORMAL"))),
+                    .child(StatusBar::new().left(self.mode_indicator(cx))),
             )
+            .into_any_element();
+        // 처리기는 바깥 요소에 단다. 디스패치는 포커스(가장 안쪽)에서 바깥으로 올라온다.
+        let root = div()
+            .id("project-window")
+            .size_full()
+            .on_action(cx.listener(Self::toggle_track_list))
+            .on_action(cx.listener(Self::toggle_inspector))
+            .on_action(cx.listener(Self::toggle_bottom));
+        Self::mode_handlers(root, cx).child(self.wrap_in_contexts(content))
     }
 }
 

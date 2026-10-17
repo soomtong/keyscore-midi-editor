@@ -252,6 +252,9 @@ pub struct KeymapState {
     in_key_dispatch: bool,
     /// 마지막으로 제대로 읽힌 사용자 레이어.
     last_user: Vec<Binding>,
+    /// 설치 전에 이미 걸려 있던 바인딩(gpui-component가 `init`에서 건 `PopupMenu`·`Input` 등의 키).
+    /// `apply`는 `clear_key_bindings`로 모두 지우므로 매번 가장 먼저(가장 낮은 우선순위로) 다시 건다.
+    base: Vec<KeyBinding>,
 }
 
 impl Global for KeymapState {}
@@ -263,6 +266,7 @@ pub fn install(
     options: KeymapOptions,
     after_apply: fn(&mut App),
 ) {
+    let base = cx.key_bindings().borrow().bindings().cloned().collect();
     cx.set_global(KeymapState {
         options,
         user_path,
@@ -273,6 +277,7 @@ pub fn install(
         count: None,
         in_key_dispatch: false,
         last_user: Vec::new(),
+        base,
     });
     apply(cx);
     let poll = cx.spawn(async move |cx| {
@@ -360,7 +365,9 @@ pub fn apply(cx: &mut App) {
     errors.extend(read_errors);
     let (bindings, build_errors) = build(&layers, options, cx);
     errors.extend(build_errors);
+    let base = cx.global::<KeymapState>().base.clone();
     cx.clear_key_bindings();
+    cx.bind_keys(base);
     cx.bind_keys(bindings);
     let after = {
         let s = cx.global_mut::<KeymapState>();
@@ -412,6 +419,13 @@ pub fn take_count(cx: &mut App) -> Option<u32> {
 /// 쌓인 카운트를 버린다(모드 나가기, `Esc` 처리기).
 pub fn clear_count(cx: &mut App) {
     cx.global_mut::<KeymapState>().count = None;
+}
+
+/// 바탕 레이어: 엔진을 설치하기 전에 걸려 있던 바인딩(gpui-component의 `PopupMenu`·`Input`·`Dialog`·
+/// `Root` 키). 표준·프리셋·사용자 레이어보다 우선순위가 낮다. 키맵 편집기(S2-T6)가 보여 줄 때 쓴다.
+#[must_use]
+pub fn base_bindings(cx: &App) -> &[KeyBinding] {
+    &cx.global::<KeymapState>().base
 }
 
 /// 쌓여 있는 카운트를 꺼내지 않고 본다(상태줄 표시, 진단).

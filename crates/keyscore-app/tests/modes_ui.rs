@@ -58,7 +58,10 @@ fn event(
     render(cx, handle);
 }
 
-fn summary(s: ModeState) -> (View, Mode, bool, bool) {
+/// (뷰, 모드, 선택, 고스트)
+type Summary = (View, Mode, bool, bool);
+
+fn summary(s: ModeState) -> Summary {
     (s.view(), s.mode(), s.has_selection(), s.has_ghost())
 }
 
@@ -77,7 +80,7 @@ fn keys_drive_modes_through_key_contexts(cx: &mut TestAppContext) {
     let (handle, view) = open(cx);
     assert_eq!(state(cx, &view), ModeState::INITIAL);
 
-    let steps: [(&str, (View, Mode, bool, bool)); 12] = [
+    let steps: [(&str, Summary); 12] = [
         // v: 뷰 전환(5.10)
         ("v", (View::PianoRoll, Mode::Normal, false, false)),
         ("v", (View::Arrangement, Mode::Normal, false, false)),
@@ -299,4 +302,25 @@ fn main_view_placeholder_names_current_view(cx: &mut TestAppContext) {
     assert_eq!(label(cx, handle, "main-view"), "배치 뷰");
     press(cx, handle, "v");
     assert_eq!(label(cx, handle, "main-view"), "피아노롤");
+}
+
+// ---------- 바탕 레이어의 root::Tab이 창 포커스를 빼앗지 않는다 ----------
+
+#[gpui_kit::test]
+fn unbound_tab_keeps_window_focus(cx: &mut TestAppContext) {
+    start(cx, "tab-focus", None);
+    let (handle, view) = open(cx);
+    // Lyric·Sequence 컨텍스트에는 우리 tab 바인딩이 없어 gpui-component의 root::Tab이 맞는다
+    for mode in [Mode::Lyric, Mode::Sequence, Mode::Ai] {
+        event(cx, handle, &view, ModeEvent::Enter(mode));
+        press(cx, handle, "tab");
+        press(cx, handle, "shift-tab");
+        let focused = cx
+            .update_window(handle, |_, window, cx| {
+                gpui_kit::Focusable::focus_handle(view.read(cx), cx).is_focused(window)
+            })
+            .unwrap();
+        assert!(focused, "{mode:?}");
+        event(cx, handle, &view, ModeEvent::ToNormal);
+    }
 }

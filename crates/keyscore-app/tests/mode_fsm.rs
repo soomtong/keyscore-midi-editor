@@ -31,6 +31,8 @@ use Mode::{Ai, Controller, Lyric, Normal, Play, Sequence, Step};
 use ModeEvent as E;
 use View::{Arrangement as Arr, PianoRoll as Pr};
 
+// 전이 표 한 장을 한눈에 보이게 나누지 않는다.
+#[allow(clippy::too_many_lines)]
 #[test]
 fn transition_table_matches_req_5_5() {
     let rows: Vec<(ModeState, ModeEvent, ModeState)> = vec![

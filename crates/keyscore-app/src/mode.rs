@@ -39,12 +39,43 @@ impl Mode {
     ];
 
     /// 상태줄 모드 메뉴의 항목. P2의 다섯 모드다.
-    pub const MENU: [Mode; 5] = [Mode::Normal, Mode::Step, Mode::Sequence, Mode::Play, Mode::Ai];
+    pub const MENU: [Mode; 5] = [
+        Mode::Normal,
+        Mode::Step,
+        Mode::Sequence,
+        Mode::Play,
+        Mode::Ai,
+    ];
 
     /// 상태줄에 보이는 이름.
     #[must_use]
     pub const fn label(self) -> &'static str {
-        todo!()
+        match self {
+            Mode::Normal => "NORMAL",
+            Mode::Step => "STEP",
+            Mode::Sequence => "SEQUENCE",
+            Mode::Play => "PLAY",
+            Mode::Ai => "AI",
+            Mode::Lyric => "LYRIC",
+            Mode::Controller => "CONTROLLER",
+        }
+    }
+
+    /// 노트를 쓰는 입력 모드. 피아노롤에서만 일어난다.
+    const fn writes_notes(self) -> bool {
+        matches!(self, Mode::Step | Mode::Sequence | Mode::Lyric)
+    }
+
+    /// 순환(5.11)에서의 다음 모드. 순환 밖 모드(AI, Lyric, Controller)는 Normal처럼 센다.
+    const fn cycled(self, forward: bool) -> Mode {
+        const ORDER: [Mode; 4] = [Mode::Normal, Mode::Step, Mode::Sequence, Mode::Play];
+        let at = match self {
+            Mode::Step => 1,
+            Mode::Sequence => 2,
+            Mode::Play => 3,
+            Mode::Normal | Mode::Ai | Mode::Lyric | Mode::Controller => 0,
+        };
+        ORDER[if forward { (at + 1) % 4 } else { (at + 3) % 4 }]
     }
 }
 
@@ -79,13 +110,26 @@ impl ModeEvent {
     /// 모든 사건(`Enter`는 모드마다 하나).
     #[must_use]
     pub fn all() -> Vec<ModeEvent> {
-        todo!()
+        let mut all = vec![
+            ModeEvent::OpenClip,
+            ModeEvent::ToggleView,
+            ModeEvent::Cycle,
+            ModeEvent::CycleBack,
+            ModeEvent::ToNormal,
+            ModeEvent::Back,
+            ModeEvent::ClearSelection,
+            ModeEvent::DismissGhost,
+            ModeEvent::Select,
+            ModeEvent::ShowGhost,
+        ];
+        all.extend(Mode::ALL.map(ModeEvent::Enter));
+        all
     }
 }
 
 /// 모드 FSM의 상태. 필드는 비공개이고 [`ModeState::apply`]로만 바뀐다.
 ///
-/// 불변식: 고스트가 있으면 모드는 Step이다.
+/// 불변식: 고스트가 있으면 모드는 Step이다. 노트 입력 모드(Step, Sequence, Lyric)는 피아노롤에 있다.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ModeState {
     view: View,
@@ -131,19 +175,134 @@ impl ModeState {
 
     /// 불변식을 지키는 모든 상태.
     pub fn all() -> impl Iterator<Item = ModeState> {
-        std::iter::empty()
+        let views = [View::Arrangement, View::PianoRoll];
+        Mode::ALL.into_iter().flat_map(move |mode| {
+            views.into_iter().flat_map(move |view| {
+                [false, true].into_iter().flat_map(move |selection| {
+                    [false, true].into_iter().filter_map(move |ghost| {
+                        let s = ModeState {
+                            view,
+                            mode,
+                            selection,
+                            ghost,
+                        };
+                        s.is_valid().then_some(s)
+                    })
+                })
+            })
+        })
+    }
+
+    /// 불변식: 고스트는 Step에만, 노트 입력 모드는 피아노롤에만.
+    const fn is_valid(self) -> bool {
+        (!self.ghost || matches!(self.mode, Mode::Step))
+            && (!self.mode.writes_notes() || matches!(self.view, View::PianoRoll))
     }
 
     /// 사건 하나를 적용한 다음 상태.
     #[must_use]
     pub fn apply(self, event: ModeEvent) -> ModeState {
-        let _ = event;
-        todo!()
+        match event {
+            ModeEvent::OpenClip if self.is_normal_in(View::Arrangement) => {
+                self.with_view(View::PianoRoll)
+            }
+            ModeEvent::ToggleView if self.mode == Mode::Normal => self.with_view(match self.view {
+                View::Arrangement => View::PianoRoll,
+                View::PianoRoll => View::Arrangement,
+            }),
+            ModeEvent::Enter(mode) => self.with_mode(mode),
+            ModeEvent::Cycle => self.with_mode(self.mode.cycled(true)),
+            ModeEvent::CycleBack => self.with_mode(self.mode.cycled(false)),
+            ModeEvent::ToNormal => self.with_mode(Mode::Normal),
+            ModeEvent::Back => self.back(),
+            ModeEvent::ClearSelection => ModeState {
+                selection: false,
+                ..self
+            },
+            ModeEvent::DismissGhost => ModeState {
+                ghost: false,
+                ..self
+            },
+            ModeEvent::Select => ModeState {
+                selection: true,
+                ..self
+            },
+            ModeEvent::ShowGhost if self.mode == Mode::Step => ModeState {
+                ghost: true,
+                ..self
+            },
+            ModeEvent::OpenClip | ModeEvent::ToggleView | ModeEvent::ShowGhost => self,
+        }
+    }
+
+    fn is_normal_in(self, view: View) -> bool {
+        self.mode == Mode::Normal && self.view == view
+    }
+
+    /// 뷰를 바꾼다. 피아노롤의 노트 선택과 배치 뷰의 클립 선택은 다른 것이라 선택을 비운다.
+    fn with_view(self, view: View) -> ModeState {
+        if view == self.view {
+            return self;
+        }
+        ModeState {
+            view,
+            selection: false,
+            ..self
+        }
+    }
+
+    /// 모드를 바꾼다. 고스트는 Step에만 산다. 노트 입력 모드는 피아노롤로 옮겨 간다(5.5에서
+    /// 모드를 나오면 피아노롤이다).
+    fn with_mode(self, mode: Mode) -> ModeState {
+        if mode == self.mode {
+            return self;
+        }
+        let s = if mode.writes_notes() {
+            self.with_view(View::PianoRoll)
+        } else {
+            self
+        };
+        ModeState {
+            mode,
+            ghost: false,
+            ..s
+        }
+    }
+
+    /// `Esc` 한 단계(5.5): 고스트 → 선택 → 모드 → 피아노롤 → (더 나갈 곳 없음).
+    fn back(self) -> ModeState {
+        if self.ghost {
+            ModeState {
+                ghost: false,
+                ..self
+            }
+        } else if self.selection {
+            ModeState {
+                selection: false,
+                ..self
+            }
+        } else if self.mode != Mode::Normal {
+            self.with_mode(Mode::Normal)
+        } else {
+            self.with_view(View::Arrangement)
+        }
     }
 
     /// 창의 키 컨텍스트 경로(바깥 → 안). 한 요소에 식별자 하나씩 겹쳐야 `A > B`가 맞는다.
     #[must_use]
     pub fn context_path(self) -> &'static [&'static str] {
-        todo!()
+        match (self.mode, self.view, self.selection, self.ghost) {
+            (Mode::Normal, View::Arrangement, false, _) => &["Normal", "Arrangement"],
+            (Mode::Normal, View::Arrangement, true, _) => &["Normal", "Arrangement", "Selection"],
+            (Mode::Normal, View::PianoRoll, false, _) => &["Normal", "PianoRoll"],
+            (Mode::Normal, View::PianoRoll, true, _) => &["Normal", "PianoRoll", "Selection"],
+            (Mode::Step, _, _, false) => &["Step"],
+            (Mode::Step, _, _, true) => &["Step", "Ghost"],
+            (Mode::Sequence, ..) => &["Sequence"],
+            (Mode::Play, ..) => &["Play"],
+            (Mode::Ai, ..) => &["AI"],
+            (Mode::Lyric, ..) => &["Lyric"],
+            (Mode::Controller, ..) => &["Controller"],
+        }
     }
 }
