@@ -58,7 +58,8 @@
 - [ ] 원격 CI 첫 실행과 CI 러너 벤치 기준값: remote가 생기면(사람이 건너뜀)
 - [ ] 후속: `crates/keyscore-midi/tests/scheduler.rs`의 20초 지터 측정이 같은 바이너리의 루프백 테스트와 겹치면 가끔 0.5 ms를 넘는다. 타이밍 측정 테스트를 서로 직렬로 묶는다.
 - [ ] 결정 대기: `2026-10-17-keymap-conflicts.md`(S3–S6 전)
-- [ ] 사람 답 대기(S2를 막지 않음): REQ 9.2 문구 반영 허락, 옛 `#` 주석 이행 규칙 여부
+- [x] REQ 9.2 문구(시각 대기 예외) 반영, 옛 `#` 주석은 레거시 지원 모드(`ParseOptions::legacy_hash_comments`, `txt2ksq --legacy`)
+- 개발 단계 REQ 문구 수정은 사람이 모두 승인(2026-10-17, `MEMORY.md`). 결정을 REQ에 옮길 때 묻지 않고 커밋 본문에 근거를 적는다
 - [ ] REQ 9.2 문구에 「시각 대기 시스템 콜은 예외」 반영: 사람의 수정 허락 대기(결정 `2026-10-16-scheduler-wait-syscall.md`)
 - [ ] 사람의 수동 확인 대기: Surge XT 수신(SP-3), 실제 키보드·IME(SP-1), 120 Hz 디스플레이(SP-2)
 
