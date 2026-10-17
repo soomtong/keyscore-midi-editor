@@ -5,8 +5,10 @@
 
 use gpui_kit::{Action, App, Window};
 
+use crate::keymap;
+
 /// 카운트를 비우고 창의 포커스로 Action을 디스패치한다.
 pub fn run_action(action: Box<dyn Action>, window: &mut Window, cx: &mut App) {
-    let _ = (action, window, cx);
-    todo!()
+    keymap::clear_count(cx);
+    window.dispatch_action(action, cx);
 }

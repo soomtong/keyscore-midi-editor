@@ -5,6 +5,7 @@
 
 pub mod actions;
 pub mod app_state;
+pub mod command_palette;
 pub mod commands;
 pub mod dispatch;
 pub mod document;
@@ -18,13 +19,12 @@ pub mod window;
 use std::path::PathBuf;
 
 use gpui_kit::{
-    AnyWindowHandle, App, AppContext as _, Focusable as _, Menu, MenuItem, TitlebarOptions,
-    WindowOptions,
+    AnyWindowHandle, App, AppContext as _, Focusable as _, TitlebarOptions, WindowOptions,
 };
 use keyscore_core::Project;
 
 use crate::actions::args::ThemeKind;
-use crate::actions::view::{SetTheme, ToggleBottomPanel, ToggleInspector, ToggleTrackList};
+use crate::actions::view::SetTheme;
 use crate::actions::{app::Quit, file::New, window::Close};
 use crate::app_state::AppSettings;
 use crate::document::ProjectDocument;
@@ -79,34 +79,9 @@ pub fn init(cx: &mut App, settings_path: PathBuf) {
 
 /// 앱 메뉴. 메뉴 7개 전체는 S2-T4다.
 fn set_menus(cx: &mut App) {
-    cx.set_menus([
-        Menu {
-            name: "KeyScore".into(),
-            items: vec![MenuItem::action("KeyScore 끝내기", Quit)],
-            disabled: false,
-        },
-        Menu {
-            name: "파일".into(),
-            items: vec![
-                MenuItem::action("새 창", New),
-                MenuItem::action("창 닫기", Close),
-            ],
-            disabled: false,
-        },
-        Menu {
-            name: "보기".into(),
-            items: vec![
-                MenuItem::action("트랙 목록", ToggleTrackList),
-                MenuItem::action("트랙 인스펙터", ToggleInspector),
-                MenuItem::action("하단 영역", ToggleBottomPanel),
-                MenuItem::separator(),
-                MenuItem::action("시스템 테마", SetTheme(ThemeKind::System)),
-                MenuItem::action("라이트 테마", SetTheme(ThemeKind::Light)),
-                MenuItem::action("다크 테마", SetTheme(ThemeKind::Dark)),
-            ],
-            disabled: false,
-        },
-    ]);
+    // 명령 표가 메뉴의 유일한 원천이다(KM-13). 키 등가물은 GPUI가 메뉴를 걸 때 현재 키맵에서 굽는다.
+    let menus = commands::menus(cx);
+    cx.set_menus(menus);
 }
 
 /// 창을 열지 못한 이유.

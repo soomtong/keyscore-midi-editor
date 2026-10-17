@@ -79,6 +79,25 @@ fn menu_actions(menus: &[OwnedMenu]) -> Vec<(String, Box<dyn Action>)> {
     out
 }
 
+/// 항목이 없는 하위 메뉴의 제목.
+fn empty_submenus(menus: &[OwnedMenu]) -> Vec<String> {
+    fn walk(items: &[OwnedMenuItem], out: &mut Vec<String>) {
+        for item in items {
+            if let OwnedMenuItem::Submenu(menu) = item {
+                if menu.items.is_empty() {
+                    out.push(menu.name.to_string());
+                }
+                walk(&menu.items, out);
+            }
+        }
+    }
+    let mut out = Vec::new();
+    for menu in menus {
+        walk(&menu.items, &mut out);
+    }
+    out
+}
+
 fn keys(text: &str) -> String {
     Kbd::format(&Keystroke::parse(text).unwrap())
 }
@@ -134,10 +153,18 @@ fn action_counts_match_palette_and_menus(cx: &mut TestAppContext) {
             .collect()
     });
     let menus = cx.update(|cx| cx.get_menus()).expect("메뉴가 걸려 있다");
-    let in_menus: BTreeSet<String> = menu_actions(&menus)
+    let mut in_menus: BTreeSet<String> = menu_actions(&menus)
         .iter()
         .map(|(_, a)| a.name().to_owned())
         .collect();
+    // 인자가 열려 있어 아직 항목이 없는 하위 메뉴(최근 파일, S2-T7)도 메뉴 자리다
+    for title in empty_submenus(&menus) {
+        let spec = commands::specs()
+            .iter()
+            .find(|s| s.label() == title)
+            .unwrap_or_else(|| panic!("명령 표에 없는 하위 메뉴 {title}"));
+        in_menus.insert(spec.name().to_owned());
+    }
     let elsewhere: BTreeSet<String> = commands::specs()
         .iter()
         .filter(|s| matches!(s.place(), Place::Elsewhere(_)))
@@ -155,12 +182,9 @@ fn action_counts_match_palette_and_menus(cx: &mut TestAppContext) {
         .filter(|s| matches!(s.place(), Place::Menu { .. }))
         .map(|s| s.name().to_owned())
         .collect();
-    // 최근 파일은 S2-T7까지 빈 하위 메뉴다
-    let missing: Vec<_> = declared.difference(&in_menus).collect();
     assert_eq!(
-        missing,
-        ["file::OpenRecent"],
-        "메뉴에 둔다고 했는데 없는 항목"
+        declared, in_menus,
+        "명령 표의 메뉴 자리와 실제 메뉴가 다르다"
     );
 }
 
@@ -472,7 +496,7 @@ fn open_argument_actions_are_listed_but_not_runnable(cx: &mut TestAppContext) {
     let entries = cx.update(|cx| commands::palette_entries(cx));
     let tempo = entries
         .iter()
-        .find(|e| e.name() == "transport::SetTempo")
+        .find(|e| e.name() == "transport::SetKey")
         .unwrap();
     assert!(tempo.action().is_none());
     assert!(
@@ -483,10 +507,28 @@ fn open_argument_actions_are_listed_but_not_runnable(cx: &mut TestAppContext) {
 
     let (handle, view) = open(cx);
     press(cx, handle, "cmd-shift-p");
-    type_text(cx, handle, "transport::settempo");
+    type_text(cx, handle, "transport::setkey");
     press(cx, handle, "enter");
     assert!(
         palette_open(cx, &view),
         "실행할 수 없는 줄이 팔레트를 닫았다"
     );
+}
+
+#[gpui_kit::test]
+fn palette_tab_completes_and_shift_tab_moves_back(cx: &mut TestAppContext) {
+    start(cx, "palette-tab", None);
+    let (handle, view) = open(cx);
+    press(cx, handle, "cmd-shift-p");
+    type_text(cx, handle, "view::toggleinsp");
+    press(cx, handle, "tab");
+    assert_eq!(
+        cx.read(|cx| view.read(cx).palette_query(cx)).as_deref(),
+        Some("트랙 인스펙터"),
+        "Tab이 선택한 줄의 이름으로 질의를 채우지 않았다(5.11)"
+    );
+    // 채운 이름으로도 같은 줄이 남아 Enter가 실행한다
+    let before = inspector_open(cx, &view);
+    press(cx, handle, "enter");
+    assert_ne!(inspector_open(cx, &view), before);
 }

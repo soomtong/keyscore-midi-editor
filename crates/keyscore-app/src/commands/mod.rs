@@ -5,7 +5,7 @@
 
 mod table;
 
-use gpui_kit::{Action, App, Menu, SharedString};
+use gpui_kit::{Action, App, Menu, MenuItem, SharedString};
 
 /// 메뉴바의 메뉴. 7.6의 일곱 메뉴 앞에 macOS 앱 메뉴를 둔다.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -36,7 +36,16 @@ impl MenuId {
     /// 메뉴 제목.
     #[must_use]
     pub const fn title(self) -> &'static str {
-        todo!()
+        match self {
+            MenuId::App => "KeyScore",
+            MenuId::File => "파일",
+            MenuId::Edit => "편집",
+            MenuId::View => "보기",
+            MenuId::Track => "트랙",
+            MenuId::Transport => "재생",
+            MenuId::Ai => "AI",
+            MenuId::Help => "도움말",
+        }
     }
 }
 
@@ -145,8 +154,17 @@ pub fn specs() -> &'static [CommandSpec] {
 /// 이름으로 찾는다.
 #[must_use]
 pub fn spec(name: &str) -> Option<&'static CommandSpec> {
-    let _ = name;
-    todo!()
+    specs().iter().find(|s| s.name == name)
+}
+
+/// 값이 열린 인자가 필요해 팔레트·메뉴에서 바로 실행할 수 없는 Action의 설명 꼬리.
+const NEEDS_ARGUMENT: &str = "인자 필요: 팔레트에서 인자를 받는 것은 `:` 명령줄 결정(A12) 뒤";
+
+/// 변형의 Action. 변형 JSON `null`은 인자 없음이다.
+fn build_variant(name: &str, variant: &Variant, cx: &App) -> Option<Box<dyn Action>> {
+    let args: serde_json::Value = serde_json::from_str(variant.args).ok()?;
+    let args = (!args.is_null()).then_some(args);
+    cx.build_action(name, args).ok()
 }
 
 /// 팔레트의 한 줄.
@@ -183,13 +201,95 @@ impl PaletteEntry {
 /// 팔레트 줄 전체. Action마다 한 줄이고, 변형이 있으면 변형마다 한 줄이다.
 #[must_use]
 pub fn palette_entries(cx: &App) -> Vec<PaletteEntry> {
-    let _ = cx;
-    todo!()
+    let docs = cx.action_documentation();
+    let mut entries = Vec::with_capacity(specs().len());
+    for spec in specs() {
+        let doc = docs.get(spec.name).copied().unwrap_or_default();
+        if spec.variants.is_empty() {
+            let action = cx.build_action(spec.name, None).ok();
+            let description = if action.is_some() {
+                doc.into()
+            } else {
+                format!("{doc} ({NEEDS_ARGUMENT})").into()
+            };
+            entries.push(PaletteEntry {
+                name: spec.name,
+                label: spec.label.into(),
+                description,
+                action,
+            });
+        } else {
+            for variant in spec.variants {
+                entries.push(PaletteEntry {
+                    name: spec.name,
+                    label: variant.label.into(),
+                    description: doc.into(),
+                    action: build_variant(spec.name, variant, cx),
+                });
+            }
+        }
+    }
+    entries
 }
 
 /// 명령 표로 만든 메뉴바.
 #[must_use]
 pub fn menus(cx: &App) -> Vec<Menu> {
-    let _ = cx;
-    todo!()
+    MenuId::ALL
+        .into_iter()
+        .map(|id| {
+            let mut placed: Vec<(u8, u16, &CommandSpec)> = specs()
+                .iter()
+                .filter_map(|s| match s.place {
+                    Place::Menu { menu, group, order } if menu == id => Some((group, order, s)),
+                    _ => None,
+                })
+                .collect();
+            placed.sort_by_key(|(group, order, _)| (*group, *order));
+            let mut items = Vec::with_capacity(placed.len() + 4);
+            let mut last_group = None;
+            for (group, _, spec) in placed {
+                if last_group.is_some_and(|g| g != group) {
+                    items.push(MenuItem::separator());
+                }
+                last_group = Some(group);
+                items.push(menu_item(spec, cx));
+            }
+            Menu {
+                name: id.title().into(),
+                items,
+                disabled: false,
+            }
+        })
+        .collect()
+}
+
+/// 메뉴 항목 하나. 변형이 있으면 하위 메뉴, 인자가 열려 있으면 빈(꺼진) 하위 메뉴다(최근 파일은 S2-T7).
+fn menu_item(spec: &CommandSpec, cx: &App) -> MenuItem {
+    let action_item = |name: &'static str, action: Box<dyn Action>| MenuItem::Action {
+        name: name.into(),
+        action,
+        os_action: None,
+        checked: false,
+        disabled: false,
+    };
+    if spec.variants.is_empty() {
+        return match cx.build_action(spec.name, None) {
+            Ok(action) => action_item(spec.label, action),
+            Err(_) => MenuItem::submenu(Menu {
+                name: spec.label.into(),
+                items: Vec::new(),
+                disabled: true,
+            }),
+        };
+    }
+    MenuItem::submenu(Menu {
+        name: spec.label.into(),
+        items: spec
+            .variants
+            .iter()
+            .filter_map(|v| build_variant(spec.name, v, cx).map(|a| action_item(v.label, a)))
+            .collect(),
+        disabled: false,
+    })
 }

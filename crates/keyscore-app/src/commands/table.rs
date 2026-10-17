@@ -56,10 +56,7 @@ pub(super) const SPECS: &[CommandSpec] = &[
         "ai::SetDefaultModel",
         "이 모델을 어시스트/생성 기본으로",
         "AI 패널",
-        &[
-            Variant::new("어시스트 기본 모델", "\"assist\""),
-            Variant::new("생성 기본 모델", "\"generate\""),
-        ],
+        &[],
     ),
     CommandSpec::elsewhere(
         "ai::SetKind",
