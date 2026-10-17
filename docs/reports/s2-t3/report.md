@@ -27,7 +27,7 @@
 ## 테스트 결과
 
 ~~~
-cargo test --workspace --no-fail-fast: 980 passed, 0 failed
+cargo test --workspace --no-fail-fast: 980 passed, 0 failed (리뷰 1 대응 뒤 993 passed, 0 failed)
 mode_fsm: 7 passed
 modes_ui: 8 passed
 review_s2_t2_r2: 23 passed (기대 모델 수정 후)
@@ -75,3 +75,17 @@ review_s2_t2_r2: 23 passed (기대 모델 수정 후)
    - 테스트를 지우지 않고, 기대 모델에 「그 키·그 Action의 바탕 레이어 바인딩이면 맞다」를 더했다.
    - 컴포넌트 `Dialog` 컨텍스트 이름이 우리 키맵의 `Dialog`와 같다. 우리 대화상자도 gpui-component `Dialog`를 쓸 것이라 같은 컨텍스트가 맞다고 본다.
 4. 모드 메뉴 항목 처리기는 `keymap::clear_count`를 직접 부른다. S2-T4의 실행 함수로 옮길 자리다.
+
+## 리뷰 1 대응
+
+| 리뷰 항목 | 대응 |
+| --- | --- |
+| 지적 1(차단): `Ctrl+Tab`·`Cmd+R`이 뷰·선택을 바꾼다 | 「노트 입력 모드는 피아노롤로」 규칙을 뺐다. REQ에 없는 결정을 더하는 대신 5.11 문장 그대로 「모드만 바뀐다」로 줄였으므로 결정 요청은 쓰지 않았다. 상태는 32개(뷰 2 × 모드 7 × 선택 2 + Step 고스트 4). `mode.rs` `with_mode` |
+| 지적 2: 메뉴가 열린 채 키가 문서로 간다 | 메뉴를 컨텍스트 겹 바깥(루트의 자식)에 그린다. 메뉴 포커스의 디스패치 경로에 문서 컨텍스트가 없다. 위치는 상태줄 왼쪽 위(`mode_menu_overlay`) |
+| 지적 3: `ai::Accept`·`Dismiss`가 AI 밖에서 Normal로 보낸다 | 사건 `LeaveAi`를 더했다. AI 모드에서만 Normal로 간다 |
+| 제안 1: `install` 두 번이면 사용자 레이어가 바탕에 얼어붙는다 | 이미 설치돼 있으면 처음 뜬 바탕 레이어를 그대로 쓴다 |
+| 제안 2: 처리기 없는 `tab`이 `root::Tab`으로 떨어진다 | S2-T5 이월로 단계 파일에 적었다 |
+| 제안 3: 바탕 레이어의 `alt-cmd-i` | S2-T6 이월로 단계 파일에 적었다 |
+| 제안 4: 한 바퀴 검사를 상태 전체로 | `cycle_visits_normal_step_sequence_play`가 상태 전체를 비교한다 |
+
+부록 A1–A5는 `tests/review_s2_t3.rs`로 옮겨 모두 통과한다. `modes_ui::ghost_escape_under_policy_c_stays_in_step`은 빠진 규칙에 기대던 시작 상태(배치 뷰에서 Step → 피아노롤)를 `OpenClip`으로 명시했다.

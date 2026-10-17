@@ -34,7 +34,7 @@
 규칙
 - 뷰가 바뀌면 선택을 비운다. 피아노롤의 노트 선택과 배치 뷰의 클립 선택은 다른 것이라서다.
 - 고스트는 Step에서만 산다. Step을 떠나면 고스트를 지운다.
-- 노트를 쓰는 입력 모드(Step, Sequence, Lyric)는 피아노롤에서 일어난다. 배치 뷰에서 들어가면 뷰를 피아노롤로 바꾼다(5.5 「모드 → 피아노롤 → 배치 뷰」가 모드를 나오면 피아노롤이라는 뜻). Play, AI, Controller는 뷰를 그대로 둔다.
+- 모드 전환은 모드만 바꾼다. 뷰와 선택은 그대로다(5.11 「현재 커서 위치를 유지한 채 모드만 바뀐다」). 처음 계획의 「노트 입력 모드는 피아노롤로 옮긴다」는 REQ에 없는 규칙이라 리뷰 1 지적 1에 따라 뺐다.
 - 모드 진입 Action은 어느 모드에서든 그 모드로 간다(팔레트·메뉴가 Normal을 거치지 않고 부를 수 있다). 기본 키맵은 5.5대로 Normal 컨텍스트에만 건다.
 - 모드 순환은 Normal → Step → Sequence → Play → Normal(5.11). 순환에 없는 모드(AI, Lyric, Controller)에서는 Normal에 있는 것처럼 센다.
 
@@ -44,7 +44,8 @@
 | `ToggleView` | `view::Toggle`(`v`) | Normal에서만 뷰를 바꾼다 |
 | `Enter(m)` | `mode::Step`·`StepAfterNote`·`StepAtBarStart`·`StepAtBarEnd`·`StepOverwrite`, `mode::Sequence`, `mode::Play`, `mode::Lyric`, `mode::Controller`, `ai::OpenPanel` | 모드를 `m`으로 |
 | `Cycle` / `CycleBack` | `mode::Cycle`(`ctrl-tab`) / `mode::CycleBack` | 순환 |
-| `ToNormal` | `mode::Normal`, `ai::Accept`, `ai::Dismiss`, 클립 끝(S5) | 모드를 Normal로. 선택·뷰는 그대로 |
+| `ToNormal` | `mode::Normal`, 클립 끝(S5) | 모드를 Normal로. 선택·뷰는 그대로 |
+| `LeaveAi` | `ai::Accept`, `ai::Dismiss` | AI 모드에서만 Normal로. 그 밖은 그대로(리뷰 1 지적 3) |
 | `Back` | `mode::Back` | 한 단계: 고스트 → 선택 → 모드(Normal로) → 피아노롤(배치 뷰로) → 아무것도 안 함 |
 | `ClearSelection` | `select::Clear` | 선택을 비운다 |
 | `DismissGhost` | `ai::DismissGhost` | 고스트를 지운다 |

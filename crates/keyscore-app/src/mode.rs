@@ -61,11 +61,6 @@ impl Mode {
         }
     }
 
-    /// 노트를 쓰는 입력 모드. 피아노롤에서만 일어난다.
-    const fn writes_notes(self) -> bool {
-        matches!(self, Mode::Step | Mode::Sequence | Mode::Lyric)
-    }
-
     /// 순환(5.11)에서의 다음 모드. 순환 밖 모드(AI, Lyric, Controller)는 Normal처럼 센다.
     const fn cycled(self, forward: bool) -> Mode {
         const ORDER: [Mode; 4] = [Mode::Normal, Mode::Step, Mode::Sequence, Mode::Play];
@@ -104,6 +99,8 @@ pub enum ModeEvent {
     Select,
     /// 고스트가 나타났다(S7). Step에서만 의미가 있다
     ShowGhost,
+    /// AI 패널의 수락·닫기(`ai::Accept`, `ai::Dismiss`). AI 모드에서만 Normal로 간다
+    LeaveAi,
 }
 
 impl ModeEvent {
@@ -121,6 +118,7 @@ impl ModeEvent {
             ModeEvent::DismissGhost,
             ModeEvent::Select,
             ModeEvent::ShowGhost,
+            ModeEvent::LeaveAi,
         ];
         all.extend(Mode::ALL.map(ModeEvent::Enter));
         all
@@ -129,7 +127,7 @@ impl ModeEvent {
 
 /// 모드 FSM의 상태. 필드는 비공개이고 [`ModeState::apply`]로만 바뀐다.
 ///
-/// 불변식: 고스트가 있으면 모드는 Step이다. 노트 입력 모드(Step, Sequence, Lyric)는 피아노롤에 있다.
+/// 불변식: 고스트가 있으면 모드는 Step이다.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ModeState {
     view: View,
@@ -193,10 +191,9 @@ impl ModeState {
         })
     }
 
-    /// 불변식: 고스트는 Step에만, 노트 입력 모드는 피아노롤에만.
+    /// 불변식: 고스트는 Step에만.
     const fn is_valid(self) -> bool {
-        (!self.ghost || matches!(self.mode, Mode::Step))
-            && (!self.mode.writes_notes() || matches!(self.view, View::PianoRoll))
+        !self.ghost || matches!(self.mode, Mode::Step)
     }
 
     /// 사건 하나를 적용한 다음 상태.
@@ -214,6 +211,7 @@ impl ModeState {
             ModeEvent::Cycle => self.with_mode(self.mode.cycled(true)),
             ModeEvent::CycleBack => self.with_mode(self.mode.cycled(false)),
             ModeEvent::ToNormal => self.with_mode(Mode::Normal),
+            ModeEvent::LeaveAi if self.mode == Mode::Ai => self.with_mode(Mode::Normal),
             ModeEvent::Back => self.back(),
             ModeEvent::ClearSelection => ModeState {
                 selection: false,
@@ -231,7 +229,10 @@ impl ModeState {
                 ghost: true,
                 ..self
             },
-            ModeEvent::OpenClip | ModeEvent::ToggleView | ModeEvent::ShowGhost => self,
+            ModeEvent::OpenClip
+            | ModeEvent::ToggleView
+            | ModeEvent::ShowGhost
+            | ModeEvent::LeaveAi => self,
         }
     }
 
@@ -251,21 +252,16 @@ impl ModeState {
         }
     }
 
-    /// 모드를 바꾼다. 고스트는 Step에만 산다. 노트 입력 모드는 피아노롤로 옮겨 간다(5.5에서
-    /// 모드를 나오면 피아노롤이다).
+    /// 모드만 바꾼다(5.11 「현재 커서 위치를 유지한 채 모드만 바뀐다」). 뷰와 선택은 그대로이고,
+    /// 고스트는 Step에만 살아서 Step을 떠나면 지운다.
     fn with_mode(self, mode: Mode) -> ModeState {
         if mode == self.mode {
             return self;
         }
-        let s = if mode.writes_notes() {
-            self.with_view(View::PianoRoll)
-        } else {
-            self
-        };
         ModeState {
             mode,
             ghost: false,
-            ..s
+            ..self
         }
     }
 

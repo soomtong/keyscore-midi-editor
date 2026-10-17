@@ -194,6 +194,7 @@ fn escape_mashing_converges_under_policy_c(cx: &mut TestAppContext) {
 fn ghost_escape_under_policy_c_stays_in_step(cx: &mut TestAppContext) {
     start(cx, "esc-c-ghost", Some(POLICY_C));
     let (handle, view) = open(cx);
+    event(cx, handle, &view, ModeEvent::OpenClip);
     event(cx, handle, &view, ModeEvent::Enter(Mode::Step));
     event(cx, handle, &view, ModeEvent::ShowGhost);
     // Step > Ghost가 Step보다 깊어서 이긴다(5.12: 고스트만 지우고 Step에 머문다)

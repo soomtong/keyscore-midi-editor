@@ -266,7 +266,12 @@ pub fn install(
     options: KeymapOptions,
     after_apply: fn(&mut App),
 ) {
-    let base = cx.key_bindings().borrow().bindings().cloned().collect();
+    // 두 번째 설치면 지금 걸린 바인딩에 우리 레이어가 섞여 있다. 처음 뜬 바탕 레이어를 그대로 쓴다
+    // (S2-T3 리뷰 1 제안 1).
+    let base = match cx.try_global::<KeymapState>() {
+        Some(state) => state.base.clone(),
+        None => cx.key_bindings().borrow().bindings().cloned().collect(),
+    };
     cx.set_global(KeymapState {
         options,
         user_path,

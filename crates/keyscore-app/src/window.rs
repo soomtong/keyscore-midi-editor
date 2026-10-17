@@ -8,9 +8,9 @@ use gpui_kit::component::{
 };
 use gpui_kit::{
     Action, Anchor, AnyElement, App, AppContext as _, Context, DismissEvent, Div, Entity,
-    FocusHandle, Focusable, InteractiveElement as _, IntoElement, ParentElement as _, Render, Role,
-    Stateful, StatefulInteractiveElement as _, Styled as _, Subscription, TestSupportExt as _,
-    Window, anchored, deferred, div, prelude::FluentBuilder as _, px,
+    FocusHandle, Focusable, InteractiveElement as _, IntoElement, ParentElement as _, Pixels,
+    Render, Role, Stateful, StatefulInteractiveElement as _, Styled as _, Subscription,
+    TestSupportExt as _, Window, anchored, deferred, div, point, prelude::FluentBuilder as _, px,
 };
 
 use crate::actions::view::{ToggleBottomPanel, ToggleInspector, ToggleTrackList};
@@ -20,6 +20,9 @@ use crate::document::ProjectDocument;
 use crate::keymap;
 use crate::mode::{Mode, ModeEvent, ModeState, View};
 use crate::settings::{LayoutSettings, PANEL_SIZE_RANGE};
+
+/// 상태줄 높이의 근삿값. 모드 메뉴를 그 위에 띄울 때 쓴다.
+const STATUS_BAR_HEIGHT: Pixels = px(28.);
 
 /// 크기를 저장하는 패널 그룹.
 #[derive(Clone, Copy)]
@@ -187,8 +190,8 @@ impl ProjectWindow {
     /// 모드 FSM에 사건을 넣는 Action 처리기들(전이 표: `docs/reports/s2-t3/plan.md`).
     fn mode_handlers(element: Stateful<Div>, cx: &mut Context<Self>) -> Stateful<Div> {
         use ModeEvent::{
-            Back, ClearSelection, Cycle, CycleBack, DismissGhost, Enter, OpenClip, ToNormal,
-            ToggleView,
+            Back, ClearSelection, Cycle, CycleBack, DismissGhost, Enter, LeaveAi, OpenClip,
+            ToNormal, ToggleView,
         };
         let e = element;
         let e = Self::on_mode::<clip::Open>(e, OpenClip, cx);
@@ -208,8 +211,8 @@ impl ProjectWindow {
         let e = Self::on_mode::<mode::Back>(e, Back, cx);
         let e = Self::on_mode::<select::Clear>(e, ClearSelection, cx);
         let e = Self::on_mode::<ai::OpenPanel>(e, Enter(Mode::Ai), cx);
-        let e = Self::on_mode::<ai::Accept>(e, ToNormal, cx);
-        let e = Self::on_mode::<ai::Dismiss>(e, ToNormal, cx);
+        let e = Self::on_mode::<ai::Accept>(e, LeaveAi, cx);
+        let e = Self::on_mode::<ai::Dismiss>(e, LeaveAi, cx);
         let e = Self::on_mode::<ai::DismissGhost>(e, DismissGhost, cx);
         e.on_action(cx.listener(Self::show_mode_menu))
     }
@@ -248,11 +251,20 @@ impl ProjectWindow {
             .cursor_pointer()
             .child(label)
             .on_click(cx.listener(|this, _, window, cx| this.open_mode_menu(window, cx)))
-            .when_some(self.mode_menu.as_ref(), |d, (menu, _)| {
-                d.child(deferred(
-                    anchored().anchor(Anchor::BottomLeft).child(menu.clone()),
-                ))
-            })
+    }
+
+    /// 열린 모드 메뉴. 컨텍스트 겹 바깥(루트의 자식)에 그린다. 안쪽에 그리면 메뉴 포커스의 디스패치
+    /// 경로에 문서 컨텍스트(`Normal > Arrangement` 등)가 들어가, 메뉴가 걸지 않은 키(`v`, `a`)가 메뉴
+    /// 뒤의 문서로 간다(S2-T3 리뷰 1 지적 2). 위치는 상태줄 왼쪽 모드 표시 위다.
+    fn mode_menu_overlay(&self, window: &Window) -> Option<impl IntoElement> {
+        let (menu, _) = self.mode_menu.as_ref()?;
+        let origin = point(px(4.), window.viewport_size().height - STATUS_BAR_HEIGHT);
+        Some(deferred(
+            anchored()
+                .position(origin)
+                .anchor(Anchor::BottomLeft)
+                .child(menu.clone()),
+        ))
     }
 
     #[must_use]
@@ -349,7 +361,7 @@ impl Focusable for ProjectWindow {
 }
 
 impl Render for ProjectWindow {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let layout = self.layout;
         let range = px(*PANEL_SIZE_RANGE.start())..px(*PANEL_SIZE_RANGE.end());
         let main_label = match self.mode.view() {
@@ -434,7 +446,9 @@ impl Render for ProjectWindow {
             .on_action(cx.listener(Self::toggle_track_list))
             .on_action(cx.listener(Self::toggle_inspector))
             .on_action(cx.listener(Self::toggle_bottom));
-        Self::mode_handlers(root, cx).child(self.wrap_in_contexts(content))
+        Self::mode_handlers(root, cx)
+            .child(self.wrap_in_contexts(content))
+            .children(self.mode_menu_overlay(window))
     }
 }
 

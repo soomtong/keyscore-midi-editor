@@ -226,3 +226,92 @@ fn user_global_tab_beats_base_root_tab(cx: &mut TestAppContext) {
     press(cx, handle, "tab");
     assert_eq!(state(cx, &view).mode(), Mode::Play);
 }
+
+// ---------- 리뷰 1 부록(지적 1–3, 제안 1): 고친 뒤 회귀 방지로 옮김 ----------
+
+#[test]
+fn cycle_round_trip_restores_state() {
+    for start in ModeState::all().filter(|s| s.mode() == Mode::Normal) {
+        let mut s = start;
+        for _ in 0..4 {
+            s = s.apply(ModeEvent::Cycle);
+        }
+        assert_eq!(s, start, "Ctrl+Tab 한 바퀴");
+        for _ in 0..4 {
+            s = s.apply(ModeEvent::CycleBack);
+        }
+        assert_eq!(s, start, "Ctrl+Shift+Tab 한 바퀴");
+    }
+}
+
+#[gpui_kit::test]
+fn ctrl_tab_round_trip_restores_state(cx: &mut TestAppContext) {
+    start(cx, "cycle-ui", None);
+    let (handle, view) = open(cx);
+    event(cx, handle, &view, ModeEvent::Select);
+    let before = state(cx, &view);
+    for _ in 0..4 {
+        press(cx, handle, "ctrl-tab");
+    }
+    assert_eq!(state(cx, &view), before);
+}
+
+#[gpui_kit::test]
+fn mode_menu_open_keeps_document_keys_out(cx: &mut TestAppContext) {
+    start(cx, "menu-keys", None);
+    let (handle, view) = open(cx);
+    click(cx, handle, "status-mode");
+    assert!(menu_open(cx, &view));
+    press(cx, handle, "v");
+    assert_eq!(
+        state(cx, &view),
+        ModeState::INITIAL,
+        "메뉴가 열린 채 v가 뷰를 바꿨다"
+    );
+    press(cx, handle, "a");
+    assert_eq!(
+        state(cx, &view).mode(),
+        Mode::Normal,
+        "메뉴가 열린 채 a가 AI로 갔다"
+    );
+    assert!(menu_open(cx, &view));
+}
+
+#[gpui_kit::test]
+fn ai_accept_dismiss_outside_ai_keep_mode(cx: &mut TestAppContext) {
+    use keyscore_app::actions::ai;
+    start(cx, "ai-outside", None);
+    let (handle, view) = open(cx);
+    event(cx, handle, &view, ModeEvent::Enter(Mode::Play));
+    for action in [
+        Box::new(ai::Dismiss) as Box<dyn gpui_kit::Action>,
+        Box::new(ai::Accept),
+    ] {
+        cx.update_window(handle, |_, window, cx| window.dispatch_action(action, cx))
+            .unwrap();
+        render(cx, handle);
+        assert_eq!(state(cx, &view).mode(), Mode::Play);
+    }
+}
+
+#[gpui_kit::test]
+fn install_twice_does_not_freeze_user_layer(cx: &mut TestAppContext) {
+    let dir = start(
+        cx,
+        "install-twice",
+        Some(r#"[{"bindings": {"f9": "mode::Play"}}]"#),
+    );
+    let path = dir.join("keymap.json");
+    cx.update(|cx| keymap::install(cx, path.clone(), keymap::options(cx), |_| {}));
+    std::fs::remove_file(&path).unwrap();
+    cx.update(keymap::apply);
+    cx.update(|cx| {
+        let km = cx.key_bindings();
+        let km = km.borrow();
+        assert!(
+            !km.bindings()
+                .any(|b| b.action().name() == "mode::Play" && b.keystrokes()[0].unparse() == "f9"),
+            "지운 사용자 바인딩이 남았다"
+        );
+    });
+}

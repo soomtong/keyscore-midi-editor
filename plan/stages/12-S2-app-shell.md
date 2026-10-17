@@ -39,12 +39,15 @@
 - 이월(S1-T1·S1-T2): 앱은 시작할 때 CoreMIDI 관련 호출 가운데 `MidiClient::new`를 가장 먼저 부른다(알림 전달 조건, `PortWatcher::start`가 아니면 `NotificationsUnavailable`). `MidiClient` 핸들은 하나를 만들어 복제해 쓴다. MIDI 서버 재시작을 알아차리면(`VirtualOutput::is_registered`가 거짓) 모든 가상 포트에 `reregister`를 부르고 상태줄에 알린다. `PortWatcher` 이벤트로 상태줄 표시와 `Reconnector` 재연결을 하고, 열려 있는 `OsOutput`은 `is_present`로 확인한다. `PortWatcher::start`는 탐침 때문에 약 0.25초(최악 2초) 블로킹하므로 메인 스레드가 아닌 곳에서 부르고, 서버 재시작 뒤에는 감시자도 다시 시작한다. `suggest_mapping`의 `Virtual` 제안은 서로 겹치거나 16개를 넘을 수 있으므로 UI에서 만들기 전에 확인한다(S1-T2 리뷰 2 제안 3, 6, 8).
 
 - 이월(S2-T2, 결정 C): 트랜스포트 툴바 버튼은 S2-T4의 실행 함수를 거쳐 Action을 실행한다(카운트를 비운다).
+- 이월(S2-T3 리뷰 1 제안 2): 처리기가 없는 우리 Action의 키는 바탕 레이어(gpui-component)로 떨어진다. 지금 Normal의 `tab`(`track::Next`)은 `root::Tab`(포커스 이동)이 처리한다. 인스펙터 입력칸 같은 탭 정지점을 들이기 전에 `track::Next`·`track::Prev` 처리기를 붙여, `Tab`이 창 포커스를 입력칸으로 옮기지 않게 한다.
 
 ### S2-T6 설정 화면과 키맵 편집기
 
 - 범위: KM-3·4·8·9·10, 설정 > 입력·MIDI 출력·메트로놈·키맵·AI(AI 탭은 비활성 플레이스홀더). press-to-bind, 충돌 시트, 프리셋 전환, 내보내기·가져오기, `?` 오버레이.
 - 테스트 게이트: 키맵 편집기를 키보드만으로 끝까지 조작하는 UI 테스트. 가져온 키맵의 충돌이 적용 전에 잡힘.
 - 이월(S0-T4 리뷰 3 제안 3): undo 히스토리 메모리 상한의 기본값과 정책을 정한다. 상한이 있으면 `Document::undo`가 성공하면서 가장 오래된 undo 단위를 버릴 수 있다(되돌리는 쪽은 작고 다시 하는 쪽이 큰 편집: 녹음 테이크, 붙여넣기). REQ EDT-1 「무제한」과의 관계를 결정 요청으로 다룬다.
+
+- 이월(S2-T3 리뷰 1 제안 3): 바탕 레이어(`keymap::base_bindings`)에 gpui-component의 디버그 전역 키 `alt-cmd-i`(`debug_assertions`에서만)가 들어 있다. 키맵 편집기가 바탕 레이어를 보여 줄 때 이 키를 빼거나 「개발용」으로 표시한다.
 
 - 이월(S2-T1 리뷰 3 제안 1): 창 크기를 바꾸면 gpui-base가 사이드 패널을 비율로 줄여 그리고, 이어서 다른 패널을 조절하면 줄어든 너비가 저장된다. 사이드 패널을 고정 너비(`flex_none`)로 둘지, 창 크기 변경 뒤의 크기를 저장에서 뺄지 정한다. 테스트는 `docs/reports/s2-t1/review-3.md` 부록에 있다.
 
