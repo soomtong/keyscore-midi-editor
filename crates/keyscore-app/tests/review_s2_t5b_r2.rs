@@ -268,3 +268,105 @@ fn vim_meter_field_with_keys(cx: &mut TestAppContext) {
     let sig = project_of(cx, &view).meter_map().signature_at(Tick::ZERO);
     assert_eq!(keyscore_app::tracks::format_meter(sig), "6/8");
 }
+
+// ---------- 리뷰 2 부록 B(지적 1–5): 고친 뒤 회귀 방지로 옮김 ----------
+
+#[gpui_kit::test]
+fn escape_in_tempo_field_returns_to_document(cx: &mut TestAppContext) {
+    start(cx, "escape");
+    let (handle, view) = open(cx, three_tracks());
+    click(cx, handle, "transport-tempo");
+    press(cx, handle, "cmd-a backspace 9 9");
+    press(cx, handle, "escape");
+    assert!(
+        !tempo_focused(cx, handle, &view),
+        "Esc 뒤에도 템포 입력란에 포커스가 남는다"
+    );
+}
+
+#[gpui_kit::test]
+fn cmd_z_in_tempo_field_does_not_undo_document(cx: &mut TestAppContext) {
+    start(cx, "cmd-z");
+    let (handle, view) = open(cx, three_tracks());
+    run(cx, handle, track::Delete);
+    let after_delete = ids(cx, &view);
+    assert_eq!(after_delete.len(), 2);
+    click(cx, handle, "transport-tempo");
+    press(cx, handle, "cmd-a backspace 9");
+    press(cx, handle, "cmd-z");
+    assert_eq!(
+        ids(cx, &view),
+        after_delete,
+        "입력란의 cmd-z가 문서 undo가 됐다"
+    );
+}
+
+/// 구현 대응: 버튼은 누른 뒤 포커스를 문서로 돌린다(리뷰 2 지적 1). 원문의 전제(「버튼이 입력란 포커스를
+/// 가져가지 않는다」)는 그 수정과 반대라, 탭 뒤 필드를 다시 눌러 고치지 않고 Enter를 치는 경로로 같은 결함
+/// (고치지 않은 필드의 Enter가 옛 값으로 덮음)을 본다.
+#[gpui_kit::test]
+fn enter_after_tap_while_field_focused_keeps_tapped_tempo(cx: &mut TestAppContext) {
+    start(cx, "tap-then-enter");
+    let (handle, view) = open(cx, Project::new());
+    click(cx, handle, "transport-tempo");
+    click(cx, handle, "transport-tap");
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    click(cx, handle, "transport-tap");
+    let tapped = tempo(cx, &view);
+    assert_ne!(tapped, Tempo::DEFAULT);
+    click(cx, handle, "transport-tempo");
+    press(cx, handle, "enter");
+    assert_eq!(
+        tempo(cx, &view),
+        tapped,
+        "Enter가 옛 필드 값을 다시 확정했다"
+    );
+}
+
+#[gpui_kit::test]
+fn metronome_button_keeps_mode_keys(cx: &mut TestAppContext) {
+    start(cx, "metronome-focus");
+    let (handle, view) = open(cx, three_tracks());
+    click(cx, handle, "transport-metronome");
+    assert!(cx.read(|cx| view.read(cx).metronome_on()));
+    press(cx, handle, "m");
+    assert!(
+        muted(cx, &view, 0),
+        "메트로놈 버튼을 누른 뒤 모드 키가 닿지 않는다"
+    );
+}
+
+#[gpui_kit::test]
+fn enter_without_change_makes_no_undo_unit(cx: &mut TestAppContext) {
+    start(cx, "noop-enter");
+    let (handle, view) = open(cx, three_tracks());
+    run(cx, handle, track::Delete);
+    click(cx, handle, "transport-tempo");
+    press(cx, handle, "enter");
+    run(cx, handle, edit::Undo);
+    assert_eq!(ids(cx, &view).len(), 3);
+}
+
+/// 구현 대응: 입력란에 포커스가 있을 때의 되돌리기는 입력란을 되돌린다(KM-14, 리뷰 2 지적 2). 원문은 그때
+/// 메뉴 되돌리기가 문서를 되돌린다고 전제했다. 같은 결함(고치지 않은 필드의 Enter가 다른 경로의 편집을 덮음)을
+/// 입력란 밖의 편집 경로(`transport::SetTempo`)로 본다.
+#[gpui_kit::test]
+fn enter_after_menu_undo_while_field_focused(cx: &mut TestAppContext) {
+    start(cx, "menu-undo-then-enter");
+    let (handle, view) = open(cx, Project::new());
+    click(cx, handle, "transport-tempo");
+    run(
+        cx,
+        handle,
+        keyscore_app::actions::transport::SetTempo(keyscore_app::actions::args::Opt(Some(
+            keyscore_app::actions::args::Real(100.0),
+        ))),
+    );
+    assert_eq!(tempo(cx, &view), Tempo::from_bpm(100).unwrap());
+    press(cx, handle, "enter");
+    assert_eq!(
+        tempo(cx, &view),
+        Tempo::from_bpm(100).unwrap(),
+        "Enter가 옛 필드 값을 다시 확정했다"
+    );
+}

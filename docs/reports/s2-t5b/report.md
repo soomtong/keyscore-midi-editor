@@ -32,7 +32,7 @@
 ## 테스트 결과
 
 ~~~
-cargo test --workspace --no-fail-fast: 1166 passed, 0 failed (리뷰 1 대응 뒤 1186 passed, 0 failed)
+cargo test --workspace --no-fail-fast: 1166 passed, 0 failed (리뷰 1 대응 뒤 1186, 리뷰 2 대응 뒤 1201 passed, 0 failed)
 tracks_logic: 7, track_list: 5, transport_bar: 6, shared_channel: 3 passed
 ~~~
 
@@ -88,3 +88,19 @@ tracks_logic: 7, track_list: 5, transport_bar: 6, shared_channel: 3 passed
 | 제안: `SetTempo`(값 없음)로 필드에 들어갈 때 전체 선택 | 그렇게 했다 |
 
 부록 A 테스트 5개와 새 테스트 2개(패닉 버튼, 입력란 `Tab`)는 `tests/review_s2_t5b.rs`에서 통과한다.
+
+## 리뷰 2 대응
+
+| 리뷰 항목 | 대응 |
+| --- | --- |
+| 지적 1(회귀): 메트로놈 버튼을 누르면 포커스가 버튼에 남아 모드 키가 먹지 않는다 | 트랜스포트 바의 버튼·토글은 누른 뒤 문서로 포커스를 돌린다 |
+| 지적 2: 입력란의 `cmd-z`가 문서를 되돌린다 | 입력란에 포커스가 있으면 `edit::Undo/Redo` 처리기가 처리하지 않고 넘겨(`propagate`) 입력란의 되돌리기가 받는다(KM-14). 메뉴의 되돌리기도 같다(macOS 관례) |
+| 지적 3: 포커스만 있고 고치지 않은 필드가 옛 값을 보이고, Enter가 다른 경로의 편집을 덮는다 | 필드마다 마지막으로 앱이 넣은 글자를 기억하고, 지금 글자가 그와 다를 때만 「사람이 고친 필드」로 본다(입력란의 변경 사건은 값을 넣은 뒤에도 늦게 올 수 있어 사건으로 세지 않는다). 고치지 않은 필드는 문서가 바뀌면 바로 따라간다 |
+| 지적 4: 입력란의 `Esc`가 아무것도 취소하지 않는다 | 입력란을 감싼 요소가 수식키 없는 `Esc`를 먼저 받아 입력을 취소하고 문서로 돌아간다(A13) |
+| 지적 5: 고치지 않은 필드의 Enter가 같은 값으로 편집을 만든다 | 고치지 않은 필드의 Enter와, 고쳤어도 값이 문서와 같은 확정은 편집을 만들지 않는다. 탭 템포·`SetTempo`도 같은 값이면 편집하지 않는다 |
+| 제안 1: 입력란에서 `ctrl-tab`으로 모드가 바뀌어도 포커스가 입력란에 남는다 | 모드가 바뀔 때 입력란에 포커스가 있으면 고치던 입력을 취소하고 문서로 포커스를 옮긴다 |
+| 제안 2: 한 필드에 포커스가 있으면 두 필드 모두 동기화를 건너뛴다 | 필드마다 따로 본다(지적 3과 같은 수정) |
+
+부록 B 테스트 6개는 `tests/review_s2_t5b_r2.rs`로 옮겨 통과한다. 두 개는 전제를 고쳤다.
+- `enter_after_tap_while_field_focused_keeps_tapped_tempo`: 「버튼이 입력란 포커스를 가져가지 않는다」는 전제가 지적 1의 수정과 반대다. 탭 뒤 필드를 다시 누르고 고치지 않은 채 Enter를 치는 경로로 같은 결함을 본다.
+- `enter_after_menu_undo_while_field_focused`: 「입력란에 포커스가 있을 때 메뉴 되돌리기가 문서를 되돌린다」는 전제가 KM-14와 반대다. `transport::SetTempo`로 같은 결함을 본다.

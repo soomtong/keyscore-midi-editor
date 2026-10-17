@@ -173,12 +173,18 @@ impl ProjectWindow {
     pub fn apply_mode_event(
         &mut self,
         event: ModeEvent,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let next = self.mode.apply(event);
         if next != self.mode {
             self.mode = next;
+            // 입력란에서 전역 키(`ctrl-tab`)로 모드가 바뀌면 문서로 포커스를 옮긴다. 그대로 두면 상태줄은
+            // 새 모드인데 키는 입력란 글자가 된다(리뷰 2 제안 1).
+            if self.transport_field_focused(window, cx) {
+                self.cancel_open_fields(window, cx);
+                window.focus(&self.focus, cx);
+            }
             cx.notify();
         }
     }
@@ -268,6 +274,11 @@ impl ProjectWindow {
         cx.notify();
     }
 
+    /// 문서(모드 키 컨텍스트 안쪽)의 포커스 핸들.
+    pub(crate) fn document_focus(&self) -> FocusHandle {
+        self.focus.clone()
+    }
+
     /// 문서로 포커스를 돌린다(필드 확정 뒤).
     pub(crate) fn focus_document(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         window.focus(&self.focus, cx);
@@ -276,9 +287,15 @@ impl ProjectWindow {
     fn edit_undo(
         &mut self,
         _: &crate::actions::edit::Undo,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // 입력란 안의 `cmd-z`·`cmd-shift-z`는 입력란을 되돌린다(KM-14). 처리하지 않고 넘기면 입력란의
+        // 바인딩이 받는다.
+        if self.transport_field_focused(window, cx) {
+            cx.propagate();
+            return;
+        }
         let result = self.document.update(cx, |doc, cx| {
             let r = doc.undo();
             cx.notify();
@@ -293,9 +310,15 @@ impl ProjectWindow {
     fn edit_redo(
         &mut self,
         _: &crate::actions::edit::Redo,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // 입력란 안의 `cmd-z`·`cmd-shift-z`는 입력란을 되돌린다(KM-14). 처리하지 않고 넘기면 입력란의
+        // 바인딩이 받는다.
+        if self.transport_field_focused(window, cx) {
+            cx.propagate();
+            return;
+        }
         let result = self.document.update(cx, |doc, cx| {
             let r = doc.redo();
             cx.notify();

@@ -10,8 +10,8 @@ use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::{ActiveTheme as _, Disableable as _};
 use gpui_kit::{
     Action, AppContext as _, ClickEvent, Context, Entity, Focusable as _, InteractiveElement as _,
-    IntoElement, ParentElement as _, Pixels, Point, StatefulInteractiveElement as _, Styled as _,
-    Subscription, TestSupportExt as _, Window, div, px,
+    IntoElement, KeyDownEvent, ParentElement as _, Pixels, Point, StatefulInteractiveElement as _,
+    Styled as _, Subscription, TestSupportExt as _, Window, div, px,
 };
 use keyscore_core::{Edit, OutputPort, Tempo, Tick, TrackProp};
 use keyscore_midi::HostTime;
@@ -38,7 +38,29 @@ pub(crate) struct TransportBar {
     taps: Vec<HostTime>,
     /// 마지막으로 연 포트 드롭다운의 선택지.
     pub(crate) port_choices: Vec<OutputPort>,
+    /// 필드마다 마지막으로 앱이 넣은 글자. 지금 글자가 이것과 다르면 사람이 고친 필드다. 고친 필드만
+    /// 문서가 바뀌어도 덮지 않고, 고치지 않은 필드는 Enter로 편집을 만들지 않는다(리뷰 2 지적 3·5).
+    /// 입력란의 변경 사건은 값을 넣은 뒤에도 늦게 올 수 있어 사건으로 세지 않는다.
+    shown: [String; 2],
     _subscriptions: [Subscription; 2],
+}
+
+/// 트랜스포트 바의 입력란.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Field {
+    Tempo,
+    Meter,
+}
+
+impl Field {
+    const ALL: [Field; 2] = [Field::Tempo, Field::Meter];
+
+    const fn index(self) -> usize {
+        match self {
+            Field::Tempo => 0,
+            Field::Meter => 1,
+        }
+    }
 }
 
 impl TransportBar {
@@ -47,10 +69,10 @@ impl TransportBar {
         let meter = cx.new(|cx| InputState::new(window, cx));
         let subscriptions = [
             cx.subscribe_in(&tempo, window, |this, _, event: &InputEvent, window, cx| {
-                this.tempo_field_event(event, window, cx);
+                this.field_event(Field::Tempo, event, window, cx);
             }),
             cx.subscribe_in(&meter, window, |this, _, event: &InputEvent, window, cx| {
-                this.meter_field_event(event, window, cx);
+                this.field_event(Field::Meter, event, window, cx);
             }),
         ];
         TransportBar {
@@ -58,91 +80,165 @@ impl TransportBar {
             meter,
             taps: Vec::new(),
             port_choices: Vec::new(),
+            shown: [String::new(), String::new()],
             _subscriptions: subscriptions,
         }
     }
 }
 
 impl ProjectWindow {
-    /// 필드 내용을 지금 문서 값으로 되돌린다(확정 뒤, 잘못된 입력 뒤, 포커스를 잃을 때).
+    pub(crate) fn field_state(&self, field: Field) -> &Entity<InputState> {
+        match field {
+            Field::Tempo => &self.transport_bar.tempo,
+            Field::Meter => &self.transport_bar.meter,
+        }
+    }
+
+    /// 문서의 지금 값을 필드 표기로.
+    fn field_document_text(&self, field: Field, cx: &gpui_kit::App) -> String {
+        let project = self.document.read(cx).project();
+        match field {
+            Field::Tempo => format_tempo(project.tempo_map().tempo_at(Tick::ZERO)),
+            Field::Meter => format_meter(project.meter_map().signature_at(Tick::ZERO)),
+        }
+    }
+
+    /// 필드를 문서 값으로 되돌리고 「고치지 않음」으로 둔다.
+    fn reset_field(&mut self, field: Field, window: &mut Window, cx: &mut Context<Self>) {
+        let text = self.field_document_text(field, cx);
+        self.field_state(field)
+            .clone()
+            .update(cx, |state, cx| state.set_value(text.clone(), window, cx));
+        self.transport_bar.shown[field.index()] = text;
+    }
+
+    /// 사람이 고친 필드인가.
+    fn field_dirty(&self, field: Field, cx: &gpui_kit::App) -> bool {
+        self.field_state(field).read(cx).value().as_ref() != self.transport_bar.shown[field.index()]
+    }
+
+    /// 모든 필드를 문서 값으로(창을 열 때).
     pub(crate) fn refresh_transport_fields(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let (tempo, meter) = {
-            let project = self.document.read(cx).project();
-            (
-                format_tempo(project.tempo_map().tempo_at(Tick::ZERO)),
-                format_meter(project.meter_map().signature_at(Tick::ZERO)),
-            )
-        };
-        let bar = &self.transport_bar;
-        bar.tempo
-            .update(cx, |state, cx| state.set_value(tempo, window, cx));
-        bar.meter
-            .update(cx, |state, cx| state.set_value(meter, window, cx));
+        for field in Field::ALL {
+            self.reset_field(field, window, cx);
+        }
     }
 
-    /// 문서가 바뀌었다(undo, 탭 템포, `SetTempo`). 입력 중이 아닌 필드를 문서 값으로 맞춘다. 입력 중인
-    /// 필드는 건드리지 않는다(리뷰 1 지적 2).
+    /// 문서가 바뀌었다(undo, 탭 템포, `SetTempo`). 사람이 고치지 않은 필드를 문서 값으로 맞춘다. 고친 필드는
+    /// 확정·취소할 때까지 건드리지 않는다(리뷰 1 지적 2, 리뷰 2 지적 3, 제안 2: 필드마다 따로 본다).
     pub(crate) fn sync_transport_fields(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let editing = |state: &Entity<InputState>, cx: &gpui_kit::App| {
-            state.read(cx).focus_handle(cx).is_focused(window)
+        for field in Field::ALL {
+            if !self.field_dirty(field, cx) {
+                self.reset_field(field, window, cx);
+            }
+        }
+    }
+
+    /// 입력란에 포커스가 있는가. 입력란 안의 `cmd-z`는 문서가 아니라 입력란을 되돌린다(KM-14).
+    pub(crate) fn transport_field_focused(&self, window: &Window, cx: &gpui_kit::App) -> bool {
+        Field::ALL.iter().any(|f| {
+            self.field_state(*f)
+                .read(cx)
+                .focus_handle(cx)
+                .is_focused(window)
+        })
+    }
+
+    /// 고치던 필드를 모두 취소한다(모드가 바뀌어 문서로 돌아갈 때).
+    pub(crate) fn cancel_open_fields(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        for field in Field::ALL {
+            self.reset_field(field, window, cx);
+        }
+    }
+
+    /// 입력란의 키를 입력란보다 먼저 본다. 수식키 없는 `Esc`만 가로채 입력을 취소한다(gpui-base 입력란은
+    /// `Esc`에서 포커스를 놓지 않는다).
+    fn field_key_down(
+        &mut self,
+        field: Field,
+        event: &KeyDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let k = &event.keystroke;
+        if k.key == "escape" && !k.modifiers.modified() {
+            self.cancel_field(field, window, cx);
+            cx.stop_propagation();
+        }
+    }
+
+    /// `Esc`: 입력을 취소하고 문서로 돌아간다(A13 「통상의 취소」, 리뷰 2 지적 4).
+    pub(crate) fn cancel_field(
+        &mut self,
+        field: Field,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.reset_field(field, window, cx);
+        self.focus_document(window, cx);
+    }
+
+    fn field_event(
+        &mut self,
+        field: Field,
+        event: &InputEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match event {
+            InputEvent::PressEnter { .. } => {
+                if self.field_dirty(field, cx) {
+                    let text = self.field_state(field).read(cx).value().to_string();
+                    self.commit_field(field, &text, cx);
+                }
+                self.reset_field(field, window, cx);
+                self.focus_document(window, cx);
+            }
+            InputEvent::Blur => self.reset_field(field, window, cx),
+            InputEvent::Change | InputEvent::Focus => {}
+        }
+    }
+
+    /// 고친 필드를 확정한다. 값이 문서와 같으면 편집을 만들지 않는다(빈 undo 단위가 생기지 않게, 리뷰 2
+    /// 지적 5).
+    fn commit_field(&mut self, field: Field, text: &str, cx: &mut Context<Self>) {
+        let project = self.document.read(cx).project();
+        let edit = match field {
+            Field::Tempo => parse_tempo(text).map(|tempo| {
+                (tempo != project.tempo_map().tempo_at(Tick::ZERO)).then_some(Edit::SetTempo {
+                    at: Tick::ZERO,
+                    tempo: Some(tempo),
+                })
+            }),
+            Field::Meter => parse_meter(text).map(|signature| {
+                (signature != project.meter_map().signature_at(Tick::ZERO)).then_some(
+                    Edit::SetMeter {
+                        at: Tick::ZERO,
+                        signature: Some(signature),
+                    },
+                )
+            }),
         };
-        if editing(&self.transport_bar.tempo, cx) || editing(&self.transport_bar.meter, cx) {
-            return;
-        }
-        self.refresh_transport_fields(window, cx);
-    }
-
-    fn tempo_field_event(
-        &mut self,
-        event: &InputEvent,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        match event {
-            InputEvent::PressEnter { .. } => {
-                let text = self.transport_bar.tempo.read(cx).value().to_string();
-                match parse_tempo(&text) {
-                    Ok(tempo) => self.set_song_tempo(tempo, cx),
-                    Err(message) => self.say(message, cx),
-                }
-                self.refresh_transport_fields(window, cx);
-                self.focus_document(window, cx);
+        match edit {
+            Ok(Some(edit)) => {
+                self.edit_document(vec![edit], cx);
             }
-            InputEvent::Blur => self.refresh_transport_fields(window, cx),
-            InputEvent::Change | InputEvent::Focus => {}
-        }
-    }
-
-    fn meter_field_event(
-        &mut self,
-        event: &InputEvent,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        match event {
-            InputEvent::PressEnter { .. } => {
-                let text = self.transport_bar.meter.read(cx).value().to_string();
-                match parse_meter(&text) {
-                    Ok(signature) => {
-                        self.edit_document(
-                            vec![Edit::SetMeter {
-                                at: Tick::ZERO,
-                                signature: Some(signature),
-                            }],
-                            cx,
-                        );
-                    }
-                    Err(message) => self.say(message, cx),
-                }
-                self.refresh_transport_fields(window, cx);
-                self.focus_document(window, cx);
-            }
-            InputEvent::Blur => self.refresh_transport_fields(window, cx),
-            InputEvent::Change | InputEvent::Focus => {}
+            Ok(None) => {}
+            Err(message) => self.say(message, cx),
         }
     }
 
     fn set_song_tempo(&mut self, tempo: Tempo, cx: &mut Context<Self>) {
+        if self
+            .document
+            .read(cx)
+            .project()
+            .tempo_map()
+            .tempo_at(Tick::ZERO)
+            == tempo
+        {
+            return;
+        }
         self.edit_document(
             vec![Edit::SetTempo {
                 at: Tick::ZERO,
@@ -306,12 +402,17 @@ impl ProjectWindow {
             // 재생 중 위치 표시를 계속 갱신한다(UI-4는 피아노롤 재생 헤드와 함께 S3).
             window.request_animation_frame();
         }
+        // 버튼을 누른 뒤 포커스를 문서로 돌린다. 트랜스포트 바는 모드 키 컨텍스트 밖이라 포커스가 버튼에
+        // 남으면 모드 키가 먹지 않는다(리뷰 2 지적 1).
+        let doc = self.document_focus();
         let action_button = |id: &'static str, label: &'static str, action: Box<dyn Action>| {
+            let doc = doc.clone();
             Button::new(id)
                 .label(label)
                 .ghost()
                 .on_click(move |_: &ClickEvent, window, cx| {
                     run_action(action.boxed_clone(), window, cx);
+                    window.focus(&doc, cx);
                 })
         };
         div()
@@ -346,12 +447,18 @@ impl ProjectWindow {
             .child(
                 div()
                     .w(px(72.))
+                    .capture_key_down(cx.listener(|this, e: &KeyDownEvent, window, cx| {
+                        this.field_key_down(Field::Tempo, e, window, cx);
+                    }))
                     .child(Input::new(&self.transport_bar.tempo).id("transport-tempo")),
             )
             .child("BPM")
             .child(
                 div()
                     .w(px(56.))
+                    .capture_key_down(cx.listener(|this, e: &KeyDownEvent, window, cx| {
+                        this.field_key_down(Field::Meter, e, window, cx);
+                    }))
                     .child(Input::new(&self.transport_bar.meter).id("transport-meter")),
             )
             .child(
@@ -376,8 +483,12 @@ impl ProjectWindow {
                 Toggle::new("transport-metronome")
                     .label("메트로놈")
                     .checked(self.transport.metronome)
-                    .on_click(|_, window, cx| {
-                        run_action(Box::new(transport::ToggleMetronome), window, cx);
+                    .on_click({
+                        let doc = doc.clone();
+                        move |_, window, cx| {
+                            run_action(Box::new(transport::ToggleMetronome), window, cx);
+                            window.focus(&doc, cx);
+                        }
                     }),
             )
             .child(action_button(
