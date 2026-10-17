@@ -111,6 +111,9 @@ pub(crate) struct Prepared {
     pub(crate) setup: Vec<Setup>,
     /// 소리 내지 못하는 이름 포트와 이유.
     pub(crate) missing: Vec<(String, PortProblem)>,
+    /// 목적지(`OutputPort`의 이름, 가상은 빈 문자열) → 이 스냅샷의 포트 번호. 테스트 노트처럼 스냅샷
+    /// 밖에서 보내는 메시지의 포트를 찾는다.
+    pub(crate) routes: Vec<(String, u16)>,
 }
 
 /// 엔진을 설치한다. 이미 설치돼 있으면 아무 일도 하지 않는다.
@@ -168,6 +171,11 @@ impl Engine {
         std::mem::replace(&mut self.owner, owner)
     }
 
+    /// 재생 중인 창이 있는가.
+    pub(crate) fn has_owner(&self) -> bool {
+        self.owner.as_ref().is_some_and(|w| w.upgrade().is_some())
+    }
+
     /// 이 창이 재생 중인 주인인가.
     pub(crate) fn is_owner(&self, window: &WeakEntity<ProjectWindow>) -> bool {
         self.owner.as_ref().is_some_and(|o| o == window)
@@ -219,6 +227,8 @@ impl Engine {
             track_ports.push(port);
         }
         let setup = effective_setups(project, &track_ports);
+        let mut routes = vec![(String::new(), 0)];
+        routes.extend(index.iter().map(|(name, &i)| ((*name).to_owned(), i)));
         // 들리지 않는 트랙(뮤트, 다른 트랙의 솔로)의 뱅크·프로그램을 먼저 틱 0에 넣고, 그 뒤에 들리는 트랙을
         // 트랙 순서대로 렌더한다. 렌더러는 들리지 않는 트랙을 통째로 빼므로, 그대로 두면 재생 시작 때 chase가
         // 그 음색을 보내지 않아 재생 중 뮤트를 풀었을 때 음색이 틀린다(OUT-4, 리뷰 2 지적 3). 같은 틱의
@@ -260,6 +270,7 @@ impl Engine {
             snapshot: Arc::new(snapshot),
             setup,
             missing,
+            routes,
         })
     }
 

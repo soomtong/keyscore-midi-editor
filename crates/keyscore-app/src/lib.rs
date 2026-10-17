@@ -10,7 +10,9 @@ pub mod commands;
 pub mod dispatch;
 pub mod document;
 pub mod engine;
+mod fields;
 pub mod gm;
+mod inspector;
 pub mod keymap;
 pub mod mode;
 pub mod palette;
@@ -83,11 +85,13 @@ pub fn init(cx: &mut App, settings_path: PathBuf) {
     );
 }
 
-/// 앱 메뉴. 메뉴 7개 전체는 S2-T4다.
+/// 키맵을 걸 때마다: 앱 메뉴(S2-T4)와 상태줄.
 fn set_menus(cx: &mut App) {
     // 명령 표가 메뉴의 유일한 원천이다(KM-13). 키 등가물은 GPUI가 메뉴를 걸 때 현재 키맵에서 굽는다.
     let menus = commands::menus(cx);
     cx.set_menus(menus);
+    // 상태줄의 키맵 오류(KM-6)는 다시 걸 때마다 바뀐다. 열린 창을 다시 그린다.
+    cx.refresh_windows();
 }
 
 /// 창을 열지 못한 이유.

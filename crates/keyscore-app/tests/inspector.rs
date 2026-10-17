@@ -600,3 +600,39 @@ fn inactive_window_keeps_field_text(cx: &mut TestAppContext) {
         keyscore_core::Tempo::from_bpm(95).unwrap()
     );
 }
+
+// ---------- 겹 바깥 패널의 포커스 ----------
+
+/// 트랙 목록과 인스펙터는 모드 키 컨텍스트 겹 바깥이다. 목록의 버튼·줄을 누르거나 프로그램 드롭다운을
+/// `Esc`로 닫은 뒤에도 모드 키가 산다.
+#[gpui_kit::test]
+fn outside_panels_return_focus_to_document(cx: &mut TestAppContext) {
+    start(cx, "outside-focus");
+    let (handle, view) = open(cx, two_tracks());
+    let current_muted = |cx: &mut TestAppContext| {
+        cx.read(|cx| {
+            let w = view.read(cx);
+            let id = w.current_track().unwrap();
+            w.document()
+                .read(cx)
+                .project()
+                .tracks()
+                .iter()
+                .find(|t| t.id() == id)
+                .unwrap()
+                .mute()
+        })
+    };
+    click(cx, handle, "track-add");
+    assert_eq!(project_of(cx, &view).tracks().len(), 3);
+    press(cx, handle, "m");
+    assert!(current_muted(cx));
+    click(cx, handle, "track-mute-1");
+    assert!(project_of(cx, &view).tracks()[1].mute());
+    press(cx, handle, "m");
+    assert!(!current_muted(cx));
+    click(cx, handle, "inspector-program");
+    press(cx, handle, "escape");
+    press(cx, handle, "m");
+    assert!(current_muted(cx));
+}

@@ -6,12 +6,12 @@
 use std::time::Duration;
 
 use gpui_kit::component::button::{Button, ButtonVariants as _, Toggle};
-use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui_kit::component::input::Input;
 use gpui_kit::component::{ActiveTheme as _, Disableable as _};
 use gpui_kit::{
-    Action, AppContext as _, ClickEvent, Context, Entity, Focusable as _, InteractiveElement as _,
-    IntoElement, KeyDownEvent, ParentElement as _, Pixels, Point, StatefulInteractiveElement as _,
-    Styled as _, Subscription, TestSupportExt as _, Window, div, px,
+    Action, ClickEvent, Context, InteractiveElement as _, IntoElement, KeyDownEvent,
+    ParentElement as _, Pixels, Point, StatefulInteractiveElement as _, Styled as _,
+    TestSupportExt as _, Window, div, px,
 };
 use keyscore_core::{Edit, OutputPort, Tempo, Tick, TrackProp};
 use keyscore_midi::HostTime;
@@ -19,9 +19,9 @@ use keyscore_midi::HostTime;
 use crate::actions::{ai, mode, transport};
 use crate::dispatch::run_action;
 use crate::engine::TransportState;
+use crate::fields::Field;
 use crate::tracks::{
-    format_meter, format_position, format_tempo, key_choices, key_label, parse_meter, parse_tempo,
-    port_label,
+    format_position, key_choices, key_label, parse_meter, parse_tempo, port_label,
 };
 use crate::window::{PopupKind, ProjectWindow};
 
@@ -30,184 +30,34 @@ const TAP_RESET: Duration = Duration::from_secs(2);
 /// 탭 템포: 평균에 쓰는 최근 탭 수.
 const TAP_WINDOW: usize = 8;
 
-/// 트랜스포트 바의 입력 상태.
+/// 트랜스포트 바의 상태(입력란은 `fields`가 가진다).
 pub(crate) struct TransportBar {
-    pub(crate) tempo: Entity<InputState>,
-    pub(crate) meter: Entity<InputState>,
     /// 최근 탭 시각.
     taps: Vec<HostTime>,
     /// 마지막으로 연 포트 드롭다운의 선택지.
     pub(crate) port_choices: Vec<OutputPort>,
-    /// 필드마다 마지막으로 앱이 넣은 글자. 지금 글자가 이것과 다르면 사람이 고친 필드다. 고친 필드만
-    /// 문서가 바뀌어도 덮지 않고, 고치지 않은 필드는 Enter로 편집을 만들지 않는다(리뷰 2 지적 3·5).
-    /// 입력란의 변경 사건은 값을 넣은 뒤에도 늦게 올 수 있어 사건으로 세지 않는다.
-    shown: [String; 2],
-    _subscriptions: [Subscription; 2],
-}
-
-/// 트랜스포트 바의 입력란.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Field {
-    Tempo,
-    Meter,
-}
-
-impl Field {
-    const ALL: [Field; 2] = [Field::Tempo, Field::Meter];
-
-    const fn index(self) -> usize {
-        match self {
-            Field::Tempo => 0,
-            Field::Meter => 1,
-        }
-    }
 }
 
 impl TransportBar {
-    pub(crate) fn new(window: &mut Window, cx: &mut Context<ProjectWindow>) -> Self {
-        let tempo = cx.new(|cx| InputState::new(window, cx));
-        let meter = cx.new(|cx| InputState::new(window, cx));
-        let subscriptions = [
-            cx.subscribe_in(&tempo, window, |this, _, event: &InputEvent, window, cx| {
-                this.field_event(Field::Tempo, event, window, cx);
-            }),
-            cx.subscribe_in(&meter, window, |this, _, event: &InputEvent, window, cx| {
-                this.field_event(Field::Meter, event, window, cx);
-            }),
-        ];
+    pub(crate) fn new() -> Self {
         TransportBar {
-            tempo,
-            meter,
             taps: Vec::new(),
             port_choices: Vec::new(),
-            shown: [String::new(), String::new()],
-            _subscriptions: subscriptions,
         }
     }
 }
 
 impl ProjectWindow {
-    pub(crate) fn field_state(&self, field: Field) -> &Entity<InputState> {
-        match field {
-            Field::Tempo => &self.transport_bar.tempo,
-            Field::Meter => &self.transport_bar.meter,
-        }
-    }
-
-    /// 문서의 지금 값을 필드 표기로.
-    fn field_document_text(&self, field: Field, cx: &gpui_kit::App) -> String {
-        let project = self.document.read(cx).project();
-        match field {
-            Field::Tempo => format_tempo(project.tempo_map().tempo_at(Tick::ZERO)),
-            Field::Meter => format_meter(project.meter_map().signature_at(Tick::ZERO)),
-        }
-    }
-
-    /// 필드를 문서 값으로 되돌리고 「고치지 않음」으로 둔다.
-    fn reset_field(&mut self, field: Field, window: &mut Window, cx: &mut Context<Self>) {
-        let text = self.field_document_text(field, cx);
-        self.field_state(field)
-            .clone()
-            .update(cx, |state, cx| state.set_value(text.clone(), window, cx));
-        self.transport_bar.shown[field.index()] = text;
-    }
-
-    /// 사람이 고친 필드인가.
-    fn field_dirty(&self, field: Field, cx: &gpui_kit::App) -> bool {
-        self.field_state(field).read(cx).value().as_ref() != self.transport_bar.shown[field.index()]
-    }
-
-    /// 모든 필드를 문서 값으로(창을 열 때).
-    pub(crate) fn refresh_transport_fields(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        for field in Field::ALL {
-            self.reset_field(field, window, cx);
-        }
-    }
-
-    /// 문서가 바뀌었다(undo, 탭 템포, `SetTempo`). 사람이 고치지 않은 필드를 문서 값으로 맞춘다. 고친 필드는
-    /// 확정·취소할 때까지 글자를 건드리지 않는다(리뷰 1 지적 2, 리뷰 2 지적 3, 제안 2: 필드마다 따로 본다).
-    /// 고친 필드의 기준은 새 문서 값으로 옮긴다. 옛 기준과 같은 글자를 친 확정이 「고치지 않음」으로
-    /// 버려지지 않게 하기 위해서다(리뷰 3 제안 4).
-    pub(crate) fn sync_transport_fields(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        for field in Field::ALL {
-            if self.field_dirty(field, cx) {
-                self.transport_bar.shown[field.index()] = self.field_document_text(field, cx);
-            } else {
-                self.reset_field(field, window, cx);
-            }
-        }
-    }
-
-    /// 트랜스포트 입력란에 포커스가 있는가(모드가 바뀔 때 고치던 입력을 버리려고 본다).
-    pub(crate) fn transport_field_focused(&self, window: &Window, cx: &gpui_kit::App) -> bool {
-        Field::ALL.iter().any(|f| {
-            self.field_state(*f)
-                .read(cx)
-                .focus_handle(cx)
-                .is_focused(window)
-        })
-    }
-
-    /// 고치던 필드를 모두 취소한다(모드가 바뀌어 문서로 돌아갈 때).
-    pub(crate) fn cancel_open_fields(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        for field in Field::ALL {
-            self.reset_field(field, window, cx);
-        }
-    }
-
-    /// 입력란의 키를 입력란보다 먼저 본다. 수식키 없는 `Esc`만 가로채 입력을 취소한다(gpui-base 입력란은
-    /// `Esc`에서 포커스를 놓지 않는다).
-    fn field_key_down(
-        &mut self,
-        field: Field,
-        event: &KeyDownEvent,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let k = &event.keystroke;
-        if k.key == "escape" && !k.modifiers.modified() {
-            self.cancel_field(field, window, cx);
-            cx.stop_propagation();
-        }
-    }
-
-    /// `Esc`: 입력을 취소하고 문서로 돌아간다(A13 「통상의 취소」, 리뷰 2 지적 4).
-    pub(crate) fn cancel_field(
-        &mut self,
-        field: Field,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.reset_field(field, window, cx);
-        self.focus_document(window, cx);
-    }
-
-    fn field_event(
-        &mut self,
-        field: Field,
-        event: &InputEvent,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        match event {
-            InputEvent::PressEnter { .. } => {
-                if self.field_dirty(field, cx) {
-                    let text = self.field_state(field).read(cx).value().to_string();
-                    self.commit_field(field, &text, cx);
-                }
-                self.reset_field(field, window, cx);
-                self.focus_document(window, cx);
-            }
-            InputEvent::Blur => self.reset_field(field, window, cx),
-            InputEvent::Change | InputEvent::Focus => {}
-        }
-    }
-
-    /// 고친 필드를 확정한다. 값이 문서와 같으면 편집을 만들지 않는다(빈 undo 단위가 생기지 않게, 리뷰 2
+    /// 템포·박자표 필드를 확정할 편집. 값이 문서와 같으면 `None`(빈 undo 단위가 생기지 않게, 리뷰 2
     /// 지적 5).
-    fn commit_field(&mut self, field: Field, text: &str, cx: &mut Context<Self>) {
+    pub(crate) fn transport_field_edit(
+        &self,
+        field: Field,
+        text: &str,
+        cx: &gpui_kit::App,
+    ) -> Result<Option<Edit>, String> {
         let project = self.document.read(cx).project();
-        let edit = match field {
+        match field {
             Field::Tempo => parse_tempo(text).map(|tempo| {
                 (tempo != project.tempo_map().tempo_at(Tick::ZERO)).then_some(Edit::SetTempo {
                     at: Tick::ZERO,
@@ -222,13 +72,7 @@ impl ProjectWindow {
                     },
                 )
             }),
-        };
-        match edit {
-            Ok(Some(edit)) => {
-                self.edit_document(vec![edit], cx);
-            }
-            Ok(None) => {}
-            Err(message) => self.say(message, cx),
+            _ => Ok(None),
         }
     }
 
@@ -266,7 +110,7 @@ impl ProjectWindow {
             }
         } else {
             // 필드에 들어가 내용을 전체 선택한다. 바로 새 값을 칠 수 있다.
-            let tempo = self.transport_bar.tempo.clone();
+            let tempo = self.field_state(Field::Tempo).clone();
             tempo.update(cx, |state, cx| {
                 state.focus(window, cx);
                 state.select_all(window, cx);
@@ -331,7 +175,12 @@ impl ProjectWindow {
     }
 
     /// 출력 포트 메뉴: 현재 트랙의 포트(7.6 「트랜스포트 오른쪽 포트 드롭다운」).
-    fn open_port_menu(&mut self, at: Point<Pixels>, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn open_port_menu(
+        &mut self,
+        at: Point<Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(track) = self.current_track() else {
             return;
         };
@@ -468,7 +317,7 @@ impl ProjectWindow {
                     .capture_key_down(cx.listener(|this, e: &KeyDownEvent, window, cx| {
                         this.field_key_down(Field::Tempo, e, window, cx);
                     }))
-                    .child(Input::new(&self.transport_bar.tempo).id("transport-tempo")),
+                    .child(Input::new(self.field_state(Field::Tempo)).id("transport-tempo")),
             )
             .child("BPM")
             .child(
@@ -477,7 +326,7 @@ impl ProjectWindow {
                     .capture_key_down(cx.listener(|this, e: &KeyDownEvent, window, cx| {
                         this.field_key_down(Field::Meter, e, window, cx);
                     }))
-                    .child(Input::new(&self.transport_bar.meter).id("transport-meter")),
+                    .child(Input::new(self.field_state(Field::Meter)).id("transport-meter")),
             )
             .child(
                 Button::new("transport-key")

@@ -138,6 +138,12 @@ pub const GM_PROGRAMS: [&str; 128] = [
 /// 프로그램 표시(`1 Acoustic Grand Piano`, 없으면 `없음`).
 #[must_use]
 pub fn program_label(program: Option<Program>) -> String {
-    let _ = program;
-    todo!()
+    match program {
+        None => "없음".to_owned(),
+        Some(p) => format!(
+            "{} {}",
+            u16::from(p.get()) + 1,
+            GM_PROGRAMS[usize::from(p.get())]
+        ),
+    }
 }
