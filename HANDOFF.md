@@ -1,4 +1,4 @@
-# HANDOFF: KeyScore S2 진행 중 — S2-T1~T4, S2-T5a 병합, S2-T5b 다음
+# HANDOFF: KeyScore S2 진행 중 — S2-T1~T4, S2-T5a·T5b 병합, S2-T5c 다음
 
 ## 목표
 
@@ -6,7 +6,7 @@
 
 ## 현재 브랜치
 
-`main` — S0 완료·서명(2026-10-15), S1-T1~T7과 계이름 텍스트 주석 `//` 변경 병합(테스트 818개 통과). S1 출구 서명(YoungTaek, 2026-10-16). S2-T1~T4·S2-T5a 병합(테스트 약 1140개). S2-T5는 T5a(엔진)·T5b(트랜스포트 바·트랙 목록)·T5c(인스펙터·상태줄)로 나눴다. 다음은 S2-T5b.
+`main` — S0 완료·서명(2026-10-15), S1-T1~T7과 계이름 텍스트 주석 `//` 변경 병합(테스트 818개 통과). S1 출구 서명(YoungTaek, 2026-10-16). S2-T1~T4·S2-T5a·S2-T5b 병합(테스트 약 1230개). S2-T5는 T5a(엔진)·T5b(트랜스포트 바·트랙 목록)·T5c(인스펙터·상태줄)로 나눴다. 다음은 S2-T5c.
 
 ## 완료된 작업
 
@@ -20,6 +20,7 @@
 - [x] S0-T5 계이름 텍스트 파서·내보내기(리뷰 9회, 결정 `2026-10-13-ktext-export-voice-budget.md`와 개정). 엄격 모드 왕복의 알려진 예외와 출력 크기 상한(선형, 256배)은 `docs/decisions/2026-10-12-ktext-implementation-details.md`
 - [x] S0-T8 `ksq-cli`(리뷰 11회, 결정 `2026-10-14-ksq-cli-output-path-scope.md`: `-o`는 일반 파일만). 픽스처 8곡 `assets/fixtures/`, 원본 텍스트 `tools/ksq-cli/fixtures-src/`
 - [x] S0 출구 보고서 `docs/reports/stage-0-exit.md`(자동 게이트 통과, 사람 항목 대기)
+- [x] S2-T5b 트랜스포트 바와 트랙 목록(리뷰 3회 + 결정 `2026-10-17-s2-t5b-review-limit.md` A의 좁은 확인 1회, 병합 a6bc6c1). `src/transport_bar.rs`(재생·정지·패닉 `⏹!`·녹음(꺼짐)·템포/박자표 입력란·조성 메뉴·위치·메트로놈·탭·`AI✦`(꺼짐)·포트 메뉴), `src/track_list.rs`(트랙 Action과 목록, SEQ-8 경고), `src/tracks.rs`(순수 계산). 트랜스포트 바는 모드 키 컨텍스트 겹 바깥(루트 첫 줄)에 그린다. 입력란 규칙: 「고친 필드」 = 지금 글자 ≠ 앱이 마지막에 넣은 글자, 같은 값 확정은 편집을 만들지 않음, Esc·포커스 잃음은 취소, 버튼은 누른 뒤 문서로 포커스. `edit::Undo/Redo`는 포커스 경로에 `Input` 컨텍스트가 있으면 `input::Undo/Redo`로 보낸다(키·메뉴 공통, KM-14). 시험 창은 `activate_window()`해야 Focus/Blur 사건이 난다
 - [x] S2-T5a MIDI 엔진 연결과 트랜스포트 Action(리뷰 3회 + 결정 `2026-10-17-s2-t5a-review-limit.md` A의 좁은 확인 2회). core: 포트·조성 값이 바뀌면 모르는 키를 지우고 undo가 되살린다(결정 B, 내부 `Op::SetPort`·`Op::SetKey{extra}`). app `src/engine.rs`: 전역 `Engine`(첫 CoreMIDI 호출 `MidiClient::new` → 가상 포트 → 스케줄러, `run`이 창보다 먼저 `install`, `init`은 CoreMIDI 안 건드림), `prepare`(트랙 → 포트, 없는 이름 포트는 소리 없이 `PortProblem`, 들리지 않는 트랙의 뱅크·프로그램을 먼저 틱 0에 넣어 chase, `Setup`은 트랙별 비교). `src/transport.rs`: Play/Stop/Toggle/Pause/PlayFromCursor/Panic/ToggleMetronome, 위치 기준점 `Anchor`(시각·틱·템포), 재생 중 편집은 `cx.observe(document)` → 교체 직전 `collect_garbage` → swap → 바뀐 트랙 프로그램만 send_now, 한 번에 한 창. 루프백 테스트는 같은 프로세스 `coremidi` 수신기(dev-dep)
 - [x] S2-T4 명령 팔레트·메뉴바(리뷰 3회 + 결정 `2026-10-17-s2-t4-review-limit.md` A의 좁은 확인 2회). `src/commands/{mod.rs,table.rs}` 명령 표(Action 287개마다 이름·자리·변형; 자리는 `Menu{메뉴,묶음,순서}` 또는 `Elsewhere{Surface, 설명}`, 메뉴 80 + 메뉴 밖 207), `src/dispatch.rs` `run_action`(카운트 비우고 디스패치, 결정 C), `src/command_palette.rs`(gpui-component `Command`, 거르기·순위는 `commands::filter_entries`가 직접, 실행 가능한 줄 먼저, 바깥 클릭으로 닫힘, 팝업은 하나만). 메뉴는 명령 표로 자동 생성되고 키맵을 걸 때마다 다시 만든다. GPUI가 구울 키 등가물이 Cmd·Ctrl 없는 키이거나 어느 모드에서도 그 명령이 아니면 `menu::RunCommand`로 감싸고 제목 꼬리에 실제로 누를 키(`effective_keys`, 모든 모드 경로)를 보인다. 결정: vim 마크는 피아노롤 우클릭 메뉴(`2026-10-17-vim-marks-visible-ui.md`, S3 이월). 새 Action `palette::Close`(A13)
 - [x] S2-T3 모드 FSM(리뷰 3회 + 좁은 확인 1회). `src/mode.rs`(순수 FSM, 상태 28개, 사건 `Enter`/`Cycle`/`ToNormal`/`LeaveAi`/`ClearSelection`/`DismissGhost` 등), 창은 컨텍스트 경로만큼 `div`를 겹치고 가장 안쪽이 포커스를 잡는다, 상태줄 모드 표시·모드 메뉴(컨텍스트 겹 바깥에 그림). 키맵 엔진은 설치 전 gpui-component 바인딩을 바탕 레이어(`keymap::base_bindings`)로 보존. 결정: A13 Esc = 통상의 취소(사람, 해석 표는 `2026-10-17-keymap-conflicts.md` A13, 조합 중은 확정 후 Normal, 레이아웃 패널은 닫지 않음), 모드 진입 뷰(`2026-10-17-mode-entry-view.md`: Lyric·Controller만 피아노롤로). `mode::Back` 삭제(Action 286개). REQ P2·5.2·5.3·5.5·5.6·5.8·5.10·5.11·UI-2 문구 수정
@@ -97,7 +98,7 @@ REQ 문구: 사람이 에이전트에게 수정을 허락한 범위(결정 문�
 
 ## 다음 에이전트에게
 
-1. S2-T5b(트랜스포트 바·트랙 목록)를 시작한다. 단계 파일 S2-T5 절의 「나눔」과 이월 줄을 먼저 읽는다: 버튼은 `dispatch::run_action`, `track::Next/Prev` 처리기를 탭 정지점보다 먼저, SEQ-8 경고와 공유 채널 프로그램 문제(수용 테스트는 `docs/reports/s2-t5a/review-4.md` 부록). 엔진은 `crates/keyscore-app/src/{engine.rs,transport.rs}`, 문서를 바꾸는 처리기는 `cx.notify()`를 불러야 재생 중 반영된다. 새 Action을 더하면 `commands/table.rs`에 한 줄을 더해야 테스트가 통과한다(자리는 화면 면 `Surface`). 모드 FSM 사건은 `ProjectWindow::apply_mode_event`로 넣는다. 앱 테스트는 `#[gpui_kit::test]` 헤드리스. GPUI 빌드가 무거워 전체 게이트는 백그라운드로 돌린다. S2-T5·T7의 이월 줄과 결정 대기 문서(S2-T5 전, S2-T7 전)를 먼저 읽는다. MIDI 테스트 흔들림은 `scripts/midi-soak.sh N [쉬는 초]`로 본다.
+1. S2-T5c(인스펙터·상태줄, 포트 감시·재연결 OUT-3, 연 OS 포트 정리)를 시작한다. 단계 파일 S2-T5 절의 이월 줄을 먼저 읽는다: 인스펙터 입력란은 모드 키 컨텍스트 겹 바깥에 그린다(S2-T5b 리뷰 1), 창 비활성화 때 고치던 입력란을 취소할지(S2-T5b 리뷰 3 제안 5), 창 닫기 훅. 입력란 처리는 `src/transport_bar.rs`의 패턴(`shown` 기준, Esc 취소, 같은 값 건너뜀)을 따른다. 참고: 팔레트에서 첫 Esc는 질의만 비우고 두 번째에 닫힌다(S2-T5b 리뷰 4 범위 밖 관찰, A13 「패널이 열리면 닫힘」과 맞는지 S2 출구 수동 확인 때 본다). 엔진은 `crates/keyscore-app/src/{engine.rs,transport.rs}`, 문서를 바꾸는 처리기는 `cx.notify()`를 불러야 재생 중 반영된다. 새 Action을 더하면 `commands/table.rs`에 한 줄을 더해야 테스트가 통과한다(자리는 화면 면 `Surface`). 모드 FSM 사건은 `ProjectWindow::apply_mode_event`로 넣는다. 앱 테스트는 `#[gpui_kit::test]` 헤드리스. GPUI 빌드가 무거워 전체 게이트는 백그라운드로 돌린다. S2-T5·T7의 이월 줄과 결정 대기 문서(S2-T5 전, S2-T7 전)를 먼저 읽는다. MIDI 테스트 흔들림은 `scripts/midi-soak.sh N [쉬는 초]`로 본다.
 2. Task 루프: 브랜치 `s2/t<번호>-<slug>` → `docs/reports/s2-t<번호>/plan.md` → 테스트 먼저(뼈대 `todo!()`로 실패 확인) → 구현 → 게이트 전부(커밋 전에) → `report.md` → 새 에이전트로 적대적 리뷰(`general-purpose`, 구현 맥락 없이, 양식 `plan/templates/adversarial-review.md`, 산출물만 남기고 커밋 금지, 기존 `.proptest-regressions` 삭제 금지) → 지적마다 커밋 하나 → 재리뷰(최대 3회) → `git merge --no-ff`.
 3. 자동 게이트: `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`, `cargo deny check`, `scripts/check-deps.sh`, `scripts/check-deps.test.sh`, `scripts/bench-check.test.sh`. `core`·`text`에 외부 의존을 더하면 `scripts/check-deps.sh`의 허용 목록도 고친다.
 4. REQ에 없는 결정은 임의로 정하지 말고 사람에게 묻거나 `docs/decisions/`에 결정 요청을 쓴다. 사람과의 대화는 한국어로 하고, 문서에 `**`를 쓰지 않는다.
