@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use gpui_kit::component::kbd::Kbd;
 use gpui_kit::test::TestWindowExt as _;
 use gpui_kit::{
-    Action, AnyWindowHandle, AppContext as _, Entity, Focusable as _, Keystroke, OwnedMenu,
+    Action, AnyWindowHandle, App, AppContext as _, Entity, Focusable as _, Keystroke, OwnedMenu,
     OwnedMenuItem, TestAppContext,
 };
 use keyscore_app::actions::ALL_ACTION_NAMES;
@@ -59,22 +59,30 @@ fn label_of(cx: &mut TestAppContext, handle: AnyWindowHandle, id: String) -> Opt
     .unwrap()
 }
 
-/// 메뉴의 Action 항목을 하위 메뉴까지 (제목, Action) 으로 편다.
-fn menu_actions(menus: &[OwnedMenu]) -> Vec<(String, Box<dyn Action>)> {
-    fn walk(items: &[OwnedMenuItem], out: &mut Vec<(String, Box<dyn Action>)>) {
+/// 메뉴의 Action 항목을 하위 메뉴까지 (제목, 실제 Action, 감쌌는지) 로 편다. 맨 키를 피하려고 감싼
+/// 항목(`commands::RunCommand`)은 실제 Action으로 풀고, 제목에서 키 꼬리를 뗀다.
+fn menu_actions(menus: &[OwnedMenu], cx: &App) -> Vec<(String, Box<dyn Action>, bool)> {
+    fn walk(items: &[OwnedMenuItem], cx: &App, out: &mut Vec<(String, Box<dyn Action>, bool)>) {
         for item in items {
             match item {
                 OwnedMenuItem::Action { name, action, .. } => {
-                    out.push((name.clone(), action.boxed_clone()));
+                    let wrapped = action.as_any().is::<commands::RunCommand>();
+                    let title = name
+                        .split(commands::MENU_KEY_SEPARATOR)
+                        .next()
+                        .unwrap_or_default()
+                        .to_owned();
+                    let target = commands::menu_target(action.as_ref(), cx).expect("메뉴 Action");
+                    out.push((title, target, wrapped));
                 }
-                OwnedMenuItem::Submenu(menu) => walk(&menu.items, out),
+                OwnedMenuItem::Submenu(menu) => walk(&menu.items, cx, out),
                 OwnedMenuItem::Separator | OwnedMenuItem::SystemMenu(_) => {}
             }
         }
     }
     let mut out = Vec::new();
     for menu in menus {
-        walk(&menu.items, &mut out);
+        walk(&menu.items, cx, &mut out);
     }
     out
 }
@@ -116,8 +124,8 @@ fn every_action_has_exactly_one_command_spec() {
     assert_eq!(unique, registered);
     for spec in commands::specs() {
         assert!(!spec.label().trim().is_empty(), "{}", spec.name());
-        if let Place::Elsewhere(place) = spec.place() {
-            assert!(!place.trim().is_empty(), "{}", spec.name());
+        if let Place::Elsewhere { detail, .. } = spec.place() {
+            assert!(!detail.trim().is_empty(), "{}", spec.name());
         }
         assert_eq!(
             commands::spec(spec.name()).map(commands::CommandSpec::name),
@@ -153,10 +161,12 @@ fn action_counts_match_palette_and_menus(cx: &mut TestAppContext) {
             .collect()
     });
     let menus = cx.update(|cx| cx.get_menus()).expect("메뉴가 걸려 있다");
-    let mut in_menus: BTreeSet<String> = menu_actions(&menus)
-        .iter()
-        .map(|(_, a)| a.name().to_owned())
-        .collect();
+    let mut in_menus: BTreeSet<String> = cx.update(|cx| {
+        menu_actions(&menus, cx)
+            .iter()
+            .map(|(_, a, _)| a.name().to_owned())
+            .collect()
+    });
     // 인자가 열려 있어 아직 항목이 없는 하위 메뉴(최근 파일, S2-T7)도 메뉴 자리다
     for title in empty_submenus(&menus) {
         let spec = commands::specs()
@@ -167,7 +177,7 @@ fn action_counts_match_palette_and_menus(cx: &mut TestAppContext) {
     }
     let elsewhere: BTreeSet<String> = commands::specs()
         .iter()
-        .filter(|s| matches!(s.place(), Place::Elsewhere(_)))
+        .filter(|s| matches!(s.place(), Place::Elsewhere { .. }))
         .map(|s| s.name().to_owned())
         .collect();
     assert_eq!(palette.len(), registered);
@@ -312,10 +322,12 @@ fn menus_follow_req_7_6(cx: &mut TestAppContext) {
     ];
     for (title, names) in expect {
         let menu = menus.iter().find(|m| m.name.as_ref() == title).unwrap();
-        let have: BTreeSet<String> = menu_actions(std::slice::from_ref(menu))
-            .iter()
-            .map(|(_, a)| a.name().to_owned())
-            .collect();
+        let have: BTreeSet<String> = cx.update(|cx| {
+            menu_actions(std::slice::from_ref(menu), cx)
+                .iter()
+                .map(|(_, a, _)| a.name().to_owned())
+                .collect()
+        });
         for name in names {
             assert!(have.contains(*name), "{title} 메뉴에 {name}이 없다");
         }
@@ -329,7 +341,8 @@ fn menu_titles_equal_palette_names(cx: &mut TestAppContext) {
     start(cx, "titles", None);
     let menus = cx.update(|cx| cx.get_menus()).unwrap();
     let entries = cx.update(|cx| commands::palette_entries(cx));
-    for (title, action) in menu_actions(&menus) {
+    let items = cx.update(|cx| menu_actions(&menus, cx));
+    for (title, action, _) in items {
         let entry = entries
             .iter()
             .find(|e| e.action().is_some_and(|a| a.partial_eq(action.as_ref())))
@@ -531,4 +544,83 @@ fn palette_tab_completes_and_shift_tab_moves_back(cx: &mut TestAppContext) {
     let before = inspector_open(cx, &view);
     press(cx, handle, "enter");
     assert_ne!(inspector_open(cx, &view), before);
+}
+
+// ---------- 맨 키 메뉴 등가물(리뷰 1 제안 3) ----------
+
+/// GPUI가 메뉴에 굽는 키 등가물에 맨 키가 없다. 맨 키는 감싼 항목의 제목 꼬리로만 보인다.
+#[gpui_kit::test]
+fn no_menu_item_gets_a_bare_key_equivalent(cx: &mut TestAppContext) {
+    start(cx, "bare-keys", None);
+    let menus = cx.update(|cx| cx.get_menus()).unwrap();
+    cx.update(|cx| {
+        fn walk(items: &[OwnedMenuItem], cx: &App, bad: &mut Vec<String>) {
+            for item in items {
+                match item {
+                    OwnedMenuItem::Action { name, action, .. }
+                        if commands::native_key_equivalent(action.as_ref(), cx)
+                            .is_some_and(|k| commands::is_bare(&k)) =>
+                    {
+                        bad.push(name.clone());
+                    }
+                    OwnedMenuItem::Submenu(menu) => walk(&menu.items, cx, bad),
+                    _ => {}
+                }
+            }
+        }
+        let mut bad = Vec::new();
+        for menu in &menus {
+            walk(&menu.items, cx, &mut bad);
+        }
+        assert!(bad.is_empty(), "맨 키 등가물: {bad:?}");
+    });
+    // 배치 뷰(`v`)는 감싼 항목이고 제목에 키가 보인다(KM-13)
+    let view = menus.iter().find(|m| m.name.as_ref() == "보기").unwrap();
+    let title = view
+        .items
+        .iter()
+        .find_map(|i| match i {
+            OwnedMenuItem::Action { name, .. } if name.starts_with("배치 뷰") => {
+                Some(name.clone())
+            }
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(
+        title,
+        format!("배치 뷰{}{}", commands::MENU_KEY_SEPARATOR, keys("v"))
+    );
+}
+
+/// 메뉴는 키맵을 다시 걸 때마다 다시 만들어지고 현재 키맵을 따른다.
+#[gpui_kit::test]
+fn menus_follow_keymap_changes(cx: &mut TestAppContext) {
+    let dir = start(cx, "menu-keymap", None);
+    let item = |cx: &mut TestAppContext| {
+        let menus = cx.update(|cx| cx.get_menus()).unwrap();
+        let view = menus
+            .into_iter()
+            .find(|m| m.name.as_ref() == "보기")
+            .unwrap();
+        view.items
+            .into_iter()
+            .find_map(|i| match i {
+                OwnedMenuItem::Action { name, action, .. } if name.starts_with("배치 뷰") => {
+                    Some((name, action.as_any().is::<commands::RunCommand>()))
+                }
+                _ => None,
+            })
+            .unwrap()
+    };
+    assert!(item(cx).1, "맨 키 v는 감싼 항목");
+    // 컨텍스트 없는 수식키 바인딩을 걸면 GPUI가 그것을 키 등가물로 고른다 → 감싸지 않는다
+    std::fs::write(
+        dir.join("keymap.json"),
+        r#"[{"bindings": {"cmd-shift-v": "view::Toggle"}}]"#,
+    )
+    .unwrap();
+    cx.update(keymap::apply);
+    let (title, wrapped) = item(cx);
+    assert!(!wrapped);
+    assert_eq!(title, "배치 뷰");
 }

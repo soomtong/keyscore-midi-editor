@@ -14,7 +14,7 @@ use gpui_kit::{
     StatefulInteractiveElement as _, Styled as _, TestSupportExt as _, Window, div, px,
 };
 
-use crate::actions::palette;
+use crate::actions::{mode, palette};
 use crate::commands::{self, PaletteEntry};
 
 /// 팔레트가 창에 알리는 일.
@@ -29,6 +29,9 @@ pub enum PaletteEvent {
 pub struct CommandPalette {
     state: Entity<CommandState>,
     entries: Vec<PaletteEntry>,
+    /// 지금 질의로 거른 줄 번호(순위순). 거르기와 순위는 컴포넌트가 아니라 여기서 한다
+    /// (`commands::filter_entries`): 메뉴 이름을 그대로 치면 그 명령이 맨 위에 와야 한다.
+    visible: Vec<usize>,
     /// 단축키를 찾는 기준(문서의 포커스).
     target: FocusHandle,
 }
@@ -38,9 +41,12 @@ impl EventEmitter<PaletteEvent> for CommandPalette {}
 impl CommandPalette {
     pub fn new(target: FocusHandle, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let state = cx.new(|cx| CommandState::new(window, cx));
+        let entries = commands::palette_entries(cx);
+        let visible = (0..entries.len()).collect();
         CommandPalette {
             state,
-            entries: commands::palette_entries(cx),
+            entries,
+            visible,
             target,
         }
     }
@@ -58,7 +64,8 @@ impl CommandPalette {
 
     /// 확정한 줄. 실행할 수 없는 줄은 컴포넌트가 확정하지 않는다(꺼진 줄).
     fn confirm(&mut self, row: usize, cx: &mut Context<Self>) {
-        if let Some(action) = self.entries.get(row).and_then(PaletteEntry::action) {
+        let entry = self.visible.get(row).and_then(|ix| self.entries.get(*ix));
+        if let Some(action) = entry.and_then(PaletteEntry::action) {
             cx.emit(PaletteEvent::Run(action.boxed_clone()));
         }
     }
@@ -67,13 +74,20 @@ impl CommandPalette {
     fn complete(&mut self, _: &palette::Complete, window: &mut Window, cx: &mut Context<Self>) {
         let selected = self.state.read(cx).selected_index().map(|ix| ix.row);
         let Some(label) = selected
-            .and_then(|row| self.entries.get(row))
+            .and_then(|row| self.visible.get(row))
+            .and_then(|ix| self.entries.get(*ix))
             .map(|e| e.label().clone())
         else {
             return;
         };
         self.state
             .update(cx, |state, cx| state.set_query(label, window, cx));
+    }
+
+    /// 질의가 바뀌었다. 컴포넌트는 거르지 않고(`filterable(false)`) 강조를 첫 줄로 되돌린다.
+    fn set_query(&mut self, query: &str, cx: &mut Context<Self>) {
+        self.visible = commands::filter_entries(&self.entries, query);
+        cx.notify();
     }
 
     /// 한 줄의 단축키 표시. 여러 키 시퀀스는 공백으로 잇는다.
@@ -100,8 +114,9 @@ impl Render for CommandPalette {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let muted = cx.theme().muted_foreground;
         let items: Vec<CommandItem> = self
-            .entries
+            .visible
             .iter()
+            .map(|ix| &self.entries[*ix])
             .map(|entry| {
                 let name = entry.name();
                 let label = entry.label().clone();
@@ -147,20 +162,32 @@ impl Render for CommandPalette {
             .collect();
         let this = cx.entity().downgrade();
         let on_cancel = this.clone();
+        let on_query = this.clone();
         div()
             .id("command-palette")
             .test_support()
             .key_context("Palette")
+            // 팔레트 밖(문서, 다른 패널)을 누르면 닫는다. 문서가 포커스를 가져간 뒤에도 팔레트가 남으면
+            // Esc로도 닫을 수 없다(리뷰 1 지적 5).
+            .on_mouse_down_out(cx.listener(|_, _, _, cx| cx.emit(PaletteEvent::Close)))
             .on_action(cx.listener(|_, _: &palette::Close, _, cx| cx.emit(PaletteEvent::Close)))
             .on_action(cx.listener(Self::complete))
             // `Shift+Tab`: 이전 후보(컴포넌트의 위로 이동과 같다)
             .on_action(|_: &palette::CompletePrev, window, cx| {
                 window.dispatch_action(Box::new(gpui_kit::base::actions::SelectUp), cx);
             })
+            // 팔레트가 열린 동안에는 팔레트 뒤의 모드를 바꾸지 않는다(리뷰 1 제안 1). 처리기가 전파를
+            // 멈추므로 창의 모드 처리기에 닿지 않는다.
+            .on_action(|_: &mode::Cycle, _, _| {})
+            .on_action(|_: &mode::CycleBack, _, _| {})
             .w(px(560.))
             .child(
                 Command::new(&self.state)
                     .items(items)
+                    .filterable(false)
+                    .on_query(move |query, _, cx| {
+                        let _ = on_query.update(cx, |palette, cx| palette.set_query(query, cx));
+                    })
                     .placeholder("명령 이름이나 Action 이름(edit::Undo)")
                     .on_confirm(move |ix, _, cx| {
                         let _ = this.update(cx, |palette, cx| palette.confirm(ix.row, cx));

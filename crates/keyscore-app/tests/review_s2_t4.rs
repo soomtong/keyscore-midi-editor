@@ -5,6 +5,7 @@ use std::path::PathBuf;
 
 use gpui_kit::test::TestWindowExt as _;
 use gpui_kit::{AnyWindowHandle, AppContext as _, Entity, TestAppContext};
+use keyscore_app::commands;
 use keyscore_app::keymap::{self, Preset};
 use keyscore_app::mode::{Mode, View};
 use keyscore_app::window::ProjectWindow;
@@ -193,4 +194,117 @@ fn user_bound_palette_close_closes_palette_with_query(cx: &mut TestAppContext) {
     type_text(cx, handle, "zoom");
     press(cx, handle, "f7");
     assert!(!palette_open(cx, &view));
+}
+
+// ---------- 리뷰 1 부록(지적 1–5, 제안 1): 고친 뒤 회귀 방지로 옮김 ----------
+
+// A-1 (지적 2): Tab(자동완성) 뒤 Enter가 Tab으로 고른 명령을 실행한다.
+#[gpui_kit::test]
+fn palette_tab_then_enter_runs_the_completed_command(cx: &mut TestAppContext) {
+    start(cx, "r1-tab-enter");
+    let (handle, view) = open(cx);
+    let before = cx.read(|cx| view.read(cx).layout().track_list_open);
+    press(cx, handle, "cmd-shift-p");
+    type_text(cx, handle, "view::toggletracklist");
+    press(cx, handle, "tab");
+    assert_eq!(
+        cx.read(|cx| view.read(cx).palette_query(cx)).as_deref(),
+        Some("트랙 목록")
+    );
+    press(cx, handle, "enter");
+    assert!(!cx.read(|cx| view.read(cx).palette_open()));
+    assert_ne!(
+        cx.read(|cx| view.read(cx).layout().track_list_open),
+        before,
+        "Tab으로 채운 「트랙 목록」의 Enter가 view::ToggleTrackList를 실행하지 않았다"
+    );
+}
+
+// A-2 (지적 2·3): 실행할 수 있는 모든 줄에서, 그 이름으로 거른 첫 줄이 자기 자신이다(팔레트의 순위 함수).
+#[gpui_kit::test]
+fn every_palette_label_selects_its_own_row_first(cx: &mut TestAppContext) {
+    start(cx, "r1-tab-data");
+    cx.update(|cx| {
+        let entries = commands::palette_entries(cx);
+        let mut bad = Vec::new();
+        for (i, e) in entries.iter().enumerate() {
+            if e.action().is_none() {
+                continue;
+            }
+            let first = commands::filter_entries(&entries, e.label())[0];
+            if first != i {
+                bad.push(format!(
+                    "{} [{}] -> {}",
+                    e.label(),
+                    e.name(),
+                    entries[first].name()
+                ));
+            }
+        }
+        assert!(bad.is_empty(), "{}건: {:?}", bad.len(), bad);
+    });
+}
+
+// A-3 (지적 4): 변형 줄까지 포함한 팔레트 이름은 겹치지 않는다.
+#[gpui_kit::test]
+fn palette_labels_are_unique_including_variants(cx: &mut TestAppContext) {
+    start(cx, "r1-labels");
+    cx.update(|cx| {
+        let mut labels: std::collections::BTreeMap<String, Vec<&str>> =
+            std::collections::BTreeMap::new();
+        let entries = commands::palette_entries(cx);
+        for e in &entries {
+            labels
+                .entry(e.label().to_string())
+                .or_default()
+                .push(e.name());
+        }
+        let dups: Vec<_> = labels.iter().filter(|(_, v)| v.len() > 1).collect();
+        assert!(dups.is_empty(), "{}건: {:?}", dups.len(), dups);
+    });
+}
+
+// A-4 (지적 5): 팔레트가 열린 채 문서가 포커스를 가져가면(클릭) 팔레트가 닫힌다.
+#[gpui_kit::test]
+fn palette_closes_when_document_takes_focus_or_on_escape(cx: &mut TestAppContext) {
+    start(cx, "r1-click");
+    let (handle, view) = open(cx);
+    press(cx, handle, "cmd-shift-p");
+    cx.update_window(handle, |_, window, cx| window.click("status-bar", cx))
+        .unwrap();
+    render(cx, handle);
+    press(cx, handle, "escape");
+    assert!(
+        !cx.read(|cx| view.read(cx).palette_open()),
+        "문서를 누른 뒤 팔레트가 열린 채 남고 Esc로도 닫히지 않는다"
+    );
+}
+
+// A-5 (지적 1): UI-11. 「다른 곳」은 화면 면(Surface)이고, 자리 설명이 키만 가리키지 않는다.
+#[test]
+fn elsewhere_places_name_a_visible_ui() {
+    let bad: Vec<String> = commands::specs()
+        .iter()
+        .filter_map(|s| match s.place() {
+            commands::Place::Elsewhere { detail, .. } if detail.ends_with("키") => {
+                Some(format!("{} ({detail})", s.name()))
+            }
+            _ => None,
+        })
+        .collect();
+    assert!(bad.is_empty(), "{}건: {:?}", bad.len(), bad);
+}
+
+// A-6 (제안 1): 팔레트가 열린 동안 ctrl-tab이 뒤의 모드를 바꾸지 않는다.
+#[gpui_kit::test]
+fn ctrl_tab_does_not_cycle_mode_behind_open_palette(cx: &mut TestAppContext) {
+    start(cx, "r1-ctrltab");
+    let (handle, view) = open(cx);
+    press(cx, handle, "cmd-shift-p");
+    press(cx, handle, "ctrl-tab");
+    assert!(cx.read(|cx| view.read(cx).palette_open()));
+    assert_eq!(
+        cx.read(|cx| view.read(cx).mode_state().mode()),
+        Mode::Normal
+    );
 }

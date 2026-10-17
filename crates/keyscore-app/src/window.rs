@@ -17,6 +17,7 @@ use crate::actions::view::{ToggleBottomPanel, ToggleInspector, ToggleTrackList};
 use crate::actions::{ai, clip, mode, palette, select, view};
 use crate::app_state::AppSettings;
 use crate::command_palette::{CommandPalette, PaletteEvent};
+use crate::commands::RunCommand;
 use crate::dispatch::run_action;
 use crate::document::ProjectDocument;
 use crate::mode::{Mode, ModeEvent, ModeState, View};
@@ -68,10 +69,11 @@ impl ProjectWindow {
         let focus_lost = cx.on_focus_lost(window, |this, window, cx| {
             window.focus(&this.focus, cx);
         });
+        let focus = cx.focus_handle();
         ProjectWindow {
             document,
             layout: AppSettings::get(cx).layout,
-            focus: cx.focus_handle(),
+            focus,
             horizontal,
             vertical,
             resize_subscriptions,
@@ -268,6 +270,12 @@ impl ProjectWindow {
         let e = Self::on_mode::<ai::DismissGhost>(e, DismissGhost, cx);
         e.on_action(cx.listener(Self::show_mode_menu))
             .on_action(cx.listener(Self::open_palette))
+            // 맨 키를 피하려고 감싼 메뉴 항목(`commands::RunCommand`). 실행 함수로 실제 Action을 낸다.
+            .on_action(cx.listener(|_, run: &RunCommand, window, cx| {
+                if let Ok(action) = cx.build_action(&run.name, run.args.clone()) {
+                    run_action(action, window, cx);
+                }
+            }))
     }
 
     /// 키 컨텍스트 경로대로 `div`를 겹친다. GPUI는 요소 하나에 컨텍스트 하나를 쌓아 깊이를 만들고,
