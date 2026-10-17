@@ -9,9 +9,9 @@ use gpui_kit::component::button::{Button, ButtonVariants as _, Toggle};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::{ActiveTheme as _, Disableable as _};
 use gpui_kit::{
-    Action, AppContext as _, ClickEvent, Context, Entity, InteractiveElement as _, IntoElement,
-    ParentElement as _, Pixels, Point, StatefulInteractiveElement as _, Styled as _, Subscription,
-    TestSupportExt as _, Window, div, px,
+    Action, AppContext as _, ClickEvent, Context, Entity, Focusable as _, InteractiveElement as _,
+    IntoElement, ParentElement as _, Pixels, Point, StatefulInteractiveElement as _, Styled as _,
+    Subscription, TestSupportExt as _, Window, div, px,
 };
 use keyscore_core::{Edit, OutputPort, Tempo, Tick, TrackProp};
 use keyscore_midi::HostTime;
@@ -78,6 +78,18 @@ impl ProjectWindow {
             .update(cx, |state, cx| state.set_value(tempo, window, cx));
         bar.meter
             .update(cx, |state, cx| state.set_value(meter, window, cx));
+    }
+
+    /// 문서가 바뀌었다(undo, 탭 템포, `SetTempo`). 입력 중이 아닌 필드를 문서 값으로 맞춘다. 입력 중인
+    /// 필드는 건드리지 않는다(리뷰 1 지적 2).
+    pub(crate) fn sync_transport_fields(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let editing = |state: &Entity<InputState>, cx: &gpui_kit::App| {
+            state.read(cx).focus_handle(cx).is_focused(window)
+        };
+        if editing(&self.transport_bar.tempo, cx) || editing(&self.transport_bar.meter, cx) {
+            return;
+        }
+        self.refresh_transport_fields(window, cx);
     }
 
     fn tempo_field_event(
@@ -153,8 +165,12 @@ impl ProjectWindow {
                 Err(message) => self.say(message, cx),
             }
         } else {
+            // 필드에 들어가 내용을 전체 선택한다. 바로 새 값을 칠 수 있다.
             let tempo = self.transport_bar.tempo.clone();
-            tempo.update(cx, |state, cx| state.focus(window, cx));
+            tempo.update(cx, |state, cx| {
+                state.focus(window, cx);
+                state.select_all(window, cx);
+            });
         }
     }
 
@@ -316,6 +332,12 @@ impl ProjectWindow {
                 "transport-stop",
                 "■",
                 Box::new(transport::Stop),
+            ))
+            // 패닉(OUT-6, 7.6 「트랜스포트의 ⏹! 버튼」)
+            .child(action_button(
+                "transport-panic",
+                "⏹!",
+                Box::new(transport::Panic),
             ))
             .child(
                 // 녹음(Sequence 모드)은 S5까지 꺼짐

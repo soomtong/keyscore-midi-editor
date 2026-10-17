@@ -59,6 +59,9 @@ pub struct ProjectWindow {
     indicator_bounds: Rc<Cell<Bounds<Pixels>>>,
     /// 현재 트랙(S2-T5b). 인스펙터·포트 드롭다운·트랙 Action의 대상이다.
     current_track: Option<keyscore_core::TrackId>,
+    /// 현재 트랙의 마지막으로 알려진 자리. undo 등으로 현재 트랙이 사라지면 그 자리의 이웃이 현재 트랙이
+    /// 된다(S2-T5b 리뷰 1 지적 4).
+    current_index: usize,
     /// 트랜스포트 바의 입력 상태(S2-T5b).
     pub(crate) transport_bar: TransportBar,
     /// 열린 명령 팔레트와 그 사건 구독.
@@ -84,8 +87,9 @@ impl ProjectWindow {
             window.focus(&this.focus, cx);
         });
         let focus = cx.focus_handle();
-        let document_changed = cx.observe(&document, |this, _, cx| {
+        let document_changed = cx.observe_in(&document, window, |this, _, window, cx| {
             this.keep_current_track(cx);
+            this.sync_transport_fields(window, cx);
             this.transport_document_changed(cx);
         });
         let current_track = document
@@ -108,6 +112,7 @@ impl ProjectWindow {
             popup: None,
             indicator_bounds: Rc::new(Cell::new(Bounds::default())),
             current_track,
+            current_index: 0,
             transport_bar,
             palette: None,
             transport: Transport::default(),
@@ -195,20 +200,35 @@ impl ProjectWindow {
         track: Option<keyscore_core::TrackId>,
         cx: &mut Context<Self>,
     ) {
+        if let Some(index) = track.and_then(|id| {
+            self.document
+                .read(cx)
+                .project()
+                .tracks()
+                .iter()
+                .position(|t| t.id() == id)
+        }) {
+            self.current_index = index;
+        }
         if self.current_track != track {
             self.current_track = track;
             cx.notify();
         }
     }
 
-    /// 문서가 바뀐 뒤 현재 트랙이 사라졌으면(undo 등) 첫 트랙으로, 트랙이 없으면 없음으로 둔다.
+    /// 문서가 바뀐 뒤 현재 트랙이 사라졌으면(undo 등) 그 자리의 이웃(없으면 앞 트랙)으로, 트랙이 없으면
+    /// 없음으로 둔다.
     fn keep_current_track(&mut self, cx: &mut Context<Self>) {
         let tracks = self.document.read(cx).project().tracks();
-        let alive = self
+        if let Some(index) = self
             .current_track
-            .is_some_and(|id| tracks.iter().any(|t| t.id() == id));
-        if !alive {
-            self.current_track = tracks.first().map(keyscore_core::Track::id);
+            .and_then(|id| tracks.iter().position(|t| t.id() == id))
+        {
+            self.current_index = index;
+        } else {
+            let index = self.current_index.min(tracks.len().saturating_sub(1));
+            self.current_track = tracks.get(index).map(keyscore_core::Track::id);
+            self.current_index = index;
         }
     }
 
@@ -285,6 +305,17 @@ impl ProjectWindow {
             self.say(format!("다시 실행하지 못했다: {e}"), cx);
         }
         cx.notify();
+    }
+
+    /// 템포 입력란에 포커스가 있는가(입력 중).
+    #[must_use]
+    pub fn transport_tempo_focused(&self, window: &Window, cx: &App) -> bool {
+        use gpui_kit::Focusable as _;
+        self.transport_bar
+            .tempo
+            .read(cx)
+            .focus_handle(cx)
+            .is_focused(window)
     }
 
     /// 트랜스포트 상태(S2-T5a).
@@ -518,6 +549,20 @@ impl ProjectWindow {
         element
     }
 
+    /// gpui-component `Root`의 Tab 포커스 이동(`root::Tab`, `root::TabPrev`)을 창 안에서 삼킨다. 우리
+    /// 키맵에 `tab`이 없는 모드(Lyric 등)나 팝업에서 그 바인딩이 맞으면 창 포커스가 트랜스포트 입력란으로
+    /// 넘어가 모든 모드 키가 끊긴다(S2-T3 리뷰 1 제안 2가 경고한 일). 다음 필드로의 `Tab`(5.11)은
+    /// 대화상자·설정 화면의 일이고, 그 화면은 이 창 밖(Root 레이어)에 뜬다. 타입이 공개되지 않아 이름으로
+    /// 만든다.
+    fn swallow_root_tab(root: Stateful<Div>, cx: &App) -> Stateful<Div> {
+        ["root::Tab", "root::TabPrev"]
+            .iter()
+            .filter_map(|name| cx.build_action(name, None).ok())
+            .fold(root, |el, action| {
+                el.on_boxed_action(action.as_ref(), |_, _, _| {})
+            })
+    }
+
     /// 상태줄 왼쪽의 모드 표시. 누르면 모드 메뉴가 열린다.
     fn mode_indicator(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let label = self.mode.mode().label();
@@ -661,20 +706,19 @@ impl Render for ProjectWindow {
         };
         let transport_bar = self.render_transport_bar(window, cx).into_any_element();
         let track_list = self.render_track_list(cx).into_any_element();
+        // 트랜스포트 바는 모드 키 컨텍스트 겹 바깥에 둔다. 안쪽이면 템포 입력란에 친 `space`·숫자가 글자가
+        // 되기 전에 모드 바인딩(재생 토글, vim 카운트)으로 빠진다(S2-T5b 리뷰 1 지적 1). 팔레트·팝업과 같은
+        // 이유다.
+        let top = div()
+            .h(px(40.))
+            .flex_none()
+            .border_b_1()
+            .border_color(cx.theme().border)
+            .child(transport_bar);
         let content = div()
             .size_full()
             .flex()
             .flex_col()
-            .bg(cx.theme().background)
-            .text_color(cx.theme().foreground)
-            .child(
-                div()
-                    .h(px(40.))
-                    .flex_none()
-                    .border_b_1()
-                    .border_color(cx.theme().border)
-                    .child(transport_bar),
-            )
             .child(
                 div().flex_1().min_h_0().child(
                     v_resizable("main-vertical")
@@ -732,27 +776,26 @@ impl Render for ProjectWindow {
                     .child(StatusBar::new().left(self.mode_indicator(cx))),
             )
             .into_any_element();
-        // gpui-component `Root`의 Tab 포커스 이동(`root::Tab`, `root::TabPrev`)을 창 안에서 삼킨다. 우리
-        // 키맵에 `tab`이 없는 모드(Lyric 등)나 팝업에서 그 바인딩이 맞으면 창 포커스가 트랜스포트 입력란으로
-        // 넘어가 모든 모드 키가 끊긴다(S2-T3 리뷰 1 제안 2가 경고한 일). 다음 필드로의 `Tab`(5.11)은
-        // 대화상자·설정 화면의 일이고, 그 화면은 이 창 밖(Root 레이어)에 뜬다. 타입이 공개되지 않아 이름으로
-        // 만든다.
-        let swallow: Vec<Box<dyn Action>> = ["root::Tab", "root::TabPrev"]
-            .iter()
-            .filter_map(|name| cx.build_action(name, None).ok())
-            .collect();
         // 처리기는 바깥 요소에 단다. 디스패치는 포커스(가장 안쪽)에서 바깥으로 올라온다.
         let root = div()
             .id("project-window")
             .size_full()
+            .flex()
+            .flex_col()
+            .bg(cx.theme().background)
+            .text_color(cx.theme().foreground)
             .on_action(cx.listener(Self::toggle_track_list))
             .on_action(cx.listener(Self::toggle_inspector))
             .on_action(cx.listener(Self::toggle_bottom));
-        let root = swallow.iter().fold(root, |el, action| {
-            el.on_boxed_action(action.as_ref(), |_, _, _| {})
-        });
+        let root = Self::swallow_root_tab(root, cx);
         Self::mode_handlers(root, cx)
-            .child(self.wrap_in_contexts(content))
+            .child(top)
+            .child(
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .child(self.wrap_in_contexts(content)),
+            )
             .children(self.mode_menu_overlay(window))
             .children(self.palette_overlay(window))
     }

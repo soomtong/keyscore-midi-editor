@@ -428,3 +428,103 @@ fn changing_shared_track_channel_while_playing(cx: &mut TestAppContext) {
     assert!(got.iter().any(|m| m == &[0xC0, 5]), "{got:?}");
     assert!(got.iter().any(|m| m == &[0xC2, 9]), "{got:?}");
 }
+
+// ---------- 리뷰 1 부록 A(지적 1·2·4): 고친 뒤 회귀 방지로 옮김 ----------
+
+/// 템포 필드에서 `space`를 쳐도 재생이 바뀌지 않는다.
+#[gpui_kit::test]
+fn space_in_tempo_field_does_not_run_transport(cx: &mut TestAppContext) {
+    start(cx, "space");
+    let (handle, view) = open(cx, Project::new());
+    click(cx, handle, "transport-tempo");
+    let before = cx.read(|cx| view.read(cx).messages().len());
+    press(cx, handle, "space");
+    assert_eq!(cx.read(|cx| view.read(cx).messages().len()), before);
+}
+
+/// vim 프리셋에서 템포 필드에 숫자를 친다.
+#[gpui_kit::test]
+fn vim_digits_in_tempo_field(cx: &mut TestAppContext) {
+    start(cx, "vim-digits");
+    cx.update(|cx| keymap::set_preset(cx, Preset::Vim));
+    let (handle, view) = open(cx, Project::new());
+    click(cx, handle, "transport-tempo");
+    press(cx, handle, "cmd-a backspace 9 0 enter");
+    assert_eq!(tempo(cx, &view), Tempo::from_bpm(90).unwrap());
+}
+
+/// undo 뒤 필드가 문서 값을 보인다.
+#[gpui_kit::test]
+fn tempo_field_follows_undo(cx: &mut TestAppContext) {
+    start(cx, "field-undo");
+    let (handle, view) = open(cx, Project::new());
+    click(cx, handle, "transport-tempo");
+    press(cx, handle, "cmd-a backspace");
+    cx.simulate_input(handle, "90");
+    press(cx, handle, "enter");
+    assert_eq!(tempo(cx, &view), Tempo::from_bpm(90).unwrap());
+    run(cx, handle, edit::Undo);
+    assert_eq!(tempo(cx, &view), Tempo::DEFAULT);
+    let shown = cx
+        .update_window(handle, |_, window, _| {
+            window.find("transport-tempo").value().map(str::to_owned)
+        })
+        .unwrap();
+    assert_eq!(shown.as_deref(), Some("120.0"));
+}
+
+/// 탭 템포 뒤 필드가 문서 값을 보인다.
+#[gpui_kit::test]
+fn tempo_field_follows_tap_and_set_tempo(cx: &mut TestAppContext) {
+    start(cx, "field-tap");
+    let (handle, view) = open(cx, Project::new());
+    run(cx, handle, transport::SetTempo(Opt(Some(Real(90.0)))));
+    assert_eq!(tempo(cx, &view), Tempo::from_bpm(90).unwrap());
+    let shown = cx
+        .update_window(handle, |_, window, _| {
+            window.find("transport-tempo").value().map(str::to_owned)
+        })
+        .unwrap();
+    assert_eq!(shown.as_deref(), Some("90.0"));
+}
+
+/// 새 트랙을 undo하면 현재 트랙은 이웃 트랙으로 간다(계획 「트랙이 지워지면 이웃 트랙으로」).
+#[gpui_kit::test]
+fn undo_of_new_below_moves_to_neighbour(cx: &mut TestAppContext) {
+    start(cx, "undo-neighbour");
+    let (handle, view) = open(cx, three_tracks());
+    let before = ids(cx, &view);
+    run(cx, handle, keyscore_app::actions::cursor::LastTrack);
+    run(cx, handle, track::NewBelow);
+    assert_eq!(ids(cx, &view).len(), 4);
+    run(cx, handle, edit::Undo);
+    assert_eq!(current(cx, &view), Some(before[2]));
+}
+
+/// 7.6 「패닉: 트랜스포트의 ⏹! 버튼」(리뷰 1 지적 3). 엔진이 없으면 메시지를 남긴다(Action이 닿았다는 뜻).
+#[gpui_kit::test]
+fn transport_panic_button_dispatches_panic(cx: &mut TestAppContext) {
+    start(cx, "panic-button");
+    let (handle, view) = open(cx, three_tracks());
+    let before = cx.read(|cx| view.read(cx).messages().len());
+    click(cx, handle, "transport-panic");
+    assert!(cx.read(|cx| view.read(cx).messages().len()) > before);
+}
+
+/// 입력란 안의 `Tab`은 아무 일도 하지 않는다: 포커스를 옮기지 않고 트랙도 바꾸지 않는다(트랜스포트 바는
+/// 모드 컨텍스트 밖이라 `track::Next`가 닿지 않고, `root::Tab`은 창이 삼킨다).
+#[gpui_kit::test]
+fn tab_inside_tempo_field_does_nothing(cx: &mut TestAppContext) {
+    start(cx, "tab-in-field");
+    let (handle, view) = open(cx, three_tracks());
+    let before = current(cx, &view);
+    click(cx, handle, "transport-tempo");
+    press(cx, handle, "tab");
+    assert_eq!(current(cx, &view), before);
+    let tempo_focused = cx
+        .update_window(handle, |_, window, cx| {
+            view.read(cx).transport_tempo_focused(window, cx)
+        })
+        .unwrap();
+    assert!(tempo_focused, "Tab이 템포 입력란의 포커스를 옮겼다");
+}

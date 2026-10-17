@@ -32,7 +32,7 @@
 ## 테스트 결과
 
 ~~~
-cargo test --workspace --no-fail-fast: 1166 passed, 0 failed
+cargo test --workspace --no-fail-fast: 1166 passed, 0 failed (리뷰 1 대응 뒤 1186 passed, 0 failed)
 tracks_logic: 7, track_list: 5, transport_bar: 6, shared_channel: 3 passed
 ~~~
 
@@ -74,3 +74,17 @@ tracks_logic: 7, track_list: 5, transport_bar: 6, shared_channel: 3 passed
 2. 실효 음색 비교의 규칙이 chase와 정확히 같은지(재생 시작의 이벤트 순서와 `effective_setups`의 순서).
 3. 현재 트랙 보존(undo로 트랙이 사라지거나 돌아올 때)과 트랙 순서 이동(지우기+넣기)의 undo.
 4. 템포 필드의 확정·되돌림(포커스를 잃으면 문서 값으로 되돌린다)과 IME 입력.
+
+## 리뷰 1 대응
+
+| 리뷰 항목 | 대응 |
+| --- | --- |
+| 지적 1: 트랜스포트 입력란에 친 키가 모드 바인딩으로 먼저 빠진다(`space` 재생, vim 숫자 카운트) | 트랜스포트 바를 모드 키 컨텍스트 겹 바깥(창 루트의 첫 줄)에 그린다. 입력란의 디스패치 경로에 `Normal` 등이 없다. 인스펙터 입력란도 같게 하라고 S2-T5c 이월에 적었다 |
+| 지적 2: 필드가 undo·탭 템포·`SetTempo` 뒤 옛 값을 보인다 | 문서가 바뀌면(`observe_in`) 입력 중이 아닌 필드를 문서 값으로 맞춘다 |
+| 지적 3: 7.6 「패닉: 트랜스포트의 ⏹! 버튼」이 없다 | 정지 옆에 `⏹!` 버튼을 더했다(실행 함수) |
+| 지적 4: undo로 현재 트랙이 사라지면 첫 트랙으로 간다 | 현재 트랙의 마지막 자리를 기억하고, 사라지면 그 자리의 이웃(없으면 앞 트랙)으로 간다 |
+| 제안: SEQ-8 비교 대상 | REQ SEQ-8은 「프로그램이 다르면 경고」라 프로그램만 비교한다. 프로그램 없음과 있음은 다른 것으로 센다(없음은 신디의 지금 음색이 그대로라 다른 트랙의 음색이 남는다). 뱅크만 다른 경우는 경고하지 않는다 |
+| 제안: 입력란 안의 `Tab` | 아무 일도 하지 않는다(트랙 이동도, 포커스 이동도 없음). 테스트 `tab_inside_tempo_field_does_nothing` |
+| 제안: `SetTempo`(값 없음)로 필드에 들어갈 때 전체 선택 | 그렇게 했다 |
+
+부록 A 테스트 5개와 새 테스트 2개(패닉 버튼, 입력란 `Tab`)는 `tests/review_s2_t5b.rs`에서 통과한다.
