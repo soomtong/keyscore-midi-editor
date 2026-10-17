@@ -15,6 +15,7 @@ pub mod mode;
 pub mod palette;
 pub mod settings;
 pub mod theme;
+pub mod tracks;
 mod transport;
 pub mod window;
 

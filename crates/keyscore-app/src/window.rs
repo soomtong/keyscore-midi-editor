@@ -157,6 +157,18 @@ impl ProjectWindow {
         }
     }
 
+    /// 현재 트랙(S2-T5b). 트랙이 없으면 `None`.
+    #[must_use]
+    pub fn current_track(&self) -> Option<keyscore_core::TrackId> {
+        todo!()
+    }
+
+    /// 마지막으로 연 포트 드롭다운의 선택지(가상 포트 먼저, 그다음 OS 목적지).
+    #[must_use]
+    pub fn port_choices(&self) -> Vec<keyscore_core::OutputPort> {
+        todo!()
+    }
+
     /// 트랜스포트 상태(S2-T5a).
     #[must_use]
     pub const fn transport_state(&self) -> crate::engine::TransportState {
