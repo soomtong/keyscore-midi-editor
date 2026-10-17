@@ -11,7 +11,7 @@ use keyscore_app::actions::transport;
 use keyscore_app::engine::{self, EngineOptions, TransportState};
 use keyscore_app::window::ProjectWindow;
 use keyscore_app::{init, open_project_window};
-use keyscore_core::{Project, Tick, ksq};
+use keyscore_core::{Edit, Program, Project, Tempo, Tick, TrackProp, ksq};
 
 struct Loopback {
     rx: mpsc::Receiver<Vec<u8>>,
@@ -443,4 +443,131 @@ fn every_transport_action_without_engine_is_harmless(cx: &mut TestAppContext) {
     cx.update_window(handle, |_, window, _| window.remove_window())
         .unwrap();
     cx.run_until_parked();
+}
+
+// ---------- 리뷰 1 부록 A(지적 1–3): 고친 뒤 회귀 방지로 옮김 ----------
+
+fn edit(
+    cx: &mut TestAppContext,
+    view: &Entity<ProjectWindow>,
+    make: impl FnOnce(&Project) -> Edit,
+) {
+    let document = cx.read(|cx| view.read(cx).document().clone());
+    cx.update(|cx| {
+        document.update(cx, |doc, cx| {
+            let e = make(doc.project());
+            doc.apply(vec![e]).unwrap();
+            cx.notify();
+        });
+    });
+    cx.run_until_parked();
+}
+
+/// 깨뜨림 1: 재생 중 템포를 바꾸면(TRN-3) 일시정지 자리가 새 템포로 처음부터 다시 계산되어 뒤로 튄다.
+/// 스케줄러는 교체 때 지난 구간을 옛 템포로 두고 이어 가므로, 재개하면 이미 들은 노트가 다시 울린다.
+#[gpui_kit::test]
+fn pause_after_tempo_edit_while_playing_keeps_position(cx: &mut TestAppContext) {
+    let lb = start(cx, "tempo-edit-pause");
+    // 120 BPM: 62는 틱 1440(0.75 s)
+    let (handle, view) = open(
+        cx,
+        project("[0, 240, 60, 51492], [1440, 240, 62, 51492], [2400, 240, 64, 51492]"),
+    );
+    run(cx, handle, transport::Play);
+    wait_for(&lb.rx, WAIT, note_on(62)).expect("Note On 62");
+    // 약 1.0 s(틱 1920 근처)에서 60 BPM으로
+    std::thread::sleep(Duration::from_millis(220));
+    edit(cx, &view, |_| Edit::SetTempo {
+        at: Tick::ZERO,
+        tempo: Some(Tempo::from_bpm(60).unwrap()),
+    });
+    run(cx, handle, transport::Pause);
+    let TransportState::Paused(at) = state(cx, &view) else {
+        panic!("{:?}", state(cx, &view));
+    };
+    assert!(at >= Tick::new(1700), "일시정지 자리가 뒤로 튀었다: {at:?}");
+    drain_for(&lb.rx, Duration::from_millis(100));
+    run(cx, handle, transport::Play);
+    let got = drain_for(&lb.rx, Duration::from_millis(1200));
+    assert!(
+        !got.iter().any(|m| note_on(62)(m)),
+        "이미 들은 62가 다시 울렸다: {got:?}"
+    );
+    run(cx, handle, transport::Stop);
+}
+
+/// 깨뜨림 2: 재생 중 트랙 프로그램을 바꿔도(TRN-3, OUT-4) 프로그램 체인지가 나가지 않는다.
+/// 스냅샷의 프로그램은 틱 0에만 있고 교체는 chase·준비 송신을 하지 않는다.
+#[gpui_kit::test]
+fn program_edit_while_playing_is_sent(cx: &mut TestAppContext) {
+    let lb = start(cx, "program-edit");
+    let (handle, view) = open(cx, project("[0, 240, 60, 51492], [1920, 240, 62, 51492]"));
+    run(cx, handle, transport::Play);
+    wait_for(&lb.rx, WAIT, note_on(60)).expect("Note On 60");
+    edit(cx, &view, |p| Edit::SetTrackProp {
+        track: p.tracks()[0].id(),
+        prop: TrackProp::Program(Some(Program::new(9).unwrap())),
+    });
+    let got = wait_for(&lb.rx, WAIT, note_on(62)).expect("Note On 62");
+    assert!(
+        got.iter().any(|m| m == &[0xC0, 9]),
+        "재생 중 바꾼 프로그램이 나가지 않았다: {got:?}"
+    );
+    run(cx, handle, transport::Stop);
+}
+
+/// 깨뜨림 3: 뱅크·프로그램이 있는 트랙이 많으면 재생 시작의 `send_now`가 명령 큐(256)를 넘쳐 재생이
+/// 실패한다. 실패 전에 이미 `stop`·`swap`을 보내 앞 재생도 멈춘다. SEQ-1은 트랙 수 제한이 없다.
+#[gpui_kit::test]
+fn many_tracks_with_programs_can_play(cx: &mut TestAppContext) {
+    let lb = start(cx, "many-tracks");
+    let tracks: Vec<String> = (0..100)
+        .map(|i| {
+            format!(
+                r#"{{"port": "virtual", "channel": {}, "bank": 1, "program": 2,
+                  "clips": [{{"start": 0, "length": 3840, "notes": [[0, 240, 60, 51492]]}}]}}"#,
+                i % 16 + 1
+            )
+        })
+        .collect();
+    let text = format!(
+        r#"{{"tempo": [[0, 500000]], "tracks": [{}]}}"#,
+        tracks.join(",")
+    );
+    let (handle, view) = open(cx, ksq::from_str(&text).unwrap().0);
+    run(cx, handle, transport::Play);
+    let messages = cx.read(|cx| view.read(cx).messages().to_vec());
+    assert_eq!(state(cx, &view), TransportState::Playing, "{messages:?}");
+    wait_for(&lb.rx, WAIT, note_on(60)).expect("Note On 60");
+    run(cx, handle, transport::Stop);
+}
+
+/// 깨뜨림 3의 변형: 실용 상한(SEQ-1, 64트랙)에서 Play를 연달아 누르면 큐가 넘친다. 둘째 Play가
+/// 실패해도 창은 「재생 중」으로 남지만, 실패 전에 보낸 `stop`으로 스케줄러는 멈춰 소리가 없다.
+#[gpui_kit::test]
+fn sixty_four_tracks_survive_repeated_play(cx: &mut TestAppContext) {
+    let lb = start(cx, "sixty-four");
+    let tracks: Vec<String> = (0..64)
+        .map(|i| {
+            format!(
+                r#"{{"port": "virtual", "channel": {}, "bank": 1, "program": 2,
+                  "clips": [{{"start": 0, "length": 3840, "notes": [[0, 240, 60, 51492], [1920, 240, 62, 51492]]}}]}}"#,
+                i % 16 + 1
+            )
+        })
+        .collect();
+    let text = format!(
+        r#"{{"tempo": [[0, 500000]], "tracks": [{}]}}"#,
+        tracks.join(",")
+    );
+    let (handle, view) = open(cx, ksq::from_str(&text).unwrap().0);
+    run(cx, handle, transport::Play);
+    run(cx, handle, transport::Play);
+    let messages = cx.read(|cx| view.read(cx).messages().to_vec());
+    assert_eq!(state(cx, &view), TransportState::Playing, "{messages:?}");
+    assert!(
+        wait_for(&lb.rx, WAIT, note_on(62)).is_some(),
+        "창은 재생 중인데 소리가 없다: {messages:?}"
+    );
+    run(cx, handle, transport::Stop);
 }

@@ -3,11 +3,11 @@
 use std::time::Duration;
 
 use gpui_kit::{BorrowAppContext as _, Context, SharedString, Window};
-use keyscore_core::{MusicTime, Project, Tick};
-use keyscore_midi::{HostTime, MetronomeConfig, MidiError};
+use keyscore_core::{MusicTime, TempoMap, Tick};
+use keyscore_midi::{HostTime, MetronomeConfig, Midi1Message, MidiError};
 
 use crate::actions::transport;
-use crate::engine::{Engine, TransportState};
+use crate::engine::{Engine, PortProblem, TransportState};
 use crate::window::ProjectWindow;
 
 /// 메시지를 몇 개까지 남기는가. 오래된 것부터 버린다.
@@ -17,8 +17,10 @@ const MAX_MESSAGES: usize = 32;
 #[derive(Default)]
 pub(crate) struct Transport {
     pub(crate) state: TransportState,
-    /// 재생을 시작한 (호스트 시각, 틱). 일시정지 자리를 계산한다(스케줄러에 위치 조회가 없다).
-    started: Option<(HostTime, Tick)>,
+    /// 재생 위치의 기준점. 일시정지 자리를 계산한다(스케줄러에 위치 조회가 없다).
+    anchor: Option<Anchor>,
+    /// 지금 스냅샷의 뱅크·프로그램. 재생 중 편집으로 바뀐 것만 보낸다(OUT-4, TRN-3).
+    setup: Vec<(u16, Midi1Message)>,
     pub(crate) metronome: bool,
     pub(crate) messages: Vec<SharedString>,
 }
@@ -34,20 +36,38 @@ impl Transport {
     /// 다른 창이 재생을 가져갔거나 창이 정지했다.
     pub(crate) fn mark_stopped(&mut self) {
         self.state = TransportState::Stopped;
-        self.started = None;
+        self.anchor = None;
+        self.setup.clear();
     }
 }
 
-/// 재생을 시작한 뒤 흐른 시간만큼 간 틱.
-fn position(project: &Project, started: (HostTime, Tick)) -> Tick {
-    let (at, from) = started;
-    let elapsed: Duration = HostTime::now().duration_since(at);
-    let tempo = project.tempo_map();
-    let nanos = u64::try_from(elapsed.as_nanos()).unwrap_or(u64::MAX);
-    let start_time = tempo.tick_to_time(from).units();
-    let now =
-        MusicTime::from_units(start_time.saturating_add(MusicTime::from_nanos(nanos).units()));
-    tempo.time_to_tick(now)
+/// 재생 위치의 기준점: 이 호스트 시각에 이 틱이었고, 그 뒤로는 이 템포 맵으로 흐른다.
+///
+/// 재생 중 편집으로 템포가 바뀌면 스케줄러는 이미 보낸 구간을 옛 템포로 두고 그 자리부터 새 템포로
+/// 이어 간다. 그래서 스냅샷을 교체할 때마다 옛 템포로 지금 자리를 구해 기준점을 다시 잡는다(리뷰 1 지적 1).
+struct Anchor {
+    at: HostTime,
+    tick: Tick,
+    tempo: TempoMap,
+}
+
+impl Anchor {
+    fn new(tick: Tick, tempo: TempoMap) -> Self {
+        Anchor {
+            at: HostTime::now(),
+            tick,
+            tempo,
+        }
+    }
+
+    /// 기준점 뒤 흐른 시간만큼 간 틱.
+    fn position(&self) -> Tick {
+        let elapsed: Duration = HostTime::now().duration_since(self.at);
+        let nanos = u64::try_from(elapsed.as_nanos()).unwrap_or(u64::MAX);
+        let start = self.tempo.tick_to_time(self.tick).units();
+        let now = MusicTime::from_units(start.saturating_add(MusicTime::from_nanos(nanos).units()));
+        self.tempo.time_to_tick(now)
+    }
 }
 
 impl ProjectWindow {
@@ -105,9 +125,11 @@ impl ProjectWindow {
         if self.transport.state != TransportState::Playing {
             return;
         }
-        let at = self.transport.started.map_or(Tick::ZERO, |s| {
-            position(self.document.read(cx).project(), s)
-        });
+        let at = self
+            .transport
+            .anchor
+            .as_ref()
+            .map_or(Tick::ZERO, Anchor::position);
         self.stop(cx);
         self.transport.state = TransportState::Paused(at);
         cx.notify();
@@ -149,7 +171,7 @@ impl ProjectWindow {
         cx.notify();
     }
 
-    /// 재생 중 문서가 바뀌었다. 스냅샷을 다시 만들어 교체한다(TRN-3).
+    /// 재생 중 문서가 바뀌었다. 스냅샷을 다시 만들어 교체하고, 바뀐 뱅크·프로그램을 보낸다(TRN-3, OUT-4).
     pub(crate) fn transport_document_changed(&mut self, cx: &mut Context<Self>) {
         let me = cx.entity().downgrade();
         if self.transport.state != TransportState::Playing
@@ -158,17 +180,36 @@ impl ProjectWindow {
         {
             return;
         }
+        // 교체 직전의 자리를 옛 템포로 구한다
+        let here = self
+            .transport
+            .anchor
+            .as_ref()
+            .map_or(Tick::ZERO, Anchor::position);
         let document = self.document.clone();
+        let old_setup = std::mem::take(&mut self.transport.setup);
         let result = cx.update_global::<Engine, _>(|engine, cx| {
-            let prepared = engine.prepare(document.read(cx).project())?;
-            engine.scheduler().swap(prepared.snapshot)?;
-            Ok::<_, MidiError>(prepared.missing)
+            let project = document.read(cx).project();
+            let prepared = engine.prepare(project, true)?;
+            let tempo = project.tempo_map().clone();
+            let scheduler = engine.scheduler();
+            scheduler.swap(prepared.snapshot)?;
+            for (port, msg) in prepared.setup.iter().filter(|m| !old_setup.contains(m)) {
+                scheduler.send_now(*port, *msg)?;
+            }
+            Ok::<_, MidiError>((prepared.missing, prepared.setup, tempo))
         });
         match result {
-            Ok(missing) => self.report_missing(&missing),
-            Err(e) => self
-                .transport
-                .say(format!("재생 중 편집을 반영하지 못했다: {e}")),
+            Ok((missing, setup, tempo)) => {
+                self.transport.anchor = Some(Anchor::new(here, tempo));
+                self.transport.setup = setup;
+                self.report_missing(&missing);
+            }
+            Err(e) => {
+                self.transport.setup = old_setup;
+                self.transport
+                    .say(format!("재생 중 편집을 반영하지 못했다: {e}"));
+            }
         }
         cx.notify();
     }
@@ -183,32 +224,45 @@ impl ProjectWindow {
         let me = cx.entity().downgrade();
         let document = self.document.clone();
         let metronome = self.transport.metronome;
+        // 앞 주인은 결과와 무관하게 정지 상태다. 아래 `stop`이 그 재생을 멈춘다.
+        let previous = cx
+            .global_mut::<Engine>()
+            .take_owner(None)
+            .filter(|p| p != &me);
+        if let Some(previous) = previous {
+            let _ = previous.update(cx, |other, cx| {
+                other.transport.mark_stopped();
+                cx.notify();
+            });
+        }
+        // 재생 시작 위치의 뱅크·프로그램은 스케줄러가 따라잡아 보낸다(chase). 따로 보내면 명령 큐가
+        // 트랙 수만큼 차서 재생이 실패할 수 있다(리뷰 1 지적 3).
         let result = cx.update_global::<Engine, _>(|engine, cx| {
-            let prepared = engine.prepare(document.read(cx).project())?;
+            let project = document.read(cx).project();
+            let prepared = engine.prepare(project, false)?;
+            let tempo = project.tempo_map().clone();
             let scheduler = engine.scheduler();
             scheduler.stop()?;
             scheduler.swap(prepared.snapshot)?;
-            for (port, msg) in &prepared.setup {
-                scheduler.send_now(*port, *msg)?;
-            }
             scheduler.set_metronome(MetronomeConfig::default())?;
             scheduler.set_metronome_enabled(metronome)?;
             scheduler.play(from)?;
-            Ok::<_, MidiError>((prepared.missing, engine.take_owner(Some(me.clone()))))
+            engine.take_owner(Some(me.clone()));
+            Ok::<_, MidiError>((prepared.missing, prepared.setup, tempo))
         });
         match result {
-            Ok((missing, previous)) => {
+            Ok((missing, setup, tempo)) => {
                 self.transport.state = TransportState::Playing;
-                self.transport.started = Some((HostTime::now(), from));
+                self.transport.anchor = Some(Anchor::new(from, tempo));
+                self.transport.setup = setup;
                 self.report_missing(&missing);
-                if let Some(previous) = previous.filter(|p| p != &me) {
-                    let _ = previous.update(cx, |other, cx| {
-                        other.transport.mark_stopped();
-                        cx.notify();
-                    });
-                }
             }
-            Err(e) => self.transport.say(format!("재생하지 못했다: {e}")),
+            Err(e) => {
+                // 실패 전에 들어간 명령(정지 등)이 있을 수 있다. 상태를 소리와 맞춘다.
+                let _ = cx.global_mut::<Engine>().scheduler().stop();
+                self.transport.mark_stopped();
+                self.transport.say(format!("재생하지 못했다: {e}"));
+            }
         }
         cx.notify();
     }
@@ -232,9 +286,20 @@ impl ProjectWindow {
         }
     }
 
-    fn report_missing(&mut self, missing: &[String]) {
-        for name in missing {
-            let message = format!("출력 포트 「{name}」이 없어 그 트랙은 소리 내지 않는다");
+    fn report_missing(&mut self, missing: &[(String, PortProblem)]) {
+        for (name, problem) in missing {
+            let message = match problem {
+                PortProblem::NotFound => {
+                    format!("출력 포트 「{name}」이 없어 그 트랙은 소리 내지 않는다")
+                }
+                PortProblem::OpenFailed(e) => {
+                    format!("출력 포트 「{name}」을 열지 못해 그 트랙은 소리 내지 않는다: {e}")
+                }
+                PortProblem::TooMany => format!(
+                    "출력 포트가 너무 많아(최대 {}) 「{name}」 트랙은 소리 내지 않는다",
+                    keyscore_midi::MAX_SCHEDULER_PORTS
+                ),
+            };
             if !self
                 .transport
                 .messages

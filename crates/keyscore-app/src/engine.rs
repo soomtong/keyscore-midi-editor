@@ -6,7 +6,7 @@
 //!
 //! 앱은 스케줄러의 제어 쪽 API만 부른다. 실시간 스레드는 S1 그대로다.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use gpui_kit::{App, Global, WeakEntity};
@@ -57,6 +57,20 @@ pub(crate) struct Engine {
     scheduler: Scheduler,
     /// 지금 재생 중인 창. 한 번에 한 창만 재생한다.
     owner: Option<WeakEntity<ProjectWindow>>,
+    /// 지난 재생 시작 때 찾지 못한 이름 포트. 재생 중 편집(스냅샷 교체)마다 메인 스레드에서 목적지를
+    /// 다시 열거하지 않도록 다음 재생 시작까지 기억한다(S2-T5a 리뷰 1 제안 3).
+    known_missing: HashSet<String>,
+}
+
+/// 트랙이 소리 내지 못하는 이유.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum PortProblem {
+    /// 그 이름의 목적지가 없다
+    NotFound,
+    /// 목적지는 있는데 열지 못했다
+    OpenFailed(String),
+    /// 한 스냅샷의 포트 상한(`MAX_SCHEDULER_PORTS`)을 넘었다
+    TooMany,
 }
 
 impl Global for Engine {}
@@ -64,10 +78,11 @@ impl Global for Engine {}
 /// 재생할 준비물.
 pub(crate) struct Prepared {
     pub(crate) snapshot: Arc<Snapshot>,
-    /// 재생 시작 때 보낼 뱅크·프로그램(OUT-4). 틱 0이 아닌 곳에서 시작해도 음색이 맞게 한다.
+    /// 트랙들의 뱅크·프로그램(OUT-4). 재생 시작 위치의 값은 스케줄러가 따라잡아 보내므로(chase) 재생
+    /// 시작 때는 쓰지 않는다. 재생 중 편집으로 바뀐 것만 그 자리에서 보낸다.
     pub(crate) setup: Vec<(u16, Midi1Message)>,
-    /// 열 수 없는 이름 포트. 그 트랙은 소리 내지 않는다.
-    pub(crate) missing: Vec<String>,
+    /// 소리 내지 못하는 이름 포트와 이유.
+    pub(crate) missing: Vec<(String, PortProblem)>,
 }
 
 /// 엔진을 설치한다. 이미 설치돼 있으면 아무 일도 하지 않는다.
@@ -90,6 +105,7 @@ pub fn install(cx: &mut App, options: &EngineOptions) -> Result<(), MidiError> {
         opened: HashMap::new(),
         scheduler,
         owner: None,
+        known_missing: HashSet::new(),
     });
     Ok(())
 }
@@ -120,40 +136,46 @@ impl Engine {
 
     /// 프로젝트를 스냅샷으로 바꾼다. 트랙 → 포트 라우팅(SEQ-7, OUT-4).
     ///
+    /// `live`는 재생 중 편집의 교체다. 그때는 지난 재생 시작 때 못 찾은 포트를 다시 찾지 않는다.
+    ///
     /// # Errors
     ///
     /// 스냅샷을 만들 수 없으면(포트·이벤트 범위) 그 오류.
-    pub(crate) fn prepare(&mut self, project: &Project) -> Result<Prepared, MidiError> {
+    pub(crate) fn prepare(&mut self, project: &Project, live: bool) -> Result<Prepared, MidiError> {
+        if !live {
+            self.known_missing.clear();
+        }
         let mut ports: Vec<Arc<dyn MidiPort>> = vec![self.main.clone()];
         let mut index: HashMap<&str, u16> = HashMap::new();
-        let mut missing: Vec<String> = Vec::new();
+        let mut missing: Vec<(String, PortProblem)> = Vec::new();
         let mut available: Option<Vec<PortInfo>> = None;
         let mut track_ports = Vec::with_capacity(project.tracks().len());
         for track in project.tracks() {
             let port = match track.port() {
                 OutputPort::Virtual => Some(0),
-                OutputPort::Named(name) => {
-                    if let Some(&i) = index.get(name.as_str()) {
-                        Some(i)
-                    } else {
-                        let opened = (ports.len() < MAX_SCHEDULER_PORTS)
-                            .then(|| self.open_named(name, &mut available))
-                            .flatten();
-                        let pushed = opened.and_then(|p| {
-                            ports.push(p);
-                            u16::try_from(ports.len() - 1).ok()
-                        });
-                        if let Some(i) = pushed {
-                            index.insert(name, i);
-                            Some(i)
+                OutputPort::Named(name) => match index.get(name.as_str()) {
+                    Some(&i) => Some(i),
+                    None if missing.iter().any(|(n, _)| n == name) => None,
+                    None => {
+                        let opened = if ports.len() >= MAX_SCHEDULER_PORTS {
+                            Err(PortProblem::TooMany)
                         } else {
-                            if !missing.contains(name) {
-                                missing.push(name.clone());
+                            self.open_named(name, live, &mut available)
+                        };
+                        match opened {
+                            Ok(p) => {
+                                ports.push(p);
+                                let i = u16::try_from(ports.len() - 1).unwrap_or(u16::MAX);
+                                index.insert(name, i);
+                                Some(i)
                             }
-                            None
+                            Err(problem) => {
+                                missing.push((name.clone(), problem));
+                                None
+                            }
                         }
                     }
-                }
+                },
             };
             track_ports.push(port);
         }
@@ -182,15 +204,24 @@ impl Engine {
     fn open_named(
         &mut self,
         name: &str,
+        live: bool,
         available: &mut Option<Vec<PortInfo>>,
-    ) -> Option<Arc<dyn MidiPort>> {
+    ) -> Result<Arc<dyn MidiPort>, PortProblem> {
         if let Some(port) = self.opened.get(name) {
-            return Some(port.clone());
+            return Ok(port.clone());
+        }
+        if live && self.known_missing.contains(name) {
+            return Err(PortProblem::NotFound);
         }
         let list = available.get_or_insert_with(destinations);
-        let info = list.iter().find(|i| i.name() == name)?;
-        let port: Arc<dyn MidiPort> = Arc::new(OsOutput::open(&self.client, info).ok()?);
+        let Some(info) = list.iter().find(|i| i.name() == name) else {
+            self.known_missing.insert(name.to_owned());
+            return Err(PortProblem::NotFound);
+        };
+        let output = OsOutput::open(&self.client, info)
+            .map_err(|e| PortProblem::OpenFailed(e.to_string()))?;
+        let port: Arc<dyn MidiPort> = Arc::new(output);
         self.opened.insert(name.to_owned(), port.clone());
-        Some(port)
+        Ok(port)
     }
 }
