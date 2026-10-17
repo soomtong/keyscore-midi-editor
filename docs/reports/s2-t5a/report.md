@@ -28,7 +28,7 @@
 ## 테스트 결과
 
 ~~~
-cargo test --workspace --no-fail-fast: 1092 passed, 0 failed (리뷰 1 대응 뒤 1114, 리뷰 2 대응 뒤 1127 passed, 0 failed)
+cargo test --workspace --no-fail-fast: 1092 passed, 0 failed (리뷰 1 대응 뒤 1114, 리뷰 2 대응 뒤 1127, 리뷰 3 대응 뒤 1137 passed, 0 failed)
 keyscore-core unknown_keys_on_change: 5 passed(속성 테스트 포함)
 keyscore-app engine: 8 passed(루프백, 5회 반복 모두 통과, 약 1.5 s)
 ~~~
@@ -100,3 +100,14 @@ keyscore-app engine: 8 passed(루프백, 5회 반복 모두 통과, 약 1.5 s)
 | 제안 3: 한계 항목의 이월 기록 | 창 닫기 훅·연 포트 정리는 S2-T5c, 곡 끝 동작·위치 조회는 S3 이월로 단계 파일에 적었다 |
 
 부록 A의 테스트 6개는 `tests/review_s2_t5a_r2.rs`로 옮겨 모두 통과한다(위 지적 3의 기대만 고쳤다).
+
+## 리뷰 3 대응(결정 `docs/decisions/2026-10-17-s2-t5a-review-limit.md` A)
+
+| 리뷰 항목 | 대응 |
+| --- | --- |
+| 지적 1: 들리지 않는 트랙의 프로그램이 같은 채널에서 늘 이긴다 | 이벤트를 트랙 순서대로 모은다(들리는 트랙은 그 트랙만 렌더, 들리지 않는 트랙은 뱅크·프로그램만). 같은 틱의 프로그램은 넣은 순서를 지키므로 트랙 순서에서 뒤 트랙이 이긴다 |
+| 지적 2: 공유 채널에서 undo한 프로그램이 나가지 않는다 | `Setup`에 트랙 id를 두고 같은 트랙의 옛 설정과만 비교한다 |
+| 제안 1: 템포 편집 기준점 시각 | 「일시정지 자리는 근삿값」 한계와 S3 위치 조회 이월에 든다 |
+| 제안 2: 이월 문구 | 단계 파일의 S2-T5b 이월 문구를 실제 동작(트랙 순서, 솔로·뮤트 변경 때 재송신 없음)에 맞췄다 |
+
+부록 A의 테스트 3개는 `tests/review_s2_t5a_r3.rs`로 옮겨 모두 통과한다.

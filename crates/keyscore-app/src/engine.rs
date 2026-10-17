@@ -10,7 +10,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use gpui_kit::{App, Global, WeakEntity};
-use keyscore_core::{OutputPort, Project, TempoMap, Tick};
+use keyscore_core::{OutputPort, Project, TempoMap, Tick, TrackId};
 use keyscore_midi::{
     DEFAULT_PORT_NAME, MAX_SCHEDULER_PORTS, Midi1Message, MidiClient, MidiError, MidiPort,
     OsOutput, PortInfo, ScheduledEvent, Scheduler, SchedulerConfig, Snapshot, bank_select,
@@ -62,10 +62,12 @@ pub(crate) struct Engine {
     known_missing: HashSet<String>,
 }
 
-/// 트랙 하나의 음색 설정(뱅크·프로그램). 목적지 이름과 채널로 비교한다. 스냅샷의 포트 번호는 스냅샷마다
-/// 다시 매겨지므로 비교에 쓰지 않는다(S2-T5a 리뷰 2 지적 5).
+/// 트랙 하나의 음색 설정(뱅크·프로그램). 같은 트랙의 옛 설정과 목적지 이름·채널·메시지로 비교한다.
+/// 스냅샷의 포트 번호는 스냅샷마다 다시 매겨지므로 비교에 쓰지 않는다(S2-T5a 리뷰 2 지적 5). 다른 트랙의
+/// 옛 설정과 비교하면, 같은 포트·채널을 나눠 쓰는 트랙에서 되돌린 프로그램이 걸러진다(리뷰 3 지적 2).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Setup {
+    pub(crate) track: TrackId,
     /// 목적지(`OutputPort`의 이름, 가상은 빈 문자열)
     pub(crate) destination: String,
     pub(crate) channel: u8,
@@ -77,9 +79,10 @@ pub(crate) struct Setup {
 }
 
 impl Setup {
-    /// 목적지·채널·메시지가 같은가(포트 번호는 보지 않는다).
+    /// 같은 트랙의 같은 목적지·채널·메시지인가(포트 번호는 보지 않는다).
     pub(crate) fn same_as(&self, other: &Setup) -> bool {
-        self.destination == other.destination
+        self.track == other.track
+            && self.destination == other.destination
             && self.channel == other.channel
             && self.messages == other.messages
     }
@@ -221,26 +224,30 @@ impl Engine {
                 OutputPort::Named(name) => name.clone(),
             };
             setup.push(Setup {
+                track: track.id(),
                 destination,
                 channel: ch.get(),
                 port,
                 messages,
             });
         }
-        let rendered = render(project, |i, _| track_ports.get(i).copied().flatten());
-        let mut events = rendered.into_events();
-        // 렌더러는 들리지 않는 트랙(뮤트, 다른 트랙의 솔로)을 통째로 뺀다. 그 트랙의 뱅크·프로그램도
-        // 틱 0에 넣어 재생 시작 때 스케줄러가 따라잡아 보내게 한다. 재생 중 뮤트를 풀었을 때 음색이 맞아야
-        // 한다(OUT-4, 리뷰 2 지적 3).
+        // 트랙 순서대로 이벤트를 모은다. 들리는 트랙은 렌더러의 결과를, 들리지 않는 트랙(뮤트, 다른 트랙의
+        // 솔로)은 뱅크·프로그램만 틱 0에 넣는다. 렌더러는 들리지 않는 트랙을 통째로 빼므로, 그대로 두면 재생
+        // 시작 때 chase가 그 음색을 보내지 않아 재생 중 뮤트를 풀었을 때 음색이 틀린다(OUT-4, 리뷰 2 지적 3).
+        // 같은 틱의 프로그램은 스냅샷 정렬이 넣은 순서를 지키므로, 같은 포트·채널을 나눠 쓰는 트랙끼리는
+        // 트랙 순서에서 뒤 트랙이 이긴다(리뷰 3 지적 1: 들리지 않는 트랙을 뒤에 몰아 넣으면 늘 그것이 이겼다).
         let any_solo = project.tracks().iter().any(keyscore_core::Track::solo);
-        for (track, port) in project.tracks().iter().zip(&track_ports) {
+        let mut events = Vec::new();
+        for (i, (track, port)) in project.tracks().iter().zip(&track_ports).enumerate() {
+            let Some(port) = *port else { continue };
             let audible = if any_solo {
                 track.solo()
             } else {
                 !track.mute()
             };
-            let Some(port) = *port else { continue };
             if audible {
+                let only_this = render(project, |j, _| (j == i).then_some(port));
+                events.extend(only_this.into_events());
                 continue;
             }
             let ch = track.channel();

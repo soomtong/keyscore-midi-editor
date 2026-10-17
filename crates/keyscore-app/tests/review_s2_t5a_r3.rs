@@ -11,7 +11,7 @@ use keyscore_app::actions::transport;
 use keyscore_app::engine::{self, EngineOptions, TransportState};
 use keyscore_app::window::ProjectWindow;
 use keyscore_app::{init, open_project_window};
-use keyscore_core::{Edit, OutputPort, Project, TrackProp, ksq};
+use keyscore_core::{Edit, OutputPort, Program, Project, TrackProp, ksq};
 
 struct Loopback {
     rx: mpsc::Receiver<Vec<u8>>,
@@ -433,4 +433,118 @@ fn port_round_trip_while_playing_resends_program(cx: &mut TestAppContext) {
     let got = wait_for(&lb.rx, WAIT, note_on(60)).expect("가상 Note On 60");
     run(cx, handle, transport::Stop);
     assert!(got.iter().any(|m| m == &[0xC0, 5]), "{got:?}");
+}
+
+// ---------- 리뷰 3 부록 A(지적 1·2): 결정 2026-10-17-s2-t5a-review-limit A로 고친 뒤 옮김 ----------
+
+fn set_program(cx: &mut TestAppContext, view: &Entity<ProjectWindow>, track: usize, value: u8) {
+    edit(cx, view, |p| {
+        vec![Edit::SetTrackProp {
+            track: p.tracks()[track].id(),
+            prop: TrackProp::Program(Some(Program::new(value).unwrap())),
+        }]
+    });
+}
+
+/// 깨뜨림 1: 같은 포트·채널의 두 트랙 가운데 A(프로그램 5)만 솔로다. 들리지 않는 B(프로그램 9)의 프로그램이
+/// 틱 0 이벤트로 렌더러 결과 뒤에 붙어(같은 틱·같은 무리는 넣은 순서) chase·재생에서 마지막이 되어, 솔로한
+/// A가 B의 음색으로 연주된다. B를 트랙 순서상 앞에 두어 「트랙 순서대로」 규칙으로도 5여야 함을 보인다.
+#[gpui_kit::test]
+fn soloed_track_on_shared_channel_plays_its_own_program(cx: &mut TestAppContext) {
+    let lb = start(cx, "solo-shared");
+    let text = r#"{"tempo": [[0, 500000]], "tracks": [
+        {"port": "virtual", "channel": 1, "program": 9,
+         "clips": [{"start": 0, "length": 7680, "notes": [[0, 240, 62, 51492]]}]},
+        {"port": "virtual", "channel": 1, "program": 5, "solo": true,
+         "clips": [{"start": 0, "length": 7680, "notes": [[0, 240, 60, 51492]]}]}]}"#;
+    let (handle, _view) = open(cx, ksq::from_str(text).unwrap().0);
+    run(cx, handle, transport::Play);
+    let got = wait_for(&lb.rx, WAIT, note_on(60)).expect("Note On 60");
+    run(cx, handle, transport::Stop);
+    let note = got.len() - 1;
+    assert_eq!(
+        last_program_before(&got, note, 0xC0),
+        Some(5),
+        "솔로한 트랙이 다른 트랙의 프로그램으로 연주된다: {got:?}"
+    );
+}
+
+/// 깨뜨림 1의 뮤트 변형: 뮤트한 B(프로그램 9)가 들리는 A(프로그램 5)의 음색을 덮는다. 일시정지 뒤 중간
+/// 위치에서 재개해도(chase) 같다.
+#[gpui_kit::test]
+fn muted_track_on_shared_channel_does_not_override_audible_program(cx: &mut TestAppContext) {
+    let lb = start(cx, "mute-shared");
+    let text = format!(
+        r#"{{"tempo": [[0, 500000]], "tracks": [
+        {{"port": "virtual", "channel": 1, "program": 9, "mute": true,
+         "clips": [{{"start": 0, "length": 15360, "notes": [[0, 240, 62, 51492]]}}]}},
+        {{"port": "virtual", "channel": 1, "program": 5,
+         "clips": [{{"start": 0, "length": 15360, "notes": [{}]}}]}}]}}"#,
+        every_beat(60)
+    );
+    let (handle, view) = open(cx, ksq::from_str(&text).unwrap().0);
+    run(cx, handle, transport::Play);
+    let start_got = wait_for(&lb.rx, WAIT, note_on(60)).expect("Note On 60");
+    std::thread::sleep(Duration::from_millis(600));
+    run(cx, handle, transport::Pause);
+    drain_for(&lb.rx, Duration::from_millis(100));
+    run(cx, handle, transport::Play);
+    let resume_got = wait_for(&lb.rx, WAIT, note_on(60)).expect("재개 Note On 60");
+    run(cx, handle, transport::Stop);
+    let _ = view;
+    assert_eq!(
+        (
+            last_program_before(&start_got, start_got.len() - 1, 0xC0),
+            last_program_before(&resume_got, resume_got.len() - 1, 0xC0)
+        ),
+        (Some(5), Some(5)),
+        "뮤트한 트랙의 프로그램이 들리는 트랙의 음색을 덮는다: 시작 {start_got:?}, 재개 {resume_got:?}"
+    );
+}
+
+/// 깨뜨림 2: 같은 포트·채널의 두 트랙이 같은 프로그램 5다(SEQ-8의 「한 신디에 두 성부」, 경고 대상 아님).
+/// 재생 중 B를 9로 바꾸면 9가 나간다. 되돌리기(undo)로 B를 5로 돌리면, 새 항목 B(채널 1, 5)가 옛 A 항목과
+/// 같다고 보고 걸러져 5가 나가지 않는다. 두 트랙 모두 5인데 신디는 9에 남는다.
+#[gpui_kit::test]
+fn undoing_program_edit_on_shared_channel_restores_program(cx: &mut TestAppContext) {
+    let lb = start(cx, "shared-undo");
+    let text = format!(
+        r#"{{"tempo": [[0, 500000]], "tracks": [
+        {{"port": "virtual", "channel": 1, "program": 5,
+         "clips": [{{"start": 0, "length": 15360, "notes": [{}]}}]}},
+        {{"port": "virtual", "channel": 1, "program": 5,
+         "clips": [{{"start": 0, "length": 15360, "notes": [[0, 240, 64, 51492]]}}]}}]}}"#,
+        every_beat(60)
+    );
+    let (handle, view) = open(cx, ksq::from_str(&text).unwrap().0);
+    run(cx, handle, transport::Play);
+    wait_for(&lb.rx, WAIT, note_on(60)).expect("Note On 60");
+    set_program(cx, &view, 1, 9);
+    let first = wait_for(&lb.rx, WAIT, note_on(60)).expect("Note On 60(편집 뒤)");
+    assert!(first.iter().any(|m| m == &[0xC0, 9]), "{first:?}");
+    let document = cx.read(|cx| view.read(cx).document().clone());
+    cx.update(|cx| {
+        document.update(cx, |doc, cx| {
+            assert!(doc.undo().unwrap());
+            cx.notify();
+        });
+    });
+    cx.run_until_parked();
+    let got = wait_for(&lb.rx, WAIT, note_on(60)).expect("Note On 60(되돌린 뒤)");
+    let programs: Vec<u8> = cx.read(|cx| {
+        view.read(cx)
+            .document()
+            .read(cx)
+            .project()
+            .tracks()
+            .iter()
+            .map(|t| t.program().unwrap().get())
+            .collect()
+    });
+    run(cx, handle, transport::Stop);
+    assert_eq!(programs, vec![5, 5]);
+    assert!(
+        got.iter().any(|m| m == &[0xC0, 5]),
+        "두 트랙 모두 프로그램 5인데 신디는 9에 남는다: {got:?}"
+    );
 }
