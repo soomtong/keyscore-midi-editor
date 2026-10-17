@@ -155,9 +155,9 @@ fn vim_piano_roll_digits_are_count_prefix(cx: &mut TestAppContext) {
     cx.update(|cx| keymap::set_preset(cx, Preset::Vim));
     let (handle, _view) = open_nested(cx, "Normal", "PianoRoll");
     cx.simulate_keystrokes(handle, "8");
-    assert_eq!(cx.update(keymap::take_count), Some(8), "대조군");
+    assert_eq!(drain_count(cx), Some(8), "대조군");
     cx.simulate_keystrokes(handle, "3");
-    assert_eq!(cx.update(keymap::take_count), Some(3));
+    assert_eq!(drain_count(cx), Some(3));
 }
 
 /// 배치 뷰(피아노롤 밖)에서는 vim 카운트가 산다(회귀).
@@ -167,7 +167,7 @@ fn vim_arrangement_digits_are_count_prefix(cx: &mut TestAppContext) {
     cx.update(|cx| keymap::set_preset(cx, Preset::Vim));
     let (handle, _view) = open_nested(cx, "Normal", "Arrangement");
     cx.simulate_keystrokes(handle, "4 2");
-    assert_eq!(cx.update(keymap::take_count), Some(42));
+    assert_eq!(drain_count(cx), Some(42));
 }
 
 /// 기본 프리셋 피아노롤의 `b`는 `select::Bar`다(회귀, 대조군).
@@ -472,7 +472,7 @@ fn count_is_cleared_when_another_action_runs(cx: &mut TestAppContext) {
     );
     let handle = open(cx);
     cx.simulate_keystrokes(handle, "3 f5");
-    assert_eq!(cx.update(keymap::take_count), None);
+    assert_eq!(drain_count(cx), None);
 }
 
 /// 카운트는 9999에서 멈추고 넘치지 않는다. 인자 범위 밖 숫자도 패닉하지 않는다(회귀).
@@ -487,9 +487,9 @@ fn count_saturates_and_clamps_odd_digits(cx: &mut TestAppContext) {
     );
     let handle = open(cx);
     cx.simulate_keystrokes(handle, "9 9 9 9 9 9 9 9 9 9 9 9");
-    assert_eq!(cx.update(keymap::take_count), Some(9999));
+    assert_eq!(drain_count(cx), Some(9999));
     cx.simulate_keystrokes(handle, "f1 f2");
-    assert_eq!(cx.update(keymap::take_count), Some(9));
+    assert_eq!(drain_count(cx), Some(9));
     assert!(cx.update(|cx| keymap::errors(cx).is_empty()));
 }
 
@@ -643,4 +643,14 @@ fn shift_digit_dotted_length_matches_macos_keystroke(cx: &mut TestAppContext) {
         fired.get(),
         "Shift+3이 step::SetDottedLength(quarter)에 닿지 않는다"
     );
+}
+
+/// 쌓인 카운트를 보고 비운다. `take_count`는 키 디스패치 안에서만 주므로(S2-T2 리뷰 2 지적 2·3)
+/// 처리기 밖의 테스트는 이 도우미를 쓴다.
+fn drain_count(cx: &mut TestAppContext) -> Option<u32> {
+    cx.update(|cx| {
+        let c = keymap::pending_count(cx);
+        keymap::clear_count(cx);
+        c
+    })
 }

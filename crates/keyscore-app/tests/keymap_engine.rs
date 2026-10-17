@@ -284,10 +284,10 @@ fn multi_key_sequence_and_count_prefix(cx: &mut TestAppContext) {
     cx.simulate_keystrokes(handle, "g g");
     assert!(!inspector_open(cx, handle));
     cx.simulate_keystrokes(handle, "3");
-    assert_eq!(cx.update(keymap::take_count), Some(3));
-    assert_eq!(cx.update(keymap::take_count), None);
+    assert_eq!(drain_count(cx), Some(3));
+    assert_eq!(drain_count(cx), None);
     cx.simulate_keystrokes(handle, "1 2");
-    assert_eq!(cx.update(keymap::take_count), Some(12));
+    assert_eq!(drain_count(cx), Some(12));
 }
 
 // ---------- 9. 핫리로드 ----------
@@ -344,4 +344,14 @@ fn duplicate_fields_in_a_section_are_reported() {
     );
     assert_eq!(e.len(), 1, "{e:?}");
     assert_eq!(b[0].context.as_deref(), Some("Normal"));
+}
+
+/// 쌓인 카운트를 보고 비운다. `take_count`는 키 디스패치 안에서만 주므로(S2-T2 리뷰 2 지적 2·3)
+/// 처리기 밖의 테스트는 이 도우미를 쓴다.
+fn drain_count(cx: &mut TestAppContext) -> Option<u32> {
+    cx.update(|cx| {
+        let c = keymap::pending_count(cx);
+        keymap::clear_count(cx);
+        c
+    })
 }

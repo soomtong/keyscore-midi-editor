@@ -59,9 +59,10 @@ pub fn conflicts(bindings: &[Binding]) -> Vec<Conflict> {
         let entry = groups
             .entry((b.layer, context_key(b.context.as_deref())))
             .or_insert_with(|| (b.context.as_deref(), BTreeMap::new()));
+        // 키도 GPUI 키 입력으로 정규화해 묶는다(수식키 순서·대소문자·별칭, 리뷰 2 지적 4).
         entry
             .1
-            .entry(b.keys.clone())
+            .entry(super::canonical_keys(&b.keys))
             .or_default()
             .push((label, b.pos));
     }

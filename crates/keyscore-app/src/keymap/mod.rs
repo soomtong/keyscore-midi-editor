@@ -165,7 +165,17 @@ pub fn build(
 ) -> (Vec<KeyBinding>, Vec<KeymapError>) {
     let mut out = Vec::new();
     let mut errors = Vec::new();
-    for b in layers.iter() {
+    let standard_keys: std::collections::HashSet<String> = layers
+        .standard
+        .iter()
+        .map(|b| canonical_keys(&b.keys))
+        .collect();
+    // 같은 레이어 안에서는 짧은 시퀀스를 먼저 건다. GPUI는 나중 바인딩을 우선하므로 긴 시퀀스(`y y`)가
+    // 대기를 이기고, 짧은 것(`y`)은 대기 시간 뒤에 실행된다. 파일 안의 순서에 기대지 않는다(리뷰 2
+    // 지적 1). 레이어 순서와 같은 길이 안의 순서는 그대로다(안정 정렬).
+    let mut ordered: Vec<&Binding> = layers.iter().collect();
+    ordered.sort_by_key(|b| (b.layer, b.keys.split_whitespace().count()));
+    for b in ordered {
         let error = |message: String| KeymapError {
             layer: b.layer,
             pos: b.pos,
@@ -176,6 +186,18 @@ pub fn build(
         } else {
             b.keys.clone()
         };
+        // 수식키 교환으로 사용자 키가 표준 키가 되면(`alt-s` → `cmd-s`) 그것도 알린다(KM-12, 리뷰 2
+        // 지적 5). 교환 없이 겹치는 경우는 `load_layers`가 이미 알렸다.
+        if options.swap_alt_cmd
+            && b.layer == Layer::User
+            && !standard_keys.contains(&canonical_keys(&b.keys))
+            && standard_keys.contains(&canonical_keys(&keys))
+        {
+            errors.push(error(format!(
+                "경고: 수식키 교환으로 '{}'가 표준 단축키 '{keys}'를 덮는다",
+                b.keys
+            )));
+        }
         let predicate = match b.context.as_deref() {
             None => None,
             Some(context) => match KeyBindingContextPredicate::parse(context) {
@@ -224,8 +246,10 @@ pub struct KeymapState {
     /// 다시 건 뒤에 부를 일(메뉴 다시 걸기. 메뉴는 단축키를 구워 둔다).
     after_apply: Option<fn(&mut App)>,
     poll: Option<Task<()>>,
-    /// 카운트 접두(KM-5). 다음 Action 처리기가 `take_count`로 꺼낸다.
+    /// 카운트 접두(KM-5). 다음 키 Action 처리기가 `take_count`로 꺼낸다.
     count: Option<u32>,
+    /// 지금 키 입력으로 시작된 디스패치 중인가. 이때만 `take_count`가 카운트를 준다.
+    in_key_dispatch: bool,
     /// 마지막으로 제대로 읽힌 사용자 레이어.
     last_user: Vec<Binding>,
 }
@@ -247,6 +271,7 @@ pub fn install(
         after_apply: Some(after_apply),
         poll: None,
         count: None,
+        in_key_dispatch: false,
         last_user: Vec::new(),
     });
     apply(cx);
@@ -262,15 +287,25 @@ pub fn install(
     });
     cx.global_mut::<KeymapState>().poll = Some(poll);
     register_count_actions(cx);
-    // 숫자가 아닌 Action이 키로 실행되면 남은 카운트를 비운다. 처리기가 `take_count`로 이미 꺼냈다면
-    // 비어 있다. 이렇게 해야 `3`, `Esc`, 한참 뒤 `x`가 세 번 실행되지 않는다(리뷰 1 지적 4).
-    cx.observe_keystrokes(|event, _, cx| {
+    // 카운트는 키 입력의 흐름에만 붙는다. GPUI에는 모든 Action 디스패치를 보는 훅이 없어(메뉴·팔레트
+    // 경로를 잡을 수 없다) 다음처럼 정한다(리뷰 2 지적 2·3).
+    // - 키 입력으로 시작된 디스패치 안에서만 `take_count`가 카운트를 준다. 메뉴·팔레트로 실행된
+    //   처리기는 카운트를 받지 않는다.
+    // - 키 입력이 끝났는데 그것이 카운트 숫자도 아니고 대기 중인 시퀀스의 앞부분도 아니면 남은
+    //   카운트를 비운다. 바인딩이 없는 키(`escape`)도 비운다.
+    cx.intercept_keystrokes(|_, _, cx| {
+        cx.global_mut::<KeymapState>().in_key_dispatch = true;
+    })
+    .detach();
+    cx.observe_keystrokes(|event, window, cx| {
         let is_count = event
             .action
             .as_ref()
             .is_some_and(|a| a.as_any().is::<crate::actions::operator::Count>());
-        if event.action.is_some() && !is_count {
-            cx.global_mut::<KeymapState>().count = None;
+        let state = cx.global_mut::<KeymapState>();
+        state.in_key_dispatch = false;
+        if !is_count && !window.has_pending_keystrokes() {
+            state.count = None;
         }
     })
     .detach();
@@ -363,9 +398,26 @@ pub fn options(cx: &App) -> KeymapOptions {
     cx.global::<KeymapState>().options
 }
 
-/// 쌓인 카운트를 꺼낸다(KM-5). 없으면 `None`.
+/// 쌓인 카운트를 꺼낸다(KM-5). 키 입력으로 시작된 디스패치 안에서만 주고, 그 밖(메뉴, 팔레트,
+/// 처리기 밖)에서는 `None`이다.
 pub fn take_count(cx: &mut App) -> Option<u32> {
-    cx.global_mut::<KeymapState>().count.take()
+    let state = cx.global_mut::<KeymapState>();
+    if state.in_key_dispatch {
+        state.count.take()
+    } else {
+        None
+    }
+}
+
+/// 쌓인 카운트를 버린다(모드 나가기, `Esc` 처리기).
+pub fn clear_count(cx: &mut App) {
+    cx.global_mut::<KeymapState>().count = None;
+}
+
+/// 쌓여 있는 카운트를 꺼내지 않고 본다(상태줄 표시, 진단).
+#[must_use]
+pub fn pending_count(cx: &App) -> Option<u32> {
+    cx.global::<KeymapState>().count
 }
 
 /// 카운트 숫자 Action(`operator::Count(n)`, vim 프리셋의 `1`–`9`). 상한을 두어 넘치지 않게 한다.
