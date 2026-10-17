@@ -14,6 +14,7 @@ use gpui_kit::{
 use crate::actions::view::{ToggleBottomPanel, ToggleInspector, ToggleTrackList};
 use crate::app_state::AppSettings;
 use crate::document::ProjectDocument;
+use crate::mode::{ModeEvent, ModeState};
 use crate::settings::{LayoutSettings, PANEL_SIZE_RANGE};
 
 /// 크기를 저장하는 패널 그룹.
@@ -101,6 +102,27 @@ impl ProjectWindow {
     }
 
     #[must_use]
+    /// 모드 FSM의 현재 상태.
+    pub fn mode_state(&self) -> ModeState {
+        todo!()
+    }
+
+    /// 모드 사건을 넣는다. 선택(S3)·클립 끝(S5)·고스트(S7)가 부른다.
+    pub fn apply_mode_event(
+        &mut self,
+        event: ModeEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let _ = (event, window, cx);
+        todo!()
+    }
+
+    /// 상태줄 모드 메뉴가 열려 있는가.
+    pub fn mode_menu_open(&self) -> bool {
+        todo!()
+    }
+
     pub const fn layout(&self) -> LayoutSettings {
         self.layout
     }

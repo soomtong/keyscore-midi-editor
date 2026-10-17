@@ -1,0 +1,302 @@
+//! S2-T3 모드 FSM을 창에 붙인 동작(헤드리스). 키 입력이 컨텍스트를 바꾸고, 바뀐 컨텍스트의
+//! 바인딩이 이어서 맞는지 본다.
+
+use std::path::PathBuf;
+
+use gpui_kit::test::TestWindowExt as _;
+use gpui_kit::{AnyWindowHandle, AppContext as _, Entity, TestAppContext};
+use keyscore_app::actions::mode::ShowMenu;
+use keyscore_app::keymap;
+use keyscore_app::mode::{Mode, ModeEvent, ModeState, View};
+use keyscore_app::window::ProjectWindow;
+use keyscore_app::{init, open_project_window};
+use keyscore_core::Project;
+
+fn start(cx: &mut TestAppContext, name: &str, user_keymap: Option<&str>) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!("ks-modes-{}-{name}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    if let Some(text) = user_keymap {
+        std::fs::write(dir.join("keymap.json"), text).unwrap();
+    }
+    cx.update(|cx| init(cx, dir.join("settings.json")));
+    dir
+}
+
+fn open(cx: &mut TestAppContext) -> (AnyWindowHandle, Entity<ProjectWindow>) {
+    let (handle, view) = cx
+        .update(|cx| open_project_window(Project::new(), cx))
+        .unwrap();
+    render(cx, handle);
+    (handle, view)
+}
+
+fn render(cx: &mut TestAppContext, handle: AnyWindowHandle) {
+    cx.update_window(handle, |_, window, cx| window.render_frame(cx))
+        .unwrap();
+}
+
+fn state(cx: &mut TestAppContext, view: &Entity<ProjectWindow>) -> ModeState {
+    cx.read(|cx| view.read(cx).mode_state())
+}
+
+fn press(cx: &mut TestAppContext, handle: AnyWindowHandle, keys: &str) {
+    cx.simulate_keystrokes(handle, keys);
+    render(cx, handle);
+}
+
+fn event(
+    cx: &mut TestAppContext,
+    handle: AnyWindowHandle,
+    view: &Entity<ProjectWindow>,
+    ev: ModeEvent,
+) {
+    cx.update_window(handle, |_, window, cx| {
+        view.update(cx, |this, cx| this.apply_mode_event(ev, window, cx));
+    })
+    .unwrap();
+    render(cx, handle);
+}
+
+fn summary(s: ModeState) -> (View, Mode, bool, bool) {
+    (s.view(), s.mode(), s.has_selection(), s.has_ghost())
+}
+
+fn label(cx: &mut TestAppContext, handle: AnyWindowHandle, id: &'static str) -> String {
+    cx.update_window(handle, |_, window, _| {
+        window.find(id).label().unwrap_or_default().to_owned()
+    })
+    .unwrap()
+}
+
+// ---------- 7. 키가 모드와 컨텍스트를 움직인다 ----------
+
+#[gpui_kit::test]
+fn keys_drive_modes_through_key_contexts(cx: &mut TestAppContext) {
+    start(cx, "keys", None);
+    let (handle, view) = open(cx);
+    assert_eq!(state(cx, &view), ModeState::INITIAL);
+
+    let steps: [(&str, (View, Mode, bool, bool)); 12] = [
+        // v: 뷰 전환(5.10)
+        ("v", (View::PianoRoll, Mode::Normal, false, false)),
+        ("v", (View::Arrangement, Mode::Normal, false, false)),
+        // 배치 뷰의 enter = clip::Open, 피아노롤의 enter = mode::Step
+        ("enter", (View::PianoRoll, Mode::Normal, false, false)),
+        ("enter", (View::PianoRoll, Mode::Step, false, false)),
+        // ctrl-tab 순환(5.11)
+        ("ctrl-tab", (View::PianoRoll, Mode::Sequence, false, false)),
+        ("ctrl-tab", (View::PianoRoll, Mode::Play, false, false)),
+        ("ctrl-tab", (View::PianoRoll, Mode::Normal, false, false)),
+        (
+            "ctrl-shift-tab",
+            (View::PianoRoll, Mode::Play, false, false),
+        ),
+        ("ctrl-tab", (View::PianoRoll, Mode::Normal, false, false)),
+        // cmd-r Sequence, cmd-k Play, a AI(5.5)
+        ("cmd-r", (View::PianoRoll, Mode::Sequence, false, false)),
+        (
+            "ctrl-shift-tab",
+            (View::PianoRoll, Mode::Step, false, false),
+        ),
+        (
+            "ctrl-shift-tab",
+            (View::PianoRoll, Mode::Normal, false, false),
+        ),
+    ];
+    for (keys, expected) in steps {
+        press(cx, handle, keys);
+        assert_eq!(summary(state(cx, &view)), expected, "{keys}");
+    }
+    press(cx, handle, "cmd-k");
+    assert_eq!(state(cx, &view).mode(), Mode::Play);
+    // Play 컨텍스트에는 Normal의 v가 없다
+    press(cx, handle, "v");
+    assert_eq!(
+        summary(state(cx, &view)),
+        (View::PianoRoll, Mode::Play, false, false)
+    );
+    press(cx, handle, "ctrl-tab");
+    press(cx, handle, "a");
+    assert_eq!(state(cx, &view).mode(), Mode::Ai);
+    // AI 컨텍스트의 escape = ai::Dismiss(프리셋) → Normal
+    press(cx, handle, "escape");
+    assert_eq!(
+        summary(state(cx, &view)),
+        (View::PianoRoll, Mode::Normal, false, false)
+    );
+}
+
+// ---------- 8. Esc 연타 수렴(A13 선택지 a·c를 사용자 키맵으로) ----------
+
+const POLICY_A: &str = r#"[
+  {"context": "Normal", "bindings": {"escape": "mode::Back"}},
+  {"context": "Step", "bindings": {"escape": "mode::Back"}},
+  {"context": "Sequence", "bindings": {"escape": "mode::Back"}},
+  {"context": "Play", "bindings": {"escape": "mode::Back"}},
+  {"context": "Lyric", "bindings": {"escape": "mode::Back"}},
+  {"context": "Controller", "bindings": {"escape": "mode::Back"}}
+]"#;
+
+const POLICY_C: &str = r#"[
+  {"context": "Normal", "bindings": {"escape": "mode::Back"}},
+  {"context": "Step", "bindings": {"escape": "mode::Normal"}},
+  {"context": "Step > Ghost", "bindings": {"escape": "ai::DismissGhost"}},
+  {"context": "Sequence", "bindings": {"escape": "mode::Normal"}},
+  {"context": "Play", "bindings": {"escape": "mode::Normal"}},
+  {"context": "Lyric", "bindings": {"escape": "mode::Normal"}},
+  {"context": "Controller", "bindings": {"escape": "mode::Normal"}}
+]"#;
+
+fn starts() -> Vec<Vec<ModeEvent>> {
+    use ModeEvent::{Enter, OpenClip, Select, ShowGhost};
+    vec![
+        vec![Enter(Mode::Step), Select, ShowGhost],
+        vec![Enter(Mode::Play), Select],
+        vec![OpenClip, Select],
+        vec![Enter(Mode::Ai)],
+        vec![Enter(Mode::Lyric)],
+        vec![Enter(Mode::Controller), Select],
+        vec![Select],
+    ]
+}
+
+fn escape_mashing_converges(cx: &mut TestAppContext, name: &str, keymap_text: &str) {
+    start(cx, name, Some(keymap_text));
+    let (handle, view) = open(cx);
+    assert!(cx.update(|cx| keymap::errors(cx).is_empty()));
+    for events in starts() {
+        for ev in &events {
+            event(cx, handle, &view, *ev);
+        }
+        let from = state(cx, &view);
+        for _ in 0..5 {
+            press(cx, handle, "escape");
+        }
+        assert_eq!(state(cx, &view), ModeState::INITIAL, "{name}: {from:?}");
+    }
+}
+
+#[gpui_kit::test]
+fn escape_mashing_converges_under_policy_a(cx: &mut TestAppContext) {
+    escape_mashing_converges(cx, "esc-a", POLICY_A);
+}
+
+#[gpui_kit::test]
+fn escape_mashing_converges_under_policy_c(cx: &mut TestAppContext) {
+    escape_mashing_converges(cx, "esc-c", POLICY_C);
+}
+
+#[gpui_kit::test]
+fn ghost_escape_under_policy_c_stays_in_step(cx: &mut TestAppContext) {
+    start(cx, "esc-c-ghost", Some(POLICY_C));
+    let (handle, view) = open(cx);
+    event(cx, handle, &view, ModeEvent::Enter(Mode::Step));
+    event(cx, handle, &view, ModeEvent::ShowGhost);
+    // Step > Ghost가 Step보다 깊어서 이긴다(5.12: 고스트만 지우고 Step에 머문다)
+    press(cx, handle, "escape");
+    assert_eq!(
+        summary(state(cx, &view)),
+        (View::PianoRoll, Mode::Step, false, false)
+    );
+    press(cx, handle, "escape");
+    assert_eq!(state(cx, &view).mode(), Mode::Normal);
+}
+
+// ---------- 9. 상태줄 모드 표시와 메뉴 ----------
+
+#[gpui_kit::test]
+fn status_bar_shows_mode_and_menu_switches_mode(cx: &mut TestAppContext) {
+    start(
+        cx,
+        "status",
+        Some(r#"[{"bindings": {"3": "operator::Count(3)"}}]"#),
+    );
+    let (handle, view) = open(cx);
+    assert_eq!(label(cx, handle, "status-mode"), "NORMAL");
+    press(cx, handle, "ctrl-tab");
+    assert_eq!(label(cx, handle, "status-mode"), "STEP");
+
+    // 클릭으로 열고 Esc로 닫는다(메뉴의 키는 gpui-component 바인딩)
+    cx.update_window(handle, |_, window, cx| window.click("status-mode", cx))
+        .unwrap();
+    render(cx, handle);
+    assert!(cx.read(|cx| view.read(cx).mode_menu_open()));
+    press(cx, handle, "escape");
+    assert!(!cx.read(|cx| view.read(cx).mode_menu_open()));
+    assert_eq!(state(cx, &view).mode(), Mode::Step);
+
+    // Action으로 열고 키보드로 고른다: 첫 항목 Normal
+    cx.update_window(handle, |_, window, cx| {
+        window.dispatch_action(Box::new(ShowMenu), cx);
+    })
+    .unwrap();
+    render(cx, handle);
+    assert!(cx.read(|cx| view.read(cx).mode_menu_open()));
+    press(cx, handle, "down");
+    press(cx, handle, "enter");
+    assert!(!cx.read(|cx| view.read(cx).mode_menu_open()));
+    assert_eq!(state(cx, &view).mode(), Mode::Normal);
+    assert_eq!(label(cx, handle, "status-mode"), "NORMAL");
+
+    // 마우스로 고르면 쌓인 카운트를 비운다(결정 C). 항목 3 = Play
+    press(cx, handle, "3");
+    assert_eq!(cx.read(keymap::pending_count), Some(3));
+    cx.update_window(handle, |_, window, cx| window.click("status-mode", cx))
+        .unwrap();
+    render(cx, handle);
+    cx.update_window(handle, |_, window, cx| {
+        window
+            .within("popup-menu")
+            .click(gpui_kit::ElementId::Integer(3), cx);
+    })
+    .unwrap();
+    render(cx, handle);
+    assert_eq!(state(cx, &view).mode(), Mode::Play);
+    assert_eq!(cx.read(keymap::pending_count), None);
+    assert_eq!(label(cx, handle, "status-mode"), "PLAY");
+}
+
+// ---------- 10. 컴포넌트 바인딩 보존 ----------
+
+#[gpui_kit::test]
+fn component_bindings_survive_keymap_apply(cx: &mut TestAppContext) {
+    start(
+        cx,
+        "component",
+        Some(r#"[{"context": "PopupMenu", "bindings": {"escape": "mode::Normal"}}]"#),
+    );
+    cx.update(|cx| {
+        keymap::apply(cx);
+        let keymap = cx.key_bindings();
+        let keymap = keymap.borrow();
+        let popup: Vec<_> = keymap
+            .bindings()
+            .filter(|b| b.predicate().is_some_and(|p| p.to_string() == "PopupMenu"))
+            .map(|b| (b.keystrokes()[0].unparse(), b.action().name()))
+            .collect();
+        assert!(
+            popup.contains(&("down".into(), "ui::SelectDown")),
+            "{popup:?}"
+        );
+        // 바탕 레이어가 먼저(낮은 우선순위), 사용자 오버라이드가 뒤
+        let escapes: Vec<_> = popup.iter().filter(|(k, _)| k == "escape").collect();
+        assert_eq!(
+            escapes.last().map(|(_, a)| *a),
+            Some("mode::Normal"),
+            "{popup:?}"
+        );
+        assert!(escapes.len() >= 2, "{popup:?}");
+    });
+}
+
+// ---------- 11. 메인 영역 문구 ----------
+
+#[gpui_kit::test]
+fn main_view_placeholder_names_current_view(cx: &mut TestAppContext) {
+    start(cx, "main-view", None);
+    let (handle, _) = open(cx);
+    assert_eq!(label(cx, handle, "main-view"), "배치 뷰");
+    press(cx, handle, "v");
+    assert_eq!(label(cx, handle, "main-view"), "피아노롤");
+}
