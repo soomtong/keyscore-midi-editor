@@ -19,7 +19,10 @@ use keyscore_text::ParseError;
 use thiserror::Error;
 
 pub use check::{CheckReport, check};
-pub use convert::{Loss, MAX_EXPANSION, project_to_text, project_to_text_limited, text_to_project};
+pub use convert::{
+    Loss, MAX_EXPANSION, project_to_text, project_to_text_limited, text_to_project,
+    text_to_project_with,
+};
 pub use fixtures::{fixtures, write_fixtures};
 
 /// 도구의 오류. 파일을 다루는 오류는 사람이 어느 파일인지 알 수 있게 경로를 담는다.

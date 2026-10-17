@@ -48,7 +48,7 @@ const TEMPO_DIGITS: usize = 12;
 ///
 /// 문법 오류(엄격 모드에서는 경고가 될 것도)의 첫 위치를 담은 [`ParseError`].
 pub fn parse(text: &str, mode: Mode) -> Result<Parsed, ParseError> {
-    parse_old(text, mode)
+    parse_with(text, mode, ParseOptions::default())
 }
 
 /// 읽기 선택 사항.
@@ -65,12 +65,7 @@ pub struct ParseOptions {
 ///
 /// [`parse`]와 같다.
 pub fn parse_with(text: &str, mode: Mode, options: ParseOptions) -> Result<Parsed, ParseError> {
-    let _ = (text, mode, options);
-    todo!()
-}
-
-fn parse_old(text: &str, mode: Mode) -> Result<Parsed, ParseError> {
-    let mut p = Parser::new(text, mode);
+    let mut p = Parser::new(text, mode, options);
     p.run()?;
     p.finish()
 }
@@ -165,6 +160,15 @@ impl Scanner {
         }
     }
 
+    /// 지금 위치 앞이 줄의 시작(앞에 공백만 있음)인가.
+    fn at_line_start(&self) -> bool {
+        self.chars[..self.i]
+            .iter()
+            .rev()
+            .take_while(|&&c| c != '\n')
+            .all(|c| c.is_whitespace())
+    }
+
     /// 주석 시작(`//`)인가.
     fn at_comment(&self) -> bool {
         self.peek() == Some('/') && self.peek_at(1) == Some('/')
@@ -255,6 +259,8 @@ struct Suffix {
 struct Parser {
     s: Scanner,
     mode: Mode,
+    /// 레거시 지원: 줄 첫머리의 `#` 줄을 주석으로 읽는다.
+    legacy_hash_comments: bool,
     warnings: Vec<Diagnostic>,
     header: Header,
     bar_ticks: u64,
@@ -264,10 +270,11 @@ struct Parser {
 }
 
 impl Parser {
-    fn new(text: &str, mode: Mode) -> Self {
+    fn new(text: &str, mode: Mode, options: ParseOptions) -> Self {
         Parser {
             s: Scanner::new(text),
             mode,
+            legacy_hash_comments: options.legacy_hash_comments,
             warnings: Vec::new(),
             header: Header::default(),
             bar_ticks: TimeSignature::COMMON.bar_ticks(),
@@ -323,7 +330,11 @@ impl Parser {
         while let Some(c) = self.s.peek() {
             if c.is_whitespace() {
                 self.s.bump();
-            } else if self.s.at_comment() {
+            } else if self.s.at_comment()
+                || (self.legacy_hash_comments && c == '#' && self.s.at_line_start())
+            {
+                // 레거시 지원 모드에서는 줄 첫머리(앞 공백 무시)의 `#`부터 줄 끝까지도 주석이다
+                // (결정 Q1 2차 개정). 줄 중간의 `#`는 그대로 모르는 토큰 규칙을 따른다.
                 self.s.skip_to_line_end();
             } else {
                 break;
