@@ -421,8 +421,6 @@ pub mod mode {
             CycleBack,
             /// Normal로 복귀
             Normal,
-            /// Esc 한 단계 나가기(선택 → 모드 → 피아노롤 → 배치 뷰)
-            Back,
             /// 상태줄 모드 표시를 눌러 모드 메뉴 열기
             ShowMenu,
         ]
@@ -1515,7 +1513,6 @@ pub const ALL_ACTION_NAMES: &[&str] = &[
     "midi::RenameVirtualPort",
     "midi::SelectOutputPort",
     "midi::SendTestNote",
-    "mode::Back",
     "mode::Controller",
     "mode::Cycle",
     "mode::CycleBack",

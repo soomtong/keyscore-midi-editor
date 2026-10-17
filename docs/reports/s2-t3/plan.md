@@ -34,7 +34,7 @@
 규칙
 - 뷰가 바뀌면 선택을 비운다. 피아노롤의 노트 선택과 배치 뷰의 클립 선택은 다른 것이라서다.
 - 고스트는 Step에서만 산다. Step을 떠나면 고스트를 지운다.
-- 모드 전환은 모드만 바꾼다. 뷰와 선택은 그대로다(5.11 「현재 커서 위치를 유지한 채 모드만 바뀐다」). 처음 계획의 「노트 입력 모드는 피아노롤로 옮긴다」는 REQ에 없는 규칙이라 리뷰 1 지적 1에 따라 뺐다.
+- 모드 전환은 모드만 바꾼다. 뷰와 선택은 그대로다(5.11 「현재 커서 위치를 유지한 채 모드만 바뀐다」). 다만 Lyric·Controller는 피아노롤로 옮겨 들어간다(5.15, 5.9). 결정 `docs/decisions/2026-10-17-mode-entry-view.md`(리뷰 1 지적 1, 리뷰 2 지적 1).
 - 모드 진입 Action은 어느 모드에서든 그 모드로 간다(팔레트·메뉴가 Normal을 거치지 않고 부를 수 있다). 기본 키맵은 5.5대로 Normal 컨텍스트에만 건다.
 - 모드 순환은 Normal → Step → Sequence → Play → Normal(5.11). 순환에 없는 모드(AI, Lyric, Controller)에서는 Normal에 있는 것처럼 센다.
 
@@ -46,7 +46,6 @@
 | `Cycle` / `CycleBack` | `mode::Cycle`(`ctrl-tab`) / `mode::CycleBack` | 순환 |
 | `ToNormal` | `mode::Normal`, 클립 끝(S5) | 모드를 Normal로. 선택·뷰는 그대로 |
 | `LeaveAi` | `ai::Accept`, `ai::Dismiss` | AI 모드에서만 Normal로. 그 밖은 그대로(리뷰 1 지적 3) |
-| `Back` | `mode::Back` | 한 단계: 고스트 → 선택 → 모드(Normal로) → 피아노롤(배치 뷰로) → 아무것도 안 함 |
 | `ClearSelection` | `select::Clear` | 선택을 비운다 |
 | `DismissGhost` | `ai::DismissGhost` | 고스트를 지운다 |
 | `Select` | (S3의 선택 Action) | 선택이 생긴다 |
@@ -54,12 +53,14 @@
 
 ## Esc 바인딩과 A13
 
-`escape`를 어디에 걸지는 A13 결정 대기다. FSM은 세 선택지가 쓰는 Action을 모두 제공한다.
-- a(한 단계씩): 모든 모드의 `escape` → `mode::Back`
-- b: 모드의 `escape` → `mode::Normal`, Normal의 `escape` → `mode::Back`
-- c(권고): `Step > Ghost`의 `escape` → `ai::DismissGhost`, 모드의 `escape` → `mode::Normal`, Normal의 `escape` → `mode::Back`
+A13은 「통상의 취소」로 결정됐다(`2026-10-17-keymap-conflicts.md` A13). 프리셋 `escape`는 다음과 같다. 깊은 컨텍스트가 이겨 한 번에 가장 안쪽 것 하나만 닫는다.
+- `Step > Ghost` → `ai::DismissGhost`(Step에 머묾)
+- `Step`, `Sequence`, `Play`, `Lyric`, `Controller` → `mode::Normal`(뷰·선택 유지)
+- `AI` → `ai::Dismiss`(이미 있음)
+- `Normal > Selection` → `select::Clear`
+- 선택 없는 Normal → 없음(No-op). 피아노롤에서 배치 뷰로 나가지 않는다. `mode::Back`과 사건 `Back`은 뺐다.
 
-세 선택지 모두 `Esc` 연타가 어느 상태에서든 「Normal·배치 뷰·선택 없음·고스트 없음」으로 수렴한다. 이를 상태 전체에 대한 테이블 테스트와, 선택지별 사용자 키맵을 건 UI 테스트로 확인한다. 프리셋 파일의 `escape`는 결정 뒤 해당 줄만 채운다.
+`Esc` 연타는 어느 상태에서든 「Normal·선택 없음·고스트 없음」으로 수렴하고 뷰는 바꾸지 않는다. 단계 파일의 「배치 뷰·선택 없음으로 수렴」은 이 결정으로 「뷰 그대로·선택 없음」으로 읽는다.
 
 ## 공개 인터페이스 초안
 
@@ -68,7 +69,7 @@ pub mod mode {
     pub enum View { Arrangement, PianoRoll }
     pub enum Mode { Normal, Step, Sequence, Play, Ai, Lyric, Controller }
     pub struct ModeState { /* view, mode, selection, ghost: 비공개 */ }
-    pub enum ModeEvent { OpenClip, ToggleView, Enter(Mode), Cycle, CycleBack, ToNormal, Back,
+    pub enum ModeEvent { OpenClip, ToggleView, Enter(Mode), Cycle, CycleBack, ToNormal, LeaveAi,
                          ClearSelection, DismissGhost, Select, ShowGhost }
     impl ModeState {
         pub const INITIAL: ModeState;            // Normal·배치 뷰·선택 없음
@@ -93,12 +94,12 @@ impl ProjectWindow {
 | --- | --- | --- | --- |
 | 1 | `transition_table_matches_req_5_5` | 단위(테이블) | 위 전이 표의 각 행(시작 상태, 사건, 기대 상태) |
 | 2 | `every_state_upholds_invariants_after_any_event` | 단위(전수) | 모든 상태 × 모든 사건에서 고스트 ⇒ Step, 결과가 `all()` 안 |
-| 3 | `back_repeated_converges_to_arrangement_without_selection` | 단위(전수) | 모든 상태에서 `Back` 4번 안에 `INITIAL`, 그 뒤로는 그대로 |
-| 4 | `escape_policies_converge_from_every_state` | 단위(전수) | A13 a·b·c의 `escape` 매핑으로 연타해도 `INITIAL`로 수렴 |
+| 3 | `escape_cancels_innermost_thing_once` | 단위(테이블) | A13 결정의 `escape` 한 번이 가장 안쪽 것 하나만 닫는다(고스트 → 입력 모드 → 선택 → No-op) |
+| 4 | `escape_mashing_converges_to_normal_without_changing_view` | 단위(전수) | 모든 상태에서 `escape` 연타가 3번 안에 Normal·선택 없음·고스트 없음, 뷰는 그대로 |
 | 5 | `cycle_visits_normal_step_sequence_play` | 단위 | `Cycle` 4번이 한 바퀴, `CycleBack`이 역순, 순환 밖 모드의 순환 |
 | 6 | `context_path_per_state` | 단위(테이블) | 상태별 키 컨텍스트 경로 |
 | 7 | `keys_drive_modes_through_key_contexts` | UI | 기본 프리셋으로 `v`, `enter`, `ctrl-tab`, `cmd-r`, `cmd-k`, `a`가 표대로 상태를 바꾸고, 바뀐 컨텍스트의 바인딩이 이어서 맞는다(예: Arrangement의 `enter`=`clip::Open`, PianoRoll의 `enter`=`mode::Step`) |
-| 8 | `escape_mashing_converges_under_each_policy` | UI | A13 a·c 바인딩을 사용자 키맵으로 걸고 여러 시작 상태에서 `escape` 연타 → 배치 뷰·선택 없음 |
+| 8 | `escape_mashing_converges_with_default_preset`, `_with_vim_preset`, `escape_steps_ghost_then_mode_then_selection` | UI | 프리셋 `escape`로 여러 시작 상태에서 연타 → Normal·선택 없음, 뷰 그대로. 고스트 → 모드 → 선택 순서 |
 | 9 | `status_bar_shows_mode_and_menu_switches_mode` | UI | 상태줄 모드 이름이 모드를 따른다. 모드 표시 클릭과 `mode::ShowMenu`로 메뉴가 열리고, 키보드(`down`, `enter`)로 고르면 그 모드가 되고 카운트가 비워진다 |
 | 10 | `component_bindings_survive_keymap_apply` | UI | `keymap::apply` 뒤에도 `PopupMenu` 컨텍스트의 `escape`·`enter` 바인딩이 남아 있고, 사용자 키맵보다 우선순위가 낮다 |
 | 11 | `main_view_placeholder_names_current_view` | UI | 메인 영역 문구가 뷰를 따른다 |
@@ -108,6 +109,7 @@ impl ProjectWindow {
 - 고스트 ⇒ 모드가 Step.
 - 상태 필드는 비공개이고 `apply`로만 바뀐다. 그래서 불변식을 깨는 상태를 밖에서 만들 수 없다.
 - 창의 키 컨텍스트는 늘 `context_path(mode_state())`와 같다.
+- 모드 메뉴가 열려 있으면 문서 컨텍스트 키는 메뉴 뒤로 가지 않는다. 컨텍스트 없는 전역 바인딩(`ctrl-tab`, `cmd-` 표준 키)은 메뉴가 열려 있어도 실행된다(의도, 리뷰 2 제안 4).
 
 ## 범위 밖
 

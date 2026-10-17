@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use gpui_kit::test::TestWindowExt as _;
 use gpui_kit::{AnyWindowHandle, AppContext as _, Entity, TestAppContext};
 use keyscore_app::actions::mode::ShowMenu;
-use keyscore_app::keymap;
+use keyscore_app::keymap::{self, Preset};
 use keyscore_app::mode::{Mode, ModeEvent, ModeState, View};
 use keyscore_app::window::ProjectWindow;
 use keyscore_app::{init, open_project_window};
@@ -130,45 +130,37 @@ fn keys_drive_modes_through_key_contexts(cx: &mut TestAppContext) {
     );
 }
 
-// ---------- 8. Esc 연타 수렴(A13 선택지 a·c를 사용자 키맵으로) ----------
-
-const POLICY_A: &str = r#"[
-  {"context": "Normal", "bindings": {"escape": "mode::Back"}},
-  {"context": "Step", "bindings": {"escape": "mode::Back"}},
-  {"context": "Sequence", "bindings": {"escape": "mode::Back"}},
-  {"context": "Play", "bindings": {"escape": "mode::Back"}},
-  {"context": "Lyric", "bindings": {"escape": "mode::Back"}},
-  {"context": "Controller", "bindings": {"escape": "mode::Back"}}
-]"#;
-
-const POLICY_C: &str = r#"[
-  {"context": "Normal", "bindings": {"escape": "mode::Back"}},
-  {"context": "Step", "bindings": {"escape": "mode::Normal"}},
-  {"context": "Step > Ghost", "bindings": {"escape": "ai::DismissGhost"}},
-  {"context": "Sequence", "bindings": {"escape": "mode::Normal"}},
-  {"context": "Play", "bindings": {"escape": "mode::Normal"}},
-  {"context": "Lyric", "bindings": {"escape": "mode::Normal"}},
-  {"context": "Controller", "bindings": {"escape": "mode::Normal"}}
-]"#;
+// ---------- 8. Esc = 통상의 취소(A13 결정), 프리셋 바인딩 그대로 ----------
 
 fn starts() -> Vec<Vec<ModeEvent>> {
     use ModeEvent::{Enter, OpenClip, Select, ShowGhost};
     vec![
+        vec![OpenClip, Enter(Mode::Step), Select, ShowGhost],
         vec![Enter(Mode::Step), Select, ShowGhost],
         vec![Enter(Mode::Play), Select],
+        vec![Enter(Mode::Sequence)],
         vec![OpenClip, Select],
         vec![Enter(Mode::Ai)],
         vec![Enter(Mode::Lyric)],
         vec![Enter(Mode::Controller), Select],
         vec![Select],
+        vec![],
     ]
 }
 
-fn escape_mashing_converges(cx: &mut TestAppContext, name: &str, keymap_text: &str) {
-    start(cx, name, Some(keymap_text));
+/// Esc 연타가 어느 상태에서든 Normal·선택 없음·고스트 없음으로 수렴하고, 뷰는 바꾸지 않는다.
+fn escape_mashing_converges(cx: &mut TestAppContext, name: &str, preset: Preset) {
+    start(cx, name, None);
+    cx.update(|cx| keymap::set_preset(cx, preset));
     let (handle, view) = open(cx);
     assert!(cx.update(|cx| keymap::errors(cx).is_empty()));
     for events in starts() {
+        event(cx, handle, &view, ModeEvent::Enter(Mode::Normal));
+        event(cx, handle, &view, ModeEvent::ClearSelection);
+        if state(cx, &view).view() == View::PianoRoll {
+            event(cx, handle, &view, ModeEvent::ToggleView);
+        }
+        assert_eq!(state(cx, &view), ModeState::INITIAL);
         for ev in &events {
             event(cx, handle, &view, *ev);
         }
@@ -176,35 +168,44 @@ fn escape_mashing_converges(cx: &mut TestAppContext, name: &str, keymap_text: &s
         for _ in 0..5 {
             press(cx, handle, "escape");
         }
-        assert_eq!(state(cx, &view), ModeState::INITIAL, "{name}: {from:?}");
+        assert_eq!(
+            summary(state(cx, &view)),
+            (from.view(), Mode::Normal, false, false),
+            "{name}: {from:?}"
+        );
     }
 }
 
 #[gpui_kit::test]
-fn escape_mashing_converges_under_policy_a(cx: &mut TestAppContext) {
-    escape_mashing_converges(cx, "esc-a", POLICY_A);
+fn escape_mashing_converges_with_default_preset(cx: &mut TestAppContext) {
+    escape_mashing_converges(cx, "esc-default", Preset::Default);
 }
 
 #[gpui_kit::test]
-fn escape_mashing_converges_under_policy_c(cx: &mut TestAppContext) {
-    escape_mashing_converges(cx, "esc-c", POLICY_C);
+fn escape_mashing_converges_with_vim_preset(cx: &mut TestAppContext) {
+    escape_mashing_converges(cx, "esc-vim", Preset::Vim);
 }
 
 #[gpui_kit::test]
-fn ghost_escape_under_policy_c_stays_in_step(cx: &mut TestAppContext) {
-    start(cx, "esc-c-ghost", Some(POLICY_C));
+fn escape_steps_ghost_then_mode_then_selection(cx: &mut TestAppContext) {
+    start(cx, "esc-steps", None);
     let (handle, view) = open(cx);
     event(cx, handle, &view, ModeEvent::OpenClip);
     event(cx, handle, &view, ModeEvent::Enter(Mode::Step));
+    event(cx, handle, &view, ModeEvent::Select);
     event(cx, handle, &view, ModeEvent::ShowGhost);
     // Step > Ghost가 Step보다 깊어서 이긴다(5.12: 고스트만 지우고 Step에 머문다)
-    press(cx, handle, "escape");
-    assert_eq!(
-        summary(state(cx, &view)),
-        (View::PianoRoll, Mode::Step, false, false)
-    );
-    press(cx, handle, "escape");
-    assert_eq!(state(cx, &view).mode(), Mode::Normal);
+    let expected = [
+        (View::PianoRoll, Mode::Step, true, false),
+        (View::PianoRoll, Mode::Normal, true, false),
+        (View::PianoRoll, Mode::Normal, false, false),
+        // 더 닫을 것이 없으면 아무 일도 없다(배치 뷰로 나가지 않는다)
+        (View::PianoRoll, Mode::Normal, false, false),
+    ];
+    for want in expected {
+        press(cx, handle, "escape");
+        assert_eq!(summary(state(cx, &view)), want);
+    }
 }
 
 // ---------- 9. 상태줄 모드 표시와 메뉴 ----------

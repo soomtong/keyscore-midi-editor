@@ -190,8 +190,8 @@ impl ProjectWindow {
     /// 모드 FSM에 사건을 넣는 Action 처리기들(전이 표: `docs/reports/s2-t3/plan.md`).
     fn mode_handlers(element: Stateful<Div>, cx: &mut Context<Self>) -> Stateful<Div> {
         use ModeEvent::{
-            Back, ClearSelection, Cycle, CycleBack, DismissGhost, Enter, LeaveAi, OpenClip,
-            ToNormal, ToggleView,
+            ClearSelection, Cycle, CycleBack, DismissGhost, Enter, LeaveAi, OpenClip, ToNormal,
+            ToggleView,
         };
         let e = element;
         let e = Self::on_mode::<clip::Open>(e, OpenClip, cx);
@@ -208,7 +208,6 @@ impl ProjectWindow {
         let e = Self::on_mode::<mode::Cycle>(e, Cycle, cx);
         let e = Self::on_mode::<mode::CycleBack>(e, CycleBack, cx);
         let e = Self::on_mode::<mode::Normal>(e, ToNormal, cx);
-        let e = Self::on_mode::<mode::Back>(e, Back, cx);
         let e = Self::on_mode::<select::Clear>(e, ClearSelection, cx);
         let e = Self::on_mode::<ai::OpenPanel>(e, Enter(Mode::Ai), cx);
         let e = Self::on_mode::<ai::Accept>(e, LeaveAi, cx);

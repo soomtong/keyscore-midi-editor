@@ -12,7 +12,6 @@
   {
     "context": "Normal",
     "bindings": {
-      // 결정 대기: A13 escape -> mode::Back (Esc 의미)
       "x": "edit::Delete",
       "delete": "edit::Delete",
       "backspace": "edit::Delete",
@@ -193,7 +192,8 @@
   {
     "context": "Step",
     "bindings": {
-      // 결정 대기: A13 escape -> mode::Normal (Esc 의미)
+      // Esc = 통상의 취소(A13 결정)
+      "escape": "mode::Normal",
       "n": "step::Triplet",
       "1": "step::SetLength(whole)",
       "shift-1": "step::SetDottedLength(whole)",
@@ -353,7 +353,8 @@
   {
     "context": "Step > Ghost",
     "bindings": {
-      // 결정 대기: A13 escape -> ai::DismissGhost (Esc 의미)
+      // Esc = 통상의 취소(A13 결정)
+      "escape": "ai::DismissGhost",
       "tab": "ai::AcceptGhost",
       "shift-tab": "ai::IgnoreGhost"
     }
@@ -401,7 +402,8 @@
   {
     "context": "Play",
     "bindings": {
-      // 결정 대기: A13 escape -> mode::Normal (Esc 의미)
+      // Esc = 통상의 취소(A13 결정)
+      "escape": "mode::Normal",
       // 결정 대기: B24 shift 단독 -> play::Sustain (수식키 단독 바인딩)
       "space": "transport::Toggle",
       "tab": "play::NextTrack",
@@ -463,7 +465,8 @@
   {
     "context": "Lyric",
     "bindings": {
-      // 결정 대기: A13 escape -> mode::Normal (Esc 의미)
+      // Esc = 통상의 취소(A13 결정)
+      "escape": "mode::Normal",
       // 결정 대기: A5 tab -> lyric::Next / lyric::AcceptSuggestion
       // 결정 대기: A6 space -> lyric::Next, - -> lyric::Melisma, a -> lyric::Suggest
       "backspace": "lyric::Backspace",
@@ -517,19 +520,22 @@
   {
     "context": "Normal > Selection",
     "bindings": {
-      // 결정 대기: A13 escape -> select::Clear (Esc 의미)
+      // Esc = 통상의 취소(A13 결정)
+      "escape": "select::Clear",
     }
   },
   {
     "context": "Sequence",
     "bindings": {
-      // 결정 대기: A13 escape -> mode::Normal (Esc 의미)
+      // Esc = 통상의 취소(A13 결정)
+      "escape": "mode::Normal",
     }
   },
   {
     "context": "Controller",
     "bindings": {
-      // 결정 대기: A13 escape -> mode::Normal (Esc 의미)
+      // Esc = 통상의 취소(A13 결정)
+      "escape": "mode::Normal",
     }
   },
   {

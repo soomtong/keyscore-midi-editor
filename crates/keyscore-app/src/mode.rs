@@ -61,6 +61,13 @@ impl Mode {
         }
     }
 
+    /// 피아노롤 위에서만 뜻이 있는 모드. Lyric은 커서 위 노트부터 가사를 넣고 피아노롤이 그 노트를
+    /// 강조한다(5.15). Controller는 피아노롤 아래 레인을 키운 화면이다(5.9). 순환(5.11)에는 없다.
+    /// 결정 `docs/decisions/2026-10-17-mode-entry-view.md`.
+    const fn needs_piano_roll(self) -> bool {
+        matches!(self, Mode::Lyric | Mode::Controller)
+    }
+
     /// 순환(5.11)에서의 다음 모드. 순환 밖 모드(AI, Lyric, Controller)는 Normal처럼 센다.
     const fn cycled(self, forward: bool) -> Mode {
         const ORDER: [Mode; 4] = [Mode::Normal, Mode::Step, Mode::Sequence, Mode::Play];
@@ -89,8 +96,6 @@ pub enum ModeEvent {
     CycleBack,
     /// Normal로 돌아간다(선택·뷰는 그대로)
     ToNormal,
-    /// 한 단계 나간다: 고스트 → 선택 → 모드 → 피아노롤 → (없음)
-    Back,
     /// 선택 해제
     ClearSelection,
     /// 고스트만 지운다
@@ -113,7 +118,6 @@ impl ModeEvent {
             ModeEvent::Cycle,
             ModeEvent::CycleBack,
             ModeEvent::ToNormal,
-            ModeEvent::Back,
             ModeEvent::ClearSelection,
             ModeEvent::DismissGhost,
             ModeEvent::Select,
@@ -127,7 +131,7 @@ impl ModeEvent {
 
 /// 모드 FSM의 상태. 필드는 비공개이고 [`ModeState::apply`]로만 바뀐다.
 ///
-/// 불변식: 고스트가 있으면 모드는 Step이다.
+/// 불변식: 고스트가 있으면 모드는 Step이다. Lyric·Controller는 피아노롤에 있다.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ModeState {
     view: View,
@@ -143,7 +147,7 @@ impl Default for ModeState {
 }
 
 impl ModeState {
-    /// 시작 상태이자 `Esc` 연타가 수렴하는 상태: Normal, 배치 뷰, 선택·고스트 없음.
+    /// 시작 상태: Normal, 배치 뷰, 선택·고스트 없음.
     pub const INITIAL: ModeState = ModeState {
         view: View::Arrangement,
         mode: Mode::Normal,
@@ -191,9 +195,10 @@ impl ModeState {
         })
     }
 
-    /// 불변식: 고스트는 Step에만.
+    /// 불변식: 고스트는 Step에만, Lyric·Controller는 피아노롤에만.
     const fn is_valid(self) -> bool {
-        !self.ghost || matches!(self.mode, Mode::Step)
+        (!self.ghost || matches!(self.mode, Mode::Step))
+            && (!self.mode.needs_piano_roll() || matches!(self.view, View::PianoRoll))
     }
 
     /// 사건 하나를 적용한 다음 상태.
@@ -212,7 +217,6 @@ impl ModeState {
             ModeEvent::CycleBack => self.with_mode(self.mode.cycled(false)),
             ModeEvent::ToNormal => self.with_mode(Mode::Normal),
             ModeEvent::LeaveAi if self.mode == Mode::Ai => self.with_mode(Mode::Normal),
-            ModeEvent::Back => self.back(),
             ModeEvent::ClearSelection => ModeState {
                 selection: false,
                 ..self
@@ -253,34 +257,20 @@ impl ModeState {
     }
 
     /// 모드만 바꾼다(5.11 「현재 커서 위치를 유지한 채 모드만 바뀐다」). 뷰와 선택은 그대로이고,
-    /// 고스트는 Step에만 살아서 Step을 떠나면 지운다.
+    /// 고스트는 Step에만 살아서 Step을 떠나면 지운다. 다만 Lyric·Controller는 피아노롤로 옮긴다.
     fn with_mode(self, mode: Mode) -> ModeState {
         if mode == self.mode {
             return self;
         }
+        let s = if mode.needs_piano_roll() {
+            self.with_view(View::PianoRoll)
+        } else {
+            self
+        };
         ModeState {
             mode,
             ghost: false,
-            ..self
-        }
-    }
-
-    /// `Esc` 한 단계(5.5): 고스트 → 선택 → 모드 → 피아노롤 → (더 나갈 곳 없음).
-    fn back(self) -> ModeState {
-        if self.ghost {
-            ModeState {
-                ghost: false,
-                ..self
-            }
-        } else if self.selection {
-            ModeState {
-                selection: false,
-                ..self
-            }
-        } else if self.mode != Mode::Normal {
-            self.with_mode(Mode::Normal)
-        } else {
-            self.with_view(View::Arrangement)
+            ..s
         }
     }
 

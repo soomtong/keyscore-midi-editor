@@ -339,3 +339,28 @@ fn pending_sequence_does_not_cross_into_mode_menu(cx: &mut TestAppContext) {
     press(cx, handle, "p");
     assert_eq!(state(cx, &view), ModeState::INITIAL);
 }
+
+// ---------- 리뷰 2 부록 A1(지적 1): 결정 2026-10-17-mode-entry-view 뒤 회귀 방지로 옮김 ----------
+
+#[gpui_kit::test]
+fn lyric_and_controller_from_arrangement_open_in_piano_roll(cx: &mut TestAppContext) {
+    // REQ 5.15 「커서 위 노트부터 시작」「피아노롤은 가사 입력 중인 노트를 강조」,
+    // 5.9 Controller 모드 = 「피아노롤 아래」 레인을 화면 전체로 키운 상태.
+    start(cx, "arr-lyric", None);
+    let (handle, view) = open(cx);
+    for (key, mode) in [("w", Mode::Lyric), ("shift-c", Mode::Controller)] {
+        event(cx, handle, &view, ModeEvent::ToNormal);
+        if state(cx, &view).view() == View::PianoRoll {
+            event(cx, handle, &view, ModeEvent::ToggleView);
+        }
+        assert_eq!(state(cx, &view), ModeState::INITIAL);
+        press(cx, handle, key);
+        let s = state(cx, &view);
+        assert_eq!(s.mode(), mode);
+        assert_eq!(s.view(), View::PianoRoll, "{key}: 배치 뷰에서 {mode:?}");
+        // Esc는 Normal로 돌아가고 뷰는 그대로(A13)
+        press(cx, handle, "escape");
+        assert_eq!(state(cx, &view).mode(), Mode::Normal);
+        assert_eq!(state(cx, &view).view(), View::PianoRoll);
+    }
+}

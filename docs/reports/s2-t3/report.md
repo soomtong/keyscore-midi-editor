@@ -27,7 +27,7 @@
 ## 테스트 결과
 
 ~~~
-cargo test --workspace --no-fail-fast: 980 passed, 0 failed (리뷰 1 대응 뒤 993 passed, 0 failed)
+cargo test --workspace --no-fail-fast: 980 passed, 0 failed (리뷰 1 대응 뒤 993, A13·리뷰 2 대응 뒤 1005 passed, 0 failed)
 mode_fsm: 7 passed
 modes_ui: 8 passed
 review_s2_t2_r2: 23 passed (기대 모델 수정 후)
@@ -89,3 +89,16 @@ review_s2_t2_r2: 23 passed (기대 모델 수정 후)
 | 제안 4: 한 바퀴 검사를 상태 전체로 | `cycle_visits_normal_step_sequence_play`가 상태 전체를 비교한다 |
 
 부록 A1–A5는 `tests/review_s2_t3.rs`로 옮겨 모두 통과한다. `modes_ui::ghost_escape_under_policy_c_stays_in_step`은 빠진 규칙에 기대던 시작 상태(배치 뷰에서 Step → 피아노롤)를 `OpenClip`으로 명시했다.
+
+## A13 결정과 리뷰 2 대응
+
+| 항목 | 대응 |
+| --- | --- |
+| A13 결정(사용자, 「통상의 취소, 그 외 No-op」) | Fable 5.1 검토로 컨텍스트별 표를 만들어 결정 문서에 적었다. 프리셋 `escape`: `Step > Ghost` → `ai::DismissGhost`, 입력 모드 → `mode::Normal`, `Normal > Selection` → `select::Clear`, 선택 없는 Normal은 없음. `mode::Back`과 사건 `Back`을 뺐다(Action 286개). REQ P2·5.2·5.3·5.5·5.6·5.8·5.10·UI-2 문구를 고쳤다(개발 단계 문구 수정 승인). 새 Action이 필요한 컨텍스트(팔레트·대화상자·오버레이·AI 요청·vim 오퍼레이터)는 S2-T4·S2-T6·S3·S7 이월 |
+| 리뷰 2 지적 1: 모드 진입 때의 뷰가 REQ 결정 없이 정해졌다 | 결정 `docs/decisions/2026-10-17-mode-entry-view.md`를 썼다. Step·Sequence·Play·AI는 모드만(5.11, 5.10), Lyric·Controller는 피아노롤로(5.15, 5.9). 부록 A1을 `review_s2_t3_r2.rs`로 옮겨 통과(나가기는 `Esc`로 바꿈) |
+| 제안 1: 계획 인터페이스에 `LeaveAi` 누락 | 고쳤다 |
+| 제안 2: 모드 전환 뒤 남는 선택과 Esc | A13 결정으로 입력 모드의 `Esc`는 먼저 Normal로 가고(선택 유지), 다음 `Esc`가 선택을 지운다. 상태줄이 `STEP` 그대로 남는 경우는 없다 |
+| 제안 3: 모드 메뉴 위치 근삿값 | S2-T6 이월(창 최소 크기와 함께) |
+| 제안 4: 메뉴가 열린 동안의 전역 바인딩 | 의도로 계획 불변식에 적었다 |
+
+테스트 변경: `mode_fsm`의 `back_repeated_…`, `escape_policies_…`는 결정된 정책의 `escape_cancels_innermost_thing_once`, `escape_mashing_converges_to_normal_without_changing_view`로 고쳐 썼다. `modes_ui`의 선택지 a·c 사용자 키맵 테스트는 프리셋 기준 테스트(기본·vim)와 단계 순서 테스트로 고쳐 썼다.
