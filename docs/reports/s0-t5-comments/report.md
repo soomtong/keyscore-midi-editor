@@ -85,3 +85,10 @@ keyscore-midi·ksq-play 루프백 테스트는 같은 시각에 돈 S1 출구 �
 | 테스트 | `legacy_mode_treats_hash_lines_as_comments`, `legacy_mode_keeps_sharp_and_error_rules_for_other_hashes`, `txt2ksq_legacy_option_reads_hash_comment_lines` |
 
 레거시 모드에서도 노트 뒤의 `#`는 올림표다. 줄 중간의 그 밖의 `#`는 1차 개정의 규칙(엄격 오류, 느슨 경고)을 그대로 따른다.
+
+### 리뷰 대응 (review-legacy-1, 판정: 병합 가능)
+
+| # | 지적 | 대응 |
+| --- | --- | --- |
+| 1 | 줄 끝 `# 메모`는 레거시 모드에서도 주석이 아님을 알리기 (제안) | `txt2ksq` 도움말과 README에 「줄 첫머리 `#` 줄만」을 적었다 |
+| 2 | REQ 5.14 토큰 표에 레거시 읽기 한 줄 (제안) | 반영(2026-10-17 문구 수정 승인) |
