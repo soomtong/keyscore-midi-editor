@@ -5,7 +5,8 @@ use std::time::Duration;
 
 use gpui_kit::test::TestWindowExt as _;
 use gpui_kit::{AnyWindowHandle, AppContext as _, Entity, TestAppContext, px};
-use keyscore_app::actions::{ThemeDark, ThemeLight, ToggleBottomPanel, ToggleInspector};
+use keyscore_app::actions::args::ThemeKind;
+use keyscore_app::actions::view::{SetTheme, ToggleBottomPanel, ToggleInspector};
 use keyscore_app::app_state::AppSettings;
 use keyscore_app::palette::track_color;
 use keyscore_app::settings::{LayoutSettings, Settings};
@@ -150,7 +151,7 @@ fn collapsed_panel_reopens_at_saved_width_after_sibling_resize(cx: &mut TestAppC
     })
     .unwrap();
     cx.update_window(handle, |_, window, cx| {
-        window.dispatch_action(Box::new(keyscore_app::actions::ToggleTrackList), cx);
+        window.dispatch_action(Box::new(keyscore_app::actions::view::ToggleTrackList), cx);
         window.render_frame(cx);
     })
     .unwrap();
@@ -218,9 +219,9 @@ fn palette_colors_are_visibly_distinct_in_both_themes(cx: &mut TestAppContext) {
     let _ = open(cx);
     for dark in [false, true] {
         if dark {
-            cx.update(|cx| cx.dispatch_action(&ThemeDark));
+            cx.update(|cx| cx.dispatch_action(&SetTheme(ThemeKind::Dark)));
         } else {
-            cx.update(|cx| cx.dispatch_action(&ThemeLight));
+            cx.update(|cx| cx.dispatch_action(&SetTheme(ThemeKind::Light)));
         }
         let (colors, background) = cx.read(|cx| {
             use gpui_kit::component::ActiveTheme as _;

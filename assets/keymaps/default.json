@@ -1,0 +1,525 @@
+// 기본 프리셋(REQ 5.7, 5.8). cmd- 표준 단축키는 standard.json 에 있다.
+// 결정 대기 주석이 붙은 키는 docs/decisions/2026-10-17-keymap-conflicts.md 가 닫힐 때까지 비워 둔다.
+[
+  {
+    "bindings": {
+      "ctrl-tab": "mode::Cycle",
+      "ctrl-shift-tab": "mode::CycleBack"
+    }
+  },
+  {
+    "context": "Normal",
+    "bindings": {
+      // 결정 대기: A13 escape -> mode::Back (Esc 의미)
+      "x": "edit::Delete",
+      "delete": "edit::Delete",
+      "backspace": "edit::Delete",
+      "shift-x": "edit::Cut",
+      "r": "edit::Repeat",
+      ".": "edit::RepeatLast",
+      "/": "edit::Split",
+      "cmd-j": "edit::Join",
+      "q": "edit::Quantize",
+      "shift-q": "edit::QuantizeSettings",
+      "~": "edit::Legato",
+      "v": "view::Toggle",
+      "cmd-i": "view::ToggleInspector",
+      "z": "view::ZoomToSelection",
+      "w": "mode::Lyric",
+      "shift-c": "mode::Controller",
+      "cmd-r": "mode::Sequence",
+      "cmd-k": "mode::Play",
+      "left": "cursor::Left",
+      "h": "cursor::Left",
+      "right": "cursor::Right",
+      "l": "cursor::Right",
+      "down": "cursor::Down",
+      "j": "cursor::Down",
+      "up": "cursor::Up",
+      "k": "cursor::Up",
+      "ctrl-left": "cursor::PrevBar",
+      "ctrl-h": "cursor::PrevBar",
+      "ctrl-right": "cursor::NextBar",
+      "ctrl-l": "cursor::NextBar",
+      "shift-n": "cursor::NextClip",
+      "shift-p": "cursor::PrevClip",
+      "cmd-left": "cursor::ClipStart",
+      "cmd-right": "cursor::ClipEnd",
+      "cmd-up": "cursor::FirstTrack",
+      "cmd-down": "cursor::LastTrack",
+      "i": "note::ShowInfo",
+      "tab": "track::Next",
+      "shift-tab": "track::Prev",
+      "m": "track::ToggleMute",
+      "o": "track::ToggleSolo",
+      "space": "transport::Toggle",
+      "shift-space": "transport::PlayFromCursor",
+      "shift-enter": "transport::LoopSelection",
+      "t": "transport::SetTempo",
+      "shift-t": "transport::TapTempo",
+      "c": "lane::Toggle",
+      "a": "ai::OpenPanel",
+      ":": "palette::Open",
+      "?": "help::KeymapOverlay"
+    }
+  },
+  {
+    "context": "Normal > PianoRoll",
+    "bindings": {
+      "enter": "mode::Step",
+      "e": "edit::SetPitch",
+      "ctrl-down": "cursor::OctaveDown",
+      "ctrl-j": "cursor::OctaveDown",
+      "[": "cursor::OctaveDown",
+      "ctrl-up": "cursor::OctaveUp",
+      "ctrl-k": "cursor::OctaveUp",
+      "]": "cursor::OctaveUp",
+      "n": "cursor::NextNote",
+      "p": "cursor::PrevNote",
+      "shift-left": "select::ExtendLeft",
+      "shift-h": "select::ExtendLeft",
+      "shift-right": "select::ExtendRight",
+      "shift-l": "select::ExtendRight",
+      "shift-down": "select::ExtendDown",
+      "shift-j": "select::ExtendDown",
+      "shift-up": "select::ExtendUp",
+      "shift-k": "select::ExtendUp",
+      "ctrl-shift-left": "select::ExtendBarBack",
+      "ctrl-shift-h": "select::ExtendBarBack",
+      "ctrl-shift-right": "select::ExtendBarForward",
+      "ctrl-shift-l": "select::ExtendBarForward",
+      "ctrl-shift-down": "select::ExtendOctaveDown",
+      "ctrl-shift-j": "select::ExtendOctaveDown",
+      "ctrl-shift-up": "select::ExtendOctaveUp",
+      "ctrl-shift-k": "select::ExtendOctaveUp",
+      "b": "select::Bar",
+      "shift-b": "select::Clip",
+      "alt-k": "note::TransposeUp",
+      "alt-up": "note::TransposeUp",
+      "+": "note::TransposeUp",
+      "alt-j": "note::TransposeDown",
+      "alt-down": "note::TransposeDown",
+      "-": "note::TransposeDown",
+      "alt-h": "note::NudgeEarlier",
+      "alt-left": "note::NudgeEarlier",
+      "alt-l": "note::NudgeLater",
+      "alt-right": "note::NudgeLater",
+      "ctrl-alt-h": "note::NudgeBarEarlier",
+      "ctrl-alt-left": "note::NudgeBarEarlier",
+      "ctrl-alt-l": "note::NudgeBarLater",
+      "ctrl-alt-right": "note::NudgeBarLater",
+      "alt-shift-l": "note::Lengthen",
+      "alt-shift-right": "note::Lengthen",
+      ">": "note::Lengthen",
+      "alt-shift-h": "note::Shorten",
+      "alt-shift-left": "note::Shorten",
+      "<": "note::Shorten",
+      "alt-shift-k": "note::OctaveUp",
+      "alt-shift-up": "note::OctaveUp",
+      "alt-shift-j": "note::OctaveDown",
+      "alt-shift-down": "note::OctaveDown",
+      "1": "note::SetLength(whole)",
+      "shift-1": "note::SetDottedLength(whole)",
+      "2": "note::SetLength(half)",
+      "shift-2": "note::SetDottedLength(half)",
+      "3": "note::SetLength(quarter)",
+      "shift-3": "note::SetDottedLength(quarter)",
+      "4": "note::SetLength(eighth)",
+      "shift-4": "note::SetDottedLength(eighth)",
+      "5": "note::SetLength(sixteenth)",
+      "shift-5": "note::SetDottedLength(sixteenth)",
+      "6": "note::SetLength(thirtysecond)",
+      "shift-6": "note::SetDottedLength(thirtysecond)",
+      "7": "note::SetLength(sixtyfourth)",
+      "shift-7": "note::SetDottedLength(sixtyfourth)",
+      "0": "note::ResetLength"
+    }
+  },
+  {
+    "context": "Normal > Arrangement",
+    "bindings": {
+      "enter": "clip::Open",
+      "left": "cursor::PrevClipBoundary",
+      "h": "cursor::PrevClipBoundary",
+      "right": "cursor::NextClipBoundary",
+      "l": "cursor::NextClipBoundary",
+      "up": "cursor::TrackUp",
+      "k": "cursor::TrackUp",
+      "down": "cursor::TrackDown",
+      "j": "cursor::TrackDown",
+      "ctrl-k": "cursor::FirstTrack",
+      "ctrl-j": "cursor::LastTrack",
+      "shift-left": "select::ExtendPrevClip",
+      "shift-h": "select::ExtendPrevClip",
+      "shift-right": "select::ExtendNextClip",
+      "shift-l": "select::ExtendNextClip",
+      "shift-up": "select::ExtendTrackUp",
+      "shift-k": "select::ExtendTrackUp",
+      "shift-down": "select::ExtendTrackDown",
+      "shift-j": "select::ExtendTrackDown",
+      "alt-h": "clip::MoveEarlier",
+      "alt-left": "clip::MoveEarlier",
+      "alt-l": "clip::MoveLater",
+      "alt-right": "clip::MoveLater",
+      "alt-k": "clip::MoveUp",
+      "alt-up": "clip::MoveUp",
+      "alt-j": "clip::MoveDown",
+      "alt-down": "clip::MoveDown",
+      "alt-shift-l": "clip::Lengthen",
+      "alt-shift-right": "clip::Lengthen",
+      "alt-shift-h": "clip::Shorten",
+      "alt-shift-left": "clip::Shorten",
+      "ctrl-alt-h": "clip::TrimStartEarlier",
+      "ctrl-alt-left": "clip::TrimStartEarlier",
+      "ctrl-alt-l": "clip::TrimStartLater",
+      "ctrl-alt-right": "clip::TrimStartLater"
+    }
+  },
+  {
+    "context": "Dragging",
+    "bindings": {
+      "escape": "edit::CancelDrag"
+    }
+  },
+  {
+    "context": "Step",
+    "bindings": {
+      // 결정 대기: A13 escape -> mode::Normal (Esc 의미)
+      "n": "step::Triplet",
+      "1": "step::SetLength(whole)",
+      "shift-1": "step::SetDottedLength(whole)",
+      "2": "step::SetLength(half)",
+      "shift-2": "step::SetDottedLength(half)",
+      "3": "step::SetLength(quarter)",
+      "shift-3": "step::SetDottedLength(quarter)",
+      "4": "step::SetLength(eighth)",
+      "shift-4": "step::SetDottedLength(eighth)",
+      "5": "step::SetLength(sixteenth)",
+      "shift-5": "step::SetDottedLength(sixteenth)",
+      "6": "step::SetLength(thirtysecond)",
+      "shift-6": "step::SetDottedLength(thirtysecond)",
+      "7": "step::SetLength(sixtyfourth)",
+      "shift-7": "step::SetDottedLength(sixtyfourth)",
+      "0": "step::ResetLength",
+      "[": "step::OctaveDown",
+      "]": "step::OctaveUp",
+      "space": "step::Rest",
+      "backspace": "step::Back",
+      "shift-tab": "step::Prev",
+      "tab": "step::Confirm",
+      "enter": "step::Commit",
+      "~": "step::Tie"
+    }
+  },
+  {
+    "context": "Step > Piano",
+    "bindings": {
+      "a": "step::Note(a)",
+      "ctrl-a": "step::Chord(a)",
+      "shift-a": "step::HalfNote(a)",
+      "s": "step::Note(s)",
+      "ctrl-s": "step::Chord(s)",
+      "shift-s": "step::HalfNote(s)",
+      "d": "step::Note(d)",
+      "ctrl-d": "step::Chord(d)",
+      "shift-d": "step::HalfNote(d)",
+      "f": "step::Note(f)",
+      "ctrl-f": "step::Chord(f)",
+      "shift-f": "step::HalfNote(f)",
+      "g": "step::Note(g)",
+      "ctrl-g": "step::Chord(g)",
+      "shift-g": "step::HalfNote(g)",
+      "h": "step::Note(h)",
+      "ctrl-h": "step::Chord(h)",
+      "shift-h": "step::HalfNote(h)",
+      "j": "step::Note(j)",
+      "ctrl-j": "step::Chord(j)",
+      "shift-j": "step::HalfNote(j)",
+      "k": "step::Note(k)",
+      "ctrl-k": "step::Chord(k)",
+      "shift-k": "step::HalfNote(k)",
+      "l": "step::Note(l)",
+      "ctrl-l": "step::Chord(l)",
+      "shift-l": "step::HalfNote(l)",
+      "w": "step::Note(w)",
+      "ctrl-w": "step::Chord(w)",
+      "shift-w": "step::HalfNote(w)",
+      "e": "step::Note(e)",
+      "ctrl-e": "step::Chord(e)",
+      "shift-e": "step::HalfNote(e)",
+      "t": "step::Note(t)",
+      "ctrl-t": "step::Chord(t)",
+      "shift-t": "step::HalfNote(t)",
+      "y": "step::Note(y)",
+      "ctrl-y": "step::Chord(y)",
+      "shift-y": "step::HalfNote(y)",
+      "u": "step::Note(u)",
+      "ctrl-u": "step::Chord(u)",
+      "shift-u": "step::HalfNote(u)",
+      "o": "step::Note(o)",
+      "ctrl-o": "step::Chord(o)",
+      "shift-o": "step::HalfNote(o)",
+      "p": "step::Note(p)",
+      "ctrl-p": "step::Chord(p)",
+      "shift-p": "step::HalfNote(p)",
+      "z": "step::OctaveDown",
+      "x": "step::OctaveUp"
+    }
+  },
+  {
+    "context": "Step > Solfege",
+    "bindings": {
+      // 결정 대기: B27 b -> step::Accidental(flat) (음 b와 겹침)
+      "c": "step::Note(c)",
+      "ctrl-c": "step::Chord(c)",
+      "shift-c": "step::HalfNote(c)",
+      "d": "step::Note(d)",
+      "ctrl-d": "step::Chord(d)",
+      "shift-d": "step::HalfNote(d)",
+      "e": "step::Note(e)",
+      "ctrl-e": "step::Chord(e)",
+      "shift-e": "step::HalfNote(e)",
+      "f": "step::Note(f)",
+      "ctrl-f": "step::Chord(f)",
+      "shift-f": "step::HalfNote(f)",
+      "g": "step::Note(g)",
+      "ctrl-g": "step::Chord(g)",
+      "shift-g": "step::HalfNote(g)",
+      "a": "step::Note(a)",
+      "ctrl-a": "step::Chord(a)",
+      "shift-a": "step::HalfNote(a)",
+      "b": "step::Note(b)",
+      "ctrl-b": "step::Chord(b)",
+      "shift-b": "step::HalfNote(b)",
+      "#": "step::Accidental(sharp)",
+      "+": "step::Accidental(sharp)",
+      "-": "step::Accidental(flat)"
+    }
+  },
+  {
+    "context": "Step > Drum",
+    "bindings": {
+      "a": "step::Note(a)",
+      "s": "step::Note(s)",
+      "w": "step::Note(w)",
+      "e": "step::Note(e)",
+      "d": "step::Note(d)",
+      "r": "step::Note(r)",
+      "f": "step::Note(f)",
+      "g": "step::Note(g)",
+      "h": "step::Note(h)",
+      "j": "step::Note(j)",
+      "t": "step::Note(t)",
+      "k": "step::Note(k)",
+      "l": "step::Note(l)",
+      "y": "step::Note(y)",
+      "u": "step::Note(u)",
+      "o": "step::Note(o)",
+      "]": "step::KitPageNext",
+      "[": "step::KitPagePrev"
+    }
+  },
+  {
+    "context": "Step > Pending",
+    "bindings": {
+      "0": "step::SetOctave(0)",
+      "1": "step::SetOctave(1)",
+      "2": "step::SetOctave(2)",
+      "3": "step::SetOctave(3)",
+      "4": "step::SetOctave(4)",
+      "5": "step::SetOctave(5)",
+      "6": "step::SetOctave(6)",
+      "7": "step::SetOctave(7)",
+      "8": "step::SetOctave(8)",
+      "9": "step::SetOctave(9)"
+    }
+  },
+  {
+    "context": "Step > Ghost",
+    "bindings": {
+      // 결정 대기: A13 escape -> ai::DismissGhost (Esc 의미)
+      "tab": "ai::AcceptGhost",
+      "shift-tab": "ai::IgnoreGhost"
+    }
+  },
+  {
+    "context": "Sequence > PrePitched",
+    "bindings": {
+      // 결정 대기: A4 tab -> sequence::Skip, shift-tab -> sequence::Rewind
+      "space": "sequence::Hit"
+    }
+  },
+  {
+    "context": "Sequence > Piano",
+    "bindings": {
+      "a": "sequence::Note(a)",
+      "s": "sequence::Note(s)",
+      "d": "sequence::Note(d)",
+      "f": "sequence::Note(f)",
+      "g": "sequence::Note(g)",
+      "h": "sequence::Note(h)",
+      "j": "sequence::Note(j)",
+      "k": "sequence::Note(k)",
+      "l": "sequence::Note(l)",
+      "w": "sequence::Note(w)",
+      "e": "sequence::Note(e)",
+      "t": "sequence::Note(t)",
+      "y": "sequence::Note(y)",
+      "u": "sequence::Note(u)",
+      "o": "sequence::Note(o)",
+      "p": "sequence::Note(p)"
+    }
+  },
+  {
+    "context": "Sequence > Solfege",
+    "bindings": {
+      "c": "sequence::Note(c)",
+      "d": "sequence::Note(d)",
+      "e": "sequence::Note(e)",
+      "f": "sequence::Note(f)",
+      "g": "sequence::Note(g)",
+      "a": "sequence::Note(a)",
+      "b": "sequence::Note(b)"
+    }
+  },
+  {
+    "context": "Play",
+    "bindings": {
+      // 결정 대기: A13 escape -> mode::Normal (Esc 의미)
+      // 결정 대기: B24 shift 단독 -> play::Sustain (수식키 단독 바인딩)
+      "space": "transport::Toggle",
+      "tab": "play::NextTrack",
+      "shift-tab": "play::PrevTrack",
+      "f1": "play::SelectTrack(1)",
+      "f2": "play::SelectTrack(2)",
+      "f3": "play::SelectTrack(3)",
+      "f4": "play::SelectTrack(4)",
+      "f5": "play::SelectTrack(5)",
+      "f6": "play::SelectTrack(6)",
+      "f7": "play::SelectTrack(7)",
+      "f8": "play::SelectTrack(8)",
+      ",": "play::ProgramPrev",
+      ".": "play::ProgramNext",
+      "[": "play::OctaveDown",
+      "]": "play::OctaveUp"
+    }
+  },
+  {
+    "context": "Play > Piano",
+    "bindings": {
+      "a": "play::Note(a)",
+      "s": "play::Note(s)",
+      "d": "play::Note(d)",
+      "f": "play::Note(f)",
+      "g": "play::Note(g)",
+      "h": "play::Note(h)",
+      "j": "play::Note(j)",
+      "k": "play::Note(k)",
+      "l": "play::Note(l)",
+      "w": "play::Note(w)",
+      "e": "play::Note(e)",
+      "t": "play::Note(t)",
+      "y": "play::Note(y)",
+      "u": "play::Note(u)",
+      "o": "play::Note(o)",
+      "p": "play::Note(p)"
+    }
+  },
+  {
+    "context": "Play > Solfege",
+    "bindings": {
+      "c": "play::Note(c)",
+      "d": "play::Note(d)",
+      "e": "play::Note(e)",
+      "f": "play::Note(f)",
+      "g": "play::Note(g)",
+      "a": "play::Note(a)",
+      "b": "play::Note(b)"
+    }
+  },
+  {
+    "context": "Lane",
+    "bindings": {
+      "tab": "lane::Next",
+      "shift-tab": "lane::Prev"
+    }
+  },
+  {
+    "context": "Lyric",
+    "bindings": {
+      // 결정 대기: A13 escape -> mode::Normal (Esc 의미)
+      // 결정 대기: A5 tab -> lyric::Next / lyric::AcceptSuggestion
+      // 결정 대기: A6 space -> lyric::Next, - -> lyric::Melisma, a -> lyric::Suggest
+      "backspace": "lyric::Backspace",
+      "shift-tab": "lyric::Prev"
+    }
+  },
+  {
+    "context": "AI",
+    "bindings": {
+      "escape": "ai::Dismiss"
+    }
+  },
+  {
+    "context": "AI > Preview",
+    "bindings": {
+      // 결정 대기: A7 r -> ai::Regenerate, e -> ai::EditPrompt, enter -> ai::Replay
+      "tab": "ai::Accept",
+      "shift-tab": "ai::PrevCandidate"
+    }
+  },
+  {
+    "context": "Keymap > Editing",
+    "bindings": {
+      "enter": "keymap::StartCapture",
+      "escape": "keymap::CancelCapture",
+      "backspace": "keymap::ClearBinding",
+      "r": "keymap::RestoreDefault"
+    }
+  },
+  {
+    "context": "Palette",
+    "bindings": {
+      "tab": "palette::Complete",
+      "shift-tab": "palette::CompletePrev"
+    }
+  },
+  {
+    "context": "Overlay",
+    "bindings": {
+      "tab": "help::NextPage",
+      "shift-tab": "help::PrevPage"
+    }
+  },
+  {
+    "context": "Dialog",
+    "bindings": {
+      "tab": "window::FocusNext",
+      "shift-tab": "window::FocusPrev"
+    }
+  },
+  {
+    "context": "Normal > Selection",
+    "bindings": {
+      // 결정 대기: A13 escape -> select::Clear (Esc 의미)
+    }
+  },
+  {
+    "context": "Sequence",
+    "bindings": {
+      // 결정 대기: A13 escape -> mode::Normal (Esc 의미)
+    }
+  },
+  {
+    "context": "Controller",
+    "bindings": {
+      // 결정 대기: A13 escape -> mode::Normal (Esc 의미)
+    }
+  },
+  {
+    "context": "Sequence > Loop",
+    "bindings": {
+      // 결정 대기: A4 tab -> sequence::ConfirmTake, shift-tab -> sequence::DiscardTake
+    }
+  }
+]

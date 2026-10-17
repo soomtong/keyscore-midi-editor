@@ -1,0 +1,37 @@
+// 7.5 macOS 표준 단축키. 전역이며 프리셋이 덮지 못한다(KM-12).
+// cmd-, 는 settings::Open 에 배정했다(keymap::Edit 은 설정 화면 안에서 연다).
+[
+  {
+    "bindings": {
+      "cmd-z": "edit::Undo",
+      "cmd-shift-z": "edit::Redo",
+      "cmd-x": "edit::Cut",
+      "cmd-c": "edit::Copy",
+      "cmd-v": "edit::Paste",
+      "cmd-d": "edit::Duplicate",
+      "cmd-a": "select::All",
+      "cmd-n": "file::New",
+      "cmd-o": "file::Open",
+      "cmd-s": "file::Save",
+      "cmd-shift-s": "file::SaveAs",
+      "cmd-w": "window::Close",
+      "cmd-q": "app::Quit",
+      "cmd-,": "settings::Open",
+      "cmd-shift-p": "palette::Open",
+      "ctrl-shift-p": "palette::Open",
+      "cmd-f": "search::Open",
+      "cmd-=": "view::ZoomIn",
+      "cmd--": "view::ZoomOut",
+      "cmd-0": "view::ZoomReset",
+      "cmd-enter": "transport::Toggle",
+      "cmd-.": "transport::Panic",
+      "cmd-t": "track::New"
+    }
+  },
+  {
+    "context": "Lyric",
+    "bindings": {
+      "cmd-v": "lyric::Distribute"
+    }
+  }
+]

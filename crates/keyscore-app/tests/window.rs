@@ -4,9 +4,8 @@ use std::path::PathBuf;
 
 use gpui_kit::test::TestWindowExt as _;
 use gpui_kit::{AnyWindowHandle, AppContext as _, Entity, TestAppContext};
-use keyscore_app::actions::{
-    ThemeDark, ThemeLight, ToggleBottomPanel, ToggleInspector, ToggleTrackList,
-};
+use keyscore_app::actions::args::ThemeKind;
+use keyscore_app::actions::view::{SetTheme, ToggleBottomPanel, ToggleInspector, ToggleTrackList};
 use keyscore_app::app_state::AppSettings;
 use keyscore_app::palette::track_color;
 use keyscore_app::settings::{LayoutSettings, Settings, ThemeChoice};
@@ -171,9 +170,9 @@ fn theme_choice_switches_mode_and_palette(cx: &mut TestAppContext) {
                 .collect::<Vec<_>>()
         })
     };
-    cx.update(|cx| cx.dispatch_action(&ThemeLight));
+    cx.update(|cx| cx.dispatch_action(&SetTheme(ThemeKind::Light)));
     let light = palette(cx);
-    cx.update(|cx| cx.dispatch_action(&ThemeDark));
+    cx.update(|cx| cx.dispatch_action(&SetTheme(ThemeKind::Dark)));
     let dark = palette(cx);
     assert_ne!(light, dark);
     for colors in [&light, &dark] {

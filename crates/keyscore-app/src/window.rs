@@ -11,7 +11,7 @@ use gpui_kit::{
     Window, div, prelude::FluentBuilder as _, px,
 };
 
-use crate::actions::{ToggleBottomPanel, ToggleInspector, ToggleTrackList};
+use crate::actions::view::{ToggleBottomPanel, ToggleInspector, ToggleTrackList};
 use crate::app_state::AppSettings;
 use crate::document::ProjectDocument;
 use crate::settings::{LayoutSettings, PANEL_SIZE_RANGE};
