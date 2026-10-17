@@ -93,7 +93,7 @@
 | `mode::Cycle` | 모드 순환 Normal → Step → Sequence → Play | - | `ctrl-tab` (전역) | - | - | 5.5, 5.11 |
 | `mode::CycleBack` | 모드 역순환 | - | `ctrl-shift-tab` (전역) | - | - | 5.11 |
 | `mode::Normal` | Normal로 복귀 | - | `escape` (Step, Sequence, Play, Lyric, Controller) | - | - | 5.1, 5.2, 5.4, 5.15, 5.9, 7.3 |
-| `mode::Back` | Esc 한 단계 나가기(선택 → 모드 → 피아노롤 → 배치 뷰) | - | `escape` (Normal) | - | - | 5.3, 5.5, 5.8 |
+| ~~`mode::Back`~~ | 삭제(A13 결정, S2-T3): Esc는 피아노롤에서 배치 뷰로 나가지 않는다 | - | - | - | - | 5.3, 5.5, 5.8 |
 | `mode::ShowMenu` | 상태줄 모드 표시를 눌러 모드 메뉴 열기 | - | - | - | - (상태줄 클릭) | 7.6 |
 
 ## cursor

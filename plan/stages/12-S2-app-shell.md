@@ -31,6 +31,8 @@
 
 - 이월(S2-T2, 결정 `docs/decisions/2026-10-17-count-and-non-key-dispatch.md` C): 팔레트 실행은 앱의 실행 함수 하나로 하고, 그 함수가 카운트(`keymap::clear_count`)를 먼저 비운다. `crates/keyscore-app/tests/deferred/count_non_key_paths.rs`를 이 결정에 맞게 고쳐 `tests/` 아래로 옮겨 켠다(메뉴 막대 경로는 한계라 그 경우는 팔레트 경로로 바꾼다).
 
+- 이월(S2-T3, 결정 `docs/decisions/2026-10-17-keymap-conflicts.md` A13): 팔레트에 `palette::Close`(신규 Action)를 두고 `Palette` 컨텍스트의 `escape`에 건다.
+
 ### S2-T5 트랜스포트·트랙 목록·인스펙터·상태줄
 
 - 범위: TRN-1·TRN-4, UI-5·UI-12, SEQ-7·SEQ-8 UI, 7.6의 해당 행. 재생·정지·녹음 버튼(녹음은 S5까지 비활성), 템포·박자표·조성 필드, 메트로놈 토글, `AI✦` 토글(S7까지 비활성), 포트 드롭다운, 트랙 목록(M/S, 포트·채널 표시, `+`), 인스펙터(이름·색·포트·채널·뱅크·프로그램·기본 벨로시티·가사 언어·테스트 버튼), 상태줄.
@@ -50,6 +52,9 @@
 - 이월(S2-T3 리뷰 1 제안 3): 바탕 레이어(`keymap::base_bindings`)에 gpui-component의 디버그 전역 키 `alt-cmd-i`(`debug_assertions`에서만)가 들어 있다. 키맵 편집기가 바탕 레이어를 보여 줄 때 이 키를 빼거나 「개발용」으로 표시한다.
 
 - 이월(S2-T1 리뷰 3 제안 1): 창 크기를 바꾸면 gpui-base가 사이드 패널을 비율로 줄여 그리고, 이어서 다른 패널을 조절하면 줄어든 너비가 저장된다. 사이드 패널을 고정 너비(`flex_none`)로 둘지, 창 크기 변경 뒤의 크기를 저장에서 뺄지 정한다. 테스트는 `docs/reports/s2-t1/review-3.md` 부록에 있다.
+
+- 이월(S2-T3, 결정 `docs/decisions/2026-10-17-keymap-conflicts.md` A13): 대화상자 `Dialog`의 `escape` → `dialog::Cancel`(신규), `?` 오버레이 `Overlay`의 `escape` → `help::CloseOverlay`(신규). 레이아웃 패널(트랙 목록·인스펙터 등)은 Esc로 닫지 않는다.
+- 이월(S2-T3 리뷰 2 제안 3): 모드 메뉴는 상태줄 높이 근삿값(28px) 위에 뜬다. 창 높이 160px 이하에서 모드 표시를 덮는다. 창 최소 크기를 정할 때 함께 본다.
 
 ### S2-T7 저장·열기·복구
 
