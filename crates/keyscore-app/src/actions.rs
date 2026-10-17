@@ -1316,6 +1316,8 @@ pub mod palette {
             Complete,
             /// 이전 후보
             CompletePrev,
+            /// 팔레트 닫기(A13: Esc = 통상의 취소)
+            Close,
         ]
     );
 }
@@ -1551,6 +1553,7 @@ pub const ALL_ACTION_NAMES: &[&str] = &[
     "operator::Count",
     "operator::Delete",
     "operator::Yank",
+    "palette::Close",
     "palette::Complete",
     "palette::CompletePrev",
     "palette::Open",

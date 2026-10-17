@@ -499,6 +499,8 @@
   {
     "context": "Palette",
     "bindings": {
+      // Esc = 통상의 취소(A13 결정)
+      "escape": "palette::Close",
       "tab": "palette::Complete",
       "shift-tab": "palette::CompletePrev"
     }

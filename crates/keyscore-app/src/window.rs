@@ -14,15 +14,21 @@ use gpui_kit::{
 };
 
 use crate::actions::view::{ToggleBottomPanel, ToggleInspector, ToggleTrackList};
-use crate::actions::{ai, clip, mode, select, view};
+use crate::actions::{ai, clip, mode, palette, select, view};
 use crate::app_state::AppSettings;
+use crate::command_palette::{CommandPalette, PaletteEvent};
+use crate::commands::RunCommand;
+use crate::dispatch::run_action;
 use crate::document::ProjectDocument;
-use crate::keymap;
 use crate::mode::{Mode, ModeEvent, ModeState, View};
 use crate::settings::{LayoutSettings, PANEL_SIZE_RANGE};
 
 /// 상태줄 높이의 근삿값. 모드 메뉴를 그 위에 띄울 때 쓴다.
 const STATUS_BAR_HEIGHT: Pixels = px(28.);
+
+/// 명령 팔레트의 폭과 창 위쪽에서 떨어진 거리.
+const PALETTE_WIDTH: Pixels = px(560.);
+const PALETTE_TOP: Pixels = px(64.);
 
 /// 크기를 저장하는 패널 그룹.
 #[derive(Clone, Copy)]
@@ -46,6 +52,8 @@ pub struct ProjectWindow {
     mode: ModeState,
     /// 열린 상태줄 모드 메뉴와 그 닫힘 구독.
     mode_menu: Option<(Entity<PopupMenu>, Subscription)>,
+    /// 열린 명령 팔레트와 그 사건 구독.
+    palette: Option<(Entity<CommandPalette>, Subscription)>,
 }
 
 impl ProjectWindow {
@@ -61,16 +69,18 @@ impl ProjectWindow {
         let focus_lost = cx.on_focus_lost(window, |this, window, cx| {
             window.focus(&this.focus, cx);
         });
+        let focus = cx.focus_handle();
         ProjectWindow {
             document,
             layout: AppSettings::get(cx).layout,
-            focus: cx.focus_handle(),
+            focus,
             horizontal,
             vertical,
             resize_subscriptions,
             _focus_lost: focus_lost,
             mode: ModeState::INITIAL,
             mode_menu: None,
+            palette: None,
         }
     }
 
@@ -134,6 +144,67 @@ impl ProjectWindow {
         }
     }
 
+    /// 명령 팔레트가 열려 있는가.
+    #[must_use]
+    pub const fn palette_open(&self) -> bool {
+        self.palette.is_some()
+    }
+
+    /// 열린 팔레트의 질의.
+    #[must_use]
+    pub fn palette_query(&self, cx: &App) -> Option<String> {
+        self.palette.as_ref().map(|(p, _)| p.read(cx).query(cx))
+    }
+
+    /// 명령 팔레트를 연다(`palette::Open`, UI-2). 이미 열려 있으면 질의로 포커스만 돌린다.
+    fn open_palette(&mut self, _: &palette::Open, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some((palette, _)) = &self.palette {
+            palette.update(cx, |palette, cx| palette.focus_query(window, cx));
+            return;
+        }
+        // 팝업은 하나만 띄운다. 모드 메뉴가 열려 있으면 닫는다(포커스는 곧 팔레트로 간다).
+        self.mode_menu = None;
+        let target = self.focus.clone();
+        let palette = cx.new(|cx| CommandPalette::new(target, window, cx));
+        let events = cx.subscribe_in(&palette, window, |this, _, event, window, cx| {
+            this.close_palette(window, cx);
+            if let PaletteEvent::Run(action) = event {
+                run_action(action.boxed_clone(), window, cx);
+            }
+        });
+        palette.update(cx, |palette, cx| palette.focus_query(window, cx));
+        self.palette = Some((palette, events));
+        cx.notify();
+    }
+
+    /// 팔레트를 닫고 문서로 포커스를 돌린다. 실행할 Action은 그 뒤에 문서 포커스로 디스패치된다.
+    fn close_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some((palette, _)) = self.palette.take() {
+            // 포커스가 아직 팔레트에 있을 때만 문서로 돌린다. 팔레트 밖을 눌러 닫혔고 그 클릭이 다른
+            // 팝업(상태줄 모드 메뉴)을 열었다면 포커스는 그 팝업의 것이다(리뷰 2 지적 2).
+            let focused_inside = palette
+                .read(cx)
+                .focus_handle(cx)
+                .contains_focused(window, cx);
+            if focused_inside || window.focused(cx).is_none() {
+                window.focus(&self.focus, cx);
+            }
+            cx.notify();
+        }
+    }
+
+    /// 열린 팔레트. 모드 메뉴처럼 컨텍스트 겹 바깥에 띄운다. 문서 컨텍스트 키가 팔레트 입력에 섞이지
+    /// 않게 하기 위해서다(S2-T3 리뷰 1 지적 2와 같은 이유).
+    fn palette_overlay(&self, window: &Window) -> Option<impl IntoElement> {
+        let (palette, _) = self.palette.as_ref()?;
+        let left = ((window.viewport_size().width - PALETTE_WIDTH) / 2.).max(px(0.));
+        Some(deferred(
+            anchored()
+                .position(point(left, PALETTE_TOP))
+                .child(palette.clone()),
+        ))
+    }
+
     /// 상태줄 모드 메뉴가 열려 있는가.
     #[must_use]
     pub const fn mode_menu_open(&self) -> bool {
@@ -142,21 +213,17 @@ impl ProjectWindow {
 
     /// 상태줄 모드 메뉴를 연다(7.6 「모드 전환」: 모드 표시 클릭, `mode::ShowMenu`).
     fn open_mode_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // 팝업은 하나만 띄운다. 팔레트가 열려 있으면 닫는다(포커스는 곧 모드 메뉴로 간다).
+        self.palette = None;
         let current = self.mode.mode();
-        let this = cx.entity().downgrade();
         let menu = PopupMenu::build(window, cx, |mut menu, _, _| {
             for mode in Mode::MENU {
-                let this = this.clone();
                 menu = menu.item(
                     PopupMenuItem::new(mode.label())
                         .checked(mode == current)
                         .on_click(move |_, window, cx| {
-                            // 키가 아닌 실행 경로라 쌓인 카운트를 먼저 비운다(결정 C). S2-T4가
-                            // 실행 함수를 하나로 모으면 그 함수로 옮긴다.
-                            keymap::clear_count(cx);
-                            let _ = this.update(cx, |this, cx| {
-                                this.apply_mode_event(ModeEvent::Enter(mode), window, cx);
-                            });
+                            // 키가 아닌 실행 경로는 실행 함수 하나를 거친다(결정 C, 카운트를 비운다).
+                            run_action(mode_action(mode), window, cx);
                         }),
                 );
             }
@@ -214,6 +281,13 @@ impl ProjectWindow {
         let e = Self::on_mode::<ai::Dismiss>(e, LeaveAi, cx);
         let e = Self::on_mode::<ai::DismissGhost>(e, DismissGhost, cx);
         e.on_action(cx.listener(Self::show_mode_menu))
+            .on_action(cx.listener(Self::open_palette))
+            // 맨 키를 피하려고 감싼 메뉴 항목(`commands::RunCommand`). 실행 함수로 실제 Action을 낸다.
+            .on_action(cx.listener(|_, run: &RunCommand, window, cx| {
+                if let Ok(action) = cx.build_action(&run.name, run.args.clone()) {
+                    run_action(action, window, cx);
+                }
+            }))
     }
 
     /// 키 컨텍스트 경로대로 `div`를 겹친다. GPUI는 요소 하나에 컨텍스트 하나를 쌓아 깊이를 만들고,
@@ -448,6 +522,7 @@ impl Render for ProjectWindow {
         Self::mode_handlers(root, cx)
             .child(self.wrap_in_contexts(content))
             .children(self.mode_menu_overlay(window))
+            .children(self.palette_overlay(window))
     }
 }
 
@@ -481,4 +556,17 @@ fn merge_changes(target: &mut LayoutSettings, before: LayoutSettings, after: Lay
         bottom_open,
         bottom_height
     );
+}
+
+/// 상태줄 모드 메뉴 항목이 실행하는 Action. 키·팔레트와 같은 처리기를 거친다.
+fn mode_action(mode: Mode) -> Box<dyn Action> {
+    match mode {
+        Mode::Normal => Box::new(mode::Normal),
+        Mode::Step => Box::new(mode::Step),
+        Mode::Sequence => Box::new(mode::Sequence),
+        Mode::Play => Box::new(mode::Play),
+        Mode::Ai => Box::new(ai::OpenPanel),
+        Mode::Lyric => Box::new(mode::Lyric),
+        Mode::Controller => Box::new(mode::Controller),
+    }
 }

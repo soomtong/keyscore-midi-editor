@@ -22,6 +22,8 @@
 
 - 이월(S2-T3, 결정 `docs/decisions/2026-10-17-keymap-conflicts.md` A13): vim `Normal > Operator`의 `escape` → `operator::Cancel`(신규, 오퍼레이터 대기·카운트 비움). 멀티키 시퀀스 대기 중(`g` 뒤)의 `Esc`는 시퀀스만 취소하고 다른 바인딩(선택 해제 등)을 실행하지 않는지 확인한다(GPUI 기본은 대기를 풀고 Esc를 디스패치한다).
 
+- 이월(S2-T4, 결정 `docs/decisions/2026-10-17-vim-marks-visible-ui.md` a): 피아노롤·배치 뷰의 우클릭 메뉴에 「마크 설정 ▸ a–z」「마크로 이동 ▸ a–z」(`cursor::SetMark`, `cursor::JumpMark`)를 둔다(UI-11).
+
 ### S3-T3 편집 동작
 
 - 범위: REQ 5.8 선택·편집 표. `x`/`Delete`/`Backspace`, `Cmd+X/C/V/D`(앱 내부 클립보드 + 시스템 클립보드 SMF·텍스트, KM-15), `r` 반복, `/` 분할, `Cmd+J` 합치기, 숫자 길이 코드·`Shift+숫자`·`0`, `+`/`-`/`>`/`<`, `e` 음높이 바꾸기, `q`/`Shift+q`, `~` 레가토, `.` 반복. 붙여넣기가 클립 끝을 넘으면 클립 연장.
