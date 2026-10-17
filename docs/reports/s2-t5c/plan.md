@@ -48,9 +48,10 @@ pub fn program_label(program: Option<Program>) -> String; // "1 Acoustic Grand P
 pub fn parse_bank(text: &str) -> Result<Option<Bank>, String>;
 pub fn parse_velocity(text: &str) -> Result<Velocity, String>;
 pub fn parse_color(text: &str) -> Result<TrackColor, String>;
+pub fn color_label(color: TrackColor) -> String;
+pub fn track_display_name(project: &Project, track: TrackId) -> String;
 pub fn status_track_text(project: &Project, track: TrackId, virtual_name: &str) -> String;
-// ProjectWindow (테스트용 읽기)
-pub fn status_text(&self, cx: &App) -> String; // 상태줄 오른쪽에 보이는 글
+// 상태줄은 접근성 레이블로 확인한다: status-track, status-message, status-keymap-error
 ~~~
 
 ## 테스트 목록
