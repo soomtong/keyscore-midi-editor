@@ -33,7 +33,7 @@ fn start(cx: &mut TestAppContext, name: &str) -> Loopback {
         client_name: format!("ks-app-{name}"),
         port_name: port.clone(),
     };
-    cx.update(|cx| engine::install(cx, options)).unwrap();
+    cx.update(|cx| engine::install(cx, &options)).unwrap();
     assert!(cx.update(|cx| engine::is_installed(cx)));
     loopback(&port)
 }

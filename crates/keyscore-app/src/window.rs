@@ -22,6 +22,7 @@ use crate::dispatch::run_action;
 use crate::document::ProjectDocument;
 use crate::mode::{Mode, ModeEvent, ModeState, View};
 use crate::settings::{LayoutSettings, PANEL_SIZE_RANGE};
+use crate::transport::Transport;
 
 /// 상태줄 높이의 근삿값. 모드 메뉴를 그 위에 띄울 때 쓴다.
 const STATUS_BAR_HEIGHT: Pixels = px(28.);
@@ -39,7 +40,7 @@ enum Group {
 
 /// 창의 루트 뷰.
 pub struct ProjectWindow {
-    document: Entity<ProjectDocument>,
+    pub(crate) document: Entity<ProjectDocument>,
     layout: LayoutSettings,
     focus: FocusHandle,
     /// 가로 그룹(트랙 목록 | 메인 | 인스펙터)과 세로 그룹(위 | 하단 영역)의 크기 상태.
@@ -54,6 +55,11 @@ pub struct ProjectWindow {
     mode_menu: Option<(Entity<PopupMenu>, Subscription)>,
     /// 열린 명령 팔레트와 그 사건 구독.
     palette: Option<(Entity<CommandPalette>, Subscription)>,
+    /// 트랜스포트 상태(S2-T5a).
+    pub(crate) transport: Transport,
+    /// 문서가 바뀌면 재생 중 스냅샷을 교체한다(TRN-3). 창이 닫히면 재생을 멈춘다.
+    _document_changed: Subscription,
+    _released: Subscription,
 }
 
 impl ProjectWindow {
@@ -70,6 +76,10 @@ impl ProjectWindow {
             window.focus(&this.focus, cx);
         });
         let focus = cx.focus_handle();
+        let document_changed = cx.observe(&document, |this, _, cx| {
+            this.transport_document_changed(cx);
+        });
+        let released = cx.on_release(|_, cx| crate::transport::release(cx));
         ProjectWindow {
             document,
             layout: AppSettings::get(cx).layout,
@@ -81,6 +91,9 @@ impl ProjectWindow {
             mode: ModeState::INITIAL,
             mode_menu: None,
             palette: None,
+            transport: Transport::default(),
+            _document_changed: document_changed,
+            _released: released,
         }
     }
 
@@ -146,20 +159,20 @@ impl ProjectWindow {
 
     /// 트랜스포트 상태(S2-T5a).
     #[must_use]
-    pub fn transport_state(&self) -> crate::engine::TransportState {
-        todo!()
+    pub const fn transport_state(&self) -> crate::engine::TransportState {
+        self.transport.state
     }
 
     /// 메트로놈이 켜져 있는가(TRN-2).
     #[must_use]
-    pub fn metronome_on(&self) -> bool {
-        todo!()
+    pub const fn metronome_on(&self) -> bool {
+        self.transport.metronome
     }
 
     /// 창이 남긴 메시지(엔진 없음, 없는 포트, MIDI 오류). 상태줄 표시는 S2-T5c다.
     #[must_use]
     pub fn messages(&self) -> &[gpui_kit::SharedString] {
-        todo!()
+        &self.transport.messages
     }
 
     /// 명령 팔레트가 열려 있는가.
@@ -299,6 +312,13 @@ impl ProjectWindow {
         let e = Self::on_mode::<ai::Dismiss>(e, LeaveAi, cx);
         let e = Self::on_mode::<ai::DismissGhost>(e, DismissGhost, cx);
         e.on_action(cx.listener(Self::show_mode_menu))
+            .on_action(cx.listener(Self::transport_play))
+            .on_action(cx.listener(Self::transport_play_from_cursor))
+            .on_action(cx.listener(Self::transport_toggle))
+            .on_action(cx.listener(Self::transport_stop))
+            .on_action(cx.listener(Self::transport_pause))
+            .on_action(cx.listener(Self::transport_panic))
+            .on_action(cx.listener(Self::transport_toggle_metronome))
             .on_action(cx.listener(Self::open_palette))
             // 맨 키를 피하려고 감싼 메뉴 항목(`commands::RunCommand`). 실행 함수로 실제 Action을 낸다.
             .on_action(cx.listener(|_, run: &RunCommand, window, cx| {
