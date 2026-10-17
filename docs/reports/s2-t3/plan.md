@@ -3,7 +3,7 @@
 - 브랜치: `s2/t3-modes`
 - 관련 REQ: P2, 5.1·5.2·5.3·5.4(진입·종료), 5.5, 5.10(뷰 전환), 5.11(모드 순환), 5.12(고스트), 7.6 「모드 전환」 행, UI-5(상태줄 모드 표시)
 - 선행 Task: S2-T1, S2-T2
-- 관련 결정: `2026-10-17-keymap-conflicts.md` A13(Esc의 의미, 결정 대기), `2026-10-17-count-and-non-key-dispatch.md`(C)
+- 관련 결정: `2026-10-17-keymap-conflicts.md` A13(Esc의 의미, 결정됨), `2026-10-17-mode-entry-view.md`, `2026-10-17-count-and-non-key-dispatch.md`(C)
 
 ## 끝의 정의 (내 말로)
 
@@ -42,7 +42,7 @@
 | --- | --- | --- |
 | `OpenClip` | `clip::Open`(배치 뷰 `enter`) | Normal·배치 뷰에서만 피아노롤로. 그 밖은 그대로 |
 | `ToggleView` | `view::Toggle`(`v`) | Normal에서만 뷰를 바꾼다 |
-| `Enter(m)` | `mode::Step`·`StepAfterNote`·`StepAtBarStart`·`StepAtBarEnd`·`StepOverwrite`, `mode::Sequence`, `mode::Play`, `mode::Lyric`, `mode::Controller`, `ai::OpenPanel` | 모드를 `m`으로 |
+| `Enter(m)` | `mode::Step`·`StepAfterNote`·`StepAtBarStart`·`StepAtBarEnd`·`StepOverwrite`, `mode::Sequence`, `mode::Play`, `mode::Lyric`, `mode::Controller`, `ai::OpenPanel` | 모드를 `m`으로. Lyric·Controller는 피아노롤로 옮겨 들어간다(뷰가 바뀌면 선택을 비움) |
 | `Cycle` / `CycleBack` | `mode::Cycle`(`ctrl-tab`) / `mode::CycleBack` | 순환 |
 | `ToNormal` | `mode::Normal`, 클립 끝(S5) | 모드를 Normal로. 선택·뷰는 그대로 |
 | `LeaveAi` | `ai::Accept`, `ai::Dismiss` | AI 모드에서만 Normal로. 그 밖은 그대로(리뷰 1 지적 3) |
@@ -106,7 +106,7 @@ impl ProjectWindow {
 
 ## 불변식
 
-- 고스트 ⇒ 모드가 Step.
+- 고스트 ⇒ 모드가 Step. Lyric·Controller ⇒ 피아노롤.
 - 상태 필드는 비공개이고 `apply`로만 바뀐다. 그래서 불변식을 깨는 상태를 밖에서 만들 수 없다.
 - 창의 키 컨텍스트는 늘 `context_path(mode_state())`와 같다.
 - 모드 메뉴가 열려 있으면 문서 컨텍스트 키는 메뉴 뒤로 가지 않는다. 컨텍스트 없는 전역 바인딩(`ctrl-tab`, `cmd-` 표준 키)은 메뉴가 열려 있어도 실행된다(의도, 리뷰 2 제안 4).
@@ -120,5 +120,5 @@ impl ProjectWindow {
 
 ## 리스크·결정 요청
 
-- A13 결정 대기. 위 「Esc 바인딩과 A13」처럼 FSM은 선택지와 무관하게 만들고, 프리셋의 `escape`만 비워 둔다. 결정이 나면 프리셋 몇 줄과 테스트 하나를 고친다.
+- A13은 결정됐다(위 「Esc 바인딩과 A13」).
 - 위 전이 표의 「규칙」 네 줄은 REQ가 직접 적지 않은 세부다. 5.5·5.10·5.11의 문장에서 읽어 낸 것이고 의미를 바꾸지 않는다고 본다.

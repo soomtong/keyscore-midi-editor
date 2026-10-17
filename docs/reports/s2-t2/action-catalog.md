@@ -504,7 +504,7 @@ namespace별 Action 수는 다음과 같다(`operator` 표에는 `object::*` 3�
 | help | 5 |
 | settings | 3 |
 | window | 3 |
-| 합계 | 285 (표 25개, object를 별도 namespace로 세면 26개) |
+| 합계 | 285 (표 25개, object를 별도 namespace로 세면 26개). S2-T3에서 `mode::Back`을 뺐다(A13 결정) |
 
 바인딩 수는 표의 키 칸을 기계적으로 세었다(스크립트: 백틱 토큰을 (컨텍스트, 키)로 분해해 중복 제거).
 
