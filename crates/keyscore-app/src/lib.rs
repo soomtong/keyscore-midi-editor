@@ -5,6 +5,8 @@
 
 pub mod actions;
 pub mod app_state;
+pub mod commands;
+pub mod dispatch;
 pub mod document;
 pub mod keymap;
 pub mod mode;

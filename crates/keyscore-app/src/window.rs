@@ -134,6 +134,12 @@ impl ProjectWindow {
         }
     }
 
+    /// 명령 팔레트가 열려 있는가.
+    #[must_use]
+    pub fn palette_open(&self) -> bool {
+        todo!()
+    }
+
     /// 상태줄 모드 메뉴가 열려 있는가.
     #[must_use]
     pub const fn mode_menu_open(&self) -> bool {

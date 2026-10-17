@@ -21,9 +21,7 @@
    - S2-T3의 모드 메뉴가 직접 부르던 `keymap::clear_count`도 이 함수로 옮긴다.
 3. 메뉴바(KM-13, 7.6): 명령 표에서 자동으로 만든다.
    - 순서: KeyScore(앱) · 파일 · 편집 · 보기 · 트랙 · 재생 · AI · 도움말. 7.6의 일곱 메뉴에 macOS 앱 메뉴를 더한다.
-   - 항목은 Action과 1:1이다. 단축키 표시는 둘로 나뉜다.
-     - 컨텍스트 없는 바인딩(`cmd-` 표준 키, `ctrl-tab`): GPUI가 macOS 키 등가물로 그린다.
-     - 모드 컨텍스트에만 있는 바인딩(`v`, `q`, `m` 등): 제목 뒤에 기호로 붙인다(예: 「배치 뷰  V」). 키 등가물로 걸면 NSMenu가 글자 입력을 가로채기 때문이다.
+   - 항목은 Action과 1:1이다. 단축키는 GPUI가 macOS 키 등가물로 그린다. GPUI는 그 Action의 바인딩 가운데 컨텍스트가 없는 것을 먼저 고르고, 없으면 첫 바인딩을 쓴다(`gpui-pre-macos` `create_menu_item`). 그래서 모드 컨텍스트 키(`v`, `q`)도 메뉴에 보인다. 제목에 따로 붙이면 두 번 보이므로 붙이지 않는다.
    - 키맵이 바뀔 때마다(`keymap::apply`의 `after_apply`) 메뉴를 다시 만든다. 그래서 표시는 늘 현재 키맵을 따른다.
 4. 명령 팔레트(UI-2): gpui-component `Command`를 쓴다.
    - `palette::Open`(`cmd-shift-p`, `:`)으로 연다. 창 컨텍스트 겹 바깥(모드 메뉴와 같은 자리)에 띄운다.
@@ -41,8 +39,8 @@
 | 1 | `every_action_has_exactly_one_command_spec` | 단위 | 명령 표의 이름 집합 = `ALL_ACTION_NAMES`, 중복 없음. 이름·자리 설명이 비지 않음 |
 | 2 | `action_counts_match_palette_and_menus` | UI(검사 테스트, 단계 게이트) | 등록 Action 수 = 팔레트의 Action 이름 수 = 메뉴에 있는 Action 이름 수 + `Elsewhere` 수. 메뉴 쪽은 `cx.get_menus()`를 하위 메뉴까지 훑어 센다 |
 | 3 | `menus_follow_req_7_6` | UI | 메뉴 이름과 순서, 7.6이 메뉴에 적은 기능이 해당 메뉴에 있음 |
-| 4 | `menu_titles_equal_palette_names` | UI | 메뉴 항목 제목(단축키 꼬리 제외) = 팔레트 이름 |
-| 5 | `shortcut_display_follows_current_keymap` | UI | 팔레트 줄과 메뉴 제목의 단축키가 기본 키맵을 보이고, 사용자 키맵을 바꾸면 따라 바뀜 |
+| 4 | `menu_titles_equal_palette_names` | UI | 메뉴 항목 제목 = 팔레트 이름 |
+| 5 | `shortcut_display_follows_current_keymap` | UI | 팔레트 줄의 단축키가 기본 키맵을 보이고 사용자 키맵을 바꾸면 따라 바뀜. 키맵을 다시 걸면 메뉴도 다시 만든다 |
 | 6 | `every_variant_builds` | UI | 인자 변형마다 `cx.build_action`이 성공 |
 | 7 | `palette_opens_filters_runs_and_closes` | UI | `cmd-shift-p`·`:`로 열림, 입력으로 거름, `Enter`가 Action을 실행(인스펙터 토글), 닫힌 뒤 포커스가 문서로 돌아옴, `Esc`로 닫힘 |
 | 8 | `palette_rows_show_name_description_shortcut` | UI | 줄에 이름·설명·단축키(문서 컨텍스트 기준, 예: Normal에서 `view::Toggle`은 `V`) |
@@ -65,5 +63,5 @@
 
 ## 리스크·결정 요청
 
-- 모드 컨텍스트 단축키를 메뉴 제목 꼬리로 보이는 방식은 KM-13 「같은 단축키를 표시한다」를 지키는 세부다. NSMenu 키 등가물로 걸 수 없는 이유는 위 3에 적었다.
+- 맨 키(`v`, `x`, `m`)가 메뉴 키 등가물이 된다. GPUI 창이 키 등가물 단계에서 먼저 키를 처리하므로(입력란이 글자를 받으면 처리됨으로 끝난다) 메뉴가 가로채지 않을 것으로 보지만 헤드리스로는 확인할 수 없다. S2 출구 수동 확인(키보드만으로 끝까지, 한글 입력기)에 「팔레트·입력란에서 x·v를 쳐도 메뉴가 실행되지 않는다」를 더한다. 사용자가 `null`로 지운 프리셋 키가 메뉴에 남는 경우는 키맵 편집기(S2-T6)에서 다룬다.
 - 팔레트 이름을 286개 새로 짓는다. 7.6이 이름을 준 것(재생, 녹음, 템포 설정, 메트로놈, 뮤트, 솔로, 새 트랙, 패닉, 가사 입력, 가사 분배, 배치 뷰, 컨트롤러 레인, 퀀타이즈, AI 생성, 어시스트 켜기/끄기, 프롬프트 실험실, 키맵 편집, 키맵 보기, 보정 마법사, 테스트 노트 보내기, 포트 선택)은 그대로 쓴다.
