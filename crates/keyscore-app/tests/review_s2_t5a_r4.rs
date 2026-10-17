@@ -185,3 +185,29 @@ fn inserting_track_while_playing_sends_its_program(cx: &mut TestAppContext) {
     run(cx, handle, transport::Stop);
     assert!(got.is_some());
 }
+
+/// `got`에서 `before` 앞의 채널 1 마지막 프로그램.
+fn last_program_before(got: &[Vec<u8>], before: usize, status: u8) -> Option<u8> {
+    got[..before]
+        .iter()
+        .rev()
+        .find(|m| m.len() == 2 && m[0] == status)
+        .map(|m| m[1])
+}
+
+// ---------- 리뷰 4 부록 A: 고친 뒤 회귀 방지로 옮김 ----------
+
+// 1: 받은 것 [[192, 5], [192, 9], [144, 60, 100]], 기대 마지막 프로그램 5
+#[gpui_kit::test]
+fn soloed_first_track_on_shared_channel_plays_its_own_program(cx: &mut TestAppContext) {
+    let lb = start(cx, "solo-first");
+    let (handle, _view) = open(cx, shared(r#", "solo": true"#, ""));
+    run(cx, handle, transport::Play);
+    let got = wait_for(&lb.rx, WAIT, note_on(60)).expect("Note On 60");
+    run(cx, handle, transport::Stop);
+    assert_eq!(
+        last_program_before(&got, got.len() - 1, 0xC0),
+        Some(5),
+        "{got:?}"
+    );
+}

@@ -231,23 +231,23 @@ impl Engine {
                 messages,
             });
         }
-        // 트랙 순서대로 이벤트를 모은다. 들리는 트랙은 렌더러의 결과를, 들리지 않는 트랙(뮤트, 다른 트랙의
-        // 솔로)은 뱅크·프로그램만 틱 0에 넣는다. 렌더러는 들리지 않는 트랙을 통째로 빼므로, 그대로 두면 재생
-        // 시작 때 chase가 그 음색을 보내지 않아 재생 중 뮤트를 풀었을 때 음색이 틀린다(OUT-4, 리뷰 2 지적 3).
-        // 같은 틱의 프로그램은 스냅샷 정렬이 넣은 순서를 지키므로, 같은 포트·채널을 나눠 쓰는 트랙끼리는
-        // 트랙 순서에서 뒤 트랙이 이긴다(리뷰 3 지적 1: 들리지 않는 트랙을 뒤에 몰아 넣으면 늘 그것이 이겼다).
+        // 들리지 않는 트랙(뮤트, 다른 트랙의 솔로)의 뱅크·프로그램을 먼저 틱 0에 넣고, 그 뒤에 들리는 트랙을
+        // 트랙 순서대로 렌더한다. 렌더러는 들리지 않는 트랙을 통째로 빼므로, 그대로 두면 재생 시작 때 chase가
+        // 그 음색을 보내지 않아 재생 중 뮤트를 풀었을 때 음색이 틀린다(OUT-4, 리뷰 2 지적 3). 같은 틱의
+        // 프로그램은 스냅샷 정렬이 넣은 순서를 지키므로, 같은 포트·채널을 나눠 쓰면 들리는 트랙의 음색이
+        // 늘 이기고(지금 들리는 소리가 맞아야 한다, 리뷰 3 지적 1·리뷰 4), 들리는 트랙끼리는 뒤 트랙이 이긴다.
         let any_solo = project.tracks().iter().any(keyscore_core::Track::solo);
-        let mut events = Vec::new();
-        for (i, (track, port)) in project.tracks().iter().zip(&track_ports).enumerate() {
-            let Some(port) = *port else { continue };
-            let audible = if any_solo {
+        let audible = |track: &keyscore_core::Track| {
+            if any_solo {
                 track.solo()
             } else {
                 !track.mute()
-            };
-            if audible {
-                let only_this = render(project, |j, _| (j == i).then_some(port));
-                events.extend(only_this.into_events());
+            }
+        };
+        let mut events = Vec::new();
+        for (track, port) in project.tracks().iter().zip(&track_ports) {
+            let Some(port) = *port else { continue };
+            if audible(track) {
                 continue;
             }
             let ch = track.channel();
@@ -264,6 +264,8 @@ impl Engine {
                 ));
             }
         }
+        let rendered = render(project, |i, _| track_ports.get(i).copied().flatten());
+        events.extend(rendered.into_events());
         let snapshot = Snapshot::new(project.tempo_map().clone(), ports, events)?
             .with_meter(project.meter_map().clone());
         Ok(Prepared {

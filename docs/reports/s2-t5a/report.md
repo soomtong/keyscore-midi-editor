@@ -28,7 +28,7 @@
 ## 테스트 결과
 
 ~~~
-cargo test --workspace --no-fail-fast: 1092 passed, 0 failed (리뷰 1 대응 뒤 1114, 리뷰 2 대응 뒤 1127, 리뷰 3 대응 뒤 1137 passed, 0 failed)
+cargo test --workspace --no-fail-fast: 1092 passed, 0 failed (리뷰 1 대응 뒤 1114, 리뷰 2 대응 뒤 1127, 리뷰 3 대응 뒤 1137, 리뷰 4 대응 뒤 1139 passed, 0 failed)
 keyscore-core unknown_keys_on_change: 5 passed(속성 테스트 포함)
 keyscore-app engine: 8 passed(루프백, 5회 반복 모두 통과, 약 1.5 s)
 ~~~
@@ -111,3 +111,12 @@ keyscore-app engine: 8 passed(루프백, 5회 반복 모두 통과, 약 1.5 s)
 | 제안 2: 이월 문구 | 단계 파일의 S2-T5b 이월 문구를 실제 동작(트랙 순서, 솔로·뮤트 변경 때 재송신 없음)에 맞췄다 |
 
 부록 A의 테스트 3개는 `tests/review_s2_t5a_r3.rs`로 옮겨 모두 통과한다.
+
+## 리뷰 4(좁은 확인) 대응
+
+| 리뷰 항목 | 대응 |
+| --- | --- |
+| 지적 1의 남은 절반: 들리는 트랙이 앞, 들리지 않는 트랙이 뒤면 들리지 않는 트랙의 음색이 이긴다 | 들리지 않는 트랙의 뱅크·프로그램을 먼저 넣고, 들리는 트랙은 그 뒤에 한 번에 렌더한다. 같은 포트·채널에서는 들리는 트랙의 음색이 늘 이기고, 들리는 트랙끼리는 뒤 트랙이 이긴다 |
+| 제안: 채널을 나눠 쓰는 뒤 트랙을 재생 중 지우면 남은 트랙의 프로그램이 다시 나가지 않는다 | S2-T5b 이월(SEQ-8)에 적었다. 리뷰어의 수용 테스트는 review-4.md 부록에 있고, S2-T5b에서 켠다 |
+
+부록의 순서 테스트는 `tests/review_s2_t5a_r4.rs`로 옮겨 통과한다.
