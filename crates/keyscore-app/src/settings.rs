@@ -111,11 +111,21 @@ impl LayoutSettings {
     }
 }
 
+/// 키맵 설정(KM-2, KM-11). 사용자 오버라이드는 설정이 아니라 `keymap.json`에 있다.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct KeymapSettings {
+    pub preset: crate::keymap::Preset,
+    pub swap_alt_cmd: bool,
+}
+
 /// 앱 설정 전체.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Settings {
     pub layout: LayoutSettings,
     pub theme: ThemeChoice,
+    pub keymap: KeymapSettings,
+    /// `keymap` 객체 안의 모르는 키.
+    keymap_extra: Map<String, Value>,
     /// 모르는 최상위 키. 다시 쓸 때 그대로 둔다.
     extra: Map<String, Value>,
     /// `layout` 객체 안의 모르는 키(뒤 버전이 더한 패널 등).
@@ -169,6 +179,27 @@ impl Settings {
             }
             Some(_) => warnings.push("layout 설정이 객체가 아니라 기본값을 쓴다".to_string()),
         }
+        match map.remove("keymap") {
+            None => {}
+            Some(Value::Object(mut keymap)) => {
+                match keymap.remove("preset") {
+                    None => {}
+                    Some(v) => match serde_json::from_value(v) {
+                        Ok(p) => settings.keymap.preset = p,
+                        Err(_) => warnings
+                            .push("keymap.preset은 default 또는 vim이라 기본값을 쓴다".to_string()),
+                    },
+                }
+                match keymap.remove("swap_alt_cmd") {
+                    None => {}
+                    Some(Value::Bool(b)) => settings.keymap.swap_alt_cmd = b,
+                    Some(_) => warnings
+                        .push("keymap.swap_alt_cmd는 참·거짓이어야 해 기본값을 쓴다".to_string()),
+                }
+                settings.keymap_extra = keymap;
+            }
+            Some(_) => warnings.push("keymap 설정이 객체가 아니라 기본값을 쓴다".to_string()),
+        }
         if let Some(v) = map.remove("theme") {
             match serde_json::from_value::<ThemeChoice>(v) {
                 Ok(theme) => settings.theme = theme,
@@ -194,6 +225,16 @@ impl Settings {
             layout.extend(known);
         }
         map.insert("layout".to_string(), Value::Object(layout));
+        let mut keymap = self.keymap_extra.clone();
+        keymap.insert(
+            "preset".to_string(),
+            serde_json::to_value(self.keymap.preset).map_err(io::Error::other)?,
+        );
+        keymap.insert(
+            "swap_alt_cmd".to_string(),
+            Value::Bool(self.keymap.swap_alt_cmd),
+        );
+        map.insert("keymap".to_string(), Value::Object(keymap));
         map.insert(
             "theme".to_string(),
             serde_json::to_value(self.theme).map_err(io::Error::other)?,
