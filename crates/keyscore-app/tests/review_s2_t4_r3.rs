@@ -405,3 +405,116 @@ fn palette_does_not_show_shadowed_key_in_vim(cx: &mut TestAppContext) {
         .unwrap();
     assert_eq!(key, None);
 }
+
+// ---------- 리뷰 3 부록 B(지적 1·2): 결정 2026-10-17-s2-t4-review-limit A로 고친 뒤 옮김 ----------
+
+mod review3_menu_keys {
+    use gpui_kit::component::kbd::Kbd;
+    use gpui_kit::{App, KeyContext, Keystroke, OwnedMenuItem, TestAppContext};
+    use keyscore_app::commands;
+    use keyscore_app::keymap::{self, Preset};
+
+    const PATHS: &[&[&str]] = &[
+        &["Normal", "Arrangement"],
+        &["Normal", "Arrangement", "Selection"],
+        &["Normal", "PianoRoll"],
+        &["Normal", "PianoRoll", "Selection"],
+    ];
+
+    fn start(cx: &mut TestAppContext, name: &str, preset: Preset) {
+        let dir =
+            std::env::temp_dir().join(format!("ks-review-s2t4-r3b-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        cx.update(|cx| keyscore_app::init(cx, dir.join("settings.json")));
+        cx.update(|cx| keymap::set_preset(cx, preset));
+    }
+
+    fn runs(keys: &[Keystroke], target: &dyn gpui_kit::Action, cx: &App) -> bool {
+        let keymap = cx.key_bindings();
+        let keymap = keymap.borrow();
+        PATHS.iter().any(|path| {
+            let stack: Vec<KeyContext> =
+                path.iter().map(|c| KeyContext::parse(c).unwrap()).collect();
+            let (found, pending) = keymap.bindings_for_input(keys, &stack);
+            !pending && found.first().is_some_and(|b| b.action().partial_eq(target))
+        })
+    }
+
+    /// (제목, 문제) 목록. 단축키가 있는데 안 보이거나, 보인 키가 그 명령을 실행하지 않으면 문제다.
+    fn problems(cx: &App) -> Vec<String> {
+        fn walk(items: &[OwnedMenuItem], cx: &App, out: &mut Vec<String>) {
+            for item in items {
+                match item {
+                    OwnedMenuItem::Action { name, action, .. } => {
+                        let target = commands::menu_target(action.as_ref(), cx).unwrap();
+                        let effective = commands::effective_keys(target.as_ref(), cx);
+                        let native = commands::native_key_equivalent(action.as_ref(), cx);
+                        let suffix = name.split(commands::MENU_KEY_SEPARATOR).nth(1);
+                        match (&effective, suffix, &native) {
+                            (Some(keys), Some(text), _) => {
+                                let want =
+                                    keys.iter().map(Kbd::format).collect::<Vec<_>>().join(" ");
+                                if text != want || !runs(keys, target.as_ref(), cx) {
+                                    out.push(format!("{name}: 보인 키 {text}, 누를 키 {want}"));
+                                }
+                            }
+                            (Some(keys), None, Some(native)) => {
+                                if !(keys.len() == 1 && keys[0] == *native) {
+                                    out.push(format!("{name}: 키 등가물이 누를 키와 다르다"));
+                                }
+                            }
+                            (Some(_), None, None) => {
+                                out.push(format!("{name}: 단축키가 안 보인다"));
+                            }
+                            (None, Some(text), _) => {
+                                out.push(format!("{name}: 누를 키가 없는데 {text}"));
+                            }
+                            (None, None, _) => {}
+                        }
+                    }
+                    OwnedMenuItem::Submenu(menu) => walk(&menu.items, cx, out),
+                    _ => {}
+                }
+            }
+        }
+        let mut out = Vec::new();
+        for menu in cx.get_menus().unwrap() {
+            walk(&menu.items, cx, &mut out);
+        }
+        out
+    }
+
+    #[gpui_kit::test]
+    fn vim_menu_shortcuts_are_shown_and_effective(cx: &mut TestAppContext) {
+        start(cx, "vim", Preset::Vim);
+        let bad = cx.update(|cx| problems(cx));
+        assert!(bad.is_empty(), "{}건: {:?}", bad.len(), bad);
+    }
+
+    #[gpui_kit::test]
+    fn default_menu_shortcuts_are_shown_and_effective(cx: &mut TestAppContext) {
+        start(cx, "default", Preset::Default);
+        let bad = cx.update(|cx| problems(cx));
+        assert!(bad.is_empty(), "{}건: {:?}", bad.len(), bad);
+    }
+
+    /// vim의 `z z`(커서를 가운데로)처럼 시퀀스만 걸린 항목도 제목에 보인다(B-1).
+    #[gpui_kit::test]
+    fn vim_sequence_shortcut_is_in_title(cx: &mut TestAppContext) {
+        start(cx, "vim-seq", Preset::Vim);
+        let menus = cx.update(|cx| cx.get_menus()).unwrap();
+        let view = menus.iter().find(|m| m.name.as_ref() == "보기").unwrap();
+        let title = view
+            .items
+            .iter()
+            .find_map(|i| match i {
+                OwnedMenuItem::Action { name, .. } if name.starts_with("커서를 가운데로") => {
+                    Some(name.clone())
+                }
+                _ => None,
+            })
+            .unwrap();
+        assert!(title.contains(commands::MENU_KEY_SEPARATOR), "{title}");
+    }
+}

@@ -352,7 +352,14 @@ fn menu_item(spec: &CommandSpec, cx: &App) -> MenuItem {
     })
 }
 
-/// Action 항목. GPUI가 맨 키를 키 등가물로 구울 항목은 [`RunCommand`]로 감싸고 제목 뒤에 키를 보인다.
+/// Action 항목.
+///
+/// 제목 뒤 키는 사람이 실제로 누를 키다: Normal 모드(배치 뷰·피아노롤)에서 다른 바인딩에 가려지지 않은
+/// 가장 우선하는 바인딩이고, 키 시퀀스(`z z`)도 된다(리뷰 3 지적 1·2). GPUI가 굽는 메뉴 키 등가물은 그와
+/// 다를 수 있다(`find_or_first`는 가려짐을 보지 않는다). 그래서
+/// - 키 등가물이 글자 입력과 겹치면(`is_bare`) [`RunCommand`]로 감싸 키 등가물을 없앤다.
+/// - 키 등가물이 실제로 누를 키와 같으면 제목에 붙이지 않는다(macOS가 오른쪽에 그린다).
+/// - 그 밖에는 제목 뒤에 실제로 누를 키를 붙인다.
 fn action_item(
     label: &'static str,
     name: &'static str,
@@ -366,17 +373,31 @@ fn action_item(
             disabled: true,
         });
     };
-    let (title, action): (SharedString, Box<dyn Action>) =
-        match native_key_equivalent(action.as_ref(), cx).filter(is_bare) {
-            Some(key) => (
-                format!("{label}{MENU_KEY_SEPARATOR}{}", Kbd::format(&key)).into(),
-                Box::new(RunCommand {
-                    name: name.to_owned(),
-                    args,
-                }),
-            ),
-            None => (label.into(), action),
+    let native = native_key_equivalent(action.as_ref(), cx);
+    let wrap = native.as_ref().is_some_and(is_bare);
+    let shown = effective_keys(action.as_ref(), cx);
+    // 감싸면 키 등가물이 없어지므로 macOS가 그려 주는 키도 없다
+    let native_is_shown = !wrap
+        && match (&native, &shown) {
+            (Some(native), Some(shown)) => shown.len() == 1 && shown[0] == *native,
+            _ => false,
         };
+    let title: SharedString = match &shown {
+        Some(keys) if !native_is_shown => format!(
+            "{label}{MENU_KEY_SEPARATOR}{}",
+            keys.iter().map(Kbd::format).collect::<Vec<_>>().join(" ")
+        )
+        .into(),
+        _ => label.into(),
+    };
+    let action: Box<dyn Action> = if wrap {
+        Box::new(RunCommand {
+            name: name.to_owned(),
+            args,
+        })
+    } else {
+        action
+    };
     MenuItem::Action {
         name: title,
         action,
@@ -386,10 +407,45 @@ fn action_item(
     }
 }
 
+/// 메뉴 항목을 누를 Normal 모드의 키 컨텍스트 경로(배치 뷰, 피아노롤). `mode::ModeState::context_path`와
+/// 같은 모양이다.
+const MENU_CONTEXTS: [&[&str]; 2] = [&["Normal", "Arrangement"], &["Normal", "PianoRoll"]];
+
+/// 사람이 실제로 누를 키: 우선순위가 높은 바인딩부터, Normal 모드의 어느 경로에서든 그 키를 누르면 이
+/// Action이 나오는 첫 바인딩. 컨텍스트 없는 바인딩도 같은 검사를 거친다(더 깊은 컨텍스트가 가릴 수 있다).
+#[must_use]
+pub fn effective_keys(action: &dyn Action, cx: &App) -> Option<Vec<Keystroke>> {
+    let keymap = cx.key_bindings();
+    let keymap = keymap.borrow();
+    let stacks: Vec<Vec<KeyContext>> = MENU_CONTEXTS
+        .iter()
+        .map(|path| {
+            // 고정 식별자라 늘 읽힌다
+            path.iter()
+                .filter_map(|c| KeyContext::parse(c).ok())
+                .collect()
+        })
+        .collect();
+    let candidates: Vec<_> = keymap.bindings_for_action(action).collect();
+    candidates.into_iter().rev().find_map(|binding| {
+        let keys = binding.keystrokes();
+        let wins = stacks.iter().any(|stack| {
+            let (found, pending) = keymap.bindings_for_input(keys, stack);
+            !pending && found.first().is_some_and(|b| b.action().partial_eq(action))
+        });
+        wins.then(|| {
+            keys.iter()
+                .map(|k| gpui_kit::AsKeystroke::as_keystroke(k).clone())
+                .collect()
+        })
+    })
+}
+
 /// 감싼 메뉴 항목의 제목에서 이름과 키를 나누는 문자열.
 pub const MENU_KEY_SEPARATOR: &str = "    ";
 
-/// 팔레트 거르기와 순위. 맞는 줄의 번호를 순위대로 준다. 빈 질의는 모든 줄을 표 순서대로 준다.
+/// 팔레트 거르기와 순위. 맞는 줄의 번호를 순위대로 준다. 빈 질의는 모든 줄을 준다(실행할 수 있는 줄
+/// 먼저, 그 안은 표 순서).
 ///
 /// 실행할 수 있는 줄이 늘 먼저이고(꺼진 줄은 맨 뒤), 그 안의 순위는 이름이 같음 → 이름이 질의로 시작 →
 /// 이름에 질의가 있음 → Action 이름이 같음 → Action 이름에 있음 → 설명에 있음이다. 메뉴 이름을 그대로

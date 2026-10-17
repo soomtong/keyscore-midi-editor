@@ -1014,7 +1014,7 @@ pub(super) const SPECS: &[CommandSpec] = &[
         "operator::Count",
         "카운트",
         Surface::PianoRoll,
-        "마우스 선택 후 편집 메뉴(삭제·복사·변경)와 같은 기능(vim 프리셋의 조합)",
+        "같은 명령을 여러 번 실행하는 것과 같은 기능(vim 프리셋의 숫자 접두)",
         &[],
     ),
     CommandSpec::elsewhere(
