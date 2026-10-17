@@ -11,9 +11,10 @@ use gpui_kit::component::{
 };
 use gpui_kit::{
     Action, Anchor, AnyElement, App, AppContext as _, Bounds, Context, DismissEvent, Div, Entity,
-    FocusHandle, Focusable, InteractiveElement as _, IntoElement, ParentElement as _, Pixels,
-    Point, Render, Role, Stateful, StatefulInteractiveElement as _, Styled as _, Subscription,
-    TestSupportExt as _, Window, anchored, deferred, div, point, prelude::FluentBuilder as _, px,
+    FocusHandle, Focusable, InteractiveElement as _, IntoElement, MouseButton, ParentElement as _,
+    Pixels, Point, Render, Role, Stateful, StatefulInteractiveElement as _, Styled as _,
+    Subscription, TestSupportExt as _, Window, anchored, deferred, div, point,
+    prelude::FluentBuilder as _, px,
 };
 
 use crate::actions::view::{ToggleBottomPanel, ToggleInspector, ToggleTrackList};
@@ -822,41 +823,57 @@ impl Render for ProjectWindow {
             .border_b_1()
             .border_color(cx.theme().border)
             .child(transport_bar);
-        let content = div().flex_1().min_h_0().child(
-            v_resizable("main-vertical")
-                .with_state(&self.vertical)
-                .child(
-                    resizable_panel().child(
-                        h_resizable("main-horizontal")
-                            .with_state(&self.horizontal)
-                            .when(layout.track_list_open, |g| {
-                                g.child(
-                                    resizable_panel()
-                                        .size(px(layout.track_list_width))
-                                        .size_range(range.clone())
-                                        .child(track_list),
-                                )
-                            })
-                            .child(resizable_panel().child(main_view))
-                            .when(layout.inspector_open, |g| {
-                                g.child(
-                                    resizable_panel()
-                                        .size(px(layout.inspector_width))
-                                        .size_range(range.clone())
-                                        .child(inspector),
-                                )
-                            }),
-                    ),
-                )
-                .when(layout.bottom_open, |g| {
-                    g.child(
-                        resizable_panel()
-                            .size(px(layout.bottom_height))
-                            .size_range(range.clone())
-                            .child(Self::region("bottom-panel", "컨트롤러 레인 / 건반 뷰", cx)),
-                    )
+        // 겹 바깥 패널(트랙 목록·인스펙터·아래 패널)의 빈 자리를 눌러도 문서로 포커스가 온다. 겹이 창 전체를
+        // 감쌀 때 GPUI가 포커스 요소(`track_focus`)로 해 주던 일이다(리뷰 1 지적 1). 안쪽에서 입력란·버튼처럼
+        // 포커스를 받는 요소가 먼저 받았으면(`default_prevented`) 건드리지 않는다.
+        let content = div()
+            .id("content")
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, window, cx| {
+                    if !window.default_prevented() {
+                        this.focus_document(window, cx);
+                        window.prevent_default();
+                    }
                 }),
-        );
+            )
+            .flex_1()
+            .min_h_0()
+            .child(
+                v_resizable("main-vertical")
+                    .with_state(&self.vertical)
+                    .child(
+                        resizable_panel().child(
+                            h_resizable("main-horizontal")
+                                .with_state(&self.horizontal)
+                                .when(layout.track_list_open, |g| {
+                                    g.child(
+                                        resizable_panel()
+                                            .size(px(layout.track_list_width))
+                                            .size_range(range.clone())
+                                            .child(track_list),
+                                    )
+                                })
+                                .child(resizable_panel().child(main_view))
+                                .when(layout.inspector_open, |g| {
+                                    g.child(
+                                        resizable_panel()
+                                            .size(px(layout.inspector_width))
+                                            .size_range(range.clone())
+                                            .child(inspector),
+                                    )
+                                }),
+                        ),
+                    )
+                    .when(layout.bottom_open, |g| {
+                        g.child(
+                            resizable_panel()
+                                .size(px(layout.bottom_height))
+                                .size_range(range.clone())
+                                .child(Self::region("bottom-panel", "컨트롤러 레인 / 건반 뷰", cx)),
+                        )
+                    }),
+            );
         // 처리기는 바깥 요소에 단다. 디스패치는 포커스(가장 안쪽)에서 바깥으로 올라온다.
         let root = div()
             .id("project-window")

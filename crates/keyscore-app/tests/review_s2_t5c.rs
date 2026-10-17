@@ -589,3 +589,91 @@ fn open_select_then_track_row_click_keeps_mode_keys(cx: &mut TestAppContext) {
     let idx = current_index(cx, &view).unwrap();
     assert!(project_of(cx, &view).tracks()[idx].mute());
 }
+
+// ---------- 리뷰 1 부록 A(지적 1–3) ----------
+
+/// 겹 바깥으로 나간 아래 패널을 누르면 예전(겹 안)처럼 문서로 포커스가 돌아와야 한다.
+#[gpui_kit::test]
+fn clicking_bottom_panel_returns_focus_to_document(cx: &mut TestAppContext) {
+    start(cx, "bottom-click");
+    let (handle, view) = open(cx, two_tracks());
+    if label(cx, handle, "bottom-panel").is_none() {
+        run(cx, handle, keyscore_app::actions::view::ToggleBottomPanel);
+    }
+    assert!(label(cx, handle, "bottom-panel").is_some());
+    click(cx, handle, "transport-tempo");
+    press(cx, handle, "cmd-a backspace");
+    type_text(cx, handle, "95");
+    click(cx, handle, "bottom-panel");
+    press(cx, handle, "m");
+    assert!(
+        project_of(cx, &view).tracks()[0].mute(),
+        "아래 패널을 누른 뒤에도 포커스가 템포 입력란에 남는다"
+    );
+}
+
+/// 인스펙터의 빈 자리를 눌러도 문서로 포커스가 돌아와야 한다(트랙 목록과 같게).
+#[gpui_kit::test]
+fn clicking_inspector_background_returns_focus_to_document(cx: &mut TestAppContext) {
+    start(cx, "inspector-bg");
+    let (handle, view) = open(cx, two_tracks());
+    dirty_name(cx, handle, "Zz");
+    click(cx, handle, "inspector");
+    press(cx, handle, "m");
+    assert!(
+        project_of(cx, &view).tracks()[0].mute(),
+        "인스펙터 빈 자리를 누른 뒤에도 포커스가 이름 입력란에 남는다"
+    );
+}
+
+/// `track::SetProgram`의 program에 i64 최솟값을 주면 `p - 1`이 넘친다(디버그 빌드 패닉).
+#[gpui_kit::test]
+fn set_program_with_i64_min_does_not_panic(cx: &mut TestAppContext) {
+    start(cx, "program-min");
+    let (handle, view) = open(cx, two_tracks());
+    let len = undo_len(cx, &view);
+    let action = cx
+        .update(|cx| {
+            cx.build_action(
+                "track::SetProgram",
+                Some(serde_json::json!({"bank": 0, "program": i64::MIN.to_string()})),
+            )
+        })
+        .unwrap();
+    cx.update_window(handle, |_, window, cx| window.dispatch_action(action, cx))
+        .unwrap();
+    cx.run_until_parked();
+    assert_eq!(undo_len(cx, &view), len);
+}
+
+/// 다른 창이 가상 포트로 재생 중일 때, 이 창의 가상 포트 트랙 테스트 노트가 뱅크·프로그램을 보내 그 재생의
+/// 음색을 바꾼다.
+#[gpui_kit::test]
+fn test_note_while_other_window_plays_does_not_send_program(cx: &mut TestAppContext) {
+    start(cx, "note-other-virtual");
+    let port = install_engine(cx, "other-virtual");
+    let l = listen(&port);
+    let playing = ksq::from_str(
+        r#"{"tracks": [{"channel": 1, "program": 0, "clips": [{"start": 0, "length": 15360, "notes": [[0, 240, 72, 51492]]}]}]}"#,
+    )
+    .unwrap()
+    .0;
+    let (h1, _v1) = open(cx, playing);
+    run(cx, h1, transport::Play);
+    let p = ksq::from_str(r#"{"tracks": [{"name": "T", "channel": 1, "program": 40}]}"#)
+        .unwrap()
+        .0;
+    let (h2, _v2) = open(cx, p);
+    while l.rx.try_recv().is_ok() {}
+    run(cx, h2, midi::SendTestNote);
+    let got = collect(&l.rx, |g| g.iter().any(|m| m[0] == 0x80 && m[1] == 60));
+    run(cx, h1, transport::Stop);
+    assert!(
+        got.iter().any(|m| m[0] == 0x90 && m[1] == 60),
+        "테스트 노트가 닿지 않았다: {got:?}"
+    );
+    assert!(
+        !got.iter().any(|m| m == &[0xC0, 40]),
+        "다른 창 재생 중에 프로그램 체인지를 보냈다: {got:?}"
+    );
+}

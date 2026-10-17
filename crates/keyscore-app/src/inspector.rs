@@ -255,8 +255,10 @@ impl ProjectWindow {
         };
         let program = match action.program.0 {
             0 => Ok(None),
-            p => u8::try_from(p - 1)
-                .ok()
+            // `p - 1`은 키맵·팔레트에서 온 아무 i64나 받으므로 넘침을 막는다(리뷰 1 지적 2)
+            p => p
+                .checked_sub(1)
+                .and_then(|p| u8::try_from(p).ok())
                 .and_then(|p| Program::new(p).ok())
                 .map(Some)
                 .ok_or_else(|| format!("프로그램은 GM 번호 1–128이다(0은 없음, {p})")),
@@ -340,11 +342,15 @@ impl ProjectWindow {
             );
             return;
         } else if destination.is_empty() {
-            send_test_note(cx.global_mut::<Engine>(), 0, &track, true)
+            // 다른 창이 재생 중이면 뱅크·프로그램을 보내지 않는다. 같은 채널을 쓰는 그 재생의 음색이 바뀐다
+            // (리뷰 1 지적 3). 노트만 보낸다.
+            let other_playing = cx.global::<Engine>().has_owner();
+            send_test_note(cx.global_mut::<Engine>(), 0, &track, !other_playing)
         } else {
             // 정지 중: 이 프로젝트의 스냅샷을 넣어 포트를 연다(재생은 하지 않는다).
             let document = self.document.clone();
-            cx.update_global::<Engine, _>(|engine, cx| {
+            let mut missing = Vec::new();
+            let result = cx.update_global::<Engine, _>(|engine, cx| {
                 let prepared = engine.prepare(document.read(cx).project(), false)?;
                 let port = prepared
                     .routes
@@ -352,27 +358,33 @@ impl ProjectWindow {
                     .find(|(d, _)| *d == destination)
                     .map(|(_, p)| *p);
                 let Some(port) = port else {
+                    missing = prepared.missing;
                     return Ok(false);
                 };
                 let scheduler = engine.scheduler();
                 scheduler.collect_garbage();
                 scheduler.swap(prepared.snapshot)?;
                 send_test_note(engine, port, &track, true)
-            })
+            });
+            // 포트를 열지 못한 이유(없음·열기 실패·상한)를 재생 시작과 같은 말로 알린다(리뷰 1 제안 5)
+            self.report_missing(
+                &missing
+                    .into_iter()
+                    .filter(|(name, _)| *name == destination)
+                    .collect::<Vec<_>>(),
+            );
+            result
         };
         let virtual_name = crate::engine::virtual_port_name(cx);
-        let target = format!(
-            "{} ch{}",
-            port_label(track.port(), &virtual_name),
-            track.channel().get()
-        );
+        let port = port_label(track.port(), &virtual_name);
+        let channel = track.channel().get();
         match result {
             Ok(true) => self.say(
-                format!("테스트 노트를 보냈다: {target}. 신디에서 들리는지 확인한다"),
+                format!("테스트 노트를 보냈다: {port} ch{channel}. 신디에서 들리는지 확인한다"),
                 cx,
             ),
             Ok(false) => self.say(
-                format!("출력 포트 「{target}」이 없어 테스트 노트를 보내지 못했다"),
+                format!("출력 포트 「{port}」을 열지 못해 테스트 노트를 보내지 못했다"),
                 cx,
             ),
             Err(e) => self.say(format!("테스트 노트를 보내지 못했다: {e}"), cx),
