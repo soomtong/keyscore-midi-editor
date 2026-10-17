@@ -24,7 +24,7 @@ const USAGE: u8 = 2;
 
 const USAGE_KSQ: &str = "사용법: ksq check <파일.ksq|.ksqz>...\n       ksq fixtures <디렉터리>";
 const USAGE_KSQ2TXT: &str = "사용법: ksq2txt <입력.ksq> [-o 출력.txt] [--max-output <바이트>]";
-const USAGE_TXT2KSQ: &str = "사용법: txt2ksq <입력.txt> [-o 출력.ksq|.ksqz] [--strict] [--legacy]\n  --legacy  `#`로 시작하는 줄을 주석으로 읽는다(옛 기록)";
+const USAGE_TXT2KSQ: &str = "사용법: txt2ksq <입력.txt> [-o 출력.ksq|.ksqz] [--strict] [--legacy]\n  --legacy  줄 첫머리(앞 공백 무시)가 `#`인 줄을 통째로 주석으로 읽는다(옛 기록). 줄 끝의 `# 메모`는 주석이 아니다";
 
 // 표준 오류에 쓰지 못하면 알릴 곳이 없으므로 쓰기 실패는 무시한다(`eprintln!`과 같은 태도이되
 // 패닉하지 않는다). 표준 출력의 결과 쓰기는 따로 검사한다.

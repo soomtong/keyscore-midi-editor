@@ -8,7 +8,7 @@
 ksq check <파일.ksq|.ksqz>...        # 불변식·형식 버전 검사. 하나라도 실패하면 종료 코드 1
 ksq fixtures <디렉터리>               # 번들 픽스처 8곡을 .ksq로 쓴다
 ksq2txt <입력.ksq> [-o 출력.txt] [--max-output <바이트>]   # 프로젝트 → 계이름 텍스트. 잃는 정보는 표준 오류에 한 줄씩
-txt2ksq <입력.txt> [-o 출력.ksq] [--strict] [--legacy]   # 텍스트 → 프로젝트. 기본은 느슨 모드, .ksqz면 gzip. --legacy는 `#` 줄 주석(옛 기록)을 받는다
+txt2ksq <입력.txt> [-o 출력.ksq] [--strict] [--legacy]   # 텍스트 → 프로젝트. 기본은 느슨 모드, .ksqz면 gzip. --legacy는 줄 첫머리가 `#`인 줄을 주석으로 받는다(옛 기록, 줄 끝 `#`는 아님)
 ~~~
 
 - 결과는 표준 출력(또는 `-o`)에, 경고·손실·오류는 표준 오류에 쓴다.
