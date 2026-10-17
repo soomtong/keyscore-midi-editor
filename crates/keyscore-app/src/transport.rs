@@ -4,10 +4,10 @@ use std::time::Duration;
 
 use gpui_kit::{BorrowAppContext as _, Context, SharedString, Window};
 use keyscore_core::{MusicTime, TempoMap, Tick};
-use keyscore_midi::{HostTime, MetronomeConfig, Midi1Message, MidiError};
+use keyscore_midi::{HostTime, MetronomeConfig, MidiError};
 
 use crate::actions::transport;
-use crate::engine::{Engine, PortProblem, TransportState};
+use crate::engine::{Engine, PortProblem, Setup, TransportState};
 use crate::window::ProjectWindow;
 
 /// 메시지를 몇 개까지 남기는가. 오래된 것부터 버린다.
@@ -20,7 +20,7 @@ pub(crate) struct Transport {
     /// 재생 위치의 기준점. 일시정지 자리를 계산한다(스케줄러에 위치 조회가 없다).
     anchor: Option<Anchor>,
     /// 지금 스냅샷의 뱅크·프로그램. 재생 중 편집으로 바뀐 것만 보낸다(OUT-4, TRN-3).
-    setup: Vec<(u16, Midi1Message)>,
+    setup: Vec<Setup>,
     pub(crate) metronome: bool,
     pub(crate) messages: Vec<SharedString>,
 }
@@ -62,7 +62,12 @@ impl Anchor {
 
     /// 기준점 뒤 흐른 시간만큼 간 틱.
     fn position(&self) -> Tick {
-        let elapsed: Duration = HostTime::now().duration_since(self.at);
+        self.position_at(HostTime::now())
+    }
+
+    /// 호스트 시각 `now`의 틱.
+    fn position_at(&self, now: HostTime) -> Tick {
+        let elapsed: Duration = now.duration_since(self.at);
         let nanos = u64::try_from(elapsed.as_nanos()).unwrap_or(u64::MAX);
         let start = self.tempo.tick_to_time(self.tick).units();
         let now = MusicTime::from_units(start.saturating_add(MusicTime::from_nanos(nanos).units()));
@@ -180,12 +185,14 @@ impl ProjectWindow {
         {
             return;
         }
-        // 교체 직전의 자리를 옛 템포로 구한다
+        // 교체 직전의 자리를 옛 템포로 구한다. 새 기준점의 시각도 같은 순간으로 잡아야, 스냅샷을 만드는
+        // 동안 흐른 시간이 빠지지 않는다(리뷰 2 지적 2).
+        let now = HostTime::now();
         let here = self
             .transport
             .anchor
             .as_ref()
-            .map_or(Tick::ZERO, Anchor::position);
+            .map_or(Tick::ZERO, |a| a.position_at(now));
         let document = self.document.clone();
         let old_setup = std::mem::take(&mut self.transport.setup);
         let result = cx.update_global::<Engine, _>(|engine, cx| {
@@ -193,17 +200,37 @@ impl ProjectWindow {
             let prepared = engine.prepare(project, true)?;
             let tempo = project.tempo_map().clone();
             let scheduler = engine.scheduler();
+            // 스케줄러가 돌려준 옛 스냅샷을 해제한다. 쌓이면 교체 명령이 큐에서 막힌다(리뷰 2 지적 1).
+            scheduler.collect_garbage();
             scheduler.swap(prepared.snapshot)?;
-            for (port, msg) in prepared.setup.iter().filter(|m| !old_setup.contains(m)) {
-                scheduler.send_now(*port, *msg)?;
+            // 교체는 들어갔다. 이 뒤의 실패는 상태를 되돌리지 않고 알리기만 한다(리뷰 2 제안 1).
+            let mut send_error = None;
+            for entry in prepared
+                .setup
+                .iter()
+                .filter(|new| !old_setup.iter().any(|old| old.same_as(new)))
+            {
+                for msg in &entry.messages {
+                    if let Err(e) = scheduler.send_now(entry.port, *msg) {
+                        send_error.get_or_insert(e);
+                    }
+                }
             }
-            Ok::<_, MidiError>((prepared.missing, prepared.setup, tempo))
+            Ok::<_, MidiError>((prepared.missing, prepared.setup, tempo, send_error))
         });
         match result {
-            Ok((missing, setup, tempo)) => {
-                self.transport.anchor = Some(Anchor::new(here, tempo));
+            Ok((missing, setup, tempo, send_error)) => {
+                self.transport.anchor = Some(Anchor {
+                    at: now,
+                    tick: here,
+                    tempo,
+                });
                 self.transport.setup = setup;
                 self.report_missing(&missing);
+                if let Some(e) = send_error {
+                    self.transport
+                        .say(format!("바뀐 뱅크·프로그램을 보내지 못했다: {e}"));
+                }
             }
             Err(e) => {
                 self.transport.setup = old_setup;
@@ -242,6 +269,7 @@ impl ProjectWindow {
             let prepared = engine.prepare(project, false)?;
             let tempo = project.tempo_map().clone();
             let scheduler = engine.scheduler();
+            scheduler.collect_garbage();
             scheduler.stop()?;
             scheduler.swap(prepared.snapshot)?;
             scheduler.set_metronome(MetronomeConfig::default())?;

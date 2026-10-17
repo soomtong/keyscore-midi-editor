@@ -11,7 +11,7 @@ use keyscore_app::actions::transport;
 use keyscore_app::engine::{self, EngineOptions, TransportState};
 use keyscore_app::window::ProjectWindow;
 use keyscore_app::{init, open_project_window};
-use keyscore_core::{Edit, OutputPort, Project, Tempo, Tick, TrackProp, ksq};
+use keyscore_core::{Bank, Edit, OutputPort, Project, Tempo, Tick, TrackProp, ksq};
 
 struct Loopback {
     rx: mpsc::Receiver<Vec<u8>>,
@@ -412,4 +412,219 @@ fn missing_port_is_retried_on_next_play(cx: &mut TestAppContext) {
     run(cx, handle, transport::Play);
     wait_for(&dest.rx, WAIT, note_on(60)).expect("다음 재생에서 찾아야 한다");
     run(cx, handle, transport::Stop);
+}
+
+// ---------- 리뷰 2 부록 A(지적 1–5): 고친 뒤 회귀 방지로 옮김 ----------
+
+/// 4분음표마다 같은 음(`pitch`)을 32번(시작은 델타).
+fn every_beat(pitch: u8) -> String {
+    (0..32)
+        .map(|i| format!("[{}, 240, {pitch}, 51492]", if i == 0 { 0 } else { 480 }))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// 깨뜨림 1: 앱이 `Scheduler::collect_garbage`를 부르지 않는다. 교체가 260번쯤(돌려받기 큐 256 +
+/// 대기 자리 4) 쌓이면 다음 교체가 큐 머리에서 영영 막히고, 그 뒤의 명령은 처리되지 않는다. Play마다
+/// 교체가 하나다. 막힌 Play의 `stop`은 이미 처리돼 소리가 멎는데 창은 「재생 중」이고 메시지도 없다.
+#[gpui_kit::test]
+fn play_still_sounds_after_many_plays(cx: &mut TestAppContext) {
+    let lb = start(cx, "garbage-play");
+    let (handle, view) = open(cx, project(&every_beat(60)));
+    for _ in 0..280 {
+        run(cx, handle, transport::Play);
+        std::thread::sleep(Duration::from_millis(3));
+    }
+    assert_eq!(
+        state(cx, &view),
+        TransportState::Playing,
+        "{:?}",
+        messages(cx, &view)
+    );
+    drain_for(&lb.rx, Duration::from_millis(50));
+    let heard = wait_for(&lb.rx, WAIT, note_on(60));
+    let msgs = messages(cx, &view);
+    run(cx, handle, transport::Stop);
+    assert!(heard.is_some(), "창은 재생 중인데 소리가 없다: {msgs:?}");
+}
+
+/// 깨뜨림 1의 변형(TRN-3의 주 사용): 재생 중 편집을 300번 하면 그 뒤 교체가 막혀 편집이 들리지 않고,
+/// 정지(Stop)도 막힌 교체 뒤에 줄 서서 재생이 멈추지 않는다. 메시지도 없다.
+#[gpui_kit::test]
+fn stop_works_after_many_live_edits(cx: &mut TestAppContext) {
+    let lb = start(cx, "garbage-edit");
+    let (handle, view) = open(cx, project(&every_beat(60)));
+    run(cx, handle, transport::Play);
+    for i in 0..300 {
+        edit(cx, &view, |p| {
+            vec![Edit::SetTrackProp {
+                track: p.tracks()[0].id(),
+                prop: TrackProp::Name(format!("n{i}")),
+            }]
+        });
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    run(cx, handle, transport::Stop);
+    assert_eq!(state(cx, &view), TransportState::Stopped);
+    drain_for(&lb.rx, Duration::from_millis(150));
+    let after = drain_for(&lb.rx, Duration::from_millis(1200));
+    let msgs = messages(cx, &view);
+    run(cx, handle, transport::Panic);
+    assert!(
+        !after.iter().any(|m| note_on(60)(m)),
+        "정지 뒤에도 재생된다: {after:?}, 메시지 {msgs:?}"
+    );
+}
+
+/// 깨뜨림 2: 재생 시작 때 뮤트였던 트랙은 렌더러가 빼서 chase가 그 프로그램을 보내지 않는다. 재생 중
+/// 뮤트를 풀면 `setup`은 그대로라(뮤트 트랙도 들어 있다) 차이가 없어 프로그램이 나가지 않는다(OUT-4, TRN-3).
+#[gpui_kit::test]
+fn unmuting_track_while_playing_sends_its_program(cx: &mut TestAppContext) {
+    let lb = start(cx, "unmute-program");
+    let text = r#"{"tempo": [[0, 500000]], "tracks": [
+        {"port": "virtual", "channel": 1, "program": 5,
+         "clips": [{"start": 0, "length": 7680, "notes": [[0, 240, 60, 51492]]}]},
+        {"port": "virtual", "channel": 2, "program": 9, "mute": true,
+         "clips": [{"start": 0, "length": 7680, "notes": [[1920, 240, 64, 51492]]}]}]}"#;
+    let (handle, view) = open(cx, ksq::from_str(text).unwrap().0);
+    run(cx, handle, transport::Play);
+    // 구현 대응: 들리지 않는 트랙의 뱅크·프로그램도 스냅샷 틱 0에 넣어 재생 시작 때 chase로 보낸다.
+    // 그래서 프로그램은 뮤트를 풀기 전에 이미 나간다. 뮤트를 푼 트랙의 첫 노트까지 받은 것 전체에서 찾는다.
+    let mut got = wait_for(&lb.rx, WAIT, note_on(60)).expect("Note On 60");
+    edit(cx, &view, |p| {
+        vec![Edit::SetTrackProp {
+            track: p.tracks()[1].id(),
+            prop: TrackProp::Mute(false),
+        }]
+    });
+    got.extend(wait_for(&lb.rx, WAIT, |m| note_on(64)(m) && m[0] == 0x91).expect("Note On 64"));
+    run(cx, handle, transport::Stop);
+    let program = got.iter().position(|m| m == &[0xC1, 9]);
+    let note = got.iter().position(|m| note_on(64)(m) && m[0] == 0x91);
+    assert!(
+        program.is_some() && program < note,
+        "뮤트를 푼 트랙의 프로그램이 나가지 않았다: {got:?}"
+    );
+}
+
+/// 깨뜨림 3: 재생 중 뱅크만 바꾸면 바뀐 뱅크 셀렉트(CC 32)만 나가고 프로그램 체인지가 따라가지 않는다.
+/// 뱅크 셀렉트는 다음 프로그램 체인지에서야 적용되므로 소리가 바뀌지 않는다(OUT-4, TRN-3).
+#[gpui_kit::test]
+fn bank_edit_while_playing_is_followed_by_program(cx: &mut TestAppContext) {
+    let lb = start(cx, "bank-edit");
+    let text = r#"{"tempo": [[0, 500000]], "tracks": [{"port": "virtual", "channel": 1, "bank": 1, "program": 5,
+        "clips": [{"start": 0, "length": 7680, "notes": [[0, 240, 60, 51492], [1920, 240, 62, 51492]]}]}]}"#;
+    let (handle, view) = open(cx, ksq::from_str(text).unwrap().0);
+    run(cx, handle, transport::Play);
+    wait_for(&lb.rx, WAIT, note_on(60)).expect("Note On 60");
+    edit(cx, &view, |p| {
+        vec![Edit::SetTrackProp {
+            track: p.tracks()[0].id(),
+            prop: TrackProp::Bank(Some(Bank::new(2).unwrap())),
+        }]
+    });
+    let got = wait_for(&lb.rx, WAIT, note_on(62)).expect("Note On 62");
+    run(cx, handle, transport::Stop);
+    let bank = got.iter().position(|m| m == &[0xB0, 32, 2]);
+    let program = got.iter().rposition(|m| m == &[0xC0, 5]);
+    assert!(
+        matches!((bank, program), (Some(b), Some(p)) if b < p),
+        "바뀐 뱅크 뒤에 프로그램 체인지가 없다: {got:?}"
+    );
+}
+
+/// 깨뜨림 4: `setup` 차이는 (스냅샷 포트 번호, 메시지)로 비교한다. 포트 번호는 스냅샷마다 트랙 순서로
+/// 다시 매겨지므로, 트랙을 다른 이름 포트로 옮겨 번호가 당겨지면 새 목적지에 처음 가는 프로그램이 옛
+/// 목적지의 같은 번호 항목과 같다고 보고 빠진다.
+#[gpui_kit::test]
+fn moving_track_to_other_named_port_sends_program_there(cx: &mut TestAppContext) {
+    let _lb = start(cx, "move-port");
+    let x = unique("move x");
+    let y = unique("move y");
+    let dx = destination(&x);
+    let dy = destination(&y);
+    let text = format!(
+        r#"{{"tempo": [[0, 500000]], "tracks": [
+            {{"port": {{"named": "{x}"}}, "channel": 1, "program": 5,
+              "clips": [{{"start": 0, "length": 7680, "notes": [[0, 240, 60, 51492], [1920, 240, 62, 51492]]}}]}},
+            {{"port": {{"named": "{y}"}}, "channel": 2, "program": 9,
+              "clips": [{{"start": 0, "length": 7680, "notes": [[0, 240, 64, 51492]]}}]}}]}}"#
+    );
+    let (handle, view) = open(cx, ksq::from_str(&text).unwrap().0);
+    run(cx, handle, transport::Play);
+    wait_for(&dx.rx, WAIT, note_on(60)).expect("X Note On 60");
+    wait_for(&dy.rx, WAIT, note_on(64)).expect("Y Note On 64");
+    let target = y.clone();
+    edit(cx, &view, move |p| {
+        vec![Edit::SetTrackProp {
+            track: p.tracks()[0].id(),
+            prop: TrackProp::Port(OutputPort::Named(target)),
+        }]
+    });
+    let got = wait_for(&dy.rx, WAIT, |m| note_on(62)(m) && m[0] == 0x90).expect("Y Note On 62");
+    run(cx, handle, transport::Stop);
+    assert!(
+        got.iter().any(|m| m == &[0xC0, 5]),
+        "옮긴 트랙의 프로그램이 새 포트에 가지 않았다: {got:?}"
+    );
+}
+
+/// 깨뜨림 5: 기준점을 다시 잡을 때 자리는 교체 전에 구하고 시각은 `prepare`·`swap` 뒤에 찍는다. 그 사이
+/// 시간(렌더링)이 편집마다 빠져 일시정지 자리가 실제보다 뒤로 밀린다. 큰 프로젝트에서 편집을 거듭하면
+/// 재개 때 이미 들은 부분을 다시 연주한다.
+#[gpui_kit::test]
+fn pause_position_does_not_drift_with_many_live_edits(cx: &mut TestAppContext) {
+    let lb = start(cx, "anchor-drift");
+    // 노트는 아주 뒤에 두어 소리 없이 렌더링만 무겁게 한다
+    let notes: Vec<String> = (0..4000)
+        .map(|i| format!("[{}, 48, 60, 51492]", if i == 0 { 2_000_000 } else { 96 }))
+        .collect();
+    let notes = notes.join(", ");
+    let tracks: Vec<String> = (0..16)
+        .map(|i| {
+            format!(
+                r#"{{"port": "virtual", "channel": {}, "clips": [{{"start": 0, "length": 3000000, "notes": [{notes}]}}]}}"#,
+                i + 1
+            )
+        })
+        .collect();
+    // 실제 재생 위치를 재는 박 트랙(채널 16, 480틱마다 노트 70)
+    let beats: Vec<String> = (0..32)
+        .map(|i| format!("[{}, 120, 70, 51492]", if i == 0 { 0 } else { 480 }))
+        .collect();
+    let beat = format!(
+        r#"{{"port": "virtual", "channel": 16, "clips": [{{"start": 0, "length": 15360, "notes": [{}]}}]}}"#,
+        beats.join(", ")
+    );
+    let text = format!(
+        r#"{{"tempo": [[0, 500000]], "tracks": [{}, {beat}]}}"#,
+        tracks.join(",")
+    );
+    let (handle, view) = open(cx, ksq::from_str(&text).unwrap().0);
+    run(cx, handle, transport::Play);
+    let begin = Instant::now();
+    for i in 0..40 {
+        edit(cx, &view, |p| {
+            vec![Edit::SetTrackProp {
+                track: p.tracks()[0].id(),
+                prop: TrackProp::Name(format!("n{i}")),
+            }]
+        });
+    }
+    let secs = begin.elapsed().as_secs_f64();
+    run(cx, handle, transport::Pause);
+    let TransportState::Paused(at) = state(cx, &view) else {
+        panic!("{:?}", state(cx, &view));
+    };
+    // 일시정지 전에 들은 박 수: 마지막 박의 틱이 실제 위치의 하한이다
+    let heard = drain_for(&lb.rx, Duration::from_millis(100))
+        .iter()
+        .filter(|m| note_on(70)(m))
+        .count();
+    let floor = u64::try_from(heard.saturating_sub(1) * 480).unwrap();
+    assert!(heard >= 4, "박을 {heard}개만 들었다");
+    assert!(
+        at.get() >= floor,
+        "일시정지 자리 {at:?}가 이미 들은 박(틱 {floor}, {heard}개, 경과 {secs:.2} s)보다 앞이다"
+    );
 }

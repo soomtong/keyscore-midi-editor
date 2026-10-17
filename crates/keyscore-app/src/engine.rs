@@ -13,8 +13,8 @@ use gpui_kit::{App, Global, WeakEntity};
 use keyscore_core::{OutputPort, Project, TempoMap, Tick};
 use keyscore_midi::{
     DEFAULT_PORT_NAME, MAX_SCHEDULER_PORTS, Midi1Message, MidiClient, MidiError, MidiPort,
-    OsOutput, PortInfo, Scheduler, SchedulerConfig, Snapshot, bank_select, destinations,
-    program_change, render,
+    OsOutput, PortInfo, ScheduledEvent, Scheduler, SchedulerConfig, Snapshot, bank_select,
+    destinations, program_change, render,
 };
 
 use crate::window::ProjectWindow;
@@ -62,6 +62,29 @@ pub(crate) struct Engine {
     known_missing: HashSet<String>,
 }
 
+/// 트랙 하나의 음색 설정(뱅크·프로그램). 목적지 이름과 채널로 비교한다. 스냅샷의 포트 번호는 스냅샷마다
+/// 다시 매겨지므로 비교에 쓰지 않는다(S2-T5a 리뷰 2 지적 5).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Setup {
+    /// 목적지(`OutputPort`의 이름, 가상은 빈 문자열)
+    pub(crate) destination: String,
+    pub(crate) channel: u8,
+    /// 이 스냅샷의 포트 번호(보낼 때만 쓴다)
+    pub(crate) port: u16,
+    /// 뱅크 MSB·LSB(있으면)와 프로그램(있으면). 뱅크만 바뀌어도 프로그램을 다시 보내야 음색이 바뀌므로
+    /// 한 묶음으로 보낸다(리뷰 2 지적 4).
+    pub(crate) messages: Vec<Midi1Message>,
+}
+
+impl Setup {
+    /// 목적지·채널·메시지가 같은가(포트 번호는 보지 않는다).
+    pub(crate) fn same_as(&self, other: &Setup) -> bool {
+        self.destination == other.destination
+            && self.channel == other.channel
+            && self.messages == other.messages
+    }
+}
+
 /// 트랙이 소리 내지 못하는 이유.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum PortProblem {
@@ -80,7 +103,7 @@ pub(crate) struct Prepared {
     pub(crate) snapshot: Arc<Snapshot>,
     /// 트랙들의 뱅크·프로그램(OUT-4). 재생 시작 위치의 값은 스케줄러가 따라잡아 보내므로(chase) 재생
     /// 시작 때는 쓰지 않는다. 재생 중 편집으로 바뀐 것만 그 자리에서 보낸다.
-    pub(crate) setup: Vec<(u16, Midi1Message)>,
+    pub(crate) setup: Vec<Setup>,
     /// 소리 내지 못하는 이름 포트와 이유.
     pub(crate) missing: Vec<(String, PortProblem)>,
 }
@@ -183,15 +206,58 @@ impl Engine {
         for (track, port) in project.tracks().iter().zip(&track_ports) {
             let Some(port) = *port else { continue };
             let ch = track.channel();
+            let mut messages = Vec::new();
             if let Some(bank) = track.bank() {
-                setup.extend(bank_select(ch, bank).map(|m| (port, m)));
+                messages.extend(bank_select(ch, bank));
             }
             if let Some(program) = track.program() {
-                setup.push((port, program_change(ch, program)));
+                messages.push(program_change(ch, program));
             }
+            if messages.is_empty() {
+                continue;
+            }
+            let destination = match track.port() {
+                OutputPort::Virtual => String::new(),
+                OutputPort::Named(name) => name.clone(),
+            };
+            setup.push(Setup {
+                destination,
+                channel: ch.get(),
+                port,
+                messages,
+            });
         }
         let rendered = render(project, |i, _| track_ports.get(i).copied().flatten());
-        let snapshot = Snapshot::new(project.tempo_map().clone(), ports, rendered.into_events())?
+        let mut events = rendered.into_events();
+        // 렌더러는 들리지 않는 트랙(뮤트, 다른 트랙의 솔로)을 통째로 뺀다. 그 트랙의 뱅크·프로그램도
+        // 틱 0에 넣어 재생 시작 때 스케줄러가 따라잡아 보내게 한다. 재생 중 뮤트를 풀었을 때 음색이 맞아야
+        // 한다(OUT-4, 리뷰 2 지적 3).
+        let any_solo = project.tracks().iter().any(keyscore_core::Track::solo);
+        for (track, port) in project.tracks().iter().zip(&track_ports) {
+            let audible = if any_solo {
+                track.solo()
+            } else {
+                !track.mute()
+            };
+            let Some(port) = *port else { continue };
+            if audible {
+                continue;
+            }
+            let ch = track.channel();
+            if let Some(bank) = track.bank() {
+                events.extend(
+                    bank_select(ch, bank).map(|m| ScheduledEvent::new(Tick::ZERO, port, m)),
+                );
+            }
+            if let Some(program) = track.program() {
+                events.push(ScheduledEvent::new(
+                    Tick::ZERO,
+                    port,
+                    program_change(ch, program),
+                ));
+            }
+        }
+        let snapshot = Snapshot::new(project.tempo_map().clone(), ports, events)?
             .with_meter(project.meter_map().clone());
         Ok(Prepared {
             snapshot: Arc::new(snapshot),
