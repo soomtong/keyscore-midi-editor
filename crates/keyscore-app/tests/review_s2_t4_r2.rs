@@ -253,3 +253,149 @@ fn ranking_ignores_case_and_surrounding_spaces(cx: &mut TestAppContext) {
         assert_eq!(entries[a[0]].name(), "view::ToggleInspector");
     });
 }
+
+// ---------- 리뷰 2 부록(지적 1–4): 고친 뒤 회귀 방지로 옮김 ----------
+
+fn mode_menu_is_open(cx: &mut TestAppContext, view: &Entity<ProjectWindow>) -> bool {
+    cx.read(|cx| view.read(cx).mode_menu_open())
+}
+
+// A-1 (지적 1): 첫 줄이 꺼진 질의에서 Tab → Enter가 Tab으로 채운 명령이 아닌 둘째 줄을 실행한다.
+// 「sequence」의 첫 줄은 꺼진 `sequence::Note`, 강조는 둘째 줄 「녹음」(mode::Sequence)이다.
+#[gpui_kit::test]
+fn tab_then_enter_after_disabled_top_row_runs_completed_command(cx: &mut TestAppContext) {
+    start(cx, "r2-a1");
+    let (handle, view) = open(cx);
+    press(cx, handle, "cmd-shift-p");
+    type_text(cx, handle, "sequence");
+    press(cx, handle, "tab");
+    assert_eq!(
+        cx.read(|cx| view.read(cx).palette_query(cx)).as_deref(),
+        Some("녹음")
+    );
+    press(cx, handle, "enter");
+    assert!(!palette_open(cx, &view));
+    assert_eq!(
+        mode_of(cx, &view),
+        Mode::Sequence,
+        "Tab으로 채운 「녹음」의 Enter가 mode::Sequence를 실행하지 않았다"
+    );
+}
+
+// A-2 (지적 1): 한 글자 더 치면 강조가 앞 질의의 「첫 실행 가능 줄 위치」에 남는다(한글 질의).
+#[gpui_kit::test]
+fn typing_one_more_char_highlights_first_runnable_row(cx: &mut TestAppContext) {
+    start(cx, "r2-a2");
+    let (handle, view) = open(cx);
+    let expected = cx.update(|cx| {
+        let entries = commands::palette_entries(cx);
+        let order = commands::filter_entries(&entries, "카운트인");
+        let first = order
+            .iter()
+            .find(|ix| entries[**ix].action().is_some())
+            .unwrap();
+        entries[*first].label().to_string()
+    });
+    press(cx, handle, "cmd-shift-p");
+    type_text(cx, handle, "카운트");
+    type_text(cx, handle, "인");
+    // Tab은 강조된 줄의 이름으로 질의를 채우므로 강조 위치가 드러난다
+    press(cx, handle, "tab");
+    assert_eq!(
+        cx.read(|cx| view.read(cx).palette_query(cx)),
+        Some(expected),
+        "「카운트」의 첫 줄(꺼진 operator::Count) 때문에 강조가 둘째 줄에 남았다"
+    );
+}
+
+// A-3 (지적 2): 팔레트가 열린 채 상태줄 모드 표시를 누르면 모드 메뉴가 열리지만 포커스는 문서로 간다.
+// 모드 메뉴는 키(아래·Enter·Esc)를 받지 못하고 Esc로 닫히지 않는다(P2).
+#[gpui_kit::test]
+fn mode_menu_opened_by_click_while_palette_open_takes_keys(cx: &mut TestAppContext) {
+    start(cx, "r2-a3");
+    let (handle, view) = open(cx);
+    press(cx, handle, "cmd-shift-p");
+    click(cx, handle, "status-mode");
+    assert!(!palette_open(cx, &view));
+    assert!(mode_menu_is_open(cx, &view));
+    press(cx, handle, "escape");
+    assert!(
+        !mode_menu_is_open(cx, &view),
+        "모드 메뉴가 열린 채 남고 Esc로 닫히지 않는다"
+    );
+}
+
+// A-3b (지적 2): 모드 메뉴가 열린 채 cmd-shift-p로 팔레트를 열면 모드 메뉴가 남는다. 팔레트를 닫은 뒤에도
+// 모드 메뉴는 Esc로 닫히지 않는다.
+#[gpui_kit::test]
+fn opening_palette_over_mode_menu_does_not_orphan_it(cx: &mut TestAppContext) {
+    start(cx, "r2-a3b");
+    let (handle, view) = open(cx);
+    click(cx, handle, "status-mode");
+    assert!(mode_menu_is_open(cx, &view));
+    press(cx, handle, "cmd-shift-p");
+    press(cx, handle, "escape");
+    press(cx, handle, "escape");
+    assert!(!palette_open(cx, &view));
+    assert!(
+        !mode_menu_is_open(cx, &view),
+        "팔레트를 닫은 뒤에도 모드 메뉴가 남고 Esc로 닫히지 않는다"
+    );
+}
+
+// A-4 (지적 3): GPUI `create_menu_item`의 수식키 마스크는 cmd·ctrl·alt·shift만 본다. `fn-k`를 컨텍스트 없이
+// 걸면 GPUI는 맨 `k`를 키 등가물로 굽는데, `commands::is_bare`는 fn을 수식키로 쳐서 감싸지 않는다.
+#[gpui_kit::test]
+fn fn_modifier_binding_is_not_baked_as_bare_menu_key(cx: &mut TestAppContext) {
+    let dir = start(cx, "r2-a4");
+    std::fs::write(
+        dir.join("keymap.json"),
+        r#"[{"bindings": {"fn-k": "view::ToggleKeyboard"}}]"#,
+    )
+    .unwrap();
+    cx.update(keymap::apply);
+    let menus = cx.update(|cx| cx.get_menus()).unwrap();
+    let view_menu = menus.iter().find(|m| m.name.as_ref() == "보기").unwrap();
+    let (title, key) = cx.update(|cx| {
+        view_menu
+            .items
+            .iter()
+            .find_map(|i| match i {
+                OwnedMenuItem::Action { name, action, .. } if name.starts_with("건반 뷰") => {
+                    Some((
+                        name.clone(),
+                        commands::native_key_equivalent(action.as_ref(), cx),
+                    ))
+                }
+                _ => None,
+            })
+            .unwrap()
+    });
+    // GPUI가 실제로 굽는 마스크(cmd·ctrl·alt·shift)로 본 맨 키
+    let baked_bare = key.is_some_and(|k| {
+        let m = k.modifiers;
+        !(m.platform || m.control || m.alt) && k.key.len() == 1
+    });
+    assert!(!baked_bare, "「{title}」에 맨 키 k가 키 등가물로 구워진다");
+}
+
+// A-5 (지적 4): UI-11. REQ가 눈에 보이는 자리를 주지 않은 vim 마크(5.8.1 `m`, `` ` ``)는 지어낸 자리 대신 결정
+// 요청이 있어야 한다. 「커서(클릭으로도 옮긴다)」는 마크를 설정하지도, 이름 붙은 마크로 가지도 않는다.
+#[test]
+fn marks_have_a_visible_place_or_a_decision_request() {
+    let decisions = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/decisions");
+    let text: String = std::fs::read_dir(decisions)
+        .unwrap()
+        .map(|e| std::fs::read_to_string(e.unwrap().path()).unwrap_or_default())
+        .collect();
+    let missing: Vec<String> = ["cursor::SetMark", "cursor::JumpMark"]
+        .iter()
+        .filter_map(|name| match commands::spec(name).unwrap().place() {
+            commands::Place::Elsewhere { detail, .. } if !text.contains(name) => {
+                Some(format!("{name} ({detail})"))
+            }
+            _ => None,
+        })
+        .collect();
+    assert!(missing.is_empty(), "{}건: {:?}", missing.len(), missing);
+}

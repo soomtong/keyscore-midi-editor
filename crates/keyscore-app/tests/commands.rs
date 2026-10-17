@@ -126,6 +126,12 @@ fn every_action_has_exactly_one_command_spec() {
         assert!(!spec.label().trim().is_empty(), "{}", spec.name());
         if let Place::Elsewhere { detail, .. } = spec.place() {
             assert!(!detail.trim().is_empty(), "{}", spec.name());
+            // UI-11: 자리는 화면이다. 「키」를 자리로 적지 않는다(「키맵」 화면 이름은 된다)
+            assert!(
+                !detail.replace("키맵", "").contains('키'),
+                "{}: 자리 설명이 키를 가리킨다({detail})",
+                spec.name()
+            );
         }
         assert_eq!(
             commands::spec(spec.name()).map(commands::CommandSpec::name),

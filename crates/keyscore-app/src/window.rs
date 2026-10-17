@@ -162,6 +162,8 @@ impl ProjectWindow {
             palette.update(cx, |palette, cx| palette.focus_query(window, cx));
             return;
         }
+        // 팝업은 하나만 띄운다. 모드 메뉴가 열려 있으면 닫는다(포커스는 곧 팔레트로 간다).
+        self.mode_menu = None;
         let target = self.focus.clone();
         let palette = cx.new(|cx| CommandPalette::new(target, window, cx));
         let events = cx.subscribe_in(&palette, window, |this, _, event, window, cx| {
@@ -177,8 +179,16 @@ impl ProjectWindow {
 
     /// 팔레트를 닫고 문서로 포커스를 돌린다. 실행할 Action은 그 뒤에 문서 포커스로 디스패치된다.
     fn close_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.palette.take().is_some() {
-            window.focus(&self.focus, cx);
+        if let Some((palette, _)) = self.palette.take() {
+            // 포커스가 아직 팔레트에 있을 때만 문서로 돌린다. 팔레트 밖을 눌러 닫혔고 그 클릭이 다른
+            // 팝업(상태줄 모드 메뉴)을 열었다면 포커스는 그 팝업의 것이다(리뷰 2 지적 2).
+            let focused_inside = palette
+                .read(cx)
+                .focus_handle(cx)
+                .contains_focused(window, cx);
+            if focused_inside || window.focused(cx).is_none() {
+                window.focus(&self.focus, cx);
+            }
             cx.notify();
         }
     }
@@ -203,6 +213,8 @@ impl ProjectWindow {
 
     /// 상태줄 모드 메뉴를 연다(7.6 「모드 전환」: 모드 표시 클릭, `mode::ShowMenu`).
     fn open_mode_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // 팝업은 하나만 띄운다. 팔레트가 열려 있으면 닫는다(포커스는 곧 모드 메뉴로 간다).
+        self.palette = None;
         let current = self.mode.mode();
         let menu = PopupMenu::build(window, cx, |mut menu, _, _| {
             for mode in Mode::MENU {

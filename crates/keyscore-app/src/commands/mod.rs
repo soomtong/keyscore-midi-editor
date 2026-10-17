@@ -391,22 +391,21 @@ pub const MENU_KEY_SEPARATOR: &str = "    ";
 
 /// 팔레트 거르기와 순위. 맞는 줄의 번호를 순위대로 준다. 빈 질의는 모든 줄을 표 순서대로 준다.
 ///
-/// 순위: 이름이 같음 → 이름이 질의로 시작 → 이름에 질의가 있음 → Action 이름이 같음 → Action 이름에
-/// 있음 → 설명에 있음. 같은 순위에서는 실행할 수 있는 줄이 먼저다. 메뉴 이름을 그대로 치면 그 명령이
-/// 맨 위에 와야 하기 때문이다(7.6 「팔레트에서 같은 이름으로 검색된다」).
+/// 실행할 수 있는 줄이 늘 먼저이고(꺼진 줄은 맨 뒤), 그 안의 순위는 이름이 같음 → 이름이 질의로 시작 →
+/// 이름에 질의가 있음 → Action 이름이 같음 → Action 이름에 있음 → 설명에 있음이다. 메뉴 이름을 그대로
+/// 치면 그 명령이 맨 위에 와야 하고(7.6 「팔레트에서 같은 이름으로 검색된다」), 첫 줄이 늘 실행할 수 있어야
+/// 컴포넌트가 질의가 바뀔 때 강조를 첫 줄로 되돌려도 Enter가 엉뚱한 줄을 고르지 않는다(리뷰 2 지적 1).
 #[must_use]
 pub fn filter_entries(entries: &[PaletteEntry], query: &str) -> Vec<usize> {
     let query = query.trim().to_lowercase();
-    if query.is_empty() {
-        return (0..entries.len()).collect();
-    }
-    let mut scored: Vec<(u8, bool, usize)> = entries
+    let mut scored: Vec<(bool, u8, usize)> = entries
         .iter()
         .enumerate()
         .filter_map(|(ix, e)| {
             let label = e.label.to_lowercase();
             let name = e.name.to_lowercase();
-            let rank = if label == query {
+            // 빈 질의는 모든 줄이 같은 순위(표 순서)다
+            let rank = if query.is_empty() || label == query {
                 0
             } else if label.starts_with(&query) {
                 1
@@ -421,7 +420,7 @@ pub fn filter_entries(entries: &[PaletteEntry], query: &str) -> Vec<usize> {
             } else {
                 return None;
             };
-            Some((rank, e.action.is_none(), ix))
+            Some((e.action.is_none(), rank, ix))
         })
         .collect();
     scored.sort_unstable();
@@ -482,12 +481,14 @@ pub fn native_key_equivalent(action: &dyn Action, cx: &App) -> Option<Keystroke>
     }
 }
 
-/// 글자 입력과 겹치는 키(수식키가 Shift뿐이거나 없고 기능 키가 아님).
+/// 글자 입력과 겹치는 키. GPUI는 키 등가물에 Cmd·Ctrl·Alt·Shift만 싣고 fn은 버린다
+/// (`create_menu_item`). 그래서 fn은 없는 것으로 보고, Alt(Option+글자는 특수 문자 입력)와 Shift만
+/// 있는 키도 글자 입력과 겹친다고 본다(리뷰 2 지적 3, 제안 4). 기능 키(F1–F24)는 겹치지 않는다.
 #[must_use]
 pub fn is_bare(key: &Keystroke) -> bool {
     let m = key.modifiers;
     let function_key = key.key.len() > 1
         && key.key.starts_with('f')
         && key.key[1..].chars().all(|c| c.is_ascii_digit());
-    !(m.platform || m.control || m.alt || m.function || function_key)
+    !(m.platform || m.control || function_key)
 }
