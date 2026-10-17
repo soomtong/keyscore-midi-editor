@@ -1,4 +1,4 @@
-# HANDOFF: KeyScore S1 진행 중 — S2 진행 중 — S2-T1 병합, S2-T2 다음
+# HANDOFF: KeyScore S1 진행 중 — S2 진행 중 — S2-T1·T2 병합, S2-T3 다음
 
 ## 목표
 
@@ -6,7 +6,7 @@
 
 ## 현재 브랜치
 
-`main` — S0 완료·서명(2026-10-15), S1-T1~T7과 계이름 텍스트 주석 `//` 변경 병합(테스트 818개 통과). S1 출구 서명(YoungTaek, 2026-10-16). S2-T1 병합(테스트 861개). 다음은 S2-T2 키맵 엔진(`s2/t2-keymap`).
+`main` — S0 완료·서명(2026-10-15), S1-T1~T7과 계이름 텍스트 주석 `//` 변경 병합(테스트 818개 통과). S1 출구 서명(YoungTaek, 2026-10-16). S2-T1·T2 병합(테스트 약 925개). 다음은 S2-T3 모드 FSM(`s2/t3-modes`).
 
 ## 완료된 작업
 
@@ -20,6 +20,7 @@
 - [x] S0-T5 계이름 텍스트 파서·내보내기(리뷰 9회, 결정 `2026-10-13-ktext-export-voice-budget.md`와 개정). 엄격 모드 왕복의 알려진 예외와 출력 크기 상한(선형, 256배)은 `docs/decisions/2026-10-12-ktext-implementation-details.md`
 - [x] S0-T8 `ksq-cli`(리뷰 11회, 결정 `2026-10-14-ksq-cli-output-path-scope.md`: `-o`는 일반 파일만). 픽스처 8곡 `assets/fixtures/`, 원본 텍스트 `tools/ksq-cli/fixtures-src/`
 - [x] S0 출구 보고서 `docs/reports/stage-0-exit.md`(자동 게이트 통과, 사람 항목 대기)
+- [x] S2-T2 키맵 엔진(리뷰 3회, 3회차 「범위 재정의」 → 결정 `2026-10-17-count-and-non-key-dispatch.md` C). Action 287개(`src/actions.rs`, 카탈로그 `docs/reports/s2-t2/action-catalog.md`), 프리셋 `assets/keymaps/{standard,default,vim}.json`, 레이어(표준→기본→vim→사용자), 같은 레이어 안 짧은 시퀀스 먼저, `keymap.json` 1 s 폴링, 카운트는 키 디스패치에만. 결정: 시퀀스 1 s 고정(A), REQ 키 충돌 13건은 결정 대기(`2026-10-17-keymap-conflicts.md`, 프리셋에서 비움). GPUI macOS는 Shift+숫자를 기호 키(`#`)로 보낸다
 - [x] S2-T1 GPUI 앱과 창 모델(리뷰 3회). gpui-kit `=0.7.1`(결정 `2026-10-16-gpui-kit-licenses-and-advisories.md` A: 0BSD·CC0 허용, 권고 넷 무시). 창 = 프로젝트, `ProjectDocument`가 undo 엔진만 거침, 펴진 패널만 Resizable 자식, 설정 `settings.json`(모르는 키 보존, `.bak`). core `.ksq` 쓰기는 모르는 키를 직접 정렬(워크스페이스에서 `serde_json` `preserve_order`가 켜짐)
 - [x] 계이름 텍스트 주석을 `//`로(결정 Q1 개정, 2026-10-16 사람 지시). `#`는 음 뒤 올림표만. 헤더 영역의 `#`는 두 모드 오류, 트랙 안은 느슨 모드 경고. 리뷰 3회. `docs/reports/s0-t5-comments/`
 - [x] S1-T7 `render`(keyscore-midi)와 재생 도구 `tools/ksq-play`(ksq-cli는 core+text 유지). 없는 이름 포트는 같은 이름의 가상 포트를 따로 만든다. 뮤트+솔로는 솔로가 이김(`2026-10-16-mute-solo-precedence.md`). 리뷰 2회
@@ -55,6 +56,8 @@
 ## 남은 작업
 
 - [ ] 원격 CI 첫 실행과 CI 러너 벤치 기준값: remote가 생기면(사람이 건너뜀)
+- [ ] 후속: `crates/keyscore-midi/tests/scheduler.rs`의 20초 지터 측정이 같은 바이너리의 루프백 테스트와 겹치면 가끔 0.5 ms를 넘는다. 타이밍 측정 테스트를 서로 직렬로 묶는다.
+- [ ] 결정 대기: `2026-10-17-keymap-conflicts.md`(S3–S6 전)
 - [ ] 사람 답 대기(S2를 막지 않음): REQ 9.2 문구 반영 허락, 옛 `#` 주석 이행 규칙 여부
 - [ ] REQ 9.2 문구에 「시각 대기 시스템 콜은 예외」 반영: 사람의 수정 허락 대기(결정 `2026-10-16-scheduler-wait-syscall.md`)
 - [ ] 사람의 수동 확인 대기: Surge XT 수신(SP-3), 실제 키보드·IME(SP-1), 120 Hz 디스플레이(SP-2)
@@ -84,7 +87,7 @@ REQ 문구: 사람이 에이전트에게 수정을 허락한 범위(결정 문�
 
 ## 다음 에이전트에게
 
-1. S2-T2(키맵 엔진, REQ 7.3·KM-*)를 시작한다. 앱 테스트는 `#[gpui_kit::test]` 헤드리스. GPUI 빌드가 무거워 전체 게이트는 백그라운드로 돌린다. S2-T5·T7의 이월 줄과 결정 대기 문서(S2-T5 전, S2-T7 전)를 먼저 읽는다. MIDI 테스트 흔들림은 `scripts/midi-soak.sh N [쉬는 초]`로 본다.
+1. S2-T3(모드 FSM, REQ 5.5)을 시작한다. 창의 키 컨텍스트(`Normal` 등)는 지금 루트에 고정이다. 모드·뷰에 따라 바꾸는 일이 S2-T3이다. 앱 테스트는 `#[gpui_kit::test]` 헤드리스. GPUI 빌드가 무거워 전체 게이트는 백그라운드로 돌린다. S2-T5·T7의 이월 줄과 결정 대기 문서(S2-T5 전, S2-T7 전)를 먼저 읽는다. MIDI 테스트 흔들림은 `scripts/midi-soak.sh N [쉬는 초]`로 본다.
 2. Task 루프: 브랜치 `s1/t<번호>-<slug>` → `docs/reports/s1-t<번호>/plan.md` → 테스트 먼저(뼈대 `todo!()`로 실패 확인) → 구현 → 게이트 전부(커밋 전에) → `report.md` → 새 에이전트로 적대적 리뷰(`general-purpose`, 구현 맥락 없이, 양식 `plan/templates/adversarial-review.md`, 산출물만 남기고 커밋 금지, 기존 `.proptest-regressions` 삭제 금지) → 지적마다 커밋 하나 → 재리뷰(최대 3회) → `git merge --no-ff`.
 3. 자동 게이트: `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`, `cargo deny check`, `scripts/check-deps.sh`, `scripts/check-deps.test.sh`, `scripts/bench-check.test.sh`. `core`·`text`에 외부 의존을 더하면 `scripts/check-deps.sh`의 허용 목록도 고친다.
 4. REQ에 없는 결정은 임의로 정하지 말고 사람에게 묻거나 `docs/decisions/`에 결정 요청을 쓴다. 사람과의 대화는 한국어로 하고, 문서에 `**`를 쓰지 않는다.
