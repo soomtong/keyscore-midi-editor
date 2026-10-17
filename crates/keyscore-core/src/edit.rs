@@ -248,14 +248,37 @@ pub(crate) enum Op {
         at: Tick,
         signature: Option<TimeSignature>,
     },
-    SetKey(Key),
+    /// 조성. `extra`가 `None`이면 정방향 편집이다: 값이 바뀌면 `key` 객체의 모르는 키를 지운다
+    /// (결정 `2026-10-12-ksq-unknown-keys-on-value-change.md` B). `Some`이면 역편집이 담은 옛 모르는 키를
+    /// 그대로 되돌린다.
+    SetKey {
+        key: Key,
+        extra: Option<Box<JsonMap>>,
+    },
+    /// 트랙 출력 포트. `extra`의 뜻은 [`Op::SetKey`]와 같다(`port` 객체의 모르는 키).
+    SetPort {
+        track: TrackId,
+        port: OutputPort,
+        extra: Option<Box<JsonMap>>,
+    },
 }
+
+/// `.ksq` 모르는 키 묶음.
+type JsonMap = serde_json::Map<String, serde_json::Value>;
 
 impl From<Edit> for Op {
     fn from(edit: Edit) -> Op {
         match edit {
             Edit::InsertTrack { index, track } => Op::InsertTrack { index, track },
             Edit::RemoveTrack { track } => Op::RemoveTrack { track },
+            Edit::SetTrackProp {
+                track,
+                prop: TrackProp::Port(port),
+            } => Op::SetPort {
+                track,
+                port,
+                extra: None,
+            },
             Edit::SetTrackProp { track, prop } => Op::SetTrackProp { track, prop },
             Edit::InsertClip { track, clip } => Op::InsertClip { track, clip },
             Edit::RemoveClip { track, id } => Op::RemoveClip { track, id },
@@ -290,7 +313,7 @@ impl From<Edit> for Op {
             },
             Edit::SetTempo { at, tempo } => Op::SetTempo { at, tempo },
             Edit::SetMeter { at, signature } => Op::SetMeter { at, signature },
-            Edit::SetKey(key) => Op::SetKey(key),
+            Edit::SetKey(key) => Op::SetKey { key, extra: None },
         }
     }
 }
@@ -553,10 +576,36 @@ impl Op {
                 }
                 Ok(Op::SetMeter { at, signature: old })
             }
-            Op::SetKey(key) => {
+            Op::SetKey { key, extra } => {
                 let old = project.key();
+                let old_extra = project.key_extra().clone();
                 project.set_key(key);
-                Ok(Op::SetKey(old))
+                match extra {
+                    Some(extra) => project.set_key_extra(*extra),
+                    None if key != old => project.set_key_extra(JsonMap::new()),
+                    None => {}
+                }
+                Ok(Op::SetKey {
+                    key: old,
+                    extra: Some(Box::new(old_extra)),
+                })
+            }
+            Op::SetPort { track, port, extra } => {
+                let t = track_mut(project, track)?;
+                let old = t.port().clone();
+                let old_extra = t.port_extra().clone();
+                let changed = port != old;
+                t.set_port(port);
+                match extra {
+                    Some(extra) => t.set_port_extra(*extra),
+                    None if changed => t.set_port_extra(JsonMap::new()),
+                    None => {}
+                }
+                Ok(Op::SetPort {
+                    track,
+                    port: old,
+                    extra: Some(Box::new(old_extra)),
+                })
             }
         }
     }
@@ -581,6 +630,14 @@ impl Op {
                 ..
             }
             | Op::SetClipName { name: Some(s), .. } => s.len(),
+            Op::SetPort { port, extra, .. } => {
+                let name = match port {
+                    OutputPort::Named(s) => s.len(),
+                    OutputPort::Virtual => 0,
+                };
+                name + extra.as_deref().map_or(0, map_bytes)
+            }
+            Op::SetKey { extra, .. } => extra.as_deref().map_or(0, map_bytes),
             Op::InsertNote { note, .. }
             | Op::RemoveNote { note, .. }
             | Op::RestoreNote { note, .. } => note_heap_bytes(note),

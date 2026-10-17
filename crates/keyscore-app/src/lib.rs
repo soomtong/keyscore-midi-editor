@@ -9,11 +9,13 @@ pub mod command_palette;
 pub mod commands;
 pub mod dispatch;
 pub mod document;
+pub mod engine;
 pub mod keymap;
 pub mod mode;
 pub mod palette;
 pub mod settings;
 pub mod theme;
+mod transport;
 pub mod window;
 
 use std::path::PathBuf;
@@ -129,6 +131,11 @@ pub fn run() {
         .with_assets(gpui_kit::assets::Assets)
         .run(|cx| {
             init(cx, settings::Settings::default_path());
+            // 창보다 먼저, 앱의 첫 CoreMIDI 호출로 엔진을 연다(S1-T2). 실패해도 앱은 뜨고, 재생 Action이
+            // 창에 「MIDI 엔진이 없다」를 남긴다.
+            if let Err(e) = engine::install(cx, &engine::EngineOptions::default()) {
+                eprintln!("KeyScore: MIDI 엔진을 열지 못했다: {e}");
+            }
             let _ = open_project_window(Project::new(), cx);
             cx.activate(true);
         });
