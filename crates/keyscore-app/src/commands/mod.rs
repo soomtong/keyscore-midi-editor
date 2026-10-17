@@ -374,7 +374,11 @@ fn action_item(
         });
     };
     let native = native_key_equivalent(action.as_ref(), cx);
-    let wrap = native.as_ref().is_some_and(is_bare);
+    // 글자 입력과 겹치거나, 어느 모드에서 눌러도 이 명령이 아닌(다른 바인딩에 가려진) 키 등가물은 굽지
+    // 않는다(리뷰 4 지적 1: 사용자 키맵이 `cmd-j`를 다른 명령에 걸면 「합치기 ⌘J」가 거짓이 된다).
+    let wrap = native.as_ref().is_some_and(|key| {
+        is_bare(key) || !runs_somewhere(std::slice::from_ref(key), action.as_ref(), cx)
+    });
     let shown = effective_keys(action.as_ref(), cx);
     // 감싸면 키 등가물이 없어지므로 macOS가 그려 주는 키도 없다
     let native_is_shown = !wrap
@@ -407,38 +411,56 @@ fn action_item(
     }
 }
 
-/// 메뉴 항목을 누를 Normal 모드의 키 컨텍스트 경로(배치 뷰, 피아노롤). `mode::ModeState::context_path`와
-/// 같은 모양이다.
-const MENU_CONTEXTS: [&[&str]; 2] = [&["Normal", "Arrangement"], &["Normal", "PianoRoll"]];
-
-/// 사람이 실제로 누를 키: 우선순위가 높은 바인딩부터, Normal 모드의 어느 경로에서든 그 키를 누르면 이
-/// Action이 나오는 첫 바인딩. 컨텍스트 없는 바인딩도 같은 검사를 거친다(더 깊은 컨텍스트가 가릴 수 있다).
-#[must_use]
-pub fn effective_keys(action: &dyn Action, cx: &App) -> Option<Vec<Keystroke>> {
-    let keymap = cx.key_bindings();
-    let keymap = keymap.borrow();
-    let stacks: Vec<Vec<KeyContext>> = MENU_CONTEXTS
-        .iter()
+/// 메뉴 항목의 키를 확인할 창의 키 컨텍스트 경로. 모드 FSM의 모든 상태가 만드는 경로다
+/// (`mode::ModeState::context_path`). 「가사 분배 ⌘V」처럼 한 모드에서만 맞는 키도 그 모드에서는 사실이다.
+fn menu_context_stacks() -> Vec<Vec<KeyContext>> {
+    let mut paths: Vec<&'static [&'static str]> = crate::mode::ModeState::all()
+        .map(crate::mode::ModeState::context_path)
+        .collect();
+    paths.sort_unstable();
+    paths.dedup();
+    paths
+        .into_iter()
+        // 고정 식별자라 늘 읽힌다
         .map(|path| {
-            // 고정 식별자라 늘 읽힌다
             path.iter()
                 .filter_map(|c| KeyContext::parse(c).ok())
                 .collect()
         })
-        .collect();
-    let candidates: Vec<_> = keymap.bindings_for_action(action).collect();
-    candidates.into_iter().rev().find_map(|binding| {
-        let keys = binding.keystrokes();
-        let wins = stacks.iter().any(|stack| {
-            let (found, pending) = keymap.bindings_for_input(keys, stack);
-            !pending && found.first().is_some_and(|b| b.action().partial_eq(action))
-        });
-        wins.then(|| {
-            keys.iter()
-                .map(|k| gpui_kit::AsKeystroke::as_keystroke(k).clone())
-                .collect()
-        })
+        .collect()
+}
+
+/// 어느 모드 경로에서든 이 키(시퀀스)를 누르면 이 Action이 나오는가.
+fn runs_somewhere(keys: &[Keystroke], action: &dyn Action, cx: &App) -> bool {
+    let keymap = cx.key_bindings();
+    let keymap = keymap.borrow();
+    menu_context_stacks().iter().any(|stack| {
+        let (found, pending) = keymap.bindings_for_input(keys, stack);
+        !pending && found.first().is_some_and(|b| b.action().partial_eq(action))
     })
+}
+
+/// 사람이 실제로 누를 키: 우선순위가 높은 바인딩부터, 어느 모드 경로에서든 그 키를 누르면 이 Action이
+/// 나오는 첫 바인딩. 컨텍스트 없는 바인딩도 같은 검사를 거친다(더 깊은 컨텍스트가 가릴 수 있다).
+#[must_use]
+pub fn effective_keys(action: &dyn Action, cx: &App) -> Option<Vec<Keystroke>> {
+    let candidates: Vec<Vec<Keystroke>> = {
+        let keymap = cx.key_bindings();
+        let keymap = keymap.borrow();
+        keymap
+            .bindings_for_action(action)
+            .map(|b| {
+                b.keystrokes()
+                    .iter()
+                    .map(|k| gpui_kit::AsKeystroke::as_keystroke(k).clone())
+                    .collect()
+            })
+            .collect()
+    };
+    candidates
+        .into_iter()
+        .rev()
+        .find(|keys| runs_somewhere(keys, action, cx))
 }
 
 /// 감싼 메뉴 항목의 제목에서 이름과 키를 나누는 문자열.

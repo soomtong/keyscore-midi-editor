@@ -17,14 +17,16 @@ fn start(cx: &mut TestAppContext, name: &str, preset: Preset) -> std::path::Path
 fn runs(keys: &[gpui_kit::Keystroke], target: &dyn gpui_kit::Action, cx: &App) -> bool {
     let keymap = cx.key_bindings();
     let keymap = keymap.borrow();
-    [
-        &["Normal", "Arrangement"][..],
-        &["Normal", "Arrangement", "Selection"],
-        &["Normal", "PianoRoll"],
-        &["Normal", "PianoRoll", "Selection"],
-    ]
-    .iter()
-    .any(|path| {
+    // 모드 FSM이 만드는 모든 경로(리뷰 4 지적 1 대응: 메뉴 키는 어느 모드에서든 사실이면 된다)
+    let paths: Vec<&'static [&'static str]> = {
+        let mut paths: Vec<&'static [&'static str]> = keyscore_app::mode::ModeState::all()
+            .map(keyscore_app::mode::ModeState::context_path)
+            .collect();
+        paths.sort_unstable();
+        paths.dedup();
+        paths
+    };
+    paths.iter().any(|path| {
         let stack: Vec<KeyContext> = path.iter().map(|c| KeyContext::parse(c).unwrap()).collect();
         let (found, pending) = keymap.bindings_for_input(keys, &stack);
         !pending && found.first().is_some_and(|b| b.action().partial_eq(target))
@@ -47,7 +49,7 @@ fn problems(cx: &App) -> Vec<String> {
                             out.push(format!("{name}: 꼬리 {text} / 누를 키 {want}"));
                         }
                     }
-                    // 가사 분배의 cmd-v는 Lyric 컨텍스트 전용이라 Normal에서는 붙여넣기다(review-4 제안 1). 알려진 예외.
+                    // 가사 분배의 cmd-v는 Lyric 컨텍스트 전용이다(review-4 제안 1). 메뉴 키는 어느 모드에서든 사실이면 되므로 이제 예외가 아니지만, 리뷰어의 원래 검사 형태를 남긴다.
                     if eff.is_none()
                         && !name.starts_with("가사 분배")
                         && (suffix.is_some() || native.is_some())
@@ -98,7 +100,8 @@ fn user_keymap_reload_keeps_menu_keys_correct(cx: &mut TestAppContext) {
             r#"[{"bindings": {"alt-k": "view::ToggleKeyboard", "g g": "view::ToggleKeyboard"}}]"#,
             r#"[{"bindings": {"ctrl-k": "view::ToggleKeyboard"}}]"#,
             r#"[{"bindings": {"z z": "view::ToggleKeyboard", "v": "view::ToggleKeyboard"}}]"#,
-            // 기본 프리셋이 쓰는 키를 가리는 사용자 키맵은 review-4 지적 1(실패)이라 뺐다
+            // 기본 프리셋이 쓰는 키를 가리는 사용자 키맵(리뷰 4 지적 1, 고친 뒤 되돌림)
+            r#"[{"bindings": {"cmd-j": "view::ToggleKeyboard", "x": "view::ToggleKeyboard"}}]"#,
             r#"[{"bindings": {"x": "view::ToggleKeyboard"}}]"#,
             "[]",
         ];

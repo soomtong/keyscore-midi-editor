@@ -414,13 +414,6 @@ mod review3_menu_keys {
     use keyscore_app::commands;
     use keyscore_app::keymap::{self, Preset};
 
-    const PATHS: &[&[&str]] = &[
-        &["Normal", "Arrangement"],
-        &["Normal", "Arrangement", "Selection"],
-        &["Normal", "PianoRoll"],
-        &["Normal", "PianoRoll", "Selection"],
-    ];
-
     fn start(cx: &mut TestAppContext, name: &str, preset: Preset) {
         let dir =
             std::env::temp_dir().join(format!("ks-review-s2t4-r3b-{}-{name}", std::process::id()));
@@ -433,7 +426,15 @@ mod review3_menu_keys {
     fn runs(keys: &[Keystroke], target: &dyn gpui_kit::Action, cx: &App) -> bool {
         let keymap = cx.key_bindings();
         let keymap = keymap.borrow();
-        PATHS.iter().any(|path| {
+        let paths: Vec<&'static [&'static str]> = {
+            let mut paths: Vec<&'static [&'static str]> = keyscore_app::mode::ModeState::all()
+                .map(keyscore_app::mode::ModeState::context_path)
+                .collect();
+            paths.sort_unstable();
+            paths.dedup();
+            paths
+        };
+        paths.iter().any(|path| {
             let stack: Vec<KeyContext> =
                 path.iter().map(|c| KeyContext::parse(c).unwrap()).collect();
             let (found, pending) = keymap.bindings_for_input(keys, &stack);
