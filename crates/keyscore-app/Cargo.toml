@@ -22,4 +22,5 @@ schemars = "1"
 
 [dev-dependencies]
 gpui-kit = { workspace = true, features = ["test-support"] }
+coremidi.workspace = true
 insta.workspace = true

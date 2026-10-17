@@ -9,6 +9,7 @@ pub mod command_palette;
 pub mod commands;
 pub mod dispatch;
 pub mod document;
+pub mod engine;
 pub mod keymap;
 pub mod mode;
 pub mod palette;

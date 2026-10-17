@@ -3827,6 +3827,7 @@ dependencies = [
 name = "keyscore-app"
 version = "0.1.0"
 dependencies = [
+ "coremidi",
  "gpui-kit",
  "insta",
  "keyscore-ai",

@@ -144,6 +144,24 @@ impl ProjectWindow {
         }
     }
 
+    /// 트랜스포트 상태(S2-T5a).
+    #[must_use]
+    pub fn transport_state(&self) -> crate::engine::TransportState {
+        todo!()
+    }
+
+    /// 메트로놈이 켜져 있는가(TRN-2).
+    #[must_use]
+    pub fn metronome_on(&self) -> bool {
+        todo!()
+    }
+
+    /// 창이 남긴 메시지(엔진 없음, 없는 포트, MIDI 오류). 상태줄 표시는 S2-T5c다.
+    #[must_use]
+    pub fn messages(&self) -> &[gpui_kit::SharedString] {
+        todo!()
+    }
+
     /// 명령 팔레트가 열려 있는가.
     #[must_use]
     pub const fn palette_open(&self) -> bool {
