@@ -184,8 +184,10 @@ fn removing_later_shared_track_while_playing_restores_remaining_program(cx: &mut
             track: p.tracks()[1].id(),
         }]
     });
-    drain_for(&lb.rx, Duration::from_millis(50));
-    let got = wait_for(&lb.rx, WAIT, note_on(60)).expect("Note On 60");
+    // 실효 음색은 편집 즉시(send_now) 나가므로, 편집 직후에 받은 것도 버리지 않고 모은다
+    // (S2-T5a 리뷰 4 원문은 50 ms를 버렸다).
+    let mut got = drain_for(&lb.rx, Duration::from_millis(50));
+    got.extend(wait_for(&lb.rx, WAIT, note_on(60)).expect("Note On 60"));
     run(cx, handle, transport::Stop);
     assert!(got.iter().any(|m| m == &[0xC0, 5]), "{got:?}");
 }
@@ -203,8 +205,10 @@ fn moving_solo_on_shared_channel_sends_new_effective_program(cx: &mut TestAppCon
             prop: keyscore_core::TrackProp::Solo(true),
         }]
     });
-    drain_for(&lb.rx, Duration::from_millis(50));
-    let got = wait_for(&lb.rx, WAIT, note_on(60)).expect("Note On 60");
+    // 실효 음색은 편집 즉시(send_now) 나가므로, 편집 직후에 받은 것도 버리지 않고 모은다
+    // (S2-T5a 리뷰 4 원문은 50 ms를 버렸다).
+    let mut got = drain_for(&lb.rx, Duration::from_millis(50));
+    got.extend(wait_for(&lb.rx, WAIT, note_on(60)).expect("Note On 60"));
     run(cx, handle, transport::Stop);
     assert!(got.iter().any(|m| m == &[0xC0, 5]), "{got:?}");
 }

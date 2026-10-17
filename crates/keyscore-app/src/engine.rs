@@ -10,7 +10,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use gpui_kit::{App, Global, WeakEntity};
-use keyscore_core::{OutputPort, Project, TempoMap, Tick, TrackId};
+use keyscore_core::{OutputPort, Project, TempoMap, Tick};
 use keyscore_midi::{
     DEFAULT_PORT_NAME, MAX_SCHEDULER_PORTS, Midi1Message, MidiClient, MidiError, MidiPort,
     OsOutput, PortInfo, ScheduledEvent, Scheduler, SchedulerConfig, Snapshot, bank_select,
@@ -55,6 +55,8 @@ pub(crate) struct Engine {
     /// 한 번 연 OS 목적지(이름별). 포트가 사라졌을 때의 확인·재연결은 S2-T5c(OUT-3)다.
     opened: HashMap<String, Arc<dyn MidiPort>>,
     scheduler: Scheduler,
+    /// 기본 가상 포트 이름(트랙 목록·포트 드롭다운 표시)
+    port_name: String,
     /// 지금 재생 중인 창. 한 번에 한 창만 재생한다.
     owner: Option<WeakEntity<ProjectWindow>>,
     /// 지난 재생 시작 때 찾지 못한 이름 포트. 재생 중 편집(스냅샷 교체)마다 메인 스레드에서 목적지를
@@ -62,27 +64,27 @@ pub(crate) struct Engine {
     known_missing: HashSet<String>,
 }
 
-/// 트랙 하나의 음색 설정(뱅크·프로그램). 같은 트랙의 옛 설정과 목적지 이름·채널·메시지로 비교한다.
-/// 스냅샷의 포트 번호는 스냅샷마다 다시 매겨지므로 비교에 쓰지 않는다(S2-T5a 리뷰 2 지적 5). 다른 트랙의
-/// 옛 설정과 비교하면, 같은 포트·채널을 나눠 쓰는 트랙에서 되돌린 프로그램이 걸러진다(리뷰 3 지적 2).
+/// (목적지, 채널) 하나의 실효 음색(뱅크·프로그램). 재생 시작의 chase와 같은 규칙으로 정한다: 들리지 않는
+/// 트랙을 먼저, 들리는 트랙은 그 뒤 트랙 순서로 보고 뱅크와 프로그램은 각각 마지막 값을 쓴다. 재생 중에는
+/// 실효 음색이 바뀐 채널만 다시 보낸다. 뮤트·솔로를 바꾸거나 채널을 나눠 쓰는 트랙을 지워도 지금 들리는
+/// 음색이 맞는다(S2-T5a 리뷰 2–4, S2-T5b). 스냅샷의 포트 번호는 스냅샷마다 다시 매겨지므로 비교에 쓰지
+/// 않는다.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Setup {
-    pub(crate) track: TrackId,
     /// 목적지(`OutputPort`의 이름, 가상은 빈 문자열)
     pub(crate) destination: String,
     pub(crate) channel: u8,
     /// 이 스냅샷의 포트 번호(보낼 때만 쓴다)
     pub(crate) port: u16,
     /// 뱅크 MSB·LSB(있으면)와 프로그램(있으면). 뱅크만 바뀌어도 프로그램을 다시 보내야 음색이 바뀌므로
-    /// 한 묶음으로 보낸다(리뷰 2 지적 4).
+    /// 한 묶음으로 보낸다.
     pub(crate) messages: Vec<Midi1Message>,
 }
 
 impl Setup {
-    /// 같은 트랙의 같은 목적지·채널·메시지인가(포트 번호는 보지 않는다).
+    /// 같은 목적지·채널의 같은 음색인가(포트 번호는 보지 않는다).
     pub(crate) fn same_as(&self, other: &Setup) -> bool {
-        self.track == other.track
-            && self.destination == other.destination
+        self.destination == other.destination
             && self.channel == other.channel
             && self.messages == other.messages
     }
@@ -130,10 +132,21 @@ pub fn install(cx: &mut App, options: &EngineOptions) -> Result<(), MidiError> {
         main,
         opened: HashMap::new(),
         scheduler,
+        port_name: options.port_name.clone(),
         owner: None,
         known_missing: HashSet::new(),
     });
     Ok(())
+}
+
+/// 기본 가상 포트 이름. 엔진이 없으면 기본값(OUT-1 「KeyScore Out」).
+#[must_use]
+pub fn virtual_port_name(cx: &App) -> String {
+    if cx.has_global::<Engine>() {
+        cx.global::<Engine>().port_name.clone()
+    } else {
+        DEFAULT_PORT_NAME.to_owned()
+    }
 }
 
 /// 엔진이 설치돼 있는가.
@@ -205,32 +218,7 @@ impl Engine {
             };
             track_ports.push(port);
         }
-        let mut setup = Vec::new();
-        for (track, port) in project.tracks().iter().zip(&track_ports) {
-            let Some(port) = *port else { continue };
-            let ch = track.channel();
-            let mut messages = Vec::new();
-            if let Some(bank) = track.bank() {
-                messages.extend(bank_select(ch, bank));
-            }
-            if let Some(program) = track.program() {
-                messages.push(program_change(ch, program));
-            }
-            if messages.is_empty() {
-                continue;
-            }
-            let destination = match track.port() {
-                OutputPort::Virtual => String::new(),
-                OutputPort::Named(name) => name.clone(),
-            };
-            setup.push(Setup {
-                track: track.id(),
-                destination,
-                channel: ch.get(),
-                port,
-                messages,
-            });
-        }
+        let setup = effective_setups(project, &track_ports);
         // 들리지 않는 트랙(뮤트, 다른 트랙의 솔로)의 뱅크·프로그램을 먼저 틱 0에 넣고, 그 뒤에 들리는 트랙을
         // 트랙 순서대로 렌더한다. 렌더러는 들리지 않는 트랙을 통째로 빼므로, 그대로 두면 재생 시작 때 chase가
         // 그 음색을 보내지 않아 재생 중 뮤트를 풀었을 때 음색이 틀린다(OUT-4, 리뷰 2 지적 3). 같은 틱의
@@ -299,4 +287,75 @@ impl Engine {
         self.opened.insert(name.to_owned(), port.clone());
         Ok(port)
     }
+}
+
+/// (목적지, 채널) 한 묶음의 실효 음색을 모으는 칸.
+struct Slot {
+    destination: String,
+    channel: u8,
+    port: u16,
+    bank: Option<keyscore_core::Bank>,
+    program: Option<keyscore_core::Program>,
+}
+
+/// (목적지, 채널)별 실효 음색. [`Setup`]의 규칙을 따른다.
+fn effective_setups(project: &Project, track_ports: &[Option<u16>]) -> Vec<Setup> {
+    let any_solo = project.tracks().iter().any(keyscore_core::Track::solo);
+    let audible = |t: &keyscore_core::Track| if any_solo { t.solo() } else { !t.mute() };
+    // 순서를 지키려고 Vec로 모은다(같은 묶음은 처음 나온 자리).
+    let mut groups: Vec<Slot> = Vec::new();
+    let tracks = project.tracks().iter().zip(track_ports);
+    let ordered = tracks
+        .clone()
+        .filter(|(t, _)| !audible(t))
+        .chain(tracks.filter(|(t, _)| audible(t)));
+    for (track, port) in ordered {
+        let Some(port) = *port else { continue };
+        let destination = match track.port() {
+            OutputPort::Virtual => String::new(),
+            OutputPort::Named(name) => name.clone(),
+        };
+        let channel = track.channel().get();
+        let index = if let Some(i) = groups
+            .iter()
+            .position(|g| g.destination == destination && g.channel == channel)
+        {
+            i
+        } else {
+            groups.push(Slot {
+                destination,
+                channel,
+                port,
+                bank: None,
+                program: None,
+            });
+            groups.len() - 1
+        };
+        let slot = &mut groups[index];
+        if let Some(bank) = track.bank() {
+            slot.bank = Some(bank);
+        }
+        if let Some(program) = track.program() {
+            slot.program = Some(program);
+        }
+    }
+    groups
+        .into_iter()
+        .filter_map(|slot| {
+            let ch = keyscore_core::Channel::new(slot.channel).ok()?;
+            let mut messages = Vec::new();
+            if let Some(bank) = slot.bank {
+                messages.extend(bank_select(ch, bank));
+            }
+            if let Some(program) = slot.program {
+                messages.push(program_change(ch, program));
+            }
+            (!messages.is_empty()).then_some(Setup {
+                destination: slot.destination,
+                channel: slot.channel,
+                port: slot.port,
+                messages,
+            })
+        })
+        .collect()
 }

@@ -26,11 +26,20 @@ pub(crate) struct Transport {
 }
 
 impl Transport {
-    fn say(&mut self, message: impl Into<SharedString>) {
+    pub(crate) fn say(&mut self, message: impl Into<SharedString>) {
         if self.messages.len() == MAX_MESSAGES {
             self.messages.remove(0);
         }
         self.messages.push(message.into());
+    }
+
+    /// 표시할 재생 위치: 재생 중이면 지금 자리, 일시정지면 그 자리, 정지면 처음.
+    pub(crate) fn position(&self) -> Tick {
+        match self.state {
+            TransportState::Playing => self.anchor.as_ref().map_or(Tick::ZERO, Anchor::position),
+            TransportState::Paused(at) => at,
+            TransportState::Stopped => Tick::ZERO,
+        }
     }
 
     /// 다른 창이 재생을 가져갔거나 창이 정지했다.
