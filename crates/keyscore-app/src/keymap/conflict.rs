@@ -26,10 +26,11 @@ pub struct Conflict {
     pub second: (String, String, Pos),
 }
 
-/// 컨텍스트 원문을 비교용으로 맞춘다(공백만 정리한다).
+/// 컨텍스트 원문을 비교용으로 맞춘다. 컨텍스트 이름에는 공백이 없으므로 공백을 모두 지운다
+/// (`Normal>PianoRoll`과 `Normal > PianoRoll`은 같다, 리뷰 1 지적 5).
 fn context_key(context: Option<&str>) -> String {
     context
-        .map(|c| c.split_whitespace().collect::<Vec<_>>().join(" "))
+        .map(|c| c.chars().filter(|ch| !ch.is_whitespace()).collect())
         .unwrap_or_default()
 }
 

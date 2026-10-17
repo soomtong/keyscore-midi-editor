@@ -101,12 +101,23 @@ pub fn parse(text: &str, layer: Layer) -> (Vec<Binding>, Vec<KeymapError>) {
         };
         let mut context = None;
         let mut entries = None;
+        // context가 잘못된 절은 통째로 건너뛴다. 전역으로 걸면 의도보다 훨씬 넓게 적용된다(리뷰 1 지적 7).
+        let mut bad_context = false;
+        let mut seen = std::collections::HashSet::new();
         for (key, key_pos, value) in fields {
+            // 같은 절의 중복 필드는 앞 값을 소리 없이 덮으므로 알린다(리뷰 1 제안 11).
+            if !seen.insert(key.clone()) {
+                error(key_pos, format!("필드 '{key}'가 두 번 있다"));
+                continue;
+            }
             match key.as_str() {
                 "context" => match value.node {
                     Node::String(s) if !s.trim().is_empty() => context = Some(s),
                     Node::Null => {}
-                    _ => error(value.pos, "context는 문자열이어야 한다".to_string()),
+                    _ => {
+                        bad_context = true;
+                        error(value.pos, "context는 문자열이어야 한다".to_string());
+                    }
                 },
                 "bindings" => match value.node {
                     Node::Object(map) => entries = Some(map),
@@ -115,6 +126,9 @@ pub fn parse(text: &str, layer: Layer) -> (Vec<Binding>, Vec<KeymapError>) {
                 // GPUI 키맵의 다른 필드(use_key_equivalents 등)는 이 앱에서 쓰지 않는다.
                 other => error(key_pos, format!("모르는 필드 '{other}'")),
             }
+        }
+        if bad_context {
+            continue;
         }
         for (keys, pos, value) in entries.unwrap_or_default() {
             if keys.trim().is_empty() {

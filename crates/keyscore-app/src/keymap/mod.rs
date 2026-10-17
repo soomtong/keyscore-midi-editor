@@ -4,6 +4,11 @@
 //! 사용자(`keymap.json`). GPUI는 나중에 건 바인딩을 앞 바인딩보다 먼저 보므로 뒤 레이어가 이긴다.
 //! 컨텍스트 우선순위는 GPUI 규칙을 그대로 쓴다: 키 컨텍스트 트리에서 더 깊은 노드에 맞는 바인딩이
 //! 이기므로 `Normal > Arrangement`가 `Normal`보다 우선한다. 깊이가 같으면 뒤 레이어·뒤 항목이 이긴다.
+//! 예외 둘(GPUI 규칙에서 나온다, 리뷰 1 제안 10):
+//! - 컨텍스트 없는(전역) 바인딩은 어느 깊이와도 맞으므로, 뒤에 건 전역 바인딩은 가장 깊은 컨텍스트의
+//!   앞 바인딩과 동률이 되어 이긴다.
+//! - 사용자 레이어의 얕은 컨텍스트(`Normal`) 바인딩은 프리셋의 깊은 컨텍스트(`Normal > PianoRoll`)
+//!   바인딩을 덮지 못한다. 덮으려면 같은 컨텍스트로 적는다.
 //!
 //! 물리 키 매칭(KM-7): GPUI macOS는 바인딩을 `Keystroke.key`로 맞추고, 이 값은 현재 자판
 //! 레이아웃(한글 입력 중에도 ABC/U.S.)과 keyCode로 만든다. 입력된 글자는 `key_char`에 따로 담긴다.
@@ -17,7 +22,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::{Duration, SystemTime};
 
-use gpui_kit::{App, Global, KeyBinding, KeyBindingContextPredicate, NoAction, Task};
+use gpui_kit::{App, Global, KeyBinding, KeyBindingContextPredicate, Keystroke, NoAction, Task};
 use serde::{Deserialize, Serialize};
 
 use self::source::{ActionRef, Binding, KeymapError, Layer, Pos, parse};
@@ -72,8 +77,8 @@ pub fn load_layers(preset: Preset, user_text: Option<&str>) -> (LayerSet, Vec<Ke
     let mut errors = Vec::new();
     let (standard, e) = parse(STANDARD_KEYMAP, Layer::Standard);
     errors.extend(e);
-    let standard_keys: std::collections::HashSet<&str> =
-        standard.iter().map(|b| b.keys.as_str()).collect();
+    let standard_keys: std::collections::HashSet<String> =
+        standard.iter().map(|b| canonical_keys(&b.keys)).collect();
     let mut preset_bindings = Vec::new();
     let texts: &[(&str, Layer)] = match preset {
         Preset::Default => &[(DEFAULT_KEYMAP, Layer::Preset)],
@@ -86,7 +91,7 @@ pub fn load_layers(preset: Preset, user_text: Option<&str>) -> (LayerSet, Vec<Ke
         let (bindings, e) = parse(text, layer);
         errors.extend(e);
         for b in bindings {
-            if standard_keys.contains(b.keys.as_str()) {
+            if standard_keys.contains(&canonical_keys(&b.keys)) {
                 errors.push(KeymapError {
                     layer,
                     pos: b.pos,
@@ -101,6 +106,16 @@ pub fn load_layers(preset: Preset, user_text: Option<&str>) -> (LayerSet, Vec<Ke
         Some(text) => {
             let (bindings, e) = parse(text, Layer::User);
             errors.extend(e);
+            // 사용자는 표준 단축키도 덮을 수 있지만, 메뉴 단축키가 바뀌므로 알린다(KM-12).
+            for b in &bindings {
+                if standard_keys.contains(&canonical_keys(&b.keys)) {
+                    errors.push(KeymapError {
+                        layer: Layer::User,
+                        pos: b.pos,
+                        message: format!("경고: 표준 단축키 '{}'를 덮는다", b.keys),
+                    });
+                }
+            }
             bindings
         }
         None => Vec::new(),
@@ -115,21 +130,26 @@ pub fn load_layers(preset: Preset, user_text: Option<&str>) -> (LayerSet, Vec<Ke
     )
 }
 
-/// 수식키 `alt`와 `cmd`를 바꾼다(KM-11). 키 이름(마지막 토큰)은 그대로 둔다.
+/// 키 시퀀스를 GPUI 키 입력 단위로 정규화한다(수식키 별칭 `super`·`win`, 대소문자, 순서를 맞춘다).
+/// 읽을 수 없는 토큰은 그대로 둔다(그 오류는 `build`가 위치와 함께 낸다).
+#[must_use]
+pub fn canonical_keys(keys: &str) -> String {
+    keys.split_whitespace()
+        .map(|stroke| Keystroke::parse(stroke).map_or_else(|_| stroke.to_string(), |k| k.unparse()))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// 수식키 `alt`와 `cmd`를 바꾼다(KM-11). GPUI가 받는 별칭(`super`, `win`, 대소문자)도 같다.
 #[must_use]
 pub fn swap_alt_cmd(keys: &str) -> String {
-    keys.split(' ')
-        .map(|stroke| {
-            let mut parts: Vec<&str> = stroke.split('-').collect();
-            let last = parts.len().saturating_sub(1);
-            for part in &mut parts[..last] {
-                *part = match *part {
-                    "alt" => "cmd",
-                    "cmd" => "alt",
-                    other => other,
-                };
+    keys.split_whitespace()
+        .map(|stroke| match Keystroke::parse(stroke) {
+            Ok(mut k) => {
+                std::mem::swap(&mut k.modifiers.alt, &mut k.modifiers.platform);
+                k.unparse()
             }
-            parts.join("-")
+            Err(_) => stroke.to_string(),
         })
         .collect::<Vec<_>>()
         .join(" ")
@@ -167,7 +187,9 @@ pub fn build(
             },
         };
         let action: Box<dyn gpui_kit::Action> = match &b.action {
-            // 지우기: GPUI의 NoAction은 같은 (컨텍스트, 키)의 앞 바인딩을 가린다.
+            // 지우기: GPUI의 NoAction은 같은 키의 우선순위가 낮은 바인딩(같거나 얕은 컨텍스트의 것,
+            // 앞에 건 것)을 모두 가린다. 그래서 프리셋 파일은 깊은 컨텍스트에서 얕은 컨텍스트의 자기
+            // 바인딩을 가리지 않게 `null` 대신 Action을 직접 건다(리뷰 1 지적 1).
             ActionRef::Unbind => Box::new(NoAction),
             ActionRef::Named { name, args } => match cx.build_action(name, args.clone()) {
                 Ok(action) => action,
@@ -204,6 +226,8 @@ pub struct KeymapState {
     poll: Option<Task<()>>,
     /// 카운트 접두(KM-5). 다음 Action 처리기가 `take_count`로 꺼낸다.
     count: Option<u32>,
+    /// 마지막으로 제대로 읽힌 사용자 레이어.
+    last_user: Vec<Binding>,
 }
 
 impl Global for KeymapState {}
@@ -223,6 +247,7 @@ pub fn install(
         after_apply: Some(after_apply),
         poll: None,
         count: None,
+        last_user: Vec::new(),
     });
     apply(cx);
     let poll = cx.spawn(async move |cx| {
@@ -237,6 +262,18 @@ pub fn install(
     });
     cx.global_mut::<KeymapState>().poll = Some(poll);
     register_count_actions(cx);
+    // 숫자가 아닌 Action이 키로 실행되면 남은 카운트를 비운다. 처리기가 `take_count`로 이미 꺼냈다면
+    // 비어 있다. 이렇게 해야 `3`, `Esc`, 한참 뒤 `x`가 세 번 실행되지 않는다(리뷰 1 지적 4).
+    cx.observe_keystrokes(|event, _, cx| {
+        let is_count = event
+            .action
+            .as_ref()
+            .is_some_and(|a| a.as_any().is::<crate::actions::operator::Count>());
+        if event.action.is_some() && !is_count {
+            cx.global_mut::<KeymapState>().count = None;
+        }
+    })
+    .detach();
 }
 
 fn file_stamp(path: &PathBuf) -> Option<(SystemTime, u64)> {
@@ -256,8 +293,36 @@ pub fn apply(cx: &mut App) {
         (s.options, s.user_path.clone())
     };
     let stamp = file_stamp(&path);
-    let user_text = std::fs::read_to_string(&path).ok();
-    let (layers, mut errors) = load_layers(options.preset, user_text.as_deref());
+    let mut read_errors = Vec::new();
+    let user_text = match std::fs::read_to_string(&path) {
+        Ok(text) => Some(text),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        // 있는데 못 읽으면(권한, UTF-8 아님) 알리고 마지막으로 읽힌 사용자 레이어를 쓴다(리뷰 1 제안 11).
+        Err(e) => {
+            read_errors.push(KeymapError {
+                layer: Layer::User,
+                pos: Pos { line: 1, column: 1 },
+                message: format!("keymap.json을 읽을 수 없다: {e}"),
+            });
+            None
+        }
+    };
+    let (mut layers, mut errors) = load_layers(options.preset, user_text.as_deref());
+    // 사용자 파일이 문법 오류로 통째로 읽히지 않으면 마지막으로 읽힌 사용자 레이어를 유지한다. 편집 중
+    // 저장할 때마다 사용자 키가 모두 사라졌다 돌아오지 않게 한다(리뷰 1 제안 13).
+    let user_syntax_error = user_text.is_some()
+        && layers.user.is_empty()
+        && errors.iter().any(|e| e.layer == Layer::User);
+    if user_syntax_error || !read_errors.is_empty() {
+        layers
+            .user
+            .clone_from(&cx.global::<KeymapState>().last_user);
+    } else {
+        cx.global_mut::<KeymapState>()
+            .last_user
+            .clone_from(&layers.user);
+    }
+    errors.extend(read_errors);
     let (bindings, build_errors) = build(&layers, options, cx);
     errors.extend(build_errors);
     cx.clear_key_bindings();
@@ -276,12 +341,14 @@ pub fn apply(cx: &mut App) {
 /// 프리셋을 바꾼다. 사용자 오버라이드는 그대로다(KM-2).
 pub fn set_preset(cx: &mut App, preset: Preset) {
     cx.global_mut::<KeymapState>().options.preset = preset;
+    crate::app_state::AppSettings::update(cx, |s| s.keymap.preset = preset);
     apply(cx);
 }
 
 /// 수식키 교환을 켜거나 끈다(KM-11).
 pub fn set_swap_alt_cmd(cx: &mut App, on: bool) {
     cx.global_mut::<KeymapState>().options.swap_alt_cmd = on;
+    crate::app_state::AppSettings::update(cx, |s| s.keymap.swap_alt_cmd = on);
     apply(cx);
 }
 

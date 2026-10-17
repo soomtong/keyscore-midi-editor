@@ -316,3 +316,32 @@ fn user_keymap_hot_reloads_and_reports_errors(cx: &mut TestAppContext) {
     cx.simulate_keystrokes(handle, "f6");
     assert!(inspector_open(cx, handle));
 }
+
+#[gpui_kit::test]
+fn syntax_error_in_user_keymap_keeps_last_good_layer(cx: &mut TestAppContext) {
+    let dir = start(
+        cx,
+        "keep-last",
+        Some(r#"[{"bindings": {"f8": "view::ToggleInspector"}}]"#),
+    );
+    let handle = open(cx);
+    std::fs::write(dir.join("keymap.json"), "[{\"bindings\": {\"f8\" ").unwrap();
+    cx.executor().advance_clock(Duration::from_millis(1100));
+    cx.run_until_parked();
+    assert_eq!(cx.update(|cx| keymap::errors(cx).len()), 1);
+    cx.simulate_keystrokes(handle, "f8");
+    assert!(
+        !inspector_open(cx, handle),
+        "편집 중 문법 오류로 사용자 키가 사라졌다"
+    );
+}
+
+#[test]
+fn duplicate_fields_in_a_section_are_reported() {
+    let (b, e) = keymap::source::parse(
+        r#"[{"context": "Normal", "context": "Step", "bindings": {"x": "edit::Undo"}}]"#,
+        keymap::source::Layer::User,
+    );
+    assert_eq!(e.len(), 1, "{e:?}");
+    assert_eq!(b[0].context.as_deref(), Some("Normal"));
+}
