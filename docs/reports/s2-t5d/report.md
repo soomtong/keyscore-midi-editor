@@ -80,3 +80,17 @@ port_watch.rs 6개: 병렬 실행 3번 연속 통과(약 1.4 s)
 부록 A·B·C 테스트는 `tests/review_s2_t5d.rs`로 옮겨 통과한다. 두 테스트는 전제를 고쳤다.
 - `break_duplicate_names_engine_port_vanishes_while_lower_id_remains`: 지적 1의 수정으로 엔진이 ID가 작은 포트를 쓴다. 그 포트를 지우고 남은 포트로 옮겨 가는지 본다.
 - `vanish_and_return_messages_only_user_window_and_other_keeps_playing`: 제안 6 대응으로 쓰지 않는 창도 핫플러그 알림을 받는다. 그 창에 재연결 문구가 가지 않는지 본다.
+
+## 리뷰 2 대응
+
+| 리뷰 항목 | 대응 |
+| --- | --- |
+| 지적 1: 감시 중 재생하며 쓰는 포트의 이름이 바뀌면 「사라졌다」 뒤에도 그 포트로 소리가 간다 | `Lost`를 받은 창이 재생 중이면 스냅샷을 다시 만든다(`transport_port_lost`). 엔진은 그 이름을 「없음」으로 알고 있어 그 트랙을 빼고, 재생 시작과 같은 「없어 소리 내지 않는다」를 알린다 |
+| 제안 2: 끊긴 적 없이 더 작은 ID의 같은 이름 포트로 옮길 때 「다시 연결했다」 | 그 경우는 「같은 이름의 다른 포트로 바꿨다」로 알린다. 이 이벤트로 끊긴 뒤 남은 같은 이름 포트로 옮기는 것은 그대로 「다시 연결했다」다 |
+| 제안 3: 포트를 많이 내는 장치가 메시지 목록을 밀어낸다 | 한 번의 감시에서 쓰지 않는 포트의 나타남·사라짐은 종류마다 한 줄로 묶는다(「출력 포트 N개가 새로 보인다: …」). 이름은 모두 적는다 |
+| 부록 B(판정 보류) | 같은 프로세스에서 만든 목적지의 알림이 다른 테스트 뒤에 오지 않는 테스트 환경 문제로 보고 그대로 둔다 |
+
+부록 A 테스트는 `tests/review_s2_t5d_r2.rs`로 옮겨 통과한다. 리뷰 테스트 셋은 위 대응에 맞게 전제를 고쳤다.
+- `many_port_hotplug_is_bounded_and_status_shows_last`, `hotplug_wording_per_window_and_rename_order`: 묶은 줄에도 이름이 모두 들어 있어 그대로 통과한다. 고친 것은 없다.
+- `closed_window_port_changes_are_harmless`: 새 창은 다른 테스트 포트의 핫플러그 알림을 받으므로 「메시지 없음」 대신 「재연결 문구 없음」을 본다.
+- `duplicate_names_consistent_choice_reconnects`: 수정 없이 통과한다(끊긴 뒤 옮김은 「다시 연결했다」).
