@@ -253,6 +253,8 @@ pub struct KeymapState {
     in_key_dispatch: bool,
     /// 마지막으로 제대로 읽힌 사용자 레이어.
     last_user: Vec<Binding>,
+    /// 편집기가 마지막으로 쓴 사용자 파일 내용. 파일이 이것과 다르면 사람이 고친 것이라 `.bak`으로 남긴다.
+    last_written: Option<String>,
     /// 설치 전에 이미 걸려 있던 바인딩(gpui-component가 `init`에서 건 `PopupMenu`·`Input` 등의 키).
     /// `apply`는 `clear_key_bindings`로 모두 지우므로 매번 가장 먼저(가장 낮은 우선순위로) 다시 건다.
     base: Vec<KeyBinding>,
@@ -283,6 +285,7 @@ pub fn install(
         count: None,
         in_key_dispatch: false,
         last_user: Vec::new(),
+        last_written: None,
         base,
     });
     apply(cx);
@@ -494,16 +497,22 @@ pub fn current_layers(cx: &App) -> (LayerSet, Result<user::UserKeymap, String>) 
 /// 파일을 쓰지 못한 이유.
 pub fn save_user(cx: &mut App, user: &user::UserKeymap) -> Result<(), String> {
     let path = user_path(cx);
-    if path.exists() {
-        std::fs::copy(&path, path.with_extension("json.bak"))
+    // 사람이 쓴(편집기가 쓰지 않은) 내용만 `.bak`으로 남긴다. 편집할 때마다 덮으면 두 번째 편집부터 손으로 쓴
+    // 원본·주석이 사라진다(리뷰 1 제안 11).
+    if let Ok(old) = std::fs::read_to_string(&path)
+        && cx.global::<KeymapState>().last_written.as_deref() != Some(old.as_str())
+    {
+        std::fs::write(path.with_extension("json.bak"), old)
             .map_err(|e| format!("keymap.json을 백업하지 못했다: {e}"))?;
     }
     let tmp = path.with_extension("json.tmp");
-    let written = std::fs::write(&tmp, user.to_json()).and_then(|()| std::fs::rename(&tmp, &path));
+    let text = user.to_json();
+    let written = std::fs::write(&tmp, &text).and_then(|()| std::fs::rename(&tmp, &path));
     if let Err(e) = written {
         let _ = std::fs::remove_file(&tmp);
         return Err(format!("keymap.json을 쓰지 못했다: {e}"));
     }
+    cx.global_mut::<KeymapState>().last_written = Some(text);
     apply(cx);
     Ok(())
 }

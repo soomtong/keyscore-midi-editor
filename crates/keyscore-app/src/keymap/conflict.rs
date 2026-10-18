@@ -36,6 +36,8 @@ fn context_key(context: Option<&str>) -> String {
 
 fn action_label(action: &ActionRef) -> Option<String> {
     match action {
+        // Action 지정 해제(`zed::Unbind`)도 지우기라 충돌로 세지 않는다.
+        ActionRef::Named { name, .. } if name == super::user::UNBIND => None,
         ActionRef::Named { name, args: None } => Some(name.clone()),
         ActionRef::Named {
             name,

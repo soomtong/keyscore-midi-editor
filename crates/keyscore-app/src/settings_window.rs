@@ -65,6 +65,8 @@ enum Sheet {
     Import {
         user: UserKeymap,
         conflicts: Vec<Conflict>,
+        /// 표준 단축키(7.5)를 덮는 키(KM-12)
+        overrides: Vec<String>,
     },
 }
 
@@ -132,6 +134,10 @@ pub fn open(cx: &mut App, section: Option<SettingsSection>) {
 #[must_use]
 pub fn current(cx: &App) -> Option<(AnyWindowHandle, Entity<SettingsWindow>)> {
     let (handle, view) = cx.try_global::<OpenSettings>()?.0.as_ref()?;
+    // 창을 닫아도 뷰가 잠시 남을 수 있다. 창이 아직 있는지로 본다(리뷰 1 지적 4).
+    if !cx.windows().contains(handle) {
+        return None;
+    }
     Some((*handle, view.upgrade()?))
 }
 
@@ -139,6 +145,33 @@ pub fn current(cx: &App) -> Option<(AnyWindowHandle, Entity<SettingsWindow>)> {
 pub(crate) fn register(cx: &mut App) {
     cx.on_action(|action: &settings::Open, cx| open(cx, action.0.0));
     cx.on_action(|_: &km::Edit, cx| open(cx, Some(SettingsSection::Keymap)));
+    // 프리셋·수식키 교환은 어느 창에서든(팔레트 포함) 된다(리뷰 1 지적 5)
+    cx.on_action(|action: &km::SelectPreset, cx| {
+        let preset = match action.0 {
+            PresetName::Default => Preset::Default,
+            PresetName::Vim => Preset::Vim,
+        };
+        keymap::set_preset(cx, preset);
+        cx.refresh_windows();
+    });
+    cx.on_action(|_: &km::SwapModifiers, cx| {
+        let on = !keymap::options(cx).swap_alt_cmd;
+        keymap::set_swap_alt_cmd(cx, on);
+        cx.refresh_windows();
+    });
+    // 내보내기·가져오기는 파일 대화상자와 결과 알림이 설정 창의 일이다. 다른 창에서 부르면 설정 창을 열어 넘긴다
+    cx.on_action(|_: &km::Export, cx| forward(cx, Box::new(km::Export)));
+    cx.on_action(|_: &km::Import, cx| forward(cx, Box::new(km::Import)));
+}
+
+/// 설정 창(키맵 구역)을 열고 그 창에 Action을 넘긴다.
+fn forward(cx: &mut App, action: Box<dyn gpui_kit::Action>) {
+    open(cx, Some(SettingsSection::Keymap));
+    if let Some((handle, _)) = current(cx) {
+        cx.defer(move |cx| {
+            let _ = handle.update(cx, |_, window, cx| window.dispatch_action(action, cx));
+        });
+    }
 }
 
 impl SettingsWindow {
@@ -237,6 +270,10 @@ impl SettingsWindow {
     ) {
         self.section = section;
         self.cancel_capture(cx);
+        // 구역을 떠나면 시트도 닫는다. 남겨 두면 돌아왔을 때 키보드로 닿지 않는다(리뷰 1 지적 6)
+        if self.sheet.take().is_some() {
+            self.message = Some("구역을 옮겨 시트를 닫았다".to_owned());
+        }
         if section == SettingsSection::Keymap {
             self.focus_list(window, cx);
         } else {
@@ -266,6 +303,15 @@ impl SettingsWindow {
         let eff = effective(&layers);
         let docs = cx.action_documentation();
         let query = self.query.trim().to_lowercase();
+        // 수식키 교환이 켜져 있으면 엔진은 표준 밖 레이어의 키를 바꿔 건다. 실제로 누르는 키를 보인다(KM-11)
+        let swap = keymap::options(cx).swap_alt_cmd;
+        let shown = |e: &Effective| {
+            if swap && e.layer != Layer::Standard {
+                keymap::swap_alt_cmd(&e.keys)
+            } else {
+                e.keys.clone()
+            }
+        };
         crate::commands::specs()
             .iter()
             .map(|spec| {
@@ -278,8 +324,8 @@ impl SettingsWindow {
                         .iter()
                         .filter(|e| e.name == name)
                         .map(|e| match &e.context {
-                            Some(c) => format!("{} ({c})", e.keys),
-                            None => e.keys.clone(),
+                            Some(c) => format!("{} ({c})", shown(e)),
+                            None => shown(e),
                         })
                         .collect(),
                 }
@@ -366,7 +412,14 @@ impl SettingsWindow {
         if capture.keys.is_empty() {
             return;
         }
-        let keys = capture.keys.join(" ");
+        // 수식키 교환(KM-11)이 켜져 있으면 엔진이 사용자 키를 바꿔 건다. 누른 키가 그대로 걸리도록 파일에는
+        // 바꾼 키를 쓴다(교환은 자기 역이다, 리뷰 1 지적 2).
+        let pressed = capture.keys.join(" ");
+        let keys = if keymap::options(cx).swap_alt_cmd {
+            keymap::swap_alt_cmd(&pressed)
+        } else {
+            pressed
+        };
         let (layers, user) = keymap::current_layers(cx);
         if let Err(why) = user {
             self.message = Some(format!("keymap.json을 고쳐 쓰지 않는다: {why}"));
@@ -374,6 +427,14 @@ impl SettingsWindow {
             return;
         }
         let eff = effective(&layers);
+        if crate::keymap::user::argument_variants(&eff, &action) > 1 {
+            // 인자별로 다른 명령이다(`step::Note(a)`, `step::Note(s)` …). 어느 것을 바꿀지 목록에서 고를 수 없다
+            self.message = Some(format!(
+                "{action}은 인자마다 바인딩이 따로 있어 여기서 바꾸지 않는다. keymap.json에서 고친다"
+            ));
+            cx.notify();
+            return;
+        }
         // 대상 컨텍스트: 그 Action의 지금(없으면 프리셋의) 첫 바인딩의 컨텍스트, 없으면 전역
         let context = eff
             .iter()
@@ -413,21 +474,16 @@ impl SettingsWindow {
             }
         };
         let eff = effective(&layers);
-        // 그 자리를 가진 다른 Action(충돌 시트의 「새 바인딩 유지」)은 키를 잃는다. 접두 충돌의 상대는 지운다.
-        for other in binding_conflicts(&eff, context, keys, action) {
-            if canonical_keys(&other.keys) != canonical_keys(keys) {
-                user.clear_place(other.context.as_deref(), &other.keys, other.layer);
-            }
-        }
-        user.bind(action, context, keys, &eff);
-        let standard = layers
+        // 그 자리와 부딪히는 다른 Action(충돌 시트의 「새 바인딩 유지」)은 키를 잃는다
+        let removed_standard = user.bind(action, context, keys, &eff);
+        let overrides_standard = layers
             .standard
             .iter()
             .any(|b| canonical_keys(&b.keys) == canonical_keys(keys));
         self.message = Some(match keymap::save_user(cx, &user) {
-            Ok(()) if standard => {
+            Ok(()) if overrides_standard || removed_standard => {
                 format!(
-                    "{action}에 {keys}를 걸었다. 경고: 표준 단축키를 덮는다(메뉴 단축키가 바뀐다)"
+                    "{action}에 {keys}를 걸었다. 경고: 표준 단축키를 덮거나 지웠다(메뉴 단축키가 바뀐다)"
                 )
             }
             Ok(()) => format!("{action}에 {keys}를 걸었다"),
@@ -549,13 +605,30 @@ impl SettingsWindow {
             }
         };
         let conflicts = crate::keymap::conflict::conflicts(user.bindings());
-        if conflicts.is_empty() {
+        // 표준 단축키를 덮는 항목도 적용 전에 보인다(KM-12)
+        let (standard, _) = crate::keymap::load_layers(keymap::options(cx).preset, None);
+        let overrides: Vec<String> = user
+            .bindings()
+            .iter()
+            .filter(|b| {
+                standard
+                    .standard
+                    .iter()
+                    .any(|s| canonical_keys(&s.keys) == canonical_keys(&b.keys))
+            })
+            .map(|b| b.keys.clone())
+            .collect();
+        if conflicts.is_empty() && overrides.is_empty() {
             self.message = Some(match keymap::save_user(cx, &user) {
                 Ok(()) => "키맵을 가져왔다".to_owned(),
                 Err(e) => e,
             });
         } else {
-            self.sheet = Some(Sheet::Import { user, conflicts });
+            self.sheet = Some(Sheet::Import {
+                user,
+                conflicts,
+                overrides,
+            });
             window.focus(&self.sheet_focus, cx);
         }
         cx.notify();
@@ -563,6 +636,10 @@ impl SettingsWindow {
 
     // ---------- 그리기 ----------
 
+    #[allow(
+        clippy::too_many_lines,
+        reason = "시트 두 가지의 문구와 버튼을 한곳에 둔다"
+    )]
     fn render_sheet(&self, cx: &mut Context<Self>) -> Option<gpui_kit::AnyElement> {
         let sheet = self.sheet.as_ref()?;
         let (text, confirm) = match sheet {
@@ -595,7 +672,11 @@ impl SettingsWindow {
                     "새 바인딩 유지",
                 )
             }
-            Sheet::Import { conflicts, .. } => {
+            Sheet::Import {
+                conflicts,
+                overrides,
+                ..
+            } => {
                 let lines: Vec<String> = conflicts
                     .iter()
                     .map(|c| {
@@ -609,14 +690,21 @@ impl SettingsWindow {
                         )
                     })
                     .collect();
-                (
-                    format!(
+                let mut parts = Vec::new();
+                if !conflicts.is_empty() {
+                    parts.push(format!(
                         "가져올 키맵에 충돌이 {}개 있다: {}. 적용하면 충돌마다 파일에서 뒤 항목만 남긴다.",
                         conflicts.len(),
                         lines.join("; ")
-                    ),
-                    "뒤 항목 남기고 적용",
-                )
+                    ));
+                }
+                if !overrides.is_empty() {
+                    parts.push(format!(
+                        "경고: 표준 단축키를 덮는다: {}(메뉴 단축키가 바뀐다).",
+                        overrides.join(", ")
+                    ));
+                }
+                (parts.join(" "), "적용")
             }
         };
         Some(
@@ -803,10 +891,15 @@ impl SettingsWindow {
                         this.cancel_capture(cx);
                     }))
                     .on_action(cx.listener(|this, _: &km::ClearBinding, _, cx| {
-                        if let Some(action) = this.selected_action(cx)
-                            && this.edit_user(cx, |user, eff, _| user.clear(&action, eff))
-                        {
-                            this.message = Some(format!("{action}의 키를 지웠다"));
+                        if let Some(action) = this.selected_action(cx) {
+                            let mut standard = false;
+                            if this.edit_user(cx, |user, eff, _| standard = user.clear(&action, eff)) {
+                                this.message = Some(if standard {
+                                    format!("{action}의 키를 지웠다. 경고: 표준 단축키를 지웠다(메뉴 단축키가 바뀐다)")
+                                } else {
+                                    format!("{action}의 키를 지웠다")
+                                });
+                            }
                         }
                     }))
                     .on_action(cx.listener(|this, _: &km::RestoreDefault, _, cx| {
@@ -837,21 +930,6 @@ pub fn export_to(cx: &App, path: &Path) -> Result<(), String> {
     let (_, user) = keymap::current_layers(cx);
     let user = user?;
     std::fs::write(path, user.to_json()).map_err(|e| format!("내보내지 못했다: {e}"))
-}
-
-impl UserKeymap {
-    /// 그 자리(컨텍스트·키)의 실효 바인딩을 지운다. 사용자 항목이면 빼고, 아래 레이어 것이면 `null`로 가린다.
-    pub(crate) fn clear_place(&mut self, context: Option<&str>, keys: &str, layer: Layer) {
-        let eff = [Effective {
-            context: context.map(str::to_owned),
-            keys: keys.to_owned(),
-            action: String::new(),
-            name: String::new(),
-            args: None,
-            layer,
-        }];
-        self.clear("", &eff);
-    }
 }
 
 impl Focusable for SettingsWindow {
@@ -901,19 +979,6 @@ impl Render for SettingsWindow {
             }))
             .on_action(cx.listener(|this, _: &settings::PrevSection, window, cx| {
                 this.step_section(-1, window, cx);
-            }))
-            .on_action(cx.listener(|_, action: &km::SelectPreset, _, cx| {
-                let preset = match action.0 {
-                    PresetName::Default => Preset::Default,
-                    PresetName::Vim => Preset::Vim,
-                };
-                keymap::set_preset(cx, preset);
-                cx.notify();
-            }))
-            .on_action(cx.listener(|_, _: &km::SwapModifiers, _, cx| {
-                let on = !keymap::options(cx).swap_alt_cmd;
-                keymap::set_swap_alt_cmd(cx, on);
-                cx.notify();
             }))
             .on_action(cx.listener(Self::export))
             .on_action(cx.listener(Self::import))

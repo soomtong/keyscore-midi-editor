@@ -139,6 +139,9 @@ fn capture_swallows_standard_shortcuts_and_warns(cx: &mut TestAppContext) {
     assert!(cx.update(|cx| settings_window::current(cx)).is_some());
     assert!(cx.read(|cx| view.read(cx).capturing()));
     settle(cx, handle);
+    // 리뷰 1 지적 7 대응 뒤: 전역 `cmd-w`(window::Close)와 한 경로에서 부딪혀 충돌 시트가 먼저 뜬다
+    assert!(cx.read(|cx| view.read(cx).sheet_open()));
+    press(cx, handle, "enter");
     assert!(user_file(&dir).contains("cmd-w"), "{}", user_file(&dir));
     let msg = cx.read(|cx| view.read(cx).message()).unwrap_or_default();
     assert!(msg.contains("표준"), "{msg}");
@@ -336,4 +339,235 @@ fn import_with_unbind_entries_applies(cx: &mut TestAppContext) {
         .map(|(_, k, _)| k)
         .collect();
     assert_eq!(keys, vec!["ctrl-alt-u".to_owned()]);
+}
+
+// ---------- 리뷰 1 부록 A ----------
+
+/// 인자 있는 Action(`step::Note`)의 줄에서 캡처해도 다른 인자의 바인딩(`s`→`step::Note(s)` 등)은 남아야 한다.
+#[gpui_kit::test]
+fn brk_capture_on_args_action_keeps_other_variants(cx: &mut TestAppContext) {
+    let dir = start(cx, "args", None);
+    let (handle, view) = open_settings(cx);
+    let before = effective_of(cx, "step::Note").len();
+    assert!(before > 5, "{before}");
+    select_exact(cx, handle, &view, "step::Note");
+    press(cx, handle, "enter ctrl-alt-n");
+    settle(cx, handle);
+    let after = effective_of(cx, "step::Note");
+    assert!(
+        after.len() >= before - 1,
+        "캡처 한 번에 step::Note 바인딩이 {before}개에서 {}개로: {after:?}\n{}",
+        after.len(),
+        user_file(&dir)
+    );
+}
+
+/// 수식키 교환을 켠 채 캡처한 키를 누르면 그 Action이 나와야 한다(KM-11, press-to-bind).
+#[gpui_kit::test]
+fn brk_capture_with_swap_modifiers_fires_captured_key(cx: &mut TestAppContext) {
+    let dir = start(cx, "swap", None);
+    let (project, pview) = open_project(cx);
+    cx.update(|cx| keymap::set_swap_alt_cmd(cx, true));
+    let (handle, view) = open_settings(cx);
+    select_exact(cx, handle, &view, "track::ToggleMute");
+    press(cx, handle, "enter cmd-ctrl-u");
+    settle(cx, handle);
+    activate(cx, project);
+    press(cx, project, "cmd-ctrl-u");
+    assert!(
+        muted(cx, &pview),
+        "캡처한 cmd-ctrl-u가 뮤트하지 않는다: {}",
+        user_file(&dir)
+    );
+}
+
+/// 전역 바인딩(`mode::Cycle`의 `ctrl-tab`)을 지워도 설정 창의 `ctrl-tab`(`settings::NextSection`, 목록에
+/// 그대로 보인다)은 살아 있어야 한다.
+#[gpui_kit::test]
+fn brk_clearing_global_binding_keeps_context_bindings(cx: &mut TestAppContext) {
+    let dir = start(cx, "global-null", None);
+    let (handle, view) = open_settings(cx);
+    select_exact(cx, handle, &view, "mode::Cycle");
+    press(cx, handle, "backspace");
+    let shown = effective_of(cx, "settings::NextSection");
+    assert!(
+        !shown.is_empty(),
+        "편집기는 NextSection이 걸려 있다고 보인다"
+    );
+    press(cx, handle, "ctrl-tab");
+    assert_eq!(
+        cx.read(|cx| view.read(cx).section()),
+        SettingsSection::Ai,
+        "ctrl-tab이 죽었다: {shown:?}\n{}",
+        user_file(&dir)
+    );
+}
+
+/// 전역 Action(`settings::Open`)에 목록의 키 `r`을 걸면 충돌로 묻거나, 적어도 목록의 `r`(복원)은 살아야 한다.
+#[gpui_kit::test]
+fn brk_global_binding_shadowing_context_key_is_a_conflict(cx: &mut TestAppContext) {
+    let dir = start(cx, "global-shadow", None);
+    let (handle, view) = open_settings(cx);
+    select_exact(cx, handle, &view, "track::ToggleMute");
+    press(cx, handle, "backspace");
+    assert!(user_file(&dir).contains("track::ToggleMute") || user_file(&dir).contains("null"));
+    select_exact(cx, handle, &view, "settings::Open");
+    press(cx, handle, "enter r");
+    settle(cx, handle);
+    let sheet = cx.read(|cx| view.read(cx).sheet_open());
+    if sheet {
+        return;
+    }
+    // 시트 없이 걸렸다. 검색란에 `r`이 들어가는지, 목록의 `r`이 아직 복원인지 본다
+    press(cx, handle, "/");
+    press(cx, handle, "cmd-a backspace");
+    type_text(cx, handle, "track::togglemute");
+    let query_ok = selected(cx, &view).as_deref() == Some("track::ToggleMute");
+    press(cx, handle, "escape");
+    press(cx, handle, "/");
+    type_text(cx, handle, "togglemute");
+    press(cx, handle, "enter");
+    assert_eq!(selected(cx, &view).as_deref(), Some("track::ToggleMute"));
+    press(cx, handle, "r");
+
+    assert!(
+        !effective_of(cx, "track::ToggleMute").is_empty(),
+        "시트 없이 r이 settings::Open에 먹혀 복원이 안 된다\n{}",
+        user_file(&dir)
+    );
+    assert!(
+        query_ok,
+        "검색란에 r을 칠 수 없다(전역 r이 먹는다)\n{}",
+        user_file(&dir)
+    );
+}
+
+/// 충돌 시트가 열린 채 구역을 옮겼다 돌아와도 키보드만으로 시트를 닫을 수 있어야 한다(KM-8, P1).
+#[gpui_kit::test]
+fn brk_sheet_reachable_after_section_round_trip(cx: &mut TestAppContext) {
+    let dir = start(cx, "sheet-stuck", None);
+    let (handle, view) = open_settings(cx);
+    select_exact(cx, handle, &view, "track::ToggleMute");
+    press(cx, handle, "enter o");
+    settle(cx, handle);
+    assert!(cx.read(|cx| view.read(cx).sheet_open()));
+    press(cx, handle, "ctrl-tab ctrl-shift-tab");
+    assert_eq!(
+        cx.read(|cx| view.read(cx).section()),
+        SettingsSection::Keymap
+    );
+    press(cx, handle, "escape");
+    assert!(
+        !cx.read(|cx| view.read(cx).sheet_open()),
+        "시트가 남았고 escape가 닿지 않는다"
+    );
+    let _ = dir;
+}
+
+/// 프리셋 선택·수식키 교환을 키보드만으로 할 수 있어야 한다(KM-8, P1). 리뷰 1 대응으로 키맵 구역에 키를
+/// 두었다(`alt-1`·`alt-2` 프리셋, `alt-m` 수식키 교환). 탭 이동 + space 전제를 이 키로 바꿨다.
+#[gpui_kit::test]
+fn brk_preset_and_swap_by_keyboard_only(cx: &mut TestAppContext) {
+    start(cx, "kbd-preset", None);
+    let (handle, _view) = open_settings(cx);
+    press(cx, handle, "alt-2");
+    assert_eq!(cx.read(keymap::options).preset, Preset::Vim);
+    press(cx, handle, "alt-m");
+    assert!(cx.read(keymap::options).swap_alt_cmd);
+    // 수식키 교환이 켜지면 프리셋 키의 alt가 cmd가 된다(KM-11): alt-m은 cmd-m, alt-1은 cmd-1
+    press(cx, handle, "cmd-m alt-1");
+    assert!(!cx.read(keymap::options).swap_alt_cmd);
+    assert_eq!(cx.read(keymap::options).preset, Preset::Default);
+}
+
+/// 표준 단축키를 덮는 키맵을 가져오면 경고해야 한다(계획 7항, KM-12).
+#[gpui_kit::test]
+fn brk_import_warns_standard_override(cx: &mut TestAppContext) {
+    let dir = start(cx, "import-std", None);
+    let (handle, view) = open_settings(cx);
+    let file = dir.join("in.json");
+    std::fs::write(&file, r#"[{"bindings": {"cmd-s": "track::ToggleMute"}}]"#).unwrap();
+    cx.update_window(handle, |_, window, cx| {
+        window.dispatch_action(Box::new(km::Import), cx);
+    })
+    .unwrap();
+    cx.simulate_path_prompt_response(|_| Some(vec![file.clone()]));
+    cx.run_until_parked();
+    let msg = cx.read(|cx| view.read(cx).message()).unwrap_or_default();
+    let sheet = cx.read(|cx| view.read(cx).sheet_open());
+    assert!(
+        sheet || msg.contains("표준"),
+        "표준 단축키 덮기 경고 없음: {msg:?}"
+    );
+}
+
+/// 손으로 쓴 주석은 편집기가 두 번 써도 어딘가(.bak)에 남아야 한다.
+#[gpui_kit::test]
+fn brk_bak_keeps_hand_written_original_after_two_edits(cx: &mut TestAppContext) {
+    let original = "// 내 메모\n[{\"context\": \"Normal\", \"bindings\": {\"ctrl-alt-u\": \"track::ToggleMute\"}}]\n";
+    let dir = start(cx, "bak", Some(original));
+    let (handle, view) = open_settings(cx);
+    select_exact(cx, handle, &view, "track::ToggleSolo");
+    press(cx, handle, "backspace");
+    select_exact(cx, handle, &view, "track::New");
+    press(cx, handle, "backspace");
+    let bak = std::fs::read_to_string(dir.join("keymap.json.bak")).unwrap_or_default();
+    assert!(bak.contains("내 메모"), "원본 주석이 사라졌다: {bak}");
+}
+
+#[gpui_kit::test]
+fn brk_reopen_settings_after_close(cx: &mut TestAppContext) {
+    start(cx, "reopen", None);
+    let (project, _) = open_project(cx);
+    let (handle, _view) = open_settings(cx);
+    cx.update_window(handle, |_, window, _| window.remove_window())
+        .unwrap();
+    for _ in 0..3 {
+        cx.executor().advance_clock(Duration::from_millis(500));
+        cx.run_until_parked();
+    }
+    assert_eq!(cx.update(|cx| cx.windows().len()), 1, "창이 닫히지 않았다");
+    activate(cx, project);
+    press(cx, project, "cmd-,");
+    assert_eq!(
+        cx.update(|cx| cx.windows().len()),
+        2,
+        "설정 창을 닫은 뒤 cmd-,가 다시 열지 못한다(current: {})",
+        cx.update(|cx| settings_window::current(cx)).is_some()
+    );
+}
+
+/// 창 닫기(`window::Close`)를 키로 부르면 지금 창이 닫혀야 한다(계획 1항 「`cmd-w`로 닫는다」).
+#[gpui_kit::test]
+fn brk_cmd_w_closes_settings_window(cx: &mut TestAppContext) {
+    start(cx, "cmdw-close", None);
+    let (_project, _) = open_project(cx);
+    let (handle, _view) = open_settings(cx);
+    assert_eq!(cx.update(|cx| cx.active_window()), Some(handle));
+    // 창이 닫히므로 그리지 않는 키 보내기를 쓴다
+    cx.simulate_keystrokes(handle, "cmd-w");
+    cx.run_until_parked();
+    assert_eq!(
+        cx.update(|cx| cx.windows().len()),
+        1,
+        "cmd-w가 설정 창을 닫지 않았다"
+    );
+}
+
+/// 팔레트에 보이는 「vim 프리셋」(`keymap::SelectPreset`)을 프로젝트 창의 팔레트에서 고르면 프리셋이 바뀌어야
+/// 한다(P1: 키보드만으로 모든 기능, 설정 창 위 줄의 프리셋·수식키 교환에는 키가 없다).
+#[gpui_kit::test]
+fn brk_palette_select_preset_reaches_handler(cx: &mut TestAppContext) {
+    start(cx, "pal-preset", None);
+    let (project, _) = open_project(cx);
+    let (_h, _v) = open_settings(cx);
+    activate(cx, project);
+    press(cx, project, "cmd-shift-p");
+    type_text(cx, project, "vim 프리셋");
+    press(cx, project, "enter");
+    assert_eq!(
+        cx.read(keymap::options).preset,
+        Preset::Vim,
+        "팔레트의 vim 프리셋이 아무 일도 하지 않는다"
+    );
 }
