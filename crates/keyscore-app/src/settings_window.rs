@@ -23,8 +23,8 @@ use gpui_kit::{
 use crate::actions::args::{PresetName, SettingsSection};
 use crate::actions::{dialog, keymap as km, settings};
 use crate::keymap::conflict::{Conflict, ConflictKind};
-use crate::keymap::source::{ActionRef, Layer};
-use crate::keymap::user::{Effective, UserKeymap, binding_conflicts, effective};
+use crate::keymap::source::ActionRef;
+use crate::keymap::user::{Effective, UserKeymap, binding_conflicts};
 use crate::keymap::{self, Preset, canonical_keys};
 
 /// press-to-bind의 시퀀스 확정 대기(KM-5의 시퀀스 대기와 같다).
@@ -300,18 +300,10 @@ impl SettingsWindow {
     /// 거른 목록. 명령 표의 모든 Action(KM-3 「Action 목록」)과 지금 걸린 키.
     fn rows(&self, cx: &App) -> Vec<Row> {
         let (layers, _) = keymap::current_layers(cx);
-        let eff = effective(&layers);
+        // 수식키 교환이 켜져 있으면 실효 바인딩의 키는 실제로 누르는 키다(KM-11)
+        let eff = effective_now(&layers, cx);
         let docs = cx.action_documentation();
         let query = self.query.trim().to_lowercase();
-        // 수식키 교환이 켜져 있으면 엔진은 표준 밖 레이어의 키를 바꿔 건다. 실제로 누르는 키를 보인다(KM-11)
-        let swap = keymap::options(cx).swap_alt_cmd;
-        let shown = |e: &Effective| {
-            if swap && e.layer != Layer::Standard {
-                keymap::swap_alt_cmd(&e.keys)
-            } else {
-                e.keys.clone()
-            }
-        };
         crate::commands::specs()
             .iter()
             .map(|spec| {
@@ -324,8 +316,8 @@ impl SettingsWindow {
                         .iter()
                         .filter(|e| e.name == name)
                         .map(|e| match &e.context {
-                            Some(c) => format!("{} ({c})", shown(e)),
-                            None => shown(e),
+                            Some(c) => format!("{} ({c})", e.keys),
+                            None => e.keys.clone(),
                         })
                         .collect(),
                 }
@@ -412,21 +404,16 @@ impl SettingsWindow {
         if capture.keys.is_empty() {
             return;
         }
-        // 수식키 교환(KM-11)이 켜져 있으면 엔진이 사용자 키를 바꿔 건다. 누른 키가 그대로 걸리도록 파일에는
-        // 바꾼 키를 쓴다(교환은 자기 역이다, 리뷰 1 지적 2).
-        let pressed = capture.keys.join(" ");
-        let keys = if keymap::options(cx).swap_alt_cmd {
-            keymap::swap_alt_cmd(&pressed)
-        } else {
-            pressed
-        };
+        // 누른 키(실제 키)로 다룬다. 수식키 교환(KM-11)이 켜져 있으면 파일에 쓸 때 `UserKeymap`이 교환한다(리뷰 1
+        // 지적 2, 리뷰 2 지적 1).
+        let keys = capture.keys.join(" ");
         let (layers, user) = keymap::current_layers(cx);
         if let Err(why) = user {
             self.message = Some(format!("keymap.json을 고쳐 쓰지 않는다: {why}"));
             cx.notify();
             return;
         }
-        let eff = effective(&layers);
+        let eff = effective_now(&layers, cx);
         if crate::keymap::user::argument_variants(&eff, &action) > 1 {
             // 인자별로 다른 명령이다(`step::Note(a)`, `step::Note(s)` …). 어느 것을 바꿀지 목록에서 고를 수 없다
             self.message = Some(format!(
@@ -473,7 +460,7 @@ impl SettingsWindow {
                 return;
             }
         };
-        let eff = effective(&layers);
+        let eff = effective_now(&layers, cx);
         // 그 자리와 부딪히는 다른 Action(충돌 시트의 「새 바인딩 유지」)은 키를 잃는다
         let removed_standard = user.bind(action, context, keys, &eff);
         let overrides_standard = layers
@@ -505,7 +492,7 @@ impl SettingsWindow {
                 return false;
             }
         };
-        let eff = effective(&layers);
+        let eff = effective_now(&layers, cx);
         edit(&mut user, &eff, &layers);
         let result = keymap::save_user(cx, &user);
         if let Err(e) = &result {
@@ -610,13 +597,20 @@ impl SettingsWindow {
         let overrides: Vec<String> = user
             .bindings()
             .iter()
-            .filter(|b| {
+            .map(|b| {
+                // 엔진이 거는 실제 키(수식키 교환이면 교환한 키)로 표준과 비교한다(리뷰 2 지적 1)
+                if keymap::options(cx).swap_alt_cmd {
+                    keymap::swap_alt_cmd(&b.keys)
+                } else {
+                    b.keys.clone()
+                }
+            })
+            .filter(|keys| {
                 standard
                     .standard
                     .iter()
-                    .any(|s| canonical_keys(&s.keys) == canonical_keys(&b.keys))
+                    .any(|s| canonical_keys(&s.keys) == canonical_keys(keys))
             })
-            .map(|b| b.keys.clone())
             .collect();
         if conflicts.is_empty() && overrides.is_empty() {
             self.message = Some(match keymap::save_user(cx, &user) {
@@ -905,7 +899,10 @@ impl SettingsWindow {
                     .on_action(cx.listener(|this, _: &km::RestoreDefault, _, cx| {
                         if let Some(action) = this.selected_action(cx)
                             && this.edit_user(cx, |user, _, layers| {
-                                user.restore(&action, &layers.preset);
+                                // 표준 단축키를 지정 해제한 것도 되돌린다
+                                let defaults: Vec<_> =
+                                    layers.standard.iter().chain(&layers.preset).cloned().collect();
+                                user.restore(&action, &defaults);
                             })
                         {
                             this.message = Some(format!("{action}을 프리셋 기본값으로 되돌렸다"));
@@ -919,6 +916,11 @@ impl SettingsWindow {
             )
             .into_any_element()
     }
+}
+
+/// 지금 실효 바인딩. 키는 실제로 누르는 키다(수식키 교환 반영).
+fn effective_now(layers: &crate::keymap::LayerSet, cx: &App) -> Vec<Effective> {
+    crate::keymap::user::effective_with(layers, keymap::options(cx).swap_alt_cmd)
 }
 
 /// 지금 사용자 레이어를 `path`에 JSON 파일 하나로 쓴다(KM-9).

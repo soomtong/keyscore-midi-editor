@@ -125,7 +125,11 @@ fn user_keymap_round_trips_and_edits() {
         vec![(Some("Normal"), "m")]
     );
     assert_eq!(keys_of(&eff, "step::Rest"), vec![(Some("Step"), "m")]);
-    // ToggleSolo의 `s`는 ToggleMute 복원과 함께 돌아온다(그 `s`를 가리던 항목이 ToggleMute 것이었다)
+    // ToggleSolo의 `s`는 「새 바인딩 유지」로 꺼졌다. ToggleMute를 복원해도 되살아나지 않고(S2-T6a 리뷰 2
+    // 지적 2), ToggleSolo를 복원하면 돌아온다
+    assert!(keys_of(&eff, "track::ToggleSolo").is_empty());
+    user.restore("track::ToggleSolo", &preset);
+    let eff = effective(&layers(PRESET, &user.to_json()));
     assert_eq!(
         keys_of(&eff, "track::ToggleSolo"),
         vec![(Some("Normal"), "s")]

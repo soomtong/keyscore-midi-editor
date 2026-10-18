@@ -110,7 +110,8 @@ fn select_exact(
 fn effective_of(cx: &mut TestAppContext, name: &str) -> Vec<(Option<String>, String, String)> {
     cx.read(|cx| {
         let (layers, _) = keymap::current_layers(cx);
-        effective(&layers)
+        // 수식키 교환이 켜져 있으면 실제로 누르는 키로 본다(리뷰 2 대응 뒤 편집기 목록과 같은 기준)
+        keyscore_app::keymap::user::effective_with(&layers, keymap::options(cx).swap_alt_cmd)
             .into_iter()
             .filter(|e| e.name == name)
             .map(|e| (e.context, e.keys, e.action))
@@ -324,4 +325,137 @@ fn section_switch_with_sheet_writes_nothing(cx: &mut TestAppContext) {
     assert!(!cx.read(|cx| view.read(cx).sheet_open()));
     press(cx, handle, "ctrl-shift-tab enter");
     assert_eq!(user_file(&dir), "");
+}
+
+// ---------- 리뷰 2 부록 A ----------
+
+/// 수식키 교환을 켠 채 표준 단축키(`edit::Undo`의 `cmd-z`)를 지우면 엔진에서도 꺼져야 한다(목록은 꺼졌다고 보인다).
+#[gpui_kit::test]
+fn brk_swap_clear_standard_really_unbinds(cx: &mut TestAppContext) {
+    let dir = start(cx, "swap-clear-std", None);
+    let (project, _) = open_project(cx);
+    cx.update(|cx| keymap::set_swap_alt_cmd(cx, true));
+    let (handle, view) = open_settings(cx);
+    select_exact(cx, handle, &view, "edit::Undo");
+    press(cx, handle, "backspace");
+    assert!(effective_of(cx, "edit::Undo").is_empty());
+    activate(cx, project);
+    let fired = dispatched(cx, project, "cmd-z");
+    let menu = menu_keys(cx, "edit::Undo");
+    assert!(
+        fired.as_deref() != Some("edit::Undo") && menu.is_none(),
+        "편집기는 Undo 키가 없다고 보이지만 cmd-z가 {fired:?}, 메뉴 키 {menu:?}\n{}",
+        user_file(&dir)
+    );
+}
+
+/// 수식키 교환을 켠 채 `cmd-z`를 캡처하면 표준 단축키(`edit::Undo`)와의 충돌 시트나 표준 경고가 나와야 한다
+/// (KM-4, KM-12). 교환 없이는 시트가 뜬다.
+#[gpui_kit::test]
+fn brk_swap_capture_standard_key_warns(cx: &mut TestAppContext) {
+    let dir = start(cx, "swap-cap-std", None);
+    let (project, _) = open_project(cx);
+    cx.update(|cx| keymap::set_swap_alt_cmd(cx, true));
+    let (handle, view) = open_settings(cx);
+    select_exact(cx, handle, &view, "track::ToggleMute");
+    press(cx, handle, "enter cmd-z");
+    settle(cx, handle);
+    let sheet = cx.read(|cx| view.read(cx).sheet_open());
+    let msg = cx.read(|cx| view.read(cx).message()).unwrap_or_default();
+    activate(cx, project);
+    let fired = dispatched(cx, project, "cmd-z");
+    assert!(
+        sheet || msg.contains("표준"),
+        "시트·경고 없이 걸렸다: {msg:?}, cmd-z는 이제 {fired:?}\n{}",
+        user_file(&dir)
+    );
+}
+
+/// 수식키 교환을 켠 채 `alt-z`를 캡처하면 실제로 걸리는 키는 `alt-z`라 표준 `cmd-z`와 부딪히지 않는다. 충돌
+/// 시트가 뜨면 안 된다.
+#[gpui_kit::test]
+fn brk_swap_capture_alt_key_no_false_conflict(cx: &mut TestAppContext) {
+    let dir = start(cx, "swap-cap-alt", None);
+    cx.update(|cx| keymap::set_swap_alt_cmd(cx, true));
+    let (handle, view) = open_settings(cx);
+    select_exact(cx, handle, &view, "track::ToggleMute");
+    press(cx, handle, "enter alt-z");
+    settle(cx, handle);
+    let sheet = cx.read(|cx| view.read(cx).sheet_open());
+    if sheet {
+        // 「새 바인딩 유지」를 고르면 Undo가 목록에서 사라지지만 엔진은 여전히 cmd-z로 Undo한다
+        press(cx, handle, "enter");
+    }
+    let msg = cx.read(|cx| view.read(cx).message()).unwrap_or_default();
+    assert!(
+        !sheet,
+        "alt-z(실제 키)가 표준 cmd-z와 충돌한다고 묻는다. 유지 뒤 알림: {msg:?}, Undo 목록 {:?}, 메뉴 {:?}\n{}",
+        effective_of(cx, "edit::Undo"),
+        menu_keys(cx, "edit::Undo"),
+        user_file(&dir)
+    );
+}
+
+/// 앱을 다시 띄운 뒤(엔진 재설치) 첫 편집이 `.bak`의 손으로 쓴 원본을 편집기 출력으로 덮으면 안 된다.
+#[gpui_kit::test]
+fn brk_bak_survives_restart(cx: &mut TestAppContext) {
+    let original = "// 내 메모\n[{\"context\": \"Normal\", \"bindings\": {\"ctrl-alt-u\": \"track::ToggleMute\"}}]\n";
+    let dir = start(cx, "bak-restart", Some(original));
+    let (handle, view) = open_settings(cx);
+    select_exact(cx, handle, &view, "track::ToggleSolo");
+    press(cx, handle, "backspace");
+    // 다시 띄우기: 엔진만 새로 설치한다(같은 사용자 파일)
+    cx.update(|cx| {
+        let path = keymap::user_path(cx);
+        let options = keymap::options(cx);
+        keymap::install(cx, path, options, |_| {});
+    });
+    activate(cx, handle);
+    select_exact(cx, handle, &view, "track::New");
+    press(cx, handle, "backspace");
+    let bak = std::fs::read_to_string(dir.join("keymap.json.bak")).unwrap_or_default();
+    assert!(bak.contains("내 메모"), "재시작 뒤 원본이 사라졌다: {bak}");
+}
+
+/// `m`을 지운 Action(뮤트)은 그 자리를 다른 Action(솔로)이 가졌다가 놓아도 `m`을 되찾지 않아야 한다(사용자가 지운
+/// 것은 지운 채로).
+#[gpui_kit::test]
+fn brk_cleared_key_not_revived_after_other_action_releases_it(cx: &mut TestAppContext) {
+    let dir = start(cx, "revive", None);
+    let (handle, view) = open_settings(cx);
+    select_exact(cx, handle, &view, "track::ToggleMute");
+    press(cx, handle, "backspace");
+    select_exact(cx, handle, &view, "track::ToggleSolo");
+    press(cx, handle, "enter m");
+    settle(cx, handle);
+    press(cx, handle, "backspace");
+    let mute = effective_of(cx, "track::ToggleMute");
+    assert!(
+        mute.is_empty(),
+        "지운 뮤트의 m이 되살아났다: {mute:?}\n{}",
+        user_file(&dir)
+    );
+}
+
+/// 수식키 교환을 켠 채 `alt-s`(엔진은 `cmd-s`로 건다)를 가져오면 표준 단축키(저장) 덮기를 적용 전에 알려야 한다.
+#[gpui_kit::test]
+fn brk_swap_import_warns_standard_override(cx: &mut TestAppContext) {
+    let dir = start(cx, "swap-import", None);
+    cx.update(|cx| keymap::set_swap_alt_cmd(cx, true));
+    let (handle, view) = open_settings(cx);
+    let file = dir.join("in.json");
+    std::fs::write(&file, r#"[{"bindings": {"alt-s": "track::ToggleMute"}}]"#).unwrap();
+    cx.update_window(handle, |_, window, cx| {
+        window.dispatch_action(Box::new(km::Import), cx);
+    })
+    .unwrap();
+    cx.simulate_path_prompt_response(|_| Some(vec![file.clone()]));
+    cx.run_until_parked();
+    let sheet = cx.read(|cx| view.read(cx).sheet_open());
+    let msg = cx.read(|cx| view.read(cx).message()).unwrap_or_default();
+    assert!(
+        sheet || msg.contains("표준"),
+        "표준 저장 키를 덮는데 경고 없이 적용: {msg:?}, cmd-s 메뉴 {:?}",
+        menu_keys(cx, "file::Save")
+    );
 }

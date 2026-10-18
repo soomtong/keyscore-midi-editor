@@ -52,7 +52,9 @@ pub const UNBIND: &str = "zed::Unbind";
 /// 곧 같거나 얕은 컨텍스트의 앞 바인딩을 가린다. 컨텍스트 없는(전역) `null`은 어느 깊이와도 맞으므로 모든
 /// 컨텍스트의 같은 키를 가린다(S2-T6a 리뷰 1 지적 3).
 fn null_hides(null_ctx: &str, other: &str) -> bool {
-    null_ctx.is_empty() || other.is_empty() || null_ctx == other || ancestor(other, null_ctx)
+    // 전역 바인딩은 어느 깊이에서나 가장 깊은 자리로 맞아 컨텍스트 있는 `null`보다 앞선다. 그래서 컨텍스트 있는
+    // `null`은 전역 바인딩을 가리지 못한다(리뷰 2 제안 4).
+    null_ctx.is_empty() || null_ctx == other || (!other.is_empty() && ancestor(other, null_ctx))
 }
 
 /// `a`가 `b`의 바깥 컨텍스트인가(`Normal`과 `Normal>PianoRoll`).
@@ -74,10 +76,22 @@ fn related(a: &str, b: &str) -> bool {
 /// 동률) 둘 다 보인다.
 #[must_use]
 pub fn effective(layers: &LayerSet) -> Vec<Effective> {
+    effective_with(layers, false)
+}
+
+/// [`effective`]에 수식키 교환(KM-11)을 더한다. `swap`이면 엔진처럼 표준 밖 레이어의 키를 교환해, 결과의 키는
+/// 실제로 누르는 키다. 표준 레이어 키와도 같은 자리에서 비교된다(리뷰 2 지적 1).
+#[must_use]
+pub fn effective_with(layers: &LayerSet, swap: bool) -> Vec<Effective> {
     let mut out: Vec<(String, String, Option<Effective>)> = Vec::new();
     for b in layers.iter() {
         let ctx = context_key(b.context.as_deref());
-        let keys = canonical_keys(&b.keys);
+        let actual = if swap && b.layer != Layer::Standard {
+            super::swap_alt_cmd(&b.keys)
+        } else {
+            b.keys.clone()
+        };
+        let keys = canonical_keys(&actual);
         let entry = match &b.action {
             ActionRef::Unbind => {
                 for (c, k, e) in &mut out {
@@ -102,7 +116,7 @@ pub fn effective(layers: &LayerSet) -> Vec<Effective> {
             }
             ActionRef::Named { name, args } => Some(Effective {
                 context: b.context.as_ref().map(|c| c.trim().to_owned()),
-                keys: b.keys.clone(),
+                keys: actual.clone(),
                 action: label(name, args.as_ref()),
                 name: name.clone(),
                 args: args.clone(),
@@ -161,7 +175,11 @@ pub fn argument_variants(effective: &[Effective], action: &str) -> usize {
 /// 사용자 레이어(`keymap.json`의 항목들).
 #[derive(Debug, Clone, Default)]
 pub struct UserKeymap {
+    /// 파일에 적힌 항목(파일의 키 표기)
     entries: Vec<Binding>,
+    /// 수식키 교환(KM-11). 편집 메서드가 받는 키는 실제로 누르는 키이고, 파일에는 엔진이 다시 교환해 그 키가
+    /// 되도록 교환한 키를 쓴다.
+    swap: bool,
 }
 
 impl PartialEq for UserKeymap {
@@ -184,9 +202,26 @@ impl UserKeymap {
     pub fn parse(text: &str) -> Result<Self, Vec<KeymapError>> {
         let (entries, errors) = parse(text, Layer::User);
         if errors.is_empty() {
-            Ok(UserKeymap { entries })
+            Ok(UserKeymap {
+                entries,
+                swap: false,
+            })
         } else {
             Err(errors)
+        }
+    }
+
+    /// 편집 메서드가 받는 키를 수식키 교환을 켠 엔진 기준으로 다룬다.
+    pub fn set_swap(&mut self, swap: bool) {
+        self.swap = swap;
+    }
+
+    /// 실제로 누르는 키 → 파일에 쓸 키.
+    fn file_keys(&self, actual: &str) -> String {
+        if self.swap {
+            canonical_keys(&super::swap_alt_cmd(actual))
+        } else {
+            canonical_keys(actual)
         }
     }
 
@@ -199,17 +234,35 @@ impl UserKeymap {
     /// GPUI 키맵 JSON으로 쓴다. 컨텍스트마다 한 절, 절 순서는 처음 나온 순서다.
     #[must_use]
     pub fn to_json(&self) -> String {
-        let mut sections: Vec<(Option<String>, Vec<&Binding>)> = Vec::new();
+        // 같은 자리가 둘 이상일 수 있다(지정 해제 뒤 다른 Action, 리뷰 2 지적 2). JSON 객체에는 같은 키를 둘 둘 수
+        // 없으므로 그 자리의 k번째 항목은 그 컨텍스트의 k번째 절에 넣는다. 절은 (k, 컨텍스트가 처음 나온 순서)로
+        // 늘어서므로 같은 자리의 앞뒤가 지켜진다.
+        let mut groups: Vec<(usize, Option<String>, Vec<&Binding>)> = Vec::new();
+        let mut seen: Vec<(String, String, usize)> = Vec::new();
         for b in &self.entries {
             let ctx = b.context.as_deref().map(str::trim);
-            match sections
+            let place = (context_key(ctx), canonical_keys(&b.keys));
+            let k = if let Some(slot) = seen
                 .iter_mut()
-                .find(|(c, _)| context_key(c.as_deref()) == context_key(ctx))
+                .find(|(c, keys, _)| (c, keys) == (&place.0, &place.1))
             {
-                Some((_, list)) => list.push(b),
-                None => sections.push((ctx.map(str::to_owned), vec![b])),
+                slot.2 += 1;
+                slot.2
+            } else {
+                seen.push((place.0.clone(), place.1.clone(), 0));
+                0
+            };
+            match groups
+                .iter_mut()
+                .find(|(gk, c, _)| *gk == k && context_key(c.as_deref()) == place.0)
+            {
+                Some((_, _, list)) => list.push(b),
+                None => groups.push((k, ctx.map(str::to_owned), vec![b])),
             }
         }
+        groups.sort_by_key(|(k, _, _)| *k);
+        let sections: Vec<(Option<String>, Vec<&Binding>)> =
+            groups.into_iter().map(|(_, c, list)| (c, list)).collect();
         let quote = |s: &str| serde_json::to_string(s).unwrap_or_else(|_| format!("\"{s}\""));
         let mut out = String::from("[\n");
         for (i, (ctx, list)) in sections.iter().enumerate() {
@@ -241,37 +294,63 @@ impl UserKeymap {
         out
     }
 
-    fn remove_place(&mut self, context: Option<&str>, keys: &str) {
-        self.entries
-            .retain(|b| !same_place(b.context.as_deref(), &b.keys, context, keys));
+    /// 그 자리(실제 키)의 사용자 바인딩(지정 해제 아닌 것)을 뺀다.
+    fn remove_named(&mut self, context: Option<&str>, keys: &str) {
+        let file = self.file_keys(keys);
+        self.entries.retain(|b| {
+            !(same_place(b.context.as_deref(), &b.keys, context, &file)
+                && matches!(&b.action, ActionRef::Named { name, .. } if name != UNBIND))
+        });
     }
 
-    fn push(&mut self, context: Option<&str>, keys: &str, action: ActionRef) {
-        self.remove_place(context, keys);
+    fn push_entry(&mut self, context: Option<&str>, keys: &str, action: ActionRef) {
+        let file = self.file_keys(keys);
         self.entries.push(Binding {
             context: context.map(str::to_owned),
-            keys: canonical_keys(keys),
+            keys: file,
             action,
             layer: Layer::User,
             pos: Pos::default(),
         });
     }
 
+    /// 그 자리(실제 키)에 바인딩을 건다. 그 자리의 다른 사용자 바인딩은 빼지만 지정 해제는 남긴다. 지정 해제는
+    /// 아래 레이어를 끈 것이라, 새 바인딩을 나중에 지워도 꺼진 것이 되살아나지 않아야 한다(리뷰 2 지적 2).
+    fn push_named(&mut self, context: Option<&str>, keys: &str, name: &str, args: Option<Value>) {
+        self.remove_named(context, keys);
+        self.push_entry(
+            context,
+            keys,
+            ActionRef::Named {
+                name: name.to_owned(),
+                args,
+            },
+        );
+    }
+
     /// 그 실효 바인딩을 지운다. 사용자 항목이면 빼고, 아래 레이어 것이면 그 Action만 끄는 지정 해제(`UNBIND`)를
     /// 그 자리에 둔다. 같은 키의 다른 Action은 살아 있다. 표준 단축키를 지웠으면 `true`.
     fn hide(&mut self, target: &Effective) -> bool {
         if target.layer == Layer::User {
-            self.remove_place(target.context.as_deref(), &target.keys);
+            self.remove_named(target.context.as_deref(), &target.keys);
             return false;
         }
-        self.push(
-            target.context.as_deref(),
-            &target.keys,
-            ActionRef::Named {
-                name: UNBIND.to_owned(),
-                args: Some(Value::String(target.name.clone())),
-            },
-        );
+        let file = self.file_keys(&target.keys);
+        let exists = self.entries.iter().any(|b| {
+            same_place(b.context.as_deref(), &b.keys, target.context.as_deref(), &file)
+                && matches!(&b.action, ActionRef::Named { name, args }
+                    if name == UNBIND && args.as_ref().and_then(Value::as_str) == Some(target.name.as_str()))
+        });
+        if !exists {
+            self.push_entry(
+                target.context.as_deref(),
+                &target.keys,
+                ActionRef::Named {
+                    name: UNBIND.to_owned(),
+                    args: Some(Value::String(target.name.clone())),
+                },
+            );
+        }
         target.layer == Layer::Standard
     }
 
@@ -299,21 +378,13 @@ impl UserKeymap {
             let replaced = same_action && canonical_keys(&e.keys) != canonical_keys(keys);
             let conflicting = e.name != action
                 && binding_conflicts(std::slice::from_ref(e), context, keys, action).len() == 1;
-            // 같은 자리의 다른 Action은 새 항목이 그 자리를 덮으므로 따로 지우지 않는다
-            let same_place_other =
-                conflicting && same_place(e.context.as_deref(), &e.keys, context, keys);
-            if replaced || (conflicting && !same_place_other) {
+            // 같은 자리의 다른 Action도 지정 해제로 끈다. 새 항목이 덮기만 하면 새 항목을 나중에 지웠을 때 그 Action이
+            // 되살아난다(리뷰 2 지적 2)
+            if replaced || conflicting {
                 standard |= self.hide(e);
             }
         }
-        self.push(
-            context,
-            keys,
-            ActionRef::Named {
-                name: action.to_owned(),
-                args,
-            },
-        );
+        self.push_named(context, keys, action, args);
         standard
     }
 
@@ -329,9 +400,19 @@ impl UserKeymap {
     /// `action`(이름)에 관한 사용자 항목을 빼 프리셋 기본값으로 되돌린다: 그 Action으로의 바인딩과, 그
     /// Action의 프리셋 키를 가리는 `null`.
     pub fn restore(&mut self, action: &str, preset: &[Binding]) {
-        let defaults: Vec<&Binding> = preset
+        // 기본값의 파일 표기: 프리셋은 사용자 파일처럼 엔진이 교환하므로 그대로, 표준은 교환하지 않으므로 사용자
+        // 파일에서는 교환한 키로 적힌다
+        let defaults: Vec<(Option<String>, String)> = preset
             .iter()
             .filter(|b| matches!(&b.action, ActionRef::Named { name, .. } if name == action))
+            .map(|b| {
+                let keys = if b.layer == Layer::Standard {
+                    self.file_keys(&b.keys)
+                } else {
+                    b.keys.clone()
+                };
+                (b.context.clone(), keys)
+            })
             .collect();
         self.entries.retain(|b| match &b.action {
             ActionRef::Named { name, args } if name == UNBIND => {
@@ -340,7 +421,7 @@ impl UserKeymap {
             ActionRef::Named { name, .. } => name != action,
             ActionRef::Unbind => !defaults
                 .iter()
-                .any(|d| same_place(d.context.as_deref(), &d.keys, b.context.as_deref(), &b.keys)),
+                .any(|(c, k)| same_place(c.as_deref(), k, b.context.as_deref(), &b.keys)),
         });
     }
 
