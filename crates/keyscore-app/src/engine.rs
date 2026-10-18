@@ -54,7 +54,7 @@ pub(crate) struct Engine {
     main: Arc<VirtualOutput>,
     /// 연 OS 목적지(이름별). 재생 시작 준비 때 그 프로젝트가 쓰지 않는 것은 놓고, 다시 쓰기 전에
     /// `is_present`로 확인한다(S2-T5d). 스냅샷이 들고 있는 동안은 살아 있다.
-    opened: HashMap<String, Arc<OsOutput>>,
+    opened: HashMap<String, (PortInfo, Arc<OsOutput>)>,
     scheduler: Scheduler,
     /// 기본 가상 포트 이름(트랙 목록·포트 드롭다운 표시)
     port_name: String,
@@ -184,6 +184,12 @@ pub enum RecoverError {
 ///
 /// 다시 등록하지 못하면 그 오류.
 pub fn recover_virtual_port(cx: &mut App) -> Result<(), RecoverError> {
+    recover(cx, true)
+}
+
+/// `announce_failure`가 거짓이면 실패를 알리지 않는다. 서버가 내려가 있는 동안 포트 감시가 되풀이해 시도해도
+/// 같은 실패 메시지가 쌓이지 않게 한다(리뷰 1 지적 3).
+pub(crate) fn recover(cx: &mut App, announce_failure: bool) -> Result<(), RecoverError> {
     if !cx.has_global::<Engine>() {
         return Ok(());
     }
@@ -195,14 +201,23 @@ pub fn recover_virtual_port(cx: &mut App) -> Result<(), RecoverError> {
     }
     let result = cx.global_mut::<Engine>().reregister_main();
     let name = virtual_port_name(cx);
-    let message = match &result {
-        Ok(()) => format!("MIDI 서버가 다시 시작되어 가상 포트 「{name}」을 다시 등록했다"),
-        Err(e) => format!(
-            "MIDI 서버가 다시 시작되었는데 가상 포트 「{name}」을 다시 등록하지 못했다: {e}"
+    match &result {
+        Ok(()) => {
+            crate::window::say_everywhere(
+                cx,
+                &format!("MIDI 서버가 다시 시작되어 가상 포트 「{name}」을 다시 등록했다"),
+            );
+            // 옛 서버의 감시자는 알림을 받지 못한다. 등록에 성공했을 때만 다시 시작한다
+            crate::ports::restart_watcher(cx);
+        }
+        Err(e) if announce_failure => crate::window::say_everywhere(
+            cx,
+            &format!(
+                "MIDI 서버가 다시 시작되었는데 가상 포트 「{name}」을 다시 등록하지 못했다: {e}"
+            ),
         ),
-    };
-    crate::window::say_everywhere(cx, &message);
-    crate::ports::restart_watcher(cx);
+        Err(_) => {}
+    }
     result
 }
 
@@ -261,13 +276,12 @@ impl Engine {
             std::thread::sleep(std::time::Duration::from_millis(1));
         };
         // 포트 0이 늘 기본 가상 포트인 스냅샷으로 되돌린다(테스트 노트·미리듣기가 쓴다)
+        // 등록 결과를 잃지 않도록 되돌리기 실패는 등록이 성공했을 때만 오류로 낸다(리뷰 1 제안 4)
         let main: Arc<dyn MidiPort> = self.main.clone();
-        self.scheduler.swap(Arc::new(Snapshot::new(
-            TempoMap::default(),
-            vec![main],
-            Vec::new(),
-        )?))?;
-        result
+        let back = Snapshot::new(TempoMap::default(), vec![main], Vec::new())
+            .and_then(|snapshot| self.scheduler.swap(Arc::new(snapshot)));
+        result?;
+        back.map_err(RecoverError::from)
     }
 
     /// 기본 가상 포트가 MIDI 서버에 등록돼 있는가.
@@ -398,10 +412,19 @@ impl Engine {
         live: bool,
         available: &mut Option<Vec<PortInfo>>,
     ) -> Result<Arc<dyn MidiPort>, PortProblem> {
-        if let Some(port) = self.opened.get(name) {
-            // 사라진 목적지로의 송신은 CoreMIDI가 오류 없이 버린다. 다시 쓰기 전에 확인하고, 사라졌으면 놓고
-            // 다시 찾는다(S2-T5a 리뷰 1 제안 6).
-            if port.is_present() {
+        // 사라진 목적지로의 송신은 CoreMIDI가 오류 없이 버린다. 다시 쓰기 전에 확인하고, 아니면 놓고 다시
+        // 찾는다(S2-T5a 리뷰 1 제안 6).
+        if let Some((info, port)) = self.opened.get(name) {
+            // 재생 중 편집(`live`)은 목적지 목록을 다시 읽지 않는다. 포트 감시가 사라짐·돌아옴을 엔진에 알린다.
+            // 재생 시작 준비는 목록에서 그 이름의 대상(고유 ID가 가장 작은 것)이 아직 이 핸들인지 본다. 이름이
+            // 바뀌었거나 더 작은 ID의 같은 이름 포트가 생겼으면 다시 연다(S2-T5d 리뷰 1 지적 1·2).
+            let still = if live {
+                port.is_present()
+            } else {
+                port.is_present()
+                    && best_match(available.get_or_insert_with(destinations), name) == Some(info)
+            };
+            if still {
                 return Ok(port.clone());
             }
             self.opened.remove(name);
@@ -410,16 +433,24 @@ impl Engine {
             return Err(PortProblem::NotFound);
         }
         let list = available.get_or_insert_with(destinations);
-        let Some(info) = list.iter().find(|i| i.name() == name) else {
+        let Some(info) = best_match(list, name).cloned() else {
             self.known_missing.insert(name.to_owned());
             return Err(PortProblem::NotFound);
         };
-        let output = OsOutput::open(&self.client, info)
+        let output = OsOutput::open(&self.client, &info)
             .map_err(|e| PortProblem::OpenFailed(e.to_string()))?;
         let port = Arc::new(output);
-        self.opened.insert(name.to_owned(), port.clone());
+        self.opened.insert(name.to_owned(), (info, port.clone()));
         Ok(port)
     }
+}
+
+/// 그 이름의 목적지 가운데 고유 ID가 가장 작은 것. 포트 감시의 `Reconnector`와 같은 규칙이라 엔진이 여는
+/// 포트와 감시가 연결됐다고 보는 포트가 같다(S2-T5d 리뷰 1 지적 1).
+fn best_match<'a>(list: &'a [PortInfo], name: &str) -> Option<&'a PortInfo> {
+    list.iter()
+        .filter(|p| p.name() == name)
+        .min_by_key(|p| p.unique_id())
 }
 
 /// (목적지, 채널) 한 묶음의 실효 음색을 모으는 칸.

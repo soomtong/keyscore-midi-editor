@@ -242,17 +242,37 @@ fn port_vanish_and_return_updates_status_and_messages(cx: &mut TestAppContext) {
     let (handle, view) = open(cx, project_on(&name));
     pump(cx, Some(handle), |_| true, "");
     assert_eq!(label(cx, handle, "status-port-missing"), None);
-    // 쓰지 않는 포트의 변화는 알리지 않는다
-    let before = messages(cx, &view).len();
+    // 쓰지 않는 포트의 핫플러그도 알린다(OUT-3). 재연결 문구와는 다르다
     let other_name = unique("unrelated");
     let other = destination(&other_name);
+    pump(
+        cx,
+        Some(handle),
+        |cx| {
+            messages(cx, &view)
+                .iter()
+                .any(|m| m.contains(&other_name) && m.contains("새로 보인다"))
+        },
+        "쓰지 않는 포트의 나타남을 알리지 않았다",
+    );
     drop(other);
     wait_gone(&other_name);
-    for _ in 0..5 {
-        pump(cx, Some(handle), |_| true, "");
-        std::thread::sleep(Duration::from_millis(20));
-    }
-    assert_eq!(messages(cx, &view).len(), before);
+    pump(
+        cx,
+        Some(handle),
+        |cx| {
+            messages(cx, &view)
+                .iter()
+                .any(|m| m.contains(&other_name) && m.contains("없어졌다"))
+        },
+        "쓰지 않는 포트의 사라짐을 알리지 않았다",
+    );
+    assert!(
+        !messages(cx, &view)
+            .iter()
+            .any(|m| m.contains(&other_name) && (m.contains("사라졌다") || m.contains("다시 연결"))),
+        "쓰지 않는 포트에 재연결 문구를 썼다"
+    );
     // 쓰는 포트가 사라진다
     drop(dest);
     wait_gone(&name);

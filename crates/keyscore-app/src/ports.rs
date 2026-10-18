@@ -33,6 +33,8 @@ struct PortMonitor {
     present: Vec<PortInfo>,
     reconnector: Reconnector,
     ticks: u32,
+    /// 가상 포트 다시 등록이 잇달아 실패한 횟수. 실패하면 알리는 것은 처음 한 번이고, 시도 간격을 늘린다.
+    recover_failures: u32,
     /// 감시자를 시작하는 중인가(겹쳐 시작하지 않는다).
     starting: bool,
 }
@@ -49,6 +51,7 @@ pub fn start_monitor(cx: &mut App) {
         present: Vec::new(),
         reconnector: Reconnector::new(),
         ticks: 0,
+        recover_failures: 0,
         starting: false,
     });
     restart_watcher(cx);
@@ -157,10 +160,16 @@ fn tick(cx: &mut App) {
         return;
     }
     let wanted = wanted_names(cx);
-    let (actions, changed, check_server) = {
+    let (events, actions, check_server, failures) = {
         let monitor = cx.global_mut::<PortMonitor>();
         monitor.ticks = monitor.ticks.wrapping_add(1);
-        let check_server = monitor.ticks.is_multiple_of(SERVER_CHECK_EVERY);
+        // 다시 등록이 실패하고 있으면 열 배로 드물게 시도한다(서버가 돌아올 때까지)
+        let every = if monitor.recover_failures == 0 {
+            SERVER_CHECK_EVERY
+        } else {
+            SERVER_CHECK_EVERY * 10
+        };
+        let check_server = monitor.ticks.is_multiple_of(every);
         let mut events = Vec::new();
         if let Some((_, rx)) = &monitor.watcher {
             events.extend(rx.try_iter());
@@ -184,8 +193,25 @@ fn tick(cx: &mut App) {
                 monitor.reconnector.want(name, &monitor.present);
             }
         }
-        (actions, !events.is_empty(), check_server)
+        (events, actions, check_server, monitor.recover_failures)
     };
+    // 핫플러그(OUT-3): 쓰지 않는 포트의 나타남·사라짐도 상태줄 메시지로 알린다. 그 포트를 쓰는 창은 아래의
+    // 재연결 동작이 더 자세히 알린다.
+    for event in &events {
+        let (port, text) = match event {
+            PortEvent::Appeared(p) => (p, "출력 포트 「{}」이 새로 보인다"),
+            PortEvent::Disappeared(p) => (p, "출력 포트 「{}」이 없어졌다"),
+        };
+        let users = windows_using(cx, port.name());
+        for window in project_windows(cx) {
+            if users.iter().any(|u| u.entity_id() == window.entity_id()) {
+                continue;
+            }
+            let message = text.replace("{}", port.name());
+            window.update(cx, |w, cx| w.say(message, cx));
+        }
+    }
+    let changed = !events.is_empty();
     for action in actions {
         match action {
             PortAction::Lost { name } => {
@@ -215,12 +241,10 @@ fn tick(cx: &mut App) {
     if changed {
         refresh(cx);
     }
-    if check_server
-        && engine::is_installed(cx)
-        && !cx.global::<Engine>().main_registered()
-        && let Err(e) = engine::recover_virtual_port(cx)
-    {
-        crate::window::say_everywhere(cx, &format!("가상 포트를 다시 등록하지 못했다: {e}"));
+    if check_server && engine::is_installed(cx) && !cx.global::<Engine>().main_registered() {
+        let ok = engine::recover(cx, failures == 0).is_ok();
+        let monitor = cx.global_mut::<PortMonitor>();
+        monitor.recover_failures = if ok { 0 } else { failures.saturating_add(1) };
     }
 }
 

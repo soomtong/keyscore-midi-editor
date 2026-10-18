@@ -353,29 +353,10 @@ impl ProjectWindow {
         {
             return;
         }
+        // 그 목적지의 지난 음색을 잊는다. 그러면 스냅샷 교체가 그 목적지의 뱅크·프로그램을 「바뀐 것」으로 보고
+        // 한 번 보낸다(따로 보내면 두 번 나간다, 리뷰 1 제안 5).
+        self.transport.setup.retain(|s| s.destination != name);
         self.transport_document_changed(cx);
-        let setups: Vec<Setup> = self
-            .transport
-            .setup
-            .iter()
-            .filter(|s| s.destination == name)
-            .cloned()
-            .collect();
-        let scheduler = cx.global_mut::<Engine>().scheduler();
-        let mut error = None;
-        for setup in &setups {
-            for msg in &setup.messages {
-                if let Err(e) = scheduler.send_now(setup.port, *msg) {
-                    error.get_or_insert(e);
-                }
-            }
-        }
-        if let Some(e) = error {
-            self.transport.say(format!(
-                "돌아온 포트 「{name}」에 뱅크·프로그램을 보내지 못했다: {e}"
-            ));
-        }
-        cx.notify();
     }
 
     pub(crate) fn report_missing(&mut self, missing: &[(String, PortProblem)]) {

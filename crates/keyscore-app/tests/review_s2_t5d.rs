@@ -284,7 +284,14 @@ fn vanish_and_return_messages_only_user_window_and_other_keeps_playing(cx: &mut 
         |cx| messages(cx, &b).iter().any(|m| m.contains("다시 연결했다")),
         "사용하는 창에 다시 연결 메시지가 없다",
     );
-    assert_eq!(messages(cx, &a).len(), a_before, "{:?}", messages(cx, &a));
+    // 쓰지 않는 창에는 핫플러그 알림만 간다(OUT-3, 리뷰 1 제안 6 대응). 재연결 문구는 가지 않는다.
+    let a_new: Vec<String> = messages(cx, &a).into_iter().skip(a_before).collect();
+    assert!(
+        a_new
+            .iter()
+            .all(|m| !m.contains("사라졌다") && !m.contains("다시 연결")),
+        "{a_new:?}"
+    );
     assert_eq!(state(cx, &a), TransportState::Playing);
     assert_eq!(state(cx, &b), TransportState::Stopped);
     run(cx, ha, transport::Stop);
@@ -607,4 +614,106 @@ fn renamed_in_use_port_is_reported_lost(cx: &mut TestAppContext) {
         "이름이 바뀌어 그 이름의 포트가 없는데 「포트 없음」이 보이지 않는다",
     );
     assert!(messages(cx, &v).iter().any(|m| m.contains("사라졌다")));
+}
+
+// ---------- 리뷰 1 부록(지적 1·2, 제안 5) ----------
+
+// ===== BREAK CANDIDATES =====
+
+/// 같은 이름 포트 둘. 먼저 열거되는 쪽의 고유 ID가 더 크다. 엔진과 `Reconnector`는 둘 다 ID가 작은 쪽을
+/// 고른다(리뷰 1 지적 1 수정 뒤 전제). 그 쪽이 사라지면 남은 같은 이름 포트로 재생이 이어져야 한다.
+#[gpui_kit::test]
+fn break_duplicate_names_engine_port_vanishes_while_lower_id_remains(cx: &mut TestAppContext) {
+    start(cx, "dupbad", false);
+    let name = unique("dup bad");
+    let base = 0x2200_0000 + i32::try_from(std::process::id() % 0xFFFF).unwrap() * 16;
+    let high = destination_with(&name, Some(base + 2));
+    let low = destination_with(&name, Some(base + 1));
+    let order: Vec<i32> = keyscore_midi::destinations()
+        .iter()
+        .filter(|d| d.name() == name)
+        .map(keyscore_midi::PortInfo::unique_id)
+        .collect();
+    assert_eq!(order, vec![base + 2, base + 1], "열거 순서 전제");
+    start_monitor(cx);
+    let (h, v) = open(cx, project_on(&name));
+    run(cx, h, transport::Play);
+    assert!(
+        hears(&low.rx, 0x91, Duration::from_secs(3)),
+        "엔진은 ID가 작은 목적지로 보낸다"
+    );
+    drop(low);
+    wait_count(&name, 1);
+    idle(cx, Some(h), 10);
+    let heard = hears(&high.rx, 0x91, Duration::from_secs(3));
+    let m = messages(cx, &v);
+    let missing = label(cx, h, "status-port-missing");
+    run(cx, h, transport::Stop);
+    assert!(
+        heard,
+        "엔진이 쓰던 같은 이름 포트가 사라졌는데 남은 포트로 재생이 옮겨가지 않았다(상태줄 포트 없음: {missing:?}, 메시지: {m:?})"
+    );
+}
+
+/// 감시 없이: 연 포트의 이름이 바뀐 뒤 다시 재생하면, 트랙의 이름과 다른 포트로 소리가 가면 안 된다.
+#[gpui_kit::test]
+fn break_is_present_ignores_rename(cx: &mut TestAppContext) {
+    start(cx, "renamenomon", false);
+    let name = unique("synth rn");
+    let dest = destination(&name);
+    let (h, v) = open(cx, project_on(&name));
+    run(cx, h, transport::Play);
+    assert!(hears(&dest.rx, 0x91, Duration::from_secs(3)));
+    run(cx, h, transport::Stop);
+    let renamed = format!("{name} 2");
+    dest.dest.set_property_string("name", &renamed).unwrap();
+    wait_count(&name, 0);
+    drain(&dest.rx);
+    run(cx, h, transport::Play);
+    let heard = hears(&dest.rx, 0x91, Duration::from_secs(1));
+    run(cx, h, transport::Stop);
+    assert!(
+        !heard,
+        "「{name}」 트랙의 소리가 이름이 「{renamed}」로 바뀐 포트로 갔다: {:?}",
+        messages(cx, &v)
+    );
+}
+
+/// 사라진 동안 편집한 뒤 돌아오면 프로그램 체인지는 한 번만 보낸다.
+#[gpui_kit::test]
+fn break_program_sent_once_on_return_after_edit(cx: &mut TestAppContext) {
+    start(cx, "dupprog", true);
+    let name = unique("synth dupprog");
+    let dest = destination(&name);
+    wait_seen(cx, &name, true);
+    let (h, v) = open(cx, project_on(&name));
+    run(cx, h, transport::Play);
+    assert!(hears(&dest.rx, 0x91, Duration::from_secs(3)));
+    drop(dest);
+    wait_count(&name, 0);
+    pump(
+        cx,
+        Some(h),
+        |cx| messages(cx, &v).iter().any(|m| m.contains("사라졌다")),
+        "사라짐 메시지가 없다",
+    );
+    run(cx, h, track::Next);
+    run(cx, h, track::ToggleMute);
+    let back = destination(&name);
+    pump(
+        cx,
+        Some(h),
+        |cx| messages(cx, &v).iter().any(|m| m.contains("다시 연결했다")),
+        "다시 연결 메시지가 없다",
+    );
+    let deadline = Instant::now() + Duration::from_millis(800);
+    let mut got = Vec::new();
+    while Instant::now() < deadline {
+        if let Ok(m) = back.rx.recv_timeout(Duration::from_millis(20)) {
+            got.push(m);
+        }
+    }
+    run(cx, h, transport::Stop);
+    let programs = got.iter().filter(|m| *m == &vec![0xC1, 5]).count();
+    assert_eq!(programs, 1, "{got:?}");
 }
