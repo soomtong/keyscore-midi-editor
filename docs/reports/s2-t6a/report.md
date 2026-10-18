@@ -115,3 +115,15 @@ cargo test --workspace: 1354 passed, 0 failed, 0 ignored
 | 제안 4: 컨텍스트 있는 `null`·지정 해제가 전역 바인딩도 가린다고 계산한다 | GPUI처럼 전역 바인딩은 컨텍스트 있는 `null`보다 앞서므로 가리지 않게 고쳤다 |
 
 부록 A 테스트는 `tests/review_s2_t6a_r2.rs`로 옮겨 통과한다. 리뷰 테스트의 도우미 `effective_of`는 편집기와 같은 기준(수식키 교환 반영)으로 바꿨다. 내 단위 테스트 `user_keymap_round_trips_and_edits`의 「ToggleMute 복원 때 ToggleSolo의 `s`가 돌아온다」는 지적 2와 반대 전제라, 「ToggleSolo를 복원해야 돌아온다」로 고쳤다.
+
+## 리뷰 3 대응
+
+재리뷰 한도에 닿아 결정 요청을 냈다(`docs/decisions/2026-10-18-s2-t6a-review-limit.md`). 결정 A에 따라 지적 1을 고치고 좁은 확인 리뷰를 받는다.
+
+| 리뷰 항목 | 대응 |
+| --- | --- |
+| 지적 1: 표준 단축키를 지운 뒤 수식키 교환을 바꾸면 지운 단축키가 되살아난다 | `keymap::set_swap_alt_cmd`가 교환을 바꿀 때 사용자 파일에서 표준 단축키를 겨눈 지정 해제(`zed::Unbind`)의 파일 키를 새 교환 상태에 맞게 고쳐 쓴다(`UserKeymap::retarget_standard_unbinds`). 프리셋을 겨눈 지정 해제는 엔진이 프리셋과 함께 교환하므로 그대로 둔다. 파일이 깨졌으면 손대지 않는다 |
+| 제안 2: 손으로 고친 파일의 절 순서·컨텍스트 있는 `null` 근사 | 알려진 한계로 둔다. 편집기만으로는 만들 수 없다 |
+| 참고: `keyscore-text`의 시간 측정 테스트가 전체 실행 중 한 번 실패 | 이 Task 밖이다. 다시 보이면 별도로 다룬다 |
+
+부록 A 테스트는 `tests/review_s2_t6a_r3.rs`로 옮겨 통과한다.

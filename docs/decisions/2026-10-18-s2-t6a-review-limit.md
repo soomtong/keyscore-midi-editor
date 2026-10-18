@@ -1,7 +1,7 @@
 # 결정: S2-T6a 재리뷰 한도
 
 - 날짜: 2026-10-18
-- 상태: 결정 대기
+- 상태: 결정됨(A, YoungTaek)
 - 관련: `plan/01-protocol.md` [8], `docs/reports/s2-t6a/review-3.md`, REQ KM-11, KM-12
 
 ## 상황
@@ -18,4 +18,4 @@ S2-T6a가 재리뷰 3회에 닿았다. 3회차 지적은 하나다.
 
 ## 결정
 
-(사람)
+A(2026-10-18, YoungTaek). S2-T4·S2-T5a·S2-T5b·S2-T5c 선례와 같은 방식이다.
