@@ -425,3 +425,45 @@ fn swap_on_prefix_conflict_uses_actual_keys(cx: &mut TestAppContext) {
         user_file(&dir)
     );
 }
+
+// ---------- 리뷰 3 부록 A(지적 1) ----------
+
+/// 교환을 끈 채 표준 단축키(`edit::Undo`의 `cmd-z`)를 지운 뒤 교환을 켜도 Undo는 지운 채여야 한다.
+#[gpui_kit::test]
+fn brk_swap_toggle_after_clearing_standard_keeps_it_cleared(cx: &mut TestAppContext) {
+    let dir = start(cx, "swap-toggle-std", None);
+    let (project, _) = open_project(cx);
+    let (handle, view) = open_settings(cx);
+    select_exact(cx, handle, &view, "edit::Undo");
+    press(cx, handle, "backspace");
+    assert!(effective_of(cx, "edit::Undo").is_empty());
+    cx.update(|cx| keymap::set_swap_alt_cmd(cx, true));
+    let list = effective_of(cx, "edit::Undo");
+    activate(cx, project);
+    let fired = dispatched(cx, project, "cmd-z");
+    assert!(
+        list.is_empty() && fired.as_deref() != Some("edit::Undo"),
+        "교환을 켜니 지운 Undo가 돌아왔다: 목록 {list:?}, cmd-z {fired:?}, 메뉴 {:?}\n{}",
+        menu_keys(cx, "edit::Undo"),
+        user_file(&dir)
+    );
+}
+
+/// 교환을 켠 채 표준 단축키를 지운 뒤 교환을 꺼도 지운 채여야 한다.
+#[gpui_kit::test]
+fn brk_swap_off_after_clearing_standard_keeps_it_cleared(cx: &mut TestAppContext) {
+    let dir = start(cx, "swap-off-std", None);
+    cx.update(|cx| keymap::set_swap_alt_cmd(cx, true));
+    let (handle, view) = open_settings(cx);
+    select_exact(cx, handle, &view, "settings::Open");
+    press(cx, handle, "backspace");
+    assert_eq!(menu_keys(cx, "settings::Open"), None);
+    cx.update(|cx| keymap::set_swap_alt_cmd(cx, false));
+    let list = effective_of(cx, "settings::Open");
+    assert!(
+        list.is_empty(),
+        "교환을 끄니 지운 설정 열기가 돌아왔다: 목록 {list:?}, 메뉴 {:?}\n{}",
+        menu_keys(cx, "settings::Open"),
+        user_file(&dir)
+    );
+}

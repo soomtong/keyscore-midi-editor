@@ -395,8 +395,18 @@ pub fn set_preset(cx: &mut App, preset: Preset) {
 
 /// 수식키 교환을 켜거나 끈다(KM-11).
 pub fn set_swap_alt_cmd(cx: &mut App, on: bool) {
+    let old = cx.global::<KeymapState>().options.swap_alt_cmd;
     cx.global_mut::<KeymapState>().options.swap_alt_cmd = on;
     crate::app_state::AppSettings::update(cx, |s| s.keymap.swap_alt_cmd = on);
+    // 표준 단축키를 지운 항목은 교환 상태에 따라 파일 키가 달라진다. 새 상태에 맞게 고쳐 쓴다(파일이 깨졌으면
+    // 손대지 않는다).
+    let (layers, user) = current_layers(cx);
+    if let Ok(mut user) = user
+        && user.retarget_standard_unbinds(&layers.standard, old, on)
+        && save_user(cx, &user).is_ok()
+    {
+        return;
+    }
     apply(cx);
 }
 

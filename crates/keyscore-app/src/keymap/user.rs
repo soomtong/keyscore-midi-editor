@@ -425,6 +425,50 @@ impl UserKeymap {
         });
     }
 
+    /// 수식키 교환을 `old`에서 `new`로 바꿀 때, 표준 단축키를 겨눈 지정 해제의 파일 키를 새 상태에 맞춘다. 엔진은
+    /// 사용자 레이어를 지금의 교환 상태로 교환하고 표준 레이어는 교환하지 않으므로, 그대로 두면 지정 해제가 다른
+    /// 키로 옮겨 가 지운 표준 단축키가 되살아난다(S2-T6a 리뷰 3 지적 1). 고친 것이 있으면 `true`.
+    pub fn retarget_standard_unbinds(
+        &mut self,
+        standard: &[Binding],
+        old: bool,
+        new: bool,
+    ) -> bool {
+        if old == new {
+            return false;
+        }
+        let mut changed = false;
+        for b in &mut self.entries {
+            let ActionRef::Named { name, args } = &b.action else {
+                continue;
+            };
+            let Some(target) = args.as_ref().and_then(Value::as_str) else {
+                continue;
+            };
+            if name != UNBIND {
+                continue;
+            }
+            let actual = if old {
+                super::swap_alt_cmd(&b.keys)
+            } else {
+                b.keys.clone()
+            };
+            let hits_standard = standard.iter().any(|s| {
+                canonical_keys(&s.keys) == canonical_keys(&actual)
+                    && matches!(&s.action, ActionRef::Named { name, .. } if name == target)
+            });
+            if hits_standard {
+                b.keys = canonical_keys(&if new {
+                    super::swap_alt_cmd(&actual)
+                } else {
+                    actual
+                });
+                changed = true;
+            }
+        }
+        changed
+    }
+
     /// 같은 레이어 안의 충돌(`keymap::conflict`)을 풀었다: 충돌마다 파일에서 뒤 항목만 남긴다.
     pub fn keep_later_of_conflicts(&mut self) {
         let conflicts = super::conflict::conflicts(&self.entries);
