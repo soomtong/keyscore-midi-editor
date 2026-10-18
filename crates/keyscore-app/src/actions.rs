@@ -1293,6 +1293,12 @@ pub mod keymap {
             Import,
             /// 수식키 교환 옵션(`Alt` ↔ `Cmd` 등)
             SwapModifiers,
+            /// 키맵 편집 목록의 다음 항목(S2-T6a)
+            SelectNext,
+            /// 키맵 편집 목록의 이전 항목(S2-T6a)
+            SelectPrev,
+            /// 키맵 편집 검색란으로(S2-T6a)
+            FocusSearch,
         ]
     );
 
@@ -1350,6 +1356,10 @@ pub mod settings {
         [
             /// 레이턴시 보정 마법사(설정 > 입력)
             Calibrate,
+            /// 설정 다음 구역(S2-T6a)
+            NextSection,
+            /// 설정 이전 구역(S2-T6a)
+            PrevSection,
         ]
     );
 
@@ -1370,6 +1380,19 @@ pub mod settings {
     pub struct SetKeyLayout(pub KeyLayout);
 }
 
+/// `dialog::` Action(대화상자·시트, A13).
+pub mod dialog {
+    gpui_kit::actions!(
+        dialog,
+        [
+            /// 대화상자 확인(기본 버튼)
+            Confirm,
+            /// 대화상자 취소(A13: Esc = 통상의 취소)
+            Cancel,
+        ]
+    );
+}
+
 /// `window::` Action.
 pub mod window {
     gpui_kit::actions!(
@@ -1385,7 +1408,9 @@ pub mod window {
     );
 }
 
-/// 모든 Action 이름(정렬). 카탈로그 285개와 S2-T1 패널 토글 2개(`view::ToggleTrackList`, `view::ToggleBottomPanel`)다.
+/// 모든 Action 이름(정렬). 카탈로그 285개, S2-T1 패널 토글 2개(`view::ToggleTrackList`, `view::ToggleBottomPanel`),
+/// 그 뒤 Task가 더한 것(`palette::Close`, S2-T6a의 `keymap::SelectNext`·`SelectPrev`·`FocusSearch`,
+/// `settings::NextSection`·`PrevSection`, `dialog::Confirm`·`Cancel`)이다. `mode::Back`은 S2-T3에서 뺐다.
 pub const ALL_ACTION_NAMES: &[&str] = &[
     "ai::Accept",
     "ai::AcceptGhost",
@@ -1453,6 +1478,8 @@ pub const ALL_ACTION_NAMES: &[&str] = &[
     "cursor::TrackDown",
     "cursor::TrackUp",
     "cursor::Up",
+    "dialog::Cancel",
+    "dialog::Confirm",
     "edit::CancelDrag",
     "edit::ChangeToBarEnd",
     "edit::Copy",
@@ -1494,9 +1521,12 @@ pub const ALL_ACTION_NAMES: &[&str] = &[
     "keymap::ClearBinding",
     "keymap::Edit",
     "keymap::Export",
+    "keymap::FocusSearch",
     "keymap::Import",
     "keymap::RestoreDefault",
+    "keymap::SelectNext",
     "keymap::SelectPreset",
+    "keymap::SelectPrev",
     "keymap::StartCapture",
     "keymap::SwapModifiers",
     "lane::AddCC",
@@ -1596,7 +1626,9 @@ pub const ALL_ACTION_NAMES: &[&str] = &[
     "sequence::SetLoopMode",
     "sequence::Skip",
     "settings::Calibrate",
+    "settings::NextSection",
     "settings::Open",
+    "settings::PrevSection",
     "settings::SetKeyLayout",
     "step::Accidental",
     "step::Back",

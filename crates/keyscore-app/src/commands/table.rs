@@ -460,6 +460,20 @@ pub(super) const SPECS: &[CommandSpec] = &[
         &[],
     ),
     CommandSpec::elsewhere(
+        "dialog::Cancel",
+        "대화상자 취소",
+        Surface::Dialog,
+        "대화상자·시트의 취소 버튼",
+        &[],
+    ),
+    CommandSpec::elsewhere(
+        "dialog::Confirm",
+        "대화상자 확인",
+        Surface::Dialog,
+        "대화상자·시트의 기본 버튼",
+        &[],
+    ),
+    CommandSpec::elsewhere(
         "edit::CancelDrag",
         "마우스 드래그 취소, 원위치",
         Surface::PianoRoll,
@@ -620,6 +634,13 @@ pub(super) const SPECS: &[CommandSpec] = &[
         &[],
     ),
     CommandSpec::elsewhere(
+        "keymap::FocusSearch",
+        "키맵 검색란으로",
+        Surface::Settings,
+        "설정 > 키맵 검색란",
+        &[],
+    ),
+    CommandSpec::elsewhere(
         "keymap::Import",
         "키맵 JSON 가져오기",
         Surface::Settings,
@@ -634,6 +655,13 @@ pub(super) const SPECS: &[CommandSpec] = &[
         &[],
     ),
     CommandSpec::elsewhere(
+        "keymap::SelectNext",
+        "키맵 목록 다음 항목",
+        Surface::Settings,
+        "설정 > 키맵 목록",
+        &[],
+    ),
+    CommandSpec::elsewhere(
         "keymap::SelectPreset",
         "프리셋 default / vim 선택",
         Surface::Settings,
@@ -642,6 +670,13 @@ pub(super) const SPECS: &[CommandSpec] = &[
             Variant::new("기본 프리셋", "\"default\""),
             Variant::new("vim 프리셋", "\"vim\""),
         ],
+    ),
+    CommandSpec::elsewhere(
+        "keymap::SelectPrev",
+        "키맵 목록 이전 항목",
+        Surface::Settings,
+        "설정 > 키맵 목록",
+        &[],
     ),
     CommandSpec::elsewhere(
         "keymap::StartCapture",
@@ -1317,6 +1352,13 @@ pub(super) const SPECS: &[CommandSpec] = &[
         "설정 > 입력 > 보정 마법사",
         &[],
     ),
+    CommandSpec::elsewhere(
+        "settings::NextSection",
+        "설정 다음 구역",
+        Surface::Settings,
+        "설정 창 왼쪽 구역 목록",
+        &[],
+    ),
     CommandSpec::menu(
         "settings::Open",
         "설정",
@@ -1331,6 +1373,13 @@ pub(super) const SPECS: &[CommandSpec] = &[
             Variant::new("AI 설정", "\"ai\""),
             Variant::new("키맵 설정", "\"keymap\""),
         ],
+    ),
+    CommandSpec::elsewhere(
+        "settings::PrevSection",
+        "설정 이전 구역",
+        Surface::Settings,
+        "설정 창 왼쪽 구역 목록",
+        &[],
     ),
     CommandSpec::elsewhere(
         "settings::SetKeyLayout",

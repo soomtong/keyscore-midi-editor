@@ -17,6 +17,7 @@
 
 pub mod conflict;
 pub mod source;
+pub mod user;
 
 use std::path::PathBuf;
 use std::rc::Rc;
