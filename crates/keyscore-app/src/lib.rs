@@ -16,6 +16,7 @@ mod inspector;
 pub mod keymap;
 pub mod mode;
 pub mod palette;
+pub mod ports;
 pub mod settings;
 pub mod theme;
 mod track_list;

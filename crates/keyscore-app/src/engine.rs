@@ -152,6 +152,23 @@ pub fn virtual_port_name(cx: &App) -> String {
     }
 }
 
+/// 엔진이 지금 열어 둔 OS 목적지 이름(테스트·진단용).
+#[must_use]
+pub fn opened_ports(cx: &App) -> Vec<String> {
+    let _ = cx;
+    todo!()
+}
+
+/// MIDI 서버가 다시 뜬 뒤 기본 가상 포트를 다시 등록한다(OUT-1).
+///
+/// # Errors
+///
+/// 다시 등록하지 못하면 그 오류.
+pub fn recover_virtual_port(cx: &mut App) -> Result<(), MidiError> {
+    let _ = cx;
+    todo!()
+}
+
 /// 엔진이 설치돼 있는가.
 #[must_use]
 pub fn is_installed(cx: &App) -> bool {
