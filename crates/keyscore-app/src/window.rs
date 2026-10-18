@@ -383,6 +383,19 @@ impl ProjectWindow {
         &self.transport.messages
     }
 
+    /// 열린 키맵 오버레이의 모든 줄(`키, 키 · 제목 (이름)`). 닫혀 있으면 `None`.
+    #[must_use]
+    pub fn overlay_lines(&self, cx: &App) -> Option<Vec<String>> {
+        let _ = cx;
+        todo!()
+    }
+
+    /// 열린 키맵 오버레이의 (지금 쪽, 쪽 수).
+    #[must_use]
+    pub fn overlay_page(&self) -> Option<(usize, usize)> {
+        todo!()
+    }
+
     /// 명령 팔레트가 열려 있는가.
     #[must_use]
     pub const fn palette_open(&self) -> bool {

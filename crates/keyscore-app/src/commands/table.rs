@@ -587,6 +587,13 @@ pub(super) const SPECS: &[CommandSpec] = &[
         7,
         &[],
     ),
+    CommandSpec::elsewhere(
+        "help::CloseOverlay",
+        "키맵 오버레이 닫기",
+        Surface::KeymapOverlay,
+        "키맵 오버레이",
+        &[],
+    ),
     CommandSpec::menu("help::KeymapOverlay", "키맵 보기", MenuId::Help, 0, 77, &[]),
     CommandSpec::elsewhere(
         "help::NextPage",

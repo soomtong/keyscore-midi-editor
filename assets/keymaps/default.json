@@ -529,6 +529,8 @@
   {
     "context": "Overlay",
     "bindings": {
+      // Esc = 통상의 취소(A13 결정)
+      "escape": "help::CloseOverlay",
       "tab": "help::NextPage",
       "shift-tab": "help::PrevPage"
     }
