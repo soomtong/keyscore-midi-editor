@@ -64,6 +64,10 @@ pub struct ProjectWindow {
     current_index: usize,
     /// 트랜스포트 바의 입력 상태(S2-T5b).
     pub(crate) transport_bar: TransportBar,
+    /// 창의 한 줄 입력란(트랜스포트·인스펙터).
+    pub(crate) fields: crate::fields::Fields,
+    /// 트랙 인스펙터(S2-T5c).
+    pub(crate) inspector: crate::inspector::Inspector,
     /// 열린 명령 팔레트와 그 사건 구독.
     palette: Option<(Entity<CommandPalette>, Subscription)>,
     /// 트랜스포트 상태(S2-T5a).
@@ -89,7 +93,7 @@ impl ProjectWindow {
         let focus = cx.focus_handle();
         let document_changed = cx.observe_in(&document, window, |this, _, window, cx| {
             this.keep_current_track(cx);
-            this.sync_transport_fields(window, cx);
+            this.sync_fields(window, cx);
             this.transport_document_changed(cx);
         });
         let current_track = document
@@ -98,7 +102,9 @@ impl ProjectWindow {
             .tracks()
             .first()
             .map(keyscore_core::Track::id);
-        let transport_bar = TransportBar::new(window, cx);
+        let transport_bar = TransportBar::new();
+        let fields = crate::fields::Fields::new(window, cx);
+        let inspector = crate::inspector::Inspector::new(window, cx);
         let released = cx.on_release(|_, cx| crate::transport::release(cx));
         let mut this = ProjectWindow {
             document,
@@ -114,12 +120,14 @@ impl ProjectWindow {
             current_track,
             current_index: 0,
             transport_bar,
+            fields,
+            inspector,
             palette: None,
             transport: Transport::default(),
             _document_changed: document_changed,
             _released: released,
         };
-        this.refresh_transport_fields(window, cx);
+        this.refresh_fields(window, cx);
         this
     }
 
@@ -181,7 +189,7 @@ impl ProjectWindow {
             self.mode = next;
             // 입력란에서 전역 키(`ctrl-tab`)로 모드가 바뀌면 문서로 포커스를 옮긴다. 그대로 두면 상태줄은
             // 새 모드인데 키는 입력란 글자가 된다(리뷰 2 제안 1).
-            if self.transport_field_focused(window, cx) {
+            if self.field_focused(window, cx) {
                 self.cancel_open_fields(window, cx);
                 window.focus(&self.focus, cx);
             }
@@ -343,8 +351,7 @@ impl ProjectWindow {
     #[must_use]
     pub fn transport_tempo_focused(&self, window: &Window, cx: &App) -> bool {
         use gpui_kit::Focusable as _;
-        self.transport_bar
-            .tempo
+        self.field_state(crate::fields::Field::Tempo)
             .read(cx)
             .focus_handle(cx)
             .is_focused(window)
@@ -544,6 +551,13 @@ impl ProjectWindow {
             .on_action(cx.listener(Self::track_move_up))
             .on_action(cx.listener(Self::track_move_down))
             .on_action(cx.listener(Self::track_set_channel))
+            .on_action(cx.listener(Self::track_rename))
+            .on_action(cx.listener(Self::track_set_color))
+            .on_action(cx.listener(Self::track_set_port))
+            .on_action(cx.listener(Self::track_set_program))
+            .on_action(cx.listener(Self::track_set_default_velocity))
+            .on_action(cx.listener(Self::track_set_lyric_lang))
+            .on_action(cx.listener(Self::midi_send_test_note))
             .on_action(cx.listener(Self::track_next))
             .on_action(cx.listener(Self::track_prev))
             .on_action(cx.listener(Self::track_first))
@@ -614,6 +628,88 @@ impl ProjectWindow {
                     .inset_0(),
             )
             .on_click(cx.listener(|this, _, window, cx| this.open_mode_menu(window, cx)))
+    }
+
+    /// 겹 바깥 자리(트랜스포트 바·패널·상태줄)를 누르면(어느 버튼이든) 문서로 포커스를 옮기는 처리기. 겹이
+    /// 창 전체를 감쌀 때 GPUI 포커스 요소(`track_focus`, 모든 버튼)가 하던 일이다(S2-T5c 리뷰 1 지적 1, 리뷰 2
+    /// 지적 1·2).
+    /// - 아무도 누름을 받지 않았으면(빈 자리) 문서로 옮긴다.
+    /// - 안쪽이 받았고 포커스가 텍스트 입력란에 있으면 그대로 둔다. 입력란을 누른 것이다. 버튼의 왼쪽 누름도
+    ///   여기에 든다(gpui-component 버튼은 포커스를 받지 않고 `prevent_default`만 한다). 그 뒤는 버튼의 클릭
+    ///   처리기가 문서로 돌린다.
+    /// - 안쪽이 받았는데 포커스가 입력란이 아니면 문서로 되돌린다. 오른쪽 누름에서는 버튼·토글이 포커스를
+    ///   가져가고, 겹 바깥 버튼에 포커스가 남으면 모드 키가 모두 끊긴다(리뷰 3 지적 1).
+    fn focus_document_on_press(
+        cx: &mut Context<Self>,
+    ) -> impl Fn(&gpui_kit::MouseDownEvent, &mut Window, &mut App) + 'static {
+        cx.listener(|this, _, window, cx| {
+            if window.default_prevented() && Self::text_input_focused(window) {
+                return;
+            }
+            this.focus_document(window, cx);
+            window.prevent_default();
+        })
+    }
+
+    /// 상태줄(UI-5, 7.1 아래): 왼쪽 모드, 가운데 현재 트랙·포트·채널, 오른쪽 키맵 오류(KM-6) 또는 마지막
+    /// 메시지. 길이 코드·옥타브는 Step 입력(S5)과 함께 넣는다.
+    fn render_status_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let track = self
+            .current_track()
+            .map(|id| {
+                crate::tracks::status_track_text(
+                    self.document.read(cx).project(),
+                    id,
+                    &crate::engine::virtual_port_name(cx),
+                )
+            })
+            .unwrap_or_default();
+        let message = self
+            .messages()
+            .last()
+            .map(ToString::to_string)
+            .unwrap_or_default();
+        let keymap_error = crate::keymap::errors(cx)
+            .first()
+            .map(|e| format!("키맵 오류 {}", crate::keymap::describe(e)));
+        let right = if let Some(error) = keymap_error {
+            div()
+                .id("status-keymap-error")
+                .aria_label(error.clone())
+                .test_support()
+                .text_color(cx.theme().warning)
+                .child(error)
+        } else {
+            div()
+                .id("status-message")
+                .aria_label(message.clone())
+                .test_support()
+                .text_color(cx.theme().muted_foreground)
+                .child(message)
+        };
+        div()
+            .id("status-bar")
+            .test_support()
+            .flex_none()
+            .on_any_mouse_down(Self::focus_document_on_press(cx))
+            .child(
+                StatusBar::new()
+                    .left(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap_3()
+                            .child(self.mode_indicator(cx))
+                            .child(
+                                div()
+                                    .id("status-track")
+                                    .aria_label(track.clone())
+                                    .test_support()
+                                    .child(track),
+                            ),
+                    )
+                    .right(right),
+            )
     }
 
     /// 열린 모드 메뉴. 컨텍스트 겹 바깥(루트의 자식)에 그린다. 안쪽에 그리면 메뉴 포커스의 디스패치
@@ -738,76 +834,63 @@ impl Render for ProjectWindow {
         };
         let transport_bar = self.render_transport_bar(window, cx).into_any_element();
         let track_list = self.render_track_list(cx).into_any_element();
-        // 트랜스포트 바는 모드 키 컨텍스트 겹 바깥에 둔다. 안쪽이면 템포 입력란에 친 `space`·숫자가 글자가
-        // 되기 전에 모드 바인딩(재생 토글, vim 카운트)으로 빠진다(S2-T5b 리뷰 1 지적 1). 팔레트·팝업과 같은
+        let inspector = self.render_inspector(window, cx).into_any_element();
+        let status_bar = self.render_status_bar(cx).into_any_element();
+        // 모드 키 컨텍스트 겹(포커스 핸들 포함)은 가운데 주 뷰만 감싼다. 키 디스패치는 포커스 자리에서
+        // 시작하므로 모드 키는 그대로이고, 겹 바깥의 트랜스포트 바·인스펙터 입력란에 친 `space`·글자·숫자는
+        // 모드 바인딩(재생 토글, vim 카운트)으로 빠지지 않는다(S2-T5b 리뷰 1 지적 1). 팔레트·팝업과 같은
         // 이유다.
+        let main_view =
+            self.wrap_in_contexts(Self::region("main-view", main_label, cx).into_any_element());
         let top = div()
+            .id("top")
+            .on_any_mouse_down(Self::focus_document_on_press(cx))
             .h(px(40.))
             .flex_none()
             .border_b_1()
             .border_color(cx.theme().border)
             .child(transport_bar);
+        // 겹 바깥 패널의 빈 자리를 눌러도 문서로 포커스가 온다(`focus_document_on_press`).
         let content = div()
-            .size_full()
-            .flex()
-            .flex_col()
+            .id("content")
+            .on_any_mouse_down(Self::focus_document_on_press(cx))
+            .flex_1()
+            .min_h_0()
             .child(
-                div().flex_1().min_h_0().child(
-                    v_resizable("main-vertical")
-                        .with_state(&self.vertical)
-                        .child(
-                            resizable_panel().child(
-                                h_resizable("main-horizontal")
-                                    .with_state(&self.horizontal)
-                                    .when(layout.track_list_open, |g| {
-                                        g.child(
-                                            resizable_panel()
-                                                .size(px(layout.track_list_width))
-                                                .size_range(range.clone())
-                                                .child(track_list),
-                                        )
-                                    })
-                                    .child(resizable_panel().child(Self::region(
-                                        "main-view",
-                                        main_label,
-                                        cx,
-                                    )))
-                                    .when(layout.inspector_open, |g| {
-                                        g.child(
-                                            resizable_panel()
-                                                .size(px(layout.inspector_width))
-                                                .size_range(range.clone())
-                                                .child(Self::region(
-                                                    "inspector",
-                                                    "트랙 인스펙터",
-                                                    cx,
-                                                )),
-                                        )
-                                    }),
-                            ),
+                v_resizable("main-vertical")
+                    .with_state(&self.vertical)
+                    .child(
+                        resizable_panel().child(
+                            h_resizable("main-horizontal")
+                                .with_state(&self.horizontal)
+                                .when(layout.track_list_open, |g| {
+                                    g.child(
+                                        resizable_panel()
+                                            .size(px(layout.track_list_width))
+                                            .size_range(range.clone())
+                                            .child(track_list),
+                                    )
+                                })
+                                .child(resizable_panel().child(main_view))
+                                .when(layout.inspector_open, |g| {
+                                    g.child(
+                                        resizable_panel()
+                                            .size(px(layout.inspector_width))
+                                            .size_range(range.clone())
+                                            .child(inspector),
+                                    )
+                                }),
+                        ),
+                    )
+                    .when(layout.bottom_open, |g| {
+                        g.child(
+                            resizable_panel()
+                                .size(px(layout.bottom_height))
+                                .size_range(range.clone())
+                                .child(Self::region("bottom-panel", "컨트롤러 레인 / 건반 뷰", cx)),
                         )
-                        .when(layout.bottom_open, |g| {
-                            g.child(
-                                resizable_panel()
-                                    .size(px(layout.bottom_height))
-                                    .size_range(range.clone())
-                                    .child(Self::region(
-                                        "bottom-panel",
-                                        "컨트롤러 레인 / 건반 뷰",
-                                        cx,
-                                    )),
-                            )
-                        }),
-                ),
-            )
-            .child(
-                div()
-                    .id("status-bar")
-                    .test_support()
-                    .flex_none()
-                    .child(StatusBar::new().left(self.mode_indicator(cx))),
-            )
-            .into_any_element();
+                    }),
+            );
         // 처리기는 바깥 요소에 단다. 디스패치는 포커스(가장 안쪽)에서 바깥으로 올라온다.
         let root = div()
             .id("project-window")
@@ -822,12 +905,8 @@ impl Render for ProjectWindow {
         let root = Self::swallow_root_tab(root, cx);
         Self::mode_handlers(root, cx)
             .child(top)
-            .child(
-                div()
-                    .flex_1()
-                    .min_h_0()
-                    .child(self.wrap_in_contexts(content)),
-            )
+            .child(content)
+            .child(status_bar)
             .children(self.mode_menu_overlay(window))
             .children(self.palette_overlay(window))
     }
@@ -885,8 +964,14 @@ pub(crate) enum PopupKind {
     Mode,
     /// 트랜스포트의 조성 메뉴
     Key,
-    /// 트랜스포트의 출력 포트 메뉴
+    /// 출력 포트 메뉴(트랜스포트·인스펙터)
     Port,
+    /// 인스펙터의 색 메뉴
+    Color,
+    /// 인스펙터의 채널 메뉴
+    Channel,
+    /// 인스펙터의 가사 언어 메뉴
+    LyricLang,
 }
 
 /// 열린 팝업 메뉴.

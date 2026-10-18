@@ -1,9 +1,10 @@
-//! 트랙 목록·트랜스포트 바의 계산(S2-T5b). GPUI와 무관한 함수라 단위 테스트한다.
+//! 트랙 목록·트랜스포트 바·인스펙터·상태줄의 계산(S2-T5b, S2-T5c). GPUI와 무관한 함수라 단위 테스트한다.
 
 use std::collections::{BTreeSet, HashMap};
 
 use keyscore_core::{
-    Channel, Key, OutputPort, PitchClass, Project, Tempo, Tick, TimeSignature, TrackId,
+    Bank, Channel, Key, OutputPort, PitchClass, Project, Tempo, Tick, TimeSignature, TrackColor,
+    TrackId, Velocity,
 };
 
 /// 템포 필드가 받는 범위(BPM의 10배). 너무 느리거나 빠른 값은 입력 실수로 본다.
@@ -144,4 +145,113 @@ pub fn port_label(port: &OutputPort, virtual_name: &str) -> String {
         OutputPort::Virtual => virtual_name.to_owned(),
         OutputPort::Named(name) => name.clone(),
     }
+}
+
+/// 뱅크 입력(0–16383, 비우면 없음).
+///
+/// # Errors
+///
+/// 숫자가 아니거나 범위 밖이면 사람이 읽을 이유.
+pub fn parse_bank(text: &str) -> Result<Option<Bank>, String> {
+    let text = text.trim();
+    if text.is_empty() {
+        return Ok(None);
+    }
+    let bad = || format!("뱅크 「{text}」를 읽을 수 없다(0–16383, 비우면 없음)");
+    if !text.chars().all(|c| c.is_ascii_digit()) {
+        return Err(bad());
+    }
+    let value: u16 = text.parse().map_err(|_| bad())?;
+    Bank::new(value).map(Some).map_err(|_| bad())
+}
+
+/// 기본 벨로시티 입력(1–127). 0은 MIDI 1.0에서 Note Off로 읽히므로 받지 않는다.
+///
+/// # Errors
+///
+/// 숫자가 아니거나 범위 밖이면 사람이 읽을 이유.
+pub fn parse_velocity(text: &str) -> Result<Velocity, String> {
+    let text = text.trim();
+    let bad = || format!("벨로시티 「{text}」를 읽을 수 없다(1–127)");
+    if text.is_empty() || !text.chars().all(|c| c.is_ascii_digit()) {
+        return Err(bad());
+    }
+    let value: u8 = text.parse().map_err(|_| bad())?;
+    if value == 0 {
+        return Err(bad());
+    }
+    Velocity::from_midi1(value).map_err(|_| bad())
+}
+
+/// 색 메뉴의 표시 이름. 순서는 `palette::PALETTE_NAMES`와 같다.
+const COLOR_LABELS: [&str; 12] = [
+    "빨강",
+    "노랑",
+    "초록",
+    "청록",
+    "파랑",
+    "자홍",
+    "밝은 빨강",
+    "밝은 노랑",
+    "밝은 초록",
+    "밝은 청록",
+    "밝은 파랑",
+    "밝은 자홍",
+];
+
+/// 트랙 색 인자: 팔레트 이름(`red` …) 또는 번호 0–11.
+///
+/// # Errors
+///
+/// 모르는 이름이거나 범위 밖이면 사람이 읽을 이유.
+pub fn parse_color(text: &str) -> Result<TrackColor, String> {
+    let text = text.trim();
+    let bad = || {
+        format!(
+            "색 「{text}」를 모른다({} 또는 0–11)",
+            crate::palette::PALETTE_NAMES.join(", ")
+        )
+    };
+    let index = if let Some(i) = crate::palette::PALETTE_NAMES
+        .iter()
+        .position(|n| *n == text)
+    {
+        u8::try_from(i).map_err(|_| bad())?
+    } else if !text.is_empty() && text.chars().all(|c| c.is_ascii_digit()) {
+        text.parse().map_err(|_| bad())?
+    } else {
+        return Err(bad());
+    };
+    TrackColor::new(index).map_err(|_| bad())
+}
+
+/// 색 메뉴의 표시 이름.
+#[must_use]
+pub fn color_label(color: TrackColor) -> String {
+    COLOR_LABELS[usize::from(color.index())].to_owned()
+}
+
+/// 트랙 이름 표시. 이름이 비면 `트랙 N`(목록 순서)으로 부른다.
+#[must_use]
+pub fn track_display_name(project: &Project, track: TrackId) -> String {
+    let tracks = project.tracks();
+    match tracks.iter().position(|t| t.id() == track) {
+        Some(i) if tracks[i].name().is_empty() => format!("트랙 {}", i + 1),
+        Some(i) => tracks[i].name().to_owned(),
+        None => String::new(),
+    }
+}
+
+/// 상태줄 가운데: `트랙 이름 · 포트 chN`(7.1, UI-5).
+#[must_use]
+pub fn status_track_text(project: &Project, track: TrackId, virtual_name: &str) -> String {
+    let Some(t) = project.tracks().iter().find(|t| t.id() == track) else {
+        return String::new();
+    };
+    format!(
+        "{} · {} ch{}",
+        track_display_name(project, track),
+        port_label(t.port(), virtual_name),
+        t.channel().get()
+    )
 }

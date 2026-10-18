@@ -361,9 +361,16 @@ impl ProjectWindow {
                     .child(button("solo", "S", row.solo, Box::new(track::ToggleSolo)))
             })
             .collect();
+        // 목록 안을 왼쪽 버튼으로 누르면(줄·버튼 포함) 늘 문서로 포커스를 돌린다. 목록에는 입력란이 없다.
+        // gpui-component 버튼은 왼쪽 누름에서 포커스를 받지 않고 `prevent_default`만 하므로, 창의 공통
+        // 처리기(`focus_document_on_press`)는 고치던 입력란을 그대로 둔다. 이 처리기가 그 입력을 끝낸다.
         div()
             .id("track-list")
             .test_support()
+            .on_mouse_down(
+                gpui_kit::MouseButton::Left,
+                cx.listener(|this, _, window, cx| this.focus_document(window, cx)),
+            )
             .size_full()
             .flex()
             .flex_col()

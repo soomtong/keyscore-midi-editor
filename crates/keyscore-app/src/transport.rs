@@ -21,6 +21,8 @@ pub(crate) struct Transport {
     anchor: Option<Anchor>,
     /// 지금 스냅샷의 뱅크·프로그램. 재생 중 편집으로 바뀐 것만 보낸다(OUT-4, TRN-3).
     setup: Vec<Setup>,
+    /// 지금 스냅샷의 목적지 → 포트 번호(테스트 노트, PRE-3).
+    pub(crate) routes: Vec<(String, u16)>,
     pub(crate) metronome: bool,
     pub(crate) messages: Vec<SharedString>,
 }
@@ -225,16 +227,23 @@ impl ProjectWindow {
                     }
                 }
             }
-            Ok::<_, MidiError>((prepared.missing, prepared.setup, tempo, send_error))
+            Ok::<_, MidiError>((
+                prepared.missing,
+                prepared.setup,
+                prepared.routes,
+                tempo,
+                send_error,
+            ))
         });
         match result {
-            Ok((missing, setup, tempo, send_error)) => {
+            Ok((missing, setup, routes, tempo, send_error)) => {
                 self.transport.anchor = Some(Anchor {
                     at: now,
                     tick: here,
                     tempo,
                 });
                 self.transport.setup = setup;
+                self.transport.routes = routes;
                 self.report_missing(&missing);
                 if let Some(e) = send_error {
                     self.transport
@@ -285,13 +294,14 @@ impl ProjectWindow {
             scheduler.set_metronome_enabled(metronome)?;
             scheduler.play(from)?;
             engine.take_owner(Some(me.clone()));
-            Ok::<_, MidiError>((prepared.missing, prepared.setup, tempo))
+            Ok::<_, MidiError>((prepared.missing, prepared.setup, prepared.routes, tempo))
         });
         match result {
-            Ok((missing, setup, tempo)) => {
+            Ok((missing, setup, routes, tempo)) => {
                 self.transport.state = TransportState::Playing;
                 self.transport.anchor = Some(Anchor::new(from, tempo));
                 self.transport.setup = setup;
+                self.transport.routes = routes;
                 self.report_missing(&missing);
             }
             Err(e) => {
@@ -323,7 +333,7 @@ impl ProjectWindow {
         }
     }
 
-    fn report_missing(&mut self, missing: &[(String, PortProblem)]) {
+    pub(crate) fn report_missing(&mut self, missing: &[(String, PortProblem)]) {
         for (name, problem) in missing {
             let message = match problem {
                 PortProblem::NotFound => {

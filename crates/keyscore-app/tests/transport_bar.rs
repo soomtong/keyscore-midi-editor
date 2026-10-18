@@ -183,17 +183,27 @@ fn tempo_meter_key_fields_edit_document(cx: &mut TestAppContext) {
 fn tap_tempo_sets_tempo_from_intervals(cx: &mut TestAppContext) {
     start(cx, "tap");
     let (handle, view) = open(cx, Project::new());
+    // 탭 시각은 클릭 처리 안에서 찍힌다. 클릭 처리 시간이 기계마다 달라 고정 범위로 보면 흔들린다. 첫 탭과
+    // 마지막 탭이 찍혔을 수 있는 구간으로 기대 BPM의 범위를 잡는다.
+    let mut spans = Vec::new();
     for i in 0..4 {
         if i > 0 {
             std::thread::sleep(Duration::from_millis(500));
         }
+        let before = Instant::now();
         click(cx, handle, "transport-tap");
+        spans.push((before, Instant::now()));
     }
     let bpm = project_of(cx, &view)
         .tempo_map()
         .tempo_at(keyscore_core::Tick::ZERO)
         .bpm_f64();
-    assert!((110.0..=125.0).contains(&bpm), "{bpm}");
+    let shortest = spans[3].0.duration_since(spans[0].1).as_secs_f64() / 3.0;
+    let longest = spans[3].1.duration_since(spans[0].0).as_secs_f64() / 3.0;
+    // 표시는 소수 한 자리로 반올림한다
+    let (low, high) = (60.0 / longest - 0.1, 60.0 / shortest + 0.1);
+    assert!((low..=high).contains(&bpm), "{bpm} not in {low}..={high}");
+    assert!((90.0..=125.0).contains(&bpm), "{bpm}");
 }
 
 // ---------- 8. 메트로놈 버튼 ----------
