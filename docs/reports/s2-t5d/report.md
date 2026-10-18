@@ -94,3 +94,9 @@ port_watch.rs 6개: 병렬 실행 3번 연속 통과(약 1.4 s)
 - `many_port_hotplug_is_bounded_and_status_shows_last`, `hotplug_wording_per_window_and_rename_order`: 묶은 줄에도 이름이 모두 들어 있어 그대로 통과한다. 고친 것은 없다.
 - `closed_window_port_changes_are_harmless`: 새 창은 다른 테스트 포트의 핫플러그 알림을 받으므로 「메시지 없음」 대신 「재연결 문구 없음」을 본다.
 - `duplicate_names_consistent_choice_reconnects`: 수정 없이 통과한다(끊긴 뒤 옮김은 「다시 연결했다」).
+
+## 리뷰 3 대응
+
+판정 「병합 가능」. 제안 둘은 이렇게 둔다.
+- 제안 1(같은 이름 포트 여럿에서 쓰던 포트가 재생 중 빠지면 메시지 목록에 「없어 소리 내지 않는다」가 중간에 남는다): 소리·프로그램·상태줄 마지막 메시지가 맞아 알려진 한계로 둔다. 잃음 뒤 같은 틱의 재연결이 따르면 다시 준비를 한 번으로 줄이는 일은 S2 출구 수동 확인 때 메시지가 거슬리면 다룬다.
+- 제안 2(「바꿨다」 문구와 핫플러그 묶음 줄의 테스트가 리뷰 테스트에만 있다): 리뷰 테스트도 저장소의 회귀 테스트(`tests/review_s2_t5d_r2.rs`, `review_s2_t5d_r3.rs`)로 남아 게이트에서 돈다.
