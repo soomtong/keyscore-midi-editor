@@ -529,6 +529,10 @@
   {
     "context": "Overlay",
     "bindings": {
+      // Esc = 통상의 취소(A13 결정)
+      "escape": "help::CloseOverlay",
+      // 연 키로 다시 닫는다(메뉴로 열고 닫는 것과 같게)
+      "?": "help::KeymapOverlay",
       "tab": "help::NextPage",
       "shift-tab": "help::PrevPage"
     }

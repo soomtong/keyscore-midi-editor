@@ -15,6 +15,7 @@ pub mod gm;
 mod inspector;
 pub mod keymap;
 pub mod mode;
+mod overlay;
 pub mod palette;
 pub mod ports;
 pub mod settings;

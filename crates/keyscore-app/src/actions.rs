@@ -1339,6 +1339,8 @@ pub mod help {
             NextPage,
             /// 오버레이 이전 페이지
             PrevPage,
+            /// 오버레이 닫기(A13: Esc = 통상의 취소)
+            CloseOverlay,
             /// 온보딩 다시 보기
             ReplayOnboarding,
             /// 문서 열기
@@ -1410,7 +1412,7 @@ pub mod window {
 
 /// 모든 Action 이름(정렬). 카탈로그 285개, S2-T1 패널 토글 2개(`view::ToggleTrackList`, `view::ToggleBottomPanel`),
 /// 그 뒤 Task가 더한 것(`palette::Close`, S2-T6a의 `keymap::SelectNext`·`SelectPrev`·`FocusSearch`,
-/// `settings::NextSection`·`PrevSection`, `dialog::Confirm`·`Cancel`)이다. `mode::Back`은 S2-T3에서 뺐다.
+/// `settings::NextSection`·`PrevSection`, `dialog::Confirm`·`Cancel`, S2-T6b의 `help::CloseOverlay`)이다. `mode::Back`은 S2-T3에서 뺐다.
 pub const ALL_ACTION_NAMES: &[&str] = &[
     "ai::Accept",
     "ai::AcceptGhost",
@@ -1512,6 +1514,7 @@ pub const ALL_ACTION_NAMES: &[&str] = &[
     "file::OpenRecent",
     "file::Save",
     "file::SaveAs",
+    "help::CloseOverlay",
     "help::KeymapOverlay",
     "help::NextPage",
     "help::OpenDocs",
