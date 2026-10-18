@@ -333,6 +333,51 @@ impl ProjectWindow {
         }
     }
 
+    /// MIDI 서버가 다시 떠서 엔진이 재생을 멈췄다.
+    pub(crate) fn transport_stopped_by_server(&mut self, cx: &mut Context<Self>) {
+        if self.transport.state == TransportState::Playing {
+            self.transport
+                .say("MIDI 서버가 다시 시작되어 재생을 멈췄다");
+        }
+        self.transport.mark_stopped();
+        cx.notify();
+    }
+
+    /// 이름 포트가 돌아왔다(포트 감시). 이 창이 재생 중이면 스냅샷을 다시 만들어 새 핸들로 보내고, 그
+    /// 목적지의 뱅크·프로그램을 다시 보낸다. 돌아온 장치는 새로 켜졌을 수 있다.
+    pub(crate) fn transport_port_returned(&mut self, name: &str, cx: &mut Context<Self>) {
+        let me = cx.entity().downgrade();
+        if self.transport.state != TransportState::Playing
+            || !cx.has_global::<Engine>()
+            || !cx.global::<Engine>().is_owner(&me)
+        {
+            return;
+        }
+        self.transport_document_changed(cx);
+        let setups: Vec<Setup> = self
+            .transport
+            .setup
+            .iter()
+            .filter(|s| s.destination == name)
+            .cloned()
+            .collect();
+        let scheduler = cx.global_mut::<Engine>().scheduler();
+        let mut error = None;
+        for setup in &setups {
+            for msg in &setup.messages {
+                if let Err(e) = scheduler.send_now(setup.port, *msg) {
+                    error.get_or_insert(e);
+                }
+            }
+        }
+        if let Some(e) = error {
+            self.transport.say(format!(
+                "돌아온 포트 「{name}」에 뱅크·프로그램을 보내지 못했다: {e}"
+            ));
+        }
+        cx.notify();
+    }
+
     pub(crate) fn report_missing(&mut self, missing: &[(String, PortProblem)]) {
         for (name, problem) in missing {
             let message = match problem {

@@ -13,8 +13,8 @@ use gpui_kit::{App, Global, WeakEntity};
 use keyscore_core::{OutputPort, Project, TempoMap, Tick};
 use keyscore_midi::{
     DEFAULT_PORT_NAME, MAX_SCHEDULER_PORTS, Midi1Message, MidiClient, MidiError, MidiPort,
-    OsOutput, PortInfo, ScheduledEvent, Scheduler, SchedulerConfig, Snapshot, bank_select,
-    destinations, program_change, render,
+    OsOutput, PortInfo, ScheduledEvent, Scheduler, SchedulerConfig, Snapshot, VirtualOutput,
+    bank_select, destinations, program_change, render,
 };
 
 use crate::window::ProjectWindow;
@@ -50,10 +50,11 @@ pub enum TransportState {
 /// 앱 전역 엔진.
 pub(crate) struct Engine {
     client: MidiClient,
-    /// 기본 가상 포트. 스냅샷의 포트 0이다.
-    main: Arc<dyn MidiPort>,
-    /// 한 번 연 OS 목적지(이름별). 포트가 사라졌을 때의 확인·재연결은 S2-T5c(OUT-3)다.
-    opened: HashMap<String, Arc<dyn MidiPort>>,
+    /// 기본 가상 포트. 스냅샷의 포트 0이다. MIDI 서버가 다시 뜨면 다시 등록하므로 구체 타입으로 갖는다.
+    main: Arc<VirtualOutput>,
+    /// 연 OS 목적지(이름별). 재생 시작 준비 때 그 프로젝트가 쓰지 않는 것은 놓고, 다시 쓰기 전에
+    /// `is_present`로 확인한다(S2-T5d). 스냅샷이 들고 있는 동안은 살아 있다.
+    opened: HashMap<String, Arc<OsOutput>>,
     scheduler: Scheduler,
     /// 기본 가상 포트 이름(트랙 목록·포트 드롭다운 표시)
     port_name: String,
@@ -127,8 +128,12 @@ pub fn install(cx: &mut App, options: &EngineOptions) -> Result<(), MidiError> {
     }
     // 프로세스의 첫 CoreMIDI 호출이다(S1-T2 알림 조건).
     let client = MidiClient::new(&options.client_name)?;
-    let main: Arc<dyn MidiPort> = Arc::new(client.create_virtual_output(&options.port_name)?);
-    let empty = Snapshot::new(TempoMap::default(), vec![main.clone()], Vec::new())?;
+    let main = Arc::new(client.create_virtual_output(&options.port_name)?);
+    let empty = Snapshot::new(
+        TempoMap::default(),
+        vec![main.clone() as Arc<dyn MidiPort>],
+        Vec::new(),
+    )?;
     let scheduler = Scheduler::start(Arc::new(empty), SchedulerConfig::default())?;
     cx.set_global(Engine {
         client,
@@ -155,18 +160,50 @@ pub fn virtual_port_name(cx: &App) -> String {
 /// 엔진이 지금 열어 둔 OS 목적지 이름(테스트·진단용).
 #[must_use]
 pub fn opened_ports(cx: &App) -> Vec<String> {
-    let _ = cx;
-    todo!()
+    if !cx.has_global::<Engine>() {
+        return Vec::new();
+    }
+    let mut names: Vec<String> = cx.global::<Engine>().opened.keys().cloned().collect();
+    names.sort();
+    names
 }
 
-/// MIDI 서버가 다시 뜬 뒤 기본 가상 포트를 다시 등록한다(OUT-1).
+/// 가상 포트를 다시 등록하지 못한 이유.
+#[derive(Debug, thiserror::Error)]
+pub enum RecoverError {
+    #[error(transparent)]
+    Midi(#[from] MidiError),
+    #[error("스케줄러가 가상 포트를 놓지 않았다")]
+    PortBusy,
+}
+
+/// MIDI 서버가 다시 뜬 뒤 기본 가상 포트를 다시 등록한다(OUT-1). 재생 중인 창은 멈추고, 열린 창에
+/// 알리고, 포트 감시자를 다시 시작한다.
 ///
 /// # Errors
 ///
 /// 다시 등록하지 못하면 그 오류.
-pub fn recover_virtual_port(cx: &mut App) -> Result<(), MidiError> {
-    let _ = cx;
-    todo!()
+pub fn recover_virtual_port(cx: &mut App) -> Result<(), RecoverError> {
+    if !cx.has_global::<Engine>() {
+        return Ok(());
+    }
+    // 재생을 멈춘다. 새 서버에는 옛 엔드포인트가 없어 소리가 나가지 않는다.
+    if let Some(owner) = cx.global_mut::<Engine>().take_owner(None) {
+        let _ = owner.update(cx, |w, cx| {
+            w.transport_stopped_by_server(cx);
+        });
+    }
+    let result = cx.global_mut::<Engine>().reregister_main();
+    let name = virtual_port_name(cx);
+    let message = match &result {
+        Ok(()) => format!("MIDI 서버가 다시 시작되어 가상 포트 「{name}」을 다시 등록했다"),
+        Err(e) => format!(
+            "MIDI 서버가 다시 시작되었는데 가상 포트 「{name}」을 다시 등록하지 못했다: {e}"
+        ),
+    };
+    crate::window::say_everywhere(cx, &message);
+    crate::ports::restart_watcher(cx);
+    result
 }
 
 /// 엔진이 설치돼 있는가.
@@ -186,6 +223,56 @@ impl Engine {
         owner: Option<WeakEntity<ProjectWindow>>,
     ) -> Option<WeakEntity<ProjectWindow>> {
         std::mem::replace(&mut self.owner, owner)
+    }
+
+    /// 이름 포트가 사라졌다(포트 감시). 핸들을 놓고, 재생 중 편집이 다시 찾지 않게 기억한다.
+    pub(crate) fn port_lost(&mut self, name: &str) {
+        self.opened.remove(name);
+        self.known_missing.insert(name.to_owned());
+    }
+
+    /// 이름 포트가 돌아왔다(포트 감시). 옛 핸들을 놓고 「없음」 기억을 지워 다음 준비가 새로 연다.
+    pub(crate) fn port_returned(&mut self, name: &str) {
+        self.opened.remove(name);
+        self.known_missing.remove(name);
+    }
+
+    /// 스케줄러에서 기본 가상 포트의 다른 참조를 모두 돌려받고 다시 등록한다. 실시간 스레드가 보내는 동안
+    /// 엔드포인트를 바꾸지 않도록, 빈 스냅샷을 넣고 옛 스냅샷이 돌아올 때까지 기다린다.
+    fn reregister_main(&mut self) -> Result<(), RecoverError> {
+        // 서버가 바뀌면 연 OS 포트도 옛 서버의 것이다
+        self.opened.clear();
+        self.known_missing.clear();
+        self.scheduler.stop()?;
+        self.scheduler.swap(Arc::new(Snapshot::new(
+            TempoMap::default(),
+            Vec::new(),
+            Vec::new(),
+        )?))?;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        let result = loop {
+            self.scheduler.collect_garbage();
+            if let Some(main) = Arc::get_mut(&mut self.main) {
+                break main.reregister(&self.client).map_err(RecoverError::from);
+            }
+            if std::time::Instant::now() > deadline {
+                break Err(RecoverError::PortBusy);
+            }
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        };
+        // 포트 0이 늘 기본 가상 포트인 스냅샷으로 되돌린다(테스트 노트·미리듣기가 쓴다)
+        let main: Arc<dyn MidiPort> = self.main.clone();
+        self.scheduler.swap(Arc::new(Snapshot::new(
+            TempoMap::default(),
+            vec![main],
+            Vec::new(),
+        )?))?;
+        result
+    }
+
+    /// 기본 가상 포트가 MIDI 서버에 등록돼 있는가.
+    pub(crate) fn main_registered(&self) -> bool {
+        self.main.is_registered()
     }
 
     /// 재생 중인 창이 있는가.
@@ -208,6 +295,19 @@ impl Engine {
     pub(crate) fn prepare(&mut self, project: &Project, live: bool) -> Result<Prepared, MidiError> {
         if !live {
             self.known_missing.clear();
+        }
+        if !live {
+            // 이 프로젝트가 쓰지 않는 연 포트를 놓는다(S2-T5a 리뷰 1 제안 1). 지금 스냅샷이 들고 있으면 그
+            // 스냅샷이 놓을 때 닫힌다.
+            let used: HashSet<&str> = project
+                .tracks()
+                .iter()
+                .filter_map(|t| match t.port() {
+                    OutputPort::Named(name) => Some(name.as_str()),
+                    OutputPort::Virtual => None,
+                })
+                .collect();
+            self.opened.retain(|name, _| used.contains(name.as_str()));
         }
         let mut ports: Vec<Arc<dyn MidiPort>> = vec![self.main.clone()];
         let mut index: HashMap<&str, u16> = HashMap::new();
@@ -299,7 +399,12 @@ impl Engine {
         available: &mut Option<Vec<PortInfo>>,
     ) -> Result<Arc<dyn MidiPort>, PortProblem> {
         if let Some(port) = self.opened.get(name) {
-            return Ok(port.clone());
+            // 사라진 목적지로의 송신은 CoreMIDI가 오류 없이 버린다. 다시 쓰기 전에 확인하고, 사라졌으면 놓고
+            // 다시 찾는다(S2-T5a 리뷰 1 제안 6).
+            if port.is_present() {
+                return Ok(port.clone());
+            }
+            self.opened.remove(name);
         }
         if live && self.known_missing.contains(name) {
             return Err(PortProblem::NotFound);
@@ -311,7 +416,7 @@ impl Engine {
         };
         let output = OsOutput::open(&self.client, info)
             .map_err(|e| PortProblem::OpenFailed(e.to_string()))?;
-        let port: Arc<dyn MidiPort> = Arc::new(output);
+        let port = Arc::new(output);
         self.opened.insert(name.to_owned(), port.clone());
         Ok(port)
     }

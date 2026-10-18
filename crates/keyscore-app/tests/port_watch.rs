@@ -169,11 +169,12 @@ fn split(data: &[u8]) -> Vec<Vec<u8>> {
     out
 }
 
-/// 이름 포트 트랙 하나 + 가상 포트 트랙 하나. 이름 포트 트랙은 박마다 노트(32마디).
+/// 이름 포트 트랙 하나 + 가상 포트 트랙 하나. 이름 포트 트랙은 박마다 노트(32마디). `.ksq` 노트 시작은
+/// 앞 노트에서의 차이다.
 fn project_on(name: &str) -> Project {
     let v = Velocity::from_midi1(100).unwrap().get();
     let notes: Vec<String> = (0..128)
-        .map(|i| format!("[{}, 240, 60, {v}]", i * 960))
+        .map(|i| format!("[{}, 240, 60, {v}]", if i == 0 { 0 } else { 960 }))
         .collect();
     ksq::from_str(&format!(
         r#"{{"tracks": [{{"name": "Ext", "port": {{"named": "{name}"}}, "channel": 2, "program": 5,
@@ -183,6 +184,16 @@ fn project_on(name: &str) -> Project {
     ))
     .unwrap()
     .0
+}
+
+/// 감시가 그 목적지를 보게 될 때까지(알림은 목록보다 늦게 온다).
+fn wait_seen(cx: &mut TestAppContext, name: &str, present: bool) {
+    pump(
+        cx,
+        None,
+        |cx| cx.read(|cx| ports::port_present(cx, name)) == Some(present),
+        "감시가 목적지 변화를 보지 못했다",
+    );
 }
 
 // ---------- 1. 상태줄의 「포트 없음」 ----------
@@ -227,6 +238,7 @@ fn port_vanish_and_return_updates_status_and_messages(cx: &mut TestAppContext) {
     start(cx, "vanish", true);
     let name = unique("synth vanish");
     let dest = destination(&name);
+    wait_seen(cx, &name, true);
     let (handle, view) = open(cx, project_on(&name));
     pump(cx, Some(handle), |_| true, "");
     assert_eq!(label(cx, handle, "status-port-missing"), None);
@@ -280,6 +292,7 @@ fn playback_reconnects_to_returned_port(cx: &mut TestAppContext) {
     start(cx, "replay", true);
     let name = unique("synth replay");
     let dest = destination(&name);
+    wait_seen(cx, &name, true);
     let (handle, view) = open(cx, project_on(&name));
     run(cx, handle, transport::Play);
     let deadline = Instant::now() + Duration::from_secs(3);
@@ -382,7 +395,7 @@ fn recover_virtual_port_stops_playback_and_reregisters(cx: &mut TestAppContext) 
     let p = ksq::from_str(&format!(
         r#"{{"tracks": [{{"channel": 1, "clips": [{{"start": 0, "length": 122880, "notes": [{}]}}]}}]}}"#,
         (0..128)
-            .map(|i| format!("[{}, 240, 60, 51492]", i * 960))
+            .map(|i| format!("[{}, 240, 60, 51492]", if i == 0 { 0 } else { 960 }))
             .collect::<Vec<_>>()
             .join(", ")
     ))
