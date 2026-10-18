@@ -53,7 +53,7 @@ pub struct ProjectWindow {
     /// 모드 FSM 상태. 키 컨텍스트와 상태줄이 이것을 따른다.
     mode: ModeState,
     /// 열린 팝업 메뉴(상태줄 모드 메뉴, 조성, 출력 포트). 팝업은 하나만 띄운다.
-    popup: Option<Popup>,
+    pub(crate) popup: Option<Popup>,
     /// 상태줄 모드 표시의 지난 프레임 위치. 모드 메뉴를 그 바로 위에 띄운다(근삿값 대신 실제 위치,
     /// S2-T3 리뷰 2 제안 3).
     indicator_bounds: Rc<Cell<Bounds<Pixels>>>,
@@ -68,8 +68,10 @@ pub struct ProjectWindow {
     pub(crate) fields: crate::fields::Fields,
     /// 트랙 인스펙터(S2-T5c).
     pub(crate) inspector: crate::inspector::Inspector,
+    /// 열린 `?` 키맵 오버레이(S2-T6b).
+    pub(crate) overlay: Option<crate::overlay::KeymapOverlay>,
     /// 열린 명령 팔레트와 그 사건 구독.
-    palette: Option<(Entity<CommandPalette>, Subscription)>,
+    pub(crate) palette: Option<(Entity<CommandPalette>, Subscription)>,
     /// 트랜스포트 상태(S2-T5a).
     pub(crate) transport: Transport,
     /// 문서가 바뀌면 재생 중 스냅샷을 교체한다(TRN-3). 창이 닫히면 재생을 멈춘다.
@@ -130,6 +132,7 @@ impl ProjectWindow {
             transport_bar,
             fields,
             inspector,
+            overlay: None,
             palette: None,
             transport: Transport::default(),
             _document_changed: document_changed,
@@ -383,19 +386,6 @@ impl ProjectWindow {
         &self.transport.messages
     }
 
-    /// 열린 키맵 오버레이의 모든 줄(`키, 키 · 제목 (이름)`). 닫혀 있으면 `None`.
-    #[must_use]
-    pub fn overlay_lines(&self, cx: &App) -> Option<Vec<String>> {
-        let _ = cx;
-        todo!()
-    }
-
-    /// 열린 키맵 오버레이의 (지금 쪽, 쪽 수).
-    #[must_use]
-    pub fn overlay_page(&self) -> Option<(usize, usize)> {
-        todo!()
-    }
-
     /// 명령 팔레트가 열려 있는가.
     #[must_use]
     pub const fn palette_open(&self) -> bool {
@@ -476,6 +466,7 @@ impl ProjectWindow {
         build: impl FnOnce(PopupMenu) -> PopupMenu + 'static,
     ) {
         self.palette = None;
+        self.overlay = None;
         let menu = PopupMenu::build(window, cx, |menu, _, _| build(menu));
         let dismissed = cx.subscribe_in(&menu, window, |this, _, _: &DismissEvent, window, cx| {
             this.popup = None;
@@ -586,6 +577,7 @@ impl ProjectWindow {
             .on_action(cx.listener(Self::edit_undo))
             .on_action(cx.listener(Self::edit_redo))
             .on_action(cx.listener(Self::open_palette))
+            .on_action(cx.listener(Self::help_keymap_overlay))
             // 맨 키를 피하려고 감싼 메뉴 항목(`commands::RunCommand`). 실행 함수로 실제 Action을 낸다.
             .on_action(cx.listener(|_, run: &RunCommand, window, cx| {
                 if let Ok(action) = cx.build_action(&run.name, run.args.clone()) {
@@ -954,6 +946,7 @@ impl Render for ProjectWindow {
             .child(status_bar)
             .children(self.mode_menu_overlay(window))
             .children(self.palette_overlay(window))
+            .children(self.render_overlay(cx))
     }
 }
 
