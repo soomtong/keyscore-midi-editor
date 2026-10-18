@@ -219,17 +219,19 @@ fn modified_escape_does_nothing(cx: &mut TestAppContext) {
     }
 }
 
-/// 오버레이가 열린 동안 Normal의 `?`는 문서로 새지 않는다(닫히지도 않는다: Overlay 컨텍스트에 `?` 없음).
+/// 오버레이가 열린 동안의 `?`는 오버레이를 닫는다(리뷰 1 제안 7 대응: Overlay 컨텍스트의 `?`). 문서로 새지
+/// 않고, 닫힌 뒤에야 모드 키가 산다.
 #[gpui_kit::test]
 fn question_mark_inside_overlay_does_not_leak(cx: &mut TestAppContext) {
     start(cx, "qq", None);
     let (handle, view) = open(cx);
     press(cx, handle, "?");
-    press(cx, handle, "?");
-    // 관찰: 열린 채로 남는다
-    assert!(lines(cx, &view).is_some());
     press(cx, handle, "m");
     assert!(!muted(cx, &view));
+    press(cx, handle, "?");
+    assert!(lines(cx, &view).is_none());
+    press(cx, handle, "m");
+    assert!(muted(cx, &view));
 }
 
 /// 안쪽 클릭은 닫지 않고, 바깥(배경) 클릭은 닫고 문서로 포커스를 돌린다.
@@ -392,4 +394,56 @@ fn overlay_line_cost(cx: &mut TestAppContext) {
     let t = Instant::now();
     render(cx, handle);
     eprintln!("render_frame={:?}", t.elapsed());
+}
+
+// ---------- 리뷰 1 부록(지적 1-3) ----------
+
+#[gpui_kit::test]
+fn ctrl_tab_while_open_does_not_leave_stale_overlay(cx: &mut TestAppContext) {
+    start(cx, "cycle", None);
+    let (handle, view) = open(cx);
+    press(cx, handle, "?");
+    press(cx, handle, "ctrl-tab");
+    let m = mode_of(cx, &view);
+    if m != Mode::Normal
+        && let Some(l) = lines(cx, &view)
+    {
+        assert!(
+            keys_of(&l, "step::Rest").contains(&"space"),
+            "모드는 {m:?}인데 오버레이는 Normal 키를 보인다: {:?}",
+            header(cx, handle)
+        );
+    }
+}
+
+#[gpui_kit::test]
+fn palette_over_overlay_does_not_orphan_overlay(cx: &mut TestAppContext) {
+    start(cx, "palover", None);
+    let (handle, view) = open(cx);
+    press(cx, handle, "?");
+    press(cx, handle, "cmd-shift-p");
+    let palette_open = cx.read(|cx| view.read(cx).palette_query(cx).is_some());
+    assert!(
+        !(palette_open && lines(cx, &view).is_some()),
+        "팔레트와 오버레이가 함께 열려 있다"
+    );
+    press(cx, handle, "escape");
+    if lines(cx, &view).is_some() {
+        press(cx, handle, "m");
+        assert!(!muted(cx, &view), "오버레이가 보이는데 m이 문서를 뮤트했다");
+    }
+}
+
+#[gpui_kit::test]
+fn argument_variants_are_distinguished(cx: &mut TestAppContext) {
+    start(cx, "variants", None);
+    let (handle, view) = open(cx);
+    run(cx, handle, mode::Step);
+    run(cx, handle, help::KeymapOverlay);
+    let l = lines(cx, &view).unwrap();
+    let set_len: Vec<_> = l.iter().filter(|x| x.contains("step::SetLength")).collect();
+    assert!(
+        set_len.iter().any(|x| x.contains("온음표")),
+        "변형 라벨이 없다: {set_len:?}"
+    );
 }

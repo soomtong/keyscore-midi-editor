@@ -2,15 +2,19 @@
 //!
 //! 지금 모드의 키 컨텍스트 경로에서 실제로 동작하는 키를 보인다. 엔진에 걸린 바인딩마다 그 경로에서 맞고,
 //! 그 키를 눌렀을 때 GPUI가 고르는 첫 바인딩이 그것인 것만 넣는다. 그래서 사용자 키맵·프리셋·수식키 교환이
-//! 그대로 반영된다(KM-10 「항상 현재 키맵」). 그릴 때마다 다시 구하므로 열린 동안 키맵이 바뀌어도 따라간다.
+//! 그대로 반영된다(KM-10 「항상 현재 키맵」). 키맵 판이나 모드가 바뀌면 다시 구하므로 열린 동안 키맵이나
+//! 모드(전역 `ctrl-tab`)가 바뀌어도 따라간다.
 //!
 //! 오버레이는 모드 키 컨텍스트 겹 바깥(팔레트처럼)에 그리고 포커스를 가진다. 컨텍스트는 `Overlay`다.
 
+use std::rc::Rc;
+
 use gpui_kit::component::ActiveTheme as _;
+use gpui_kit::component::kbd::Kbd;
 use gpui_kit::{
-    App, Context, FocusHandle, InteractiveElement as _, IntoElement, KeyContext, MouseButton,
-    ParentElement as _, StatefulInteractiveElement as _, Styled as _, TestSupportExt as _, Window,
-    deferred, div, px,
+    App, AsKeystroke as _, Context, FocusHandle, InteractiveElement as _, IntoElement, KeyContext,
+    KeymapVersion, Keystroke, MouseButton, ParentElement as _, StatefulInteractiveElement as _,
+    Styled as _, TestSupportExt as _, Window, deferred, div, prelude::FluentBuilder as _, px,
 };
 
 use crate::actions::help;
@@ -19,39 +23,63 @@ use crate::window::ProjectWindow;
 /// 한 쪽의 줄 수.
 const LINES_PER_PAGE: usize = 24;
 
+/// 구한 줄과 그때의 (키맵 판, 모드 경로).
+type Cached = (KeymapVersion, &'static [&'static str], Rc<Vec<Line>>);
+
 /// 열린 오버레이.
 pub(crate) struct KeymapOverlay {
     focus: FocusHandle,
     page: usize,
-    pages: usize,
-    /// 연 때의 모드 키 컨텍스트 경로
-    path: &'static [&'static str],
+    /// 마지막으로 구한 줄과 그때의 (키맵 판, 모드 경로). 그릴 때마다 모든 바인딩을 다시 훑지 않는다(리뷰 1
+    /// 제안 5). 키맵이 바뀌거나 모드가 바뀌면 다시 구한다.
+    cache: Option<Cached>,
 }
 
-/// 오버레이 한 줄: Action 이름, 명령 제목, 키들.
-struct Line {
+/// 오버레이 한 줄: 명령(인자 있으면 변형), 제목, 키들.
+pub(crate) struct Line {
     name: String,
     title: String,
-    keys: Vec<String>,
+    keys: Vec<Vec<Keystroke>>,
 }
 
 impl Line {
+    fn keys_text(&self) -> Vec<String> {
+        self.keys
+            .iter()
+            .map(|seq| {
+                seq.iter()
+                    .map(Keystroke::unparse)
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            })
+            .collect()
+    }
+
     fn text(&self) -> String {
-        format!("{} · {} ({})", self.keys.join(", "), self.title, self.name)
+        format!(
+            "{} · {} ({})",
+            self.keys_text().join(", "),
+            self.title,
+            self.name
+        )
     }
 }
 
-/// 그 경로에서 실제로 동작하는 키를 명령 표 순서로 모은다.
+/// 그 경로에서 실제로 동작하는 키를 명령 표 순서로 모은다. 인자 있는 Action은 명령 표의 변형(`Step 길이 ·
+/// 온음표`)마다 따로 둔다(리뷰 1 지적 3).
 fn lines_for(path: &[&str], cx: &App) -> Vec<Line> {
     let stack: Vec<KeyContext> = path
         .iter()
         .filter_map(|c| KeyContext::parse(c).ok())
         .collect();
+    let entries = crate::commands::palette_entries(cx);
     let keymap = cx.key_bindings();
     let keymap = keymap.borrow();
-    let mut lines: Vec<Line> = Vec::new();
+    // (순서, 묶음 키, 줄). 묶음 키는 팔레트 줄 번호(변형까지 같은 Action) 또는 Action 표기다
+    let mut lines: Vec<(usize, String, Line)> = Vec::new();
     for binding in keymap.bindings() {
-        let name = binding.action().name();
+        let action = binding.action();
+        let name = action.name();
         // 지우기·지정 해제와 명령 표에 없는 것(gpui-component 바탕 레이어)은 보이지 않는다
         let Some(spec) = crate::commands::spec(name) else {
             continue;
@@ -65,37 +93,50 @@ fn lines_for(path: &[&str], cx: &App) -> Vec<Line> {
         let (winners, _) = keymap.bindings_for_input(binding.keystrokes(), &stack);
         if !winners
             .first()
-            .is_some_and(|w| w.action().partial_eq(binding.action()))
+            .is_some_and(|w| w.action().partial_eq(action))
         {
             continue;
         }
-        let keys = binding
+        // 팔레트 줄(변형마다 한 줄)에서 같은 Action을 찾아 그 제목을 쓴다. 없으면(값이 열린 인자) 명령 제목과
+        // Action 표기
+        let found = entries
+            .iter()
+            .position(|e| e.action().is_some_and(|a| a.partial_eq(action)));
+        let (order, title, key) = match found {
+            Some(i) => (i, entries[i].label().to_string(), format!("#{i}")),
+            None => (
+                entries
+                    .iter()
+                    .position(|e| e.name() == name)
+                    .unwrap_or(usize::MAX),
+                format!("{} {action:?}", spec.label()),
+                format!("{action:?}"),
+            ),
+        };
+        let keys: Vec<Keystroke> = binding
             .keystrokes()
             .iter()
-            .map(gpui_kit::KeybindingKeystroke::unparse)
-            .collect::<Vec<_>>()
-            .join(" ");
-        match lines.iter_mut().find(|l| l.name == name) {
-            Some(line) => {
+            .map(|k| k.as_keystroke().clone())
+            .collect();
+        match lines.iter_mut().find(|(_, k, _)| *k == key) {
+            Some((_, _, line)) => {
                 if !line.keys.contains(&keys) {
                     line.keys.push(keys);
                 }
             }
-            None => lines.push(Line {
-                name: name.to_owned(),
-                title: spec.label().to_owned(),
-                keys: vec![keys],
-            }),
+            None => lines.push((
+                order,
+                key,
+                Line {
+                    name: name.to_owned(),
+                    title,
+                    keys: vec![keys],
+                },
+            )),
         }
     }
-    let order = |name: &str| {
-        crate::commands::specs()
-            .iter()
-            .position(|s| s.name() == name)
-            .unwrap_or(usize::MAX)
-    };
-    lines.sort_by_key(|l| order(&l.name));
-    lines
+    lines.sort_by_key(|(order, _, _)| *order);
+    lines.into_iter().map(|(_, _, line)| line).collect()
 }
 
 fn page_count(lines: usize) -> usize {
@@ -103,17 +144,44 @@ fn page_count(lines: usize) -> usize {
 }
 
 impl ProjectWindow {
-    /// 열린 키맵 오버레이의 모든 줄(`키, 키 · 제목 (이름)`). 닫혀 있으면 `None`.
+    /// 열린 키맵 오버레이의 모든 줄(`키, 키 · 제목 (이름)`). 닫혀 있으면 `None`. 지금 모드의 경로를 쓴다.
     #[must_use]
     pub fn overlay_lines(&self, cx: &App) -> Option<Vec<String>> {
-        let overlay = self.overlay.as_ref()?;
-        Some(lines_for(overlay.path, cx).iter().map(Line::text).collect())
+        self.overlay.as_ref()?;
+        Some(
+            lines_for(self.mode_state().context_path(), cx)
+                .iter()
+                .map(Line::text)
+                .collect(),
+        )
     }
 
     /// 열린 키맵 오버레이의 (지금 쪽, 쪽 수). 쪽은 0부터 센다.
     #[must_use]
     pub fn overlay_page(&self) -> Option<(usize, usize)> {
-        self.overlay.as_ref().map(|o| (o.page, o.pages))
+        let overlay = self.overlay.as_ref()?;
+        let pages = overlay
+            .cache
+            .as_ref()
+            .map_or(1, |(_, _, lines)| page_count(lines.len()));
+        Some((overlay.page.min(pages - 1), pages))
+    }
+
+    /// 지금 키맵·지금 모드의 줄. 키맵 판이나 모드 경로가 바뀌었을 때만 다시 구한다. 오버레이가 열린 동안에도
+    /// 전역 키(`ctrl-tab`)로 모드가 바뀔 수 있어, 연 때의 경로가 아니라 지금 경로를 쓴다(리뷰 1 지적 2).
+    fn overlay_cache(&mut self, cx: &App) -> Option<Rc<Vec<Line>>> {
+        let path = self.mode_state().context_path();
+        let version = cx.key_bindings().borrow().version();
+        let overlay = self.overlay.as_mut()?;
+        if let Some((v, p, lines)) = &overlay.cache
+            && *v == version
+            && std::ptr::eq(*p, path)
+        {
+            return Some(lines.clone());
+        }
+        let lines = Rc::new(lines_for(path, cx));
+        overlay.cache = Some((version, path, lines.clone()));
+        Some(lines)
     }
 
     /// `help::KeymapOverlay`: 연다. 열려 있으면 닫는다.
@@ -132,18 +200,17 @@ impl ProjectWindow {
         self.popup = None;
         let focus = cx.focus_handle();
         window.focus(&focus, cx);
-        let path = self.mode_state().context_path();
-        let pages = page_count(lines_for(path, cx).len());
         self.overlay = Some(KeymapOverlay {
             focus,
             page: 0,
-            pages,
-            path,
+            cache: None,
         });
+        self.overlay_cache(cx);
         cx.notify();
     }
 
-    fn close_overlay(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    /// 오버레이를 닫는다(팔레트를 열 때도 부른다).
+    pub(crate) fn close_overlay(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.overlay.take().is_some() {
             self.focus_document(window, cx);
             cx.notify();
@@ -151,24 +218,27 @@ impl ProjectWindow {
     }
 
     fn turn_page(&mut self, delta: isize, cx: &mut Context<Self>) {
+        let pages = self
+            .overlay_cache(cx)
+            .map_or(1, |lines| page_count(lines.len()));
         if let Some(o) = &mut self.overlay {
-            let last = o.pages.saturating_sub(1);
-            o.page = o.page.saturating_add_signed(delta).min(last);
+            o.page = o.page.saturating_add_signed(delta).min(pages - 1);
             cx.notify();
         }
     }
 
     /// 열린 오버레이. 모드 키 컨텍스트 겹 바깥(창 루트의 자식)에 그린다.
     pub(crate) fn render_overlay(&mut self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
-        let lines = lines_for(self.overlay.as_ref()?.path, cx);
+        let lines = self.overlay_cache(cx)?;
+        let path = self.mode_state().context_path();
         let overlay = self.overlay.as_mut()?;
-        // 키맵이 바뀌어 줄 수가 바뀌었으면 쪽 수를 맞춘다
-        overlay.pages = page_count(lines.len());
-        overlay.page = overlay.page.min(overlay.pages - 1);
-        let (page, pages) = (overlay.page, overlay.pages);
+        // 키맵이나 모드가 바뀌어 줄 수가 줄었으면 쪽을 맞춘다
+        let pages = page_count(lines.len());
+        overlay.page = overlay.page.min(pages - 1);
+        let page = overlay.page;
         let header = format!(
             "키맵 · {} · {}/{} 쪽 (Tab 다음, Shift+Tab 이전, Esc 닫기)",
-            overlay.path.join(" > "),
+            path.join(" > "),
             page + 1,
             pages
         );
@@ -186,10 +256,16 @@ impl ProjectWindow {
                     .flex()
                     .gap_3()
                     .child(
-                        div()
-                            .w(px(180.))
-                            .text_color(cx.theme().accent_foreground)
-                            .child(line.keys.join(", ")),
+                        // 키는 `Kbd`로(11절 컴포넌트 표, 리뷰 1 지적 4). 시퀀스는 키를 잇대고 다른 키는 쉼표로
+                        div().w(px(220.)).flex().flex_wrap().gap_1().children(
+                            line.keys.iter().enumerate().map(|(j, seq)| {
+                                div()
+                                    .flex()
+                                    .gap_0p5()
+                                    .when(j > 0, |d| d.child(", "))
+                                    .children(seq.iter().map(|k| Kbd::new(k.clone())))
+                            }),
+                        ),
                     )
                     .child(div().child(line.title.clone()))
                     .child(

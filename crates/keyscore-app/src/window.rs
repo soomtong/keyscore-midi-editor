@@ -404,8 +404,10 @@ impl ProjectWindow {
             palette.update(cx, |palette, cx| palette.focus_query(window, cx));
             return;
         }
-        // 팝업은 하나만 띄운다. 다른 팝업이 열려 있으면 닫는다(포커스는 곧 팔레트로 간다).
+        // 팝업은 하나만 띄운다. 다른 팝업·키맵 오버레이가 열려 있으면 닫는다(포커스는 곧 팔레트로 간다,
+        // S2-T6b 리뷰 1 지적 1).
         self.popup = None;
+        self.overlay = None;
         let target = self.focus.clone();
         let palette = cx.new(|cx| CommandPalette::new(target, window, cx));
         let events = cx.subscribe_in(&palette, window, |this, _, event, window, cx| {
