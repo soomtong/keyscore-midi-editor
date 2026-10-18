@@ -73,6 +73,12 @@ fn lines_for(path: &[&str], cx: &App) -> Vec<Line> {
         .filter_map(|c| KeyContext::parse(c).ok())
         .collect();
     let entries = crate::commands::palette_entries(cx);
+    // 변형이 없는(값이 열린) 인자의 표기는 GPUI Action에서 꺼낼 수 없어(`Debug`는 이름만 찍는다) 키맵 원문에서
+    // 찾는다. 키는 엔진이 실제로 거는 키(수식키 교환 반영)로 맞춘다(리뷰 2 지적 2).
+    let source = {
+        let (layers, _) = crate::keymap::current_layers(cx);
+        crate::keymap::user::effective_with(&layers, crate::keymap::options(cx).swap_alt_cmd)
+    };
     let keymap = cx.key_bindings();
     let keymap = keymap.borrow();
     // (순서, 묶음 키, 줄). 묶음 키는 팔레트 줄 번호(변형까지 같은 Action) 또는 Action 표기다
@@ -102,16 +108,27 @@ fn lines_for(path: &[&str], cx: &App) -> Vec<Line> {
         let found = entries
             .iter()
             .position(|e| e.action().is_some_and(|a| a.partial_eq(action)));
-        let (order, title, key) = match found {
-            Some(i) => (i, entries[i].label().to_string(), format!("#{i}")),
-            None => (
-                entries
-                    .iter()
-                    .position(|e| e.name() == name)
-                    .unwrap_or(usize::MAX),
-                format!("{} {action:?}", spec.label()),
-                format!("{action:?}"),
-            ),
+        let (order, title, key) = if let Some(i) = found {
+            (i, entries[i].label().to_string(), format!("#{i}"))
+        } else {
+            let typed = crate::keymap::canonical_keys(&keys_text(binding.keystrokes()));
+            let label = source
+                .iter()
+                .find(|e| e.name == name && crate::keymap::canonical_keys(&e.keys) == typed)
+                .map_or_else(|| name.to_owned(), |e| e.action.clone());
+            let args = label
+                .strip_prefix(name)
+                .and_then(|rest| rest.strip_prefix('('))
+                .and_then(|rest| rest.strip_suffix(')'));
+            let title = match args {
+                Some(args) => format!("{} · {args}", spec.label()),
+                None => spec.label().to_owned(),
+            };
+            let order = entries
+                .iter()
+                .position(|e| e.name() == name)
+                .unwrap_or(usize::MAX);
+            (order, title, label)
         };
         let keys: Vec<Keystroke> = binding
             .keystrokes()
@@ -139,6 +156,23 @@ fn lines_for(path: &[&str], cx: &App) -> Vec<Line> {
     lines.into_iter().map(|(_, _, line)| line).collect()
 }
 
+/// 키 하나의 표시. gpui-component `Kbd`는 macOS에서 `delete`(앞으로 지우기)도 `⌫`로 그려 `backspace`와 같아
+/// 보인다. `delete`만 `⌦`로 그린다(리뷰 2 제안 4).
+fn key_element(k: &Keystroke) -> gpui_kit::AnyElement {
+    if k.key == "delete" && !k.modifiers.modified() {
+        return div().px_1().child("⌦").into_any_element();
+    }
+    Kbd::new(k.clone()).into_any_element()
+}
+
+/// 바인딩 키 시퀀스의 GPUI 표기.
+fn keys_text(keys: &[gpui_kit::KeybindingKeystroke]) -> String {
+    keys.iter()
+        .map(gpui_kit::KeybindingKeystroke::unparse)
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 fn page_count(lines: usize) -> usize {
     lines.div_ceil(LINES_PER_PAGE).max(1)
 }
@@ -147,13 +181,15 @@ impl ProjectWindow {
     /// 열린 키맵 오버레이의 모든 줄(`키, 키 · 제목 (이름)`). 닫혀 있으면 `None`. 지금 모드의 경로를 쓴다.
     #[must_use]
     pub fn overlay_lines(&self, cx: &App) -> Option<Vec<String>> {
-        self.overlay.as_ref()?;
-        Some(
-            lines_for(self.mode_state().context_path(), cx)
-                .iter()
-                .map(Line::text)
-                .collect(),
-        )
+        let overlay = self.overlay.as_ref()?;
+        let path = self.mode_state().context_path();
+        let version = cx.key_bindings().borrow().version();
+        // 그려진 것과 같은 캐시를 본다(리뷰 2 제안 3). 캐시가 지금 판·경로가 아니면 새로 구한다
+        let lines = match &overlay.cache {
+            Some((v, p, lines)) if *v == version && std::ptr::eq(*p, path) => lines.clone(),
+            _ => Rc::new(lines_for(path, cx)),
+        };
+        Some(lines.iter().map(Line::text).collect())
     }
 
     /// 열린 키맵 오버레이의 (지금 쪽, 쪽 수). 쪽은 0부터 센다.
@@ -263,7 +299,7 @@ impl ProjectWindow {
                                     .flex()
                                     .gap_0p5()
                                     .when(j > 0, |d| d.child(", "))
-                                    .children(seq.iter().map(|k| Kbd::new(k.clone())))
+                                    .children(seq.iter().map(key_element))
                             }),
                         ),
                     )
@@ -279,6 +315,8 @@ impl ProjectWindow {
         Some(deferred(
             div()
                 .id("keymap-overlay-backdrop")
+                // 바깥 클릭은 닫기만 하고 아래 요소(버튼)에 닿지 않는다(리뷰 2 지적 1)
+                .occlude()
                 .absolute()
                 .inset_0()
                 .flex()

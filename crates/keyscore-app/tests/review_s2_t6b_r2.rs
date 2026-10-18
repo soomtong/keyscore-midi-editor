@@ -393,3 +393,65 @@ fn cached_render_is_cheap_with_big_keymap(cx: &mut TestAppContext) {
         "캐시가 안 듣는다: {cached:?} vs {closed:?}"
     );
 }
+
+// ---------- 리뷰 2 부록(지적 1·2) ----------
+
+fn track_count(cx: &mut TestAppContext, view: &Entity<ProjectWindow>) -> usize {
+    cx.read(|cx| view.read(cx).document().read(cx).project().tracks().len())
+}
+
+/// 오버레이 바깥(어두운 배경) 클릭이 닫기만 하고 그 아래 트랙 뮤트 버튼을 누르지 않는다.
+#[gpui_kit::test]
+fn backdrop_click_does_not_hit_track_mute(cx: &mut TestAppContext) {
+    start(cx, "clickthru", None);
+    let (handle, view) = open(cx);
+    press(cx, handle, "?");
+    cx.update_window(handle, |_, window, cx| window.click("track-mute-0", cx))
+        .unwrap();
+    cx.run_until_parked();
+    render(cx, handle);
+    assert!(lines(cx, &view).is_none(), "바깥 클릭이 닫지 않았다");
+    assert!(
+        !muted(cx, &view),
+        "오버레이 바깥 클릭이 아래의 뮤트 버튼을 눌렀다"
+    );
+}
+
+/// 오버레이 바깥 클릭이 아래 「+」(트랙 추가) 버튼을 누르지 않는다.
+#[gpui_kit::test]
+fn backdrop_click_does_not_add_track(cx: &mut TestAppContext) {
+    start(cx, "clickadd", None);
+    let (handle, view) = open(cx);
+    press(cx, handle, "?");
+    let n = track_count(cx, &view);
+    cx.update_window(handle, |_, window, cx| window.click("track-add", cx))
+        .unwrap();
+    cx.run_until_parked();
+    render(cx, handle);
+    assert!(lines(cx, &view).is_none(), "바깥 클릭이 닫지 않았다");
+    assert_eq!(
+        track_count(cx, &view),
+        n,
+        "오버레이 바깥 클릭이 아래의 트랙 추가 버튼을 눌렀다"
+    );
+}
+
+/// Play의 `f1`~`f8`(`play::SelectTrack(n)`)은 키마다 다른 트랙이다. 한 줄로 뭉치거나 GPUI 디버그 표기
+/// (`dyn Action { .. }`)가 제목에 새면 안 된다.
+#[gpui_kit::test]
+fn open_argument_actions_keep_their_arguments(cx: &mut TestAppContext) {
+    start(cx, "openarg", None);
+    let (handle, view) = open(cx);
+    run(cx, handle, mode::Play);
+    run(cx, handle, help::KeymapOverlay);
+    let l = lines(cx, &view).unwrap();
+    let sel: Vec<_> = l
+        .iter()
+        .filter(|x| x.ends_with("(play::SelectTrack)"))
+        .collect();
+    assert!(
+        !l.iter().any(|x| x.contains("dyn Action")),
+        "디버그 표기가 제목에 샜다: {sel:?}"
+    );
+    assert!(sel.len() >= 8, "f1~f8이 한 줄로 뭉쳤다: {sel:?}");
+}
