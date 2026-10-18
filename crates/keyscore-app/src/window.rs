@@ -630,17 +630,24 @@ impl ProjectWindow {
             .on_click(cx.listener(|this, _, window, cx| this.open_mode_menu(window, cx)))
     }
 
-    /// 겹 바깥 자리(패널·상태줄)를 누르면(어느 버튼이든) 문서로 포커스를 옮기는 처리기. 겹이 창 전체를
-    /// 감쌀 때 GPUI 포커스 요소(`track_focus`, 모든 버튼)가 하던 일이다(리뷰 1 지적 1, 리뷰 2 지적 1·2).
-    /// 안쪽에서 입력란·버튼처럼 포커스를 받는 요소가 먼저 받았으면(`default_prevented`) 건드리지 않는다.
+    /// 겹 바깥 자리(트랜스포트 바·패널·상태줄)를 누르면(어느 버튼이든) 문서로 포커스를 옮기는 처리기. 겹이
+    /// 창 전체를 감쌀 때 GPUI 포커스 요소(`track_focus`, 모든 버튼)가 하던 일이다(S2-T5c 리뷰 1 지적 1, 리뷰 2
+    /// 지적 1·2).
+    /// - 아무도 누름을 받지 않았으면(빈 자리) 문서로 옮긴다.
+    /// - 안쪽이 받았고 포커스가 텍스트 입력란에 있으면 그대로 둔다. 입력란을 누른 것이다. 버튼의 왼쪽 누름도
+    ///   여기에 든다(gpui-component 버튼은 포커스를 받지 않고 `prevent_default`만 한다). 그 뒤는 버튼의 클릭
+    ///   처리기가 문서로 돌린다.
+    /// - 안쪽이 받았는데 포커스가 입력란이 아니면 문서로 되돌린다. 오른쪽 누름에서는 버튼·토글이 포커스를
+    ///   가져가고, 겹 바깥 버튼에 포커스가 남으면 모드 키가 모두 끊긴다(리뷰 3 지적 1).
     fn focus_document_on_press(
         cx: &mut Context<Self>,
     ) -> impl Fn(&gpui_kit::MouseDownEvent, &mut Window, &mut App) + 'static {
         cx.listener(|this, _, window, cx| {
-            if !window.default_prevented() {
-                this.focus_document(window, cx);
-                window.prevent_default();
+            if window.default_prevented() && Self::text_input_focused(window) {
+                return;
             }
+            this.focus_document(window, cx);
+            window.prevent_default();
         })
     }
 
@@ -836,6 +843,8 @@ impl Render for ProjectWindow {
         let main_view =
             self.wrap_in_contexts(Self::region("main-view", main_label, cx).into_any_element());
         let top = div()
+            .id("top")
+            .on_any_mouse_down(Self::focus_document_on_press(cx))
             .h(px(40.))
             .flex_none()
             .border_b_1()

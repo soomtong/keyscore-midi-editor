@@ -361,8 +361,9 @@ impl ProjectWindow {
                     .child(button("solo", "S", row.solo, Box::new(track::ToggleSolo)))
             })
             .collect();
-        // 트랙 목록은 모드 키 컨텍스트 겹 바깥이다. 목록을 누르면(줄·버튼 포함) 포커스를 문서로 돌려 모드 키가
-        // 계속 먹게 한다. 고치던 입력란은 포커스를 잃어 취소된다. 목록에는 입력란이 없다.
+        // 목록 안을 왼쪽 버튼으로 누르면(줄·버튼 포함) 늘 문서로 포커스를 돌린다. 목록에는 입력란이 없다.
+        // gpui-component 버튼은 왼쪽 누름에서 포커스를 받지 않고 `prevent_default`만 하므로, 창의 공통
+        // 처리기(`focus_document_on_press`)는 고치던 입력란을 그대로 둔다. 이 처리기가 그 입력을 끝낸다.
         div()
             .id("track-list")
             .test_support()

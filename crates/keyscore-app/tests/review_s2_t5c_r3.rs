@@ -231,3 +231,68 @@ fn right_click_mute_toggle_then_space(cx: &mut TestAppContext) {
     let undo = undo_len(cx, &view);
     assert!(!muted, "space가 재생 대신 뮤트를 토글했다: undo={undo}");
 }
+
+// ---------- 리뷰 3 부록 A(지적 1, 제안 2) ----------
+
+fn ctx(cx: &mut TestAppContext, handle: AnyWindowHandle) -> String {
+    cx.update_window(handle, |_, window, _| {
+        format!("{:?}", window.context_stack())
+    })
+    .unwrap()
+}
+
+/// 트랙 목록 뮤트 토글을 오른쪽 클릭한 뒤에도 모드 키가 먹어야 한다. `main`에서는 통과한다.
+#[gpui_kit::test]
+fn right_click_track_mute_toggle_keeps_mode_keys(cx: &mut TestAppContext) {
+    start(cx, "r-mute");
+    let (handle, view) = open(cx, two_tracks());
+    right_click(cx, handle, "track-mute-0");
+    assert!(
+        !project_of(cx, &view).tracks()[0].mute(),
+        "오른쪽 클릭이 토글했다"
+    );
+    let c = ctx(cx, handle);
+    assert!(
+        mute_after(cx, handle, &view),
+        "오른쪽 클릭 뒤 모드 키가 죽었다: context={c}"
+    );
+}
+
+/// 트랙 목록 `+` 버튼을 오른쪽 클릭한 뒤에도 모드 키가 먹어야 한다. `main`에서는 통과한다.
+#[gpui_kit::test]
+fn right_click_track_add_keeps_mode_keys(cx: &mut TestAppContext) {
+    start(cx, "r-add");
+    let (handle, view) = open(cx, two_tracks());
+    right_click(cx, handle, "track-add");
+    let c = ctx(cx, handle);
+    assert!(
+        mute_after(cx, handle, &view),
+        "오른쪽 클릭 뒤 모드 키가 죽었다: context={c}"
+    );
+}
+
+/// 인스펙터 테스트 노트 버튼 오른쪽 클릭 뒤 모드 키.
+#[gpui_kit::test]
+fn right_click_inspector_button_keeps_mode_keys(cx: &mut TestAppContext) {
+    start(cx, "r-test");
+    let (handle, view) = open(cx, two_tracks());
+    right_click(cx, handle, "inspector-test");
+    let c = ctx(cx, handle);
+    assert!(
+        mute_after(cx, handle, &view),
+        "오른쪽 클릭 뒤 모드 키가 죽었다: context={c}"
+    );
+}
+
+/// 트랜스포트 바 버튼 오른쪽 클릭 뒤 모드 키(리뷰 3 제안 2).
+#[gpui_kit::test]
+fn right_click_transport_button_keeps_mode_keys(cx: &mut TestAppContext) {
+    start(cx, "r-transport");
+    let (handle, view) = open(cx, two_tracks());
+    right_click(cx, handle, "transport-tap");
+    let c = ctx(cx, handle);
+    assert!(
+        mute_after(cx, handle, &view),
+        "오른쪽 클릭 뒤 모드 키가 죽었다: context={c}"
+    );
+}
