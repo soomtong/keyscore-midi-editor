@@ -602,3 +602,34 @@ fn probe_watcher_sees_late_unique_id_change() {
         "감시자가 바뀐 고유 ID를 보지 못했다: {seen:?}"
     );
 }
+
+// ---------- 리뷰 2 부록 A(지적 1) ----------
+
+/// 감시 중 재생하는 동안 쓰는 포트의 이름이 바뀌면 「사라졌다」를 알린다. 그 뒤 트랙 소리가 이름이 바뀐
+/// 포트로 계속 가면 안 된다.
+#[gpui_kit::test]
+fn rename_while_playing_with_monitor_stops_sound_to_renamed_port(cx: &mut TestAppContext) {
+    start(cx, "rnplay", true);
+    let name = unique("synth rnplay");
+    let dest = destination(&name);
+    wait_seen(cx, &name, true);
+    let (h, v) = open(cx, project_on(&name));
+    run(cx, h, transport::Play);
+    assert!(hears(&dest.rx, 0x91, Duration::from_secs(3)));
+    let renamed = format!("{name} 2");
+    dest.dest.set_property_string("name", &renamed).unwrap();
+    wait_count(&name, 0);
+    pump(
+        cx,
+        Some(h),
+        |cx| messages(cx, &v).iter().any(|m| m.contains("사라졌다")),
+        "사라짐 메시지가 없다",
+    );
+    drain(&dest.rx);
+    let got = collect(&dest.rx, Duration::from_millis(1500));
+    run(cx, h, transport::Stop);
+    assert!(
+        got.iter().all(|m| m[0] != 0x91),
+        "「사라졌다」 뒤에도 「{name}」 트랙 소리가 「{renamed}」로 간다: {got:?}"
+    );
+}

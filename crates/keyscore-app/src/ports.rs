@@ -184,7 +184,32 @@ fn tick(cx: &mut App) {
                     }
                 }
             }
-            actions.extend(monitor.reconnector.apply(event));
+            // 동작마다 그 이름이 이 이벤트 전에 연결돼 있었는지 함께 둔다. 끊긴 적 없이 같은 이름의 더 작은 ID
+            // 포트로 옮기는 것은 「다시 연결」이 아니다(리뷰 2 제안 2).
+            let connected_before = |name: &str| {
+                matches!(
+                    monitor.reconnector.link(name),
+                    Some(keyscore_midi::Link::Connected(_))
+                )
+            };
+            let before: Vec<(String, bool)> = wanted
+                .iter()
+                .map(|n| (n.clone(), connected_before(n)))
+                .collect();
+            let applied = monitor.reconnector.apply(event);
+            for action in &applied {
+                let was = match action {
+                    // 이 이벤트로 끊겼다가 같은 이름의 남은 포트로 옮기는 것은 「다시 연결」이다
+                    PortAction::Reconnect { name, .. } => {
+                        before.iter().any(|(n, connected)| n == name && *connected)
+                            && !applied
+                                .iter()
+                                .any(|a| matches!(a, PortAction::Lost { name: l } if l == name))
+                    }
+                    PortAction::Lost { .. } => true,
+                };
+                actions.push((action.clone(), was));
+            }
         }
         // 새로 원하게 된 이름은 이벤트를 반영한 지금 목록으로 등록한다. 먼저 등록하면 옛 목록에서 「없음」으로
         // 정해졌다가 쌓여 있던 나타남 이벤트로 「다시 연결」을 잘못 알린다.
@@ -195,24 +220,9 @@ fn tick(cx: &mut App) {
         }
         (events, actions, check_server, monitor.recover_failures)
     };
-    // 핫플러그(OUT-3): 쓰지 않는 포트의 나타남·사라짐도 상태줄 메시지로 알린다. 그 포트를 쓰는 창은 아래의
-    // 재연결 동작이 더 자세히 알린다.
-    for event in &events {
-        let (port, text) = match event {
-            PortEvent::Appeared(p) => (p, "출력 포트 「{}」이 새로 보인다"),
-            PortEvent::Disappeared(p) => (p, "출력 포트 「{}」이 없어졌다"),
-        };
-        let users = windows_using(cx, port.name());
-        for window in project_windows(cx) {
-            if users.iter().any(|u| u.entity_id() == window.entity_id()) {
-                continue;
-            }
-            let message = text.replace("{}", port.name());
-            window.update(cx, |w, cx| w.say(message, cx));
-        }
-    }
+    announce_hotplug(cx, &events);
     let changed = !events.is_empty();
-    for action in actions {
+    for (action, was_connected) in actions {
         match action {
             PortAction::Lost { name } => {
                 cx.update_global::<Engine, _>(|engine, _| engine.port_lost(&name));
@@ -224,14 +234,22 @@ fn tick(cx: &mut App) {
                             ),
                             cx,
                         );
+                        // 재생 중이면 스냅샷에서 뺀다. 이름만 바뀐 포트는 사라지지 않아, 그대로 두면 옛 이름
+                        // 트랙의 소리가 그 포트로 계속 간다(리뷰 2 지적 1).
+                        w.transport_port_lost(cx);
                     });
                 }
             }
             PortAction::Reconnect { name, .. } => {
                 cx.update_global::<Engine, _>(|engine, _| engine.port_returned(&name));
+                let message = if was_connected {
+                    format!("출력 포트 「{name}」을 같은 이름의 다른 포트로 바꿨다")
+                } else {
+                    format!("출력 포트 「{name}」에 다시 연결했다")
+                };
                 for window in windows_using(cx, &name) {
                     window.update(cx, |w, cx| {
-                        w.say(format!("출력 포트 「{name}」에 다시 연결했다"), cx);
+                        w.say(message.clone(), cx);
                         w.transport_port_returned(&name, cx);
                     });
                 }
@@ -245,6 +263,49 @@ fn tick(cx: &mut App) {
         let ok = engine::recover(cx, failures == 0).is_ok();
         let monitor = cx.global_mut::<PortMonitor>();
         monitor.recover_failures = if ok { 0 } else { failures.saturating_add(1) };
+    }
+}
+
+/// 핫플러그(OUT-3): 쓰지 않는 포트의 나타남·사라짐도 상태줄 메시지로 알린다. 그 포트를 쓰는 창은 아래의
+/// 재연결 동작이 더 자세히 알린다. 한 번에 여러 포트가 오가면(장치 하나가 포트를 여럿 냄) 종류마다 한
+/// 줄로 묶는다. 메시지 목록이 한 장치로 밀려나지 않게 한다(리뷰 2 제안 3).
+fn announce_hotplug(cx: &mut App, events: &[PortEvent]) {
+    for window in project_windows(cx) {
+        let mut came = Vec::new();
+        let mut gone = Vec::new();
+        for event in events {
+            let (port, list) = match event {
+                PortEvent::Appeared(p) => (p, &mut came),
+                PortEvent::Disappeared(p) => (p, &mut gone),
+            };
+            let used = windows_using(cx, port.name())
+                .iter()
+                .any(|u| u.entity_id() == window.entity_id());
+            if !used && !list.contains(&port.name()) {
+                list.push(port.name());
+            }
+        }
+        for (list, verb) in [(came, "새로 보인다"), (gone, "없어졌다")] {
+            if let Some(message) = hotplug_message(&list, verb) {
+                window.update(cx, |w, cx| w.say(message, cx));
+            }
+        }
+    }
+}
+
+/// 쓰지 않는 포트의 핫플러그 한 줄. 이름은 모두 적는다(줄 수만 묶는다. 상태줄은 넘치는 글을 자른다).
+fn hotplug_message(names: &[&str], verb: &str) -> Option<String> {
+    match names {
+        [] => None,
+        [one] => Some(format!("출력 포트 「{one}」이 {verb}")),
+        _ => {
+            let listed: Vec<String> = names.iter().map(|n| format!("「{n}」")).collect();
+            Some(format!(
+                "출력 포트 {}개가 {verb}: {}",
+                names.len(),
+                listed.join(", ")
+            ))
+        }
     }
 }
 

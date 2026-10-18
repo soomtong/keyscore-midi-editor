@@ -418,7 +418,15 @@ fn closed_window_port_changes_are_harmless(cx: &mut TestAppContext) {
     assert!(cx.read(ports::is_monitoring));
     let (h2, v2) = open(cx, project_virtual());
     idle(cx, Some(h2), 2);
-    assert!(messages(cx, &v2).is_empty(), "{:?}", messages(cx, &v2));
+    // 쓰지 않는 창은 핫플러그 알림(다른 테스트의 포트 포함)만 받는다. 닫힌 창의 재연결 문구가 새 창에 오지
+    // 않는다(리뷰 1 제안 6 대응 뒤 전제)
+    assert!(
+        messages(cx, &v2)
+            .iter()
+            .all(|m| !m.contains("사라졌다") && !m.contains("다시 연결")),
+        "{:?}",
+        messages(cx, &v2)
+    );
 }
 
 // ---------- 가상 포트 복구 ----------

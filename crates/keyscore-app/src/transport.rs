@@ -343,6 +343,11 @@ impl ProjectWindow {
         cx.notify();
     }
 
+    /// 이름 포트가 사라졌다(포트 감시). 이 창이 재생 중이면 그 포트 없이 스냅샷을 다시 만든다.
+    pub(crate) fn transport_port_lost(&mut self, cx: &mut Context<Self>) {
+        self.transport_document_changed(cx);
+    }
+
     /// 이름 포트가 돌아왔다(포트 감시). 이 창이 재생 중이면 스냅샷을 다시 만들어 새 핸들로 보내고, 그
     /// 목적지의 뱅크·프로그램을 다시 보낸다. 돌아온 장치는 새로 켜졌을 수 있다.
     pub(crate) fn transport_port_returned(&mut self, name: &str, cx: &mut Context<Self>) {
