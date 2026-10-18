@@ -18,6 +18,7 @@ pub mod mode;
 pub mod palette;
 pub mod ports;
 pub mod settings;
+pub mod settings_window;
 pub mod theme;
 mod track_list;
 pub mod tracks;
@@ -51,8 +52,12 @@ pub fn init(cx: &mut App, settings_path: PathBuf) {
         let _ = open_project_window(Project::new(), cx);
     });
     cx.on_action(|_: &Close, cx| {
+        // 키로 부르면 그 창의 디스패치 안이라 지금은 그 창을 갱신할 수 없다. 디스패치가 끝난 뒤 닫는다
+        // (S2-T6a 리뷰 1 지적 9).
         if let Some(window) = cx.active_window() {
-            let _ = window.update(cx, |_, window, _| window.remove_window());
+            cx.defer(move |cx| {
+                let _ = window.update(cx, |_, window, _| window.remove_window());
+            });
         }
     });
     cx.on_action(|_: &Quit, cx| {
@@ -65,6 +70,7 @@ pub fn init(cx: &mut App, settings_path: PathBuf) {
         async {}
     })
     .detach();
+    settings_window::register(cx);
     cx.on_action(|action: &SetTheme, cx| {
         let choice = match action.0 {
             ThemeKind::System => ThemeChoice::System,

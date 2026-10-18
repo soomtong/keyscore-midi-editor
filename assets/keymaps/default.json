@@ -493,7 +493,28 @@
       "enter": "keymap::StartCapture",
       "escape": "keymap::CancelCapture",
       "backspace": "keymap::ClearBinding",
-      "r": "keymap::RestoreDefault"
+      "r": "keymap::RestoreDefault",
+      "down": "keymap::SelectNext",
+      "up": "keymap::SelectPrev",
+      "/": "keymap::FocusSearch"
+    }
+  },
+  {
+    "context": "Keymap",
+    "bindings": {
+      // 키맵 구역 위 줄의 버튼도 키보드로(KM-8, P1)
+      "alt-1": "keymap::SelectPreset(default)",
+      "alt-2": "keymap::SelectPreset(vim)",
+      "alt-m": "keymap::SwapModifiers",
+      "cmd-shift-e": "keymap::Export",
+      "cmd-shift-i": "keymap::Import"
+    }
+  },
+  {
+    "context": "Settings",
+    "bindings": {
+      "ctrl-tab": "settings::NextSection",
+      "ctrl-shift-tab": "settings::PrevSection"
     }
   },
   {
@@ -515,6 +536,9 @@
   {
     "context": "Dialog",
     "bindings": {
+      // Esc = 통상의 취소(A13 결정)
+      "enter": "dialog::Confirm",
+      "escape": "dialog::Cancel",
       "tab": "window::FocusNext",
       "shift-tab": "window::FocusPrev"
     }

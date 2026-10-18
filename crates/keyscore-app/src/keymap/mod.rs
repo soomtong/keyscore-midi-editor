@@ -17,6 +17,7 @@
 
 pub mod conflict;
 pub mod source;
+pub mod user;
 
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -394,8 +395,18 @@ pub fn set_preset(cx: &mut App, preset: Preset) {
 
 /// 수식키 교환을 켜거나 끈다(KM-11).
 pub fn set_swap_alt_cmd(cx: &mut App, on: bool) {
+    let old = cx.global::<KeymapState>().options.swap_alt_cmd;
     cx.global_mut::<KeymapState>().options.swap_alt_cmd = on;
     crate::app_state::AppSettings::update(cx, |s| s.keymap.swap_alt_cmd = on);
+    // 표준 단축키를 지운 항목은 교환 상태에 따라 파일 키가 달라진다. 새 상태에 맞게 고쳐 쓴다(파일이 깨졌으면
+    // 손대지 않는다).
+    let (layers, user) = current_layers(cx);
+    if let Ok(mut user) = user
+        && user.retarget_standard_unbinds(&layers.standard, old, on)
+        && save_user(cx, &user).is_ok()
+    {
+        return;
+    }
     apply(cx);
 }
 
@@ -454,6 +465,70 @@ fn register_count_actions(cx: &mut App) {
                 .min(MAX_COUNT),
         );
     });
+}
+
+/// 사용자 키맵 파일 경로(KM-6).
+#[must_use]
+pub fn user_path(cx: &App) -> PathBuf {
+    cx.global::<KeymapState>().user_path.clone()
+}
+
+/// 지금 프리셋의 레이어(사용자 레이어는 마지막으로 제대로 읽힌 것)와, 사용자 파일을 편집기가 고쳐 쓸 수
+/// 있는지. 파일이 없으면 빈 사용자 레이어다. 읽을 수 없거나 오류가 있으면 고쳐 쓰지 않는다(손 편집을 덮지
+/// 않는다).
+///
+/// # Errors
+///
+/// 두 번째 값: 고쳐 쓸 수 없는 이유.
+pub fn current_layers(cx: &App) -> (LayerSet, Result<user::UserKeymap, String>) {
+    let state = cx.global::<KeymapState>();
+    let (mut layers, _) = load_layers(state.options.preset, None);
+    layers.user.clone_from(&state.last_user);
+    let user = match std::fs::read_to_string(&state.user_path) {
+        Ok(text) => user::UserKeymap::parse(&text).map_err(|errors| {
+            errors
+                .first()
+                .map_or_else(|| "keymap.json을 읽을 수 없다".to_owned(), describe)
+        }),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(user::UserKeymap::default()),
+        Err(e) => Err(format!("keymap.json을 읽을 수 없다: {e}")),
+    };
+    // 편집 메서드는 실제로 누르는 키를 받는다. 수식키 교환이면 파일에 쓸 때 교환한다
+    let user = user.map(|mut u| {
+        u.set_swap(state.options.swap_alt_cmd);
+        u
+    });
+    (layers, user)
+}
+
+/// 사용자 레이어를 `keymap.json`에 쓰고 다시 건다. 쓰기 전 내용은 `keymap.json.bak`으로 남긴다(편집기가
+/// 다시 쓰면 주석·순서가 사라진다). 임시 파일에 쓴 뒤 바꿔 넣는다.
+///
+/// # Errors
+///
+/// 파일을 쓰지 못한 이유.
+pub fn save_user(cx: &mut App, user: &user::UserKeymap) -> Result<(), String> {
+    let path = user_path(cx);
+    // 사람이 쓴(편집기가 쓰지 않은) 내용만 `.bak`으로 남긴다. 편집할 때마다 덮으면 두 번째 편집부터 손으로 쓴
+    // 원본·주석이 사라진다(리뷰 1 제안 11). 편집기가 쓴 파일은 다시 읽어 쓰면 글자 그대로 같다. 앱을 다시 띄워도
+    // 같은 판단이 된다(리뷰 2 제안 3).
+    let written_by_editor =
+        |text: &str| user::UserKeymap::parse(text).is_ok_and(|u| u.to_json() == text);
+    if let Ok(old) = std::fs::read_to_string(&path)
+        && !written_by_editor(&old)
+    {
+        std::fs::write(path.with_extension("json.bak"), old)
+            .map_err(|e| format!("keymap.json을 백업하지 못했다: {e}"))?;
+    }
+    let tmp = path.with_extension("json.tmp");
+    let text = user.to_json();
+    let written = std::fs::write(&tmp, &text).and_then(|()| std::fs::rename(&tmp, &path));
+    if let Err(e) = written {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(format!("keymap.json을 쓰지 못했다: {e}"));
+    }
+    apply(cx);
+    Ok(())
 }
 
 /// 위치를 가진 오류를 사람이 읽는 한 줄로.
