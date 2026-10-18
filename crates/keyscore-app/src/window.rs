@@ -106,6 +106,14 @@ impl ProjectWindow {
         let fields = crate::fields::Fields::new(window, cx);
         let inspector = crate::inspector::Inspector::new(window, cx);
         let released = cx.on_release(|_, cx| crate::transport::release(cx));
+        let me = cx.entity().downgrade();
+        if cx.has_global::<OpenWindows>() {
+            let list = &mut cx.global_mut::<OpenWindows>().0;
+            list.retain(|w| w.upgrade().is_some());
+            list.push(me);
+        } else {
+            cx.set_global(OpenWindows(vec![me]));
+        }
         let mut this = ProjectWindow {
             document,
             layout: AppSettings::get(cx).layout,
@@ -664,6 +672,22 @@ impl ProjectWindow {
                 )
             })
             .unwrap_or_default();
+        // 현재 트랙의 이름 포트가 지금 없으면 알린다(OUT-3). 감시가 없으면 모른다.
+        let port_missing = self
+            .current_track()
+            .and_then(|id| {
+                self.document
+                    .read(cx)
+                    .project()
+                    .tracks()
+                    .iter()
+                    .find(|t| t.id() == id)
+            })
+            .and_then(|t| match t.port() {
+                keyscore_core::OutputPort::Named(name) => crate::ports::port_present(cx, name),
+                keyscore_core::OutputPort::Virtual => None,
+            })
+            == Some(false);
         let message = self
             .messages()
             .last()
@@ -706,7 +730,15 @@ impl ProjectWindow {
                                     .aria_label(track.clone())
                                     .test_support()
                                     .child(track),
-                            ),
+                            )
+                            .children(port_missing.then(|| {
+                                div()
+                                    .id("status-port-missing")
+                                    .aria_label("포트 없음")
+                                    .test_support()
+                                    .text_color(cx.theme().warning)
+                                    .child("포트 없음")
+                            })),
                     )
                     .right(right),
             )
@@ -954,6 +986,30 @@ fn mode_action(mode: Mode) -> Box<dyn Action> {
         Mode::Ai => Box::new(ai::OpenPanel),
         Mode::Lyric => Box::new(mode::Lyric),
         Mode::Controller => Box::new(mode::Controller),
+    }
+}
+
+/// 열린 프로젝트 창(포트 감시가 창마다 알린다).
+struct OpenWindows(Vec<gpui_kit::WeakEntity<ProjectWindow>>);
+
+impl gpui_kit::Global for OpenWindows {}
+
+/// 열린 프로젝트 창들.
+pub(crate) fn project_windows(cx: &App) -> Vec<Entity<ProjectWindow>> {
+    if !cx.has_global::<OpenWindows>() {
+        return Vec::new();
+    }
+    cx.global::<OpenWindows>()
+        .0
+        .iter()
+        .filter_map(gpui_kit::WeakEntity::upgrade)
+        .collect()
+}
+
+/// 열린 모든 창에 메시지를 남긴다.
+pub(crate) fn say_everywhere(cx: &mut App, message: &str) {
+    for window in project_windows(cx) {
+        window.update(cx, |w, cx| w.say(message.to_owned(), cx));
     }
 }
 

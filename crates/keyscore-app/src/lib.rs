@@ -16,6 +16,7 @@ mod inspector;
 pub mod keymap;
 pub mod mode;
 pub mod palette;
+pub mod ports;
 pub mod settings;
 pub mod theme;
 mod track_list;
@@ -144,6 +145,8 @@ pub fn run() {
             if let Err(e) = engine::install(cx, &engine::EngineOptions::default()) {
                 eprintln!("KeyScore: MIDI 엔진을 열지 못했다: {e}");
             }
+            // 포트 소멸·복귀 감시(OUT-3). 엔진이 없으면 아무 일도 하지 않는다.
+            ports::start_monitor(cx);
             let _ = open_project_window(Project::new(), cx);
             cx.activate(true);
         });
