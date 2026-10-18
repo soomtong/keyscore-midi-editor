@@ -457,6 +457,57 @@ fn register_count_actions(cx: &mut App) {
     });
 }
 
+/// 사용자 키맵 파일 경로(KM-6).
+#[must_use]
+pub fn user_path(cx: &App) -> PathBuf {
+    cx.global::<KeymapState>().user_path.clone()
+}
+
+/// 지금 프리셋의 레이어(사용자 레이어는 마지막으로 제대로 읽힌 것)와, 사용자 파일을 편집기가 고쳐 쓸 수
+/// 있는지. 파일이 없으면 빈 사용자 레이어다. 읽을 수 없거나 오류가 있으면 고쳐 쓰지 않는다(손 편집을 덮지
+/// 않는다).
+///
+/// # Errors
+///
+/// 두 번째 값: 고쳐 쓸 수 없는 이유.
+pub fn current_layers(cx: &App) -> (LayerSet, Result<user::UserKeymap, String>) {
+    let state = cx.global::<KeymapState>();
+    let (mut layers, _) = load_layers(state.options.preset, None);
+    layers.user.clone_from(&state.last_user);
+    let user = match std::fs::read_to_string(&state.user_path) {
+        Ok(text) => user::UserKeymap::parse(&text).map_err(|errors| {
+            errors
+                .first()
+                .map_or_else(|| "keymap.json을 읽을 수 없다".to_owned(), describe)
+        }),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(user::UserKeymap::default()),
+        Err(e) => Err(format!("keymap.json을 읽을 수 없다: {e}")),
+    };
+    (layers, user)
+}
+
+/// 사용자 레이어를 `keymap.json`에 쓰고 다시 건다. 쓰기 전 내용은 `keymap.json.bak`으로 남긴다(편집기가
+/// 다시 쓰면 주석·순서가 사라진다). 임시 파일에 쓴 뒤 바꿔 넣는다.
+///
+/// # Errors
+///
+/// 파일을 쓰지 못한 이유.
+pub fn save_user(cx: &mut App, user: &user::UserKeymap) -> Result<(), String> {
+    let path = user_path(cx);
+    if path.exists() {
+        std::fs::copy(&path, path.with_extension("json.bak"))
+            .map_err(|e| format!("keymap.json을 백업하지 못했다: {e}"))?;
+    }
+    let tmp = path.with_extension("json.tmp");
+    let written = std::fs::write(&tmp, user.to_json()).and_then(|()| std::fs::rename(&tmp, &path));
+    if let Err(e) = written {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(format!("keymap.json을 쓰지 못했다: {e}"));
+    }
+    apply(cx);
+    Ok(())
+}
+
 /// 위치를 가진 오류를 사람이 읽는 한 줄로.
 #[must_use]
 pub fn describe(error: &KeymapError) -> String {

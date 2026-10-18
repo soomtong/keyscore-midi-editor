@@ -54,7 +54,7 @@ fn effective_bindings_layer_and_unbind() {
     // 컨텍스트 공백과 키 표기 차이는 같은 자리로 본다
     let l = layers(
         PRESET,
-        r#"[{"context": "Normal ", "bindings": {"G G": "track::New"}}]"#,
+        r#"[{"context": "Normal ", "bindings": {"g  g": "track::New"}}]"#,
     );
     let eff = effective(&l);
     assert!(keys_of(&eff, "cursor::FirstTrack").is_empty(), "{eff:?}");

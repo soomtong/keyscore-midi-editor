@@ -66,6 +66,7 @@ pub fn init(cx: &mut App, settings_path: PathBuf) {
         async {}
     })
     .detach();
+    settings_window::register(cx);
     cx.on_action(|action: &SetTheme, cx| {
         let choice = match action.0 {
             ThemeKind::System => ThemeChoice::System,

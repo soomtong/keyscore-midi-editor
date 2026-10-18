@@ -288,7 +288,7 @@ fn preset_switch_keeps_user_overrides(cx: &mut TestAppContext) {
     run_settings(cx);
     let (handle, _view) = settings_view(cx);
     cx.update_window(handle, |_, window, cx| {
-        window.click("keymap-preset-vim", cx)
+        window.click("keymap-preset-vim", cx);
     })
     .unwrap();
     cx.run_until_parked();
@@ -307,7 +307,7 @@ fn preset_switch_keeps_user_overrides(cx: &mut TestAppContext) {
     cx.run_until_parked();
     assert!(cx.read(keymap::options).swap_alt_cmd);
     cx.update_window(handle, |_, window, cx| {
-        window.click("keymap-preset-default", cx)
+        window.click("keymap-preset-default", cx);
     })
     .unwrap();
     cx.run_until_parked();
