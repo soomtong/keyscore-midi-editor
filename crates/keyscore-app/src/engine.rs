@@ -365,6 +365,25 @@ fn ports_edited(cx: &mut App, name: &str, refresh_owner: bool) {
     cx.refresh_windows();
 }
 
+/// 클럭 포트 짝(이름, 스냅샷 번호)이 `old`에서 `new`로 바뀔 때 스케줄러에 보낼 (끌 번호, 켤 번호).
+/// 짝이 같으면 아무것도 보내지 않는다. `old`가 없으면(처음, 또는 지난 묶음이 실패해 스케줄러 상태를 모른다)
+/// 모든 번호를 끄고 새 번호를 켠다.
+#[must_use]
+pub fn clock_commands(
+    old: Option<&[(String, u16)]>,
+    new: &[(String, u16)],
+) -> (Vec<u16>, Vec<u16>) {
+    let _ = (old, new);
+    todo!()
+}
+
+/// 앱이 마지막으로 보낸 테스트 노트(시각, 포트 이름). 리스너 연결은 알 수 없어(SP-4) 앱이 아는 것만 보인다.
+#[must_use]
+pub fn last_test_note(cx: &App) -> Option<(std::time::SystemTime, String)> {
+    let _ = cx;
+    todo!()
+}
+
 /// 메트로놈 설정이 바뀌었다(MET-1). 재생 중인 창이 있으면 스냅샷을 다시 만들어 클릭 포트·채널·노트·길이를
 /// 바로 바꾼다.
 pub(crate) fn metronome_changed(cx: &mut App) {

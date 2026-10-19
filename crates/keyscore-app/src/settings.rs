@@ -283,6 +283,8 @@ pub struct MidiOutputSettings {
     pub main_name: Option<String>,
     /// 추가 가상 포트 이름(기본 포트와 합쳐 16개 이하)
     pub virtual_ports: Vec<String>,
+    /// MIDI Clock을 보낼 포트(OUT-5, 기본 없음). 메트로놈 포트와 같은 모양이고 중복이 없다.
+    pub clock: Vec<OutputPort>,
 }
 
 impl MidiOutputSettings {
