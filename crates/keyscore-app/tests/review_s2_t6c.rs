@@ -1,4 +1,4 @@
-//! S2-T6c 적대적 리뷰 1회차. 도우미는 tests/settings_tabs.rs에서 복사했다.
+//! S2-T6c 적대적 리뷰 1회차. 도우미는 `tests/settings_tabs.rs`에서 복사했다.
 
 use std::path::PathBuf;
 use std::sync::mpsc;
@@ -286,7 +286,7 @@ fn wait_gone(name: &str) {
     }
 }
 
-/// 감시 주기만큼 시계를 돌리며 조건을 기다린다(port_watch.rs의 pump).
+/// 감시 주기만큼 시계를 돌리며 조건을 기다린다(`port_watch.rs`의 `pump`).
 fn pump(
     cx: &mut TestAppContext,
     handle: AnyWindowHandle,
@@ -528,7 +528,9 @@ fn brk_reopen_settings_keeps_selection_in_sync(cx: &mut TestAppContext) {
         label(cx, sh, "settings-metronome-accent")
     );
     let focused = cx
-        .update_window(sh, |_, window, cx| view.read(cx).focused_control(window, cx))
+        .update_window(sh, |_, window, cx| {
+            view.read(cx).focused_control(window, cx)
+        })
         .unwrap();
     assert_eq!(focused.as_deref(), Some("settings-metronome-port"));
     choose(cx, sh, "settings-metronome-channel", "12");
@@ -600,7 +602,9 @@ fn brk_calibrate_by_space(cx: &mut TestAppContext) {
     let (sh, view) = open_settings(cx, handle, SettingsSection::Input);
     press(cx, sh, "tab");
     let focused = cx
-        .update_window(sh, |_, window, cx| view.read(cx).focused_control(window, cx))
+        .update_window(sh, |_, window, cx| {
+            view.read(cx).focused_control(window, cx)
+        })
         .unwrap();
     assert_eq!(focused.as_deref(), Some("settings-calibrate"));
     press(cx, sh, "space");
