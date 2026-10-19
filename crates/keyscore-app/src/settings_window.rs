@@ -241,6 +241,12 @@ impl SettingsWindow {
     }
 
     #[must_use]
+    pub fn focused_control(&self, cx: &App) -> Option<String> {
+        let _ = cx;
+        todo!()
+    }
+
+    #[must_use]
     pub fn capturing(&self) -> bool {
         self.capture.is_some()
     }

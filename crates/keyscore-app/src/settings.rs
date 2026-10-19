@@ -1,6 +1,6 @@
 //! 앱 설정 파일(`~/Library/Application Support/KeyScore/settings.json`).
 //!
-//! 패널 열림·크기와 테마를 저장한다(S2-T1). 이후 Task가 입력·MIDI·메트로놈·키맵 설정을 더한다.
+//! 패널 열림·크기와 테마(S2-T1), 키맵(S2-T6a), 입력·메트로놈(S2-T6c)을 저장한다.
 //! 모르는 키는 보존하고 없는 키는 기본값을 쓴다(REQ IO-1과 같은 태도). 쓰기는 임시 파일 + rename이라
 //! 쓰는 도중 죽어도 원래 파일이 남는다.
 
@@ -8,8 +8,12 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use keyscore_core::OutputPort;
+use keyscore_midi::MetronomeConfig;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
+
+use crate::actions::args::KeyLayout;
 
 /// 패널 크기의 허용 범위(논리 픽셀). 밖의 값은 기본값으로 되돌린다.
 pub const PANEL_SIZE_RANGE: std::ops::RangeInclusive<f32> = 120.0..=1200.0;
@@ -118,12 +122,65 @@ pub struct KeymapSettings {
     pub swap_alt_cmd: bool,
 }
 
+/// 입력 설정(설정 > 입력). 음 키 레이아웃(P3)은 S3 Step 입력이 읽는다.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InputSettings {
+    pub key_layout: KeyLayout,
+}
+
+impl Default for InputSettings {
+    fn default() -> Self {
+        InputSettings {
+            key_layout: KeyLayout::Piano,
+        }
+    }
+}
+
+/// 메트로놈 설정(MET-1, 설정 > 메트로놈). 값은 늘 범위 안이다(읽을 때 고친다).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MetronomeSettings {
+    /// 클릭을 보낼 포트. 트랙 포트와 같은 모양이다.
+    pub port: OutputPort,
+    /// 채널 1–16
+    pub channel: u8,
+    /// 강박(마디 첫 박) 노트 0–127
+    pub accent: u8,
+    /// 약박 노트 0–127
+    pub beat: u8,
+    /// 클릭 길이(ms) 1–10000
+    pub length_ms: u32,
+}
+
+impl Default for MetronomeSettings {
+    /// 가상 포트, 채널 10, 강박 37, 약박 42(MET-1), 50 ms(S1-T5의 클릭 길이).
+    fn default() -> Self {
+        MetronomeSettings {
+            port: OutputPort::Virtual,
+            channel: 10,
+            accent: 37,
+            beat: 42,
+            length_ms: 50,
+        }
+    }
+}
+
+impl MetronomeSettings {
+    /// 스케줄러에 넘길 설정. `port`는 이 스냅샷에서 메트로놈 포트의 번호다.
+    #[must_use]
+    pub fn config(&self, port: u16) -> MetronomeConfig {
+        let _ = port;
+        todo!()
+    }
+}
+
 /// 앱 설정 전체.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Settings {
     pub layout: LayoutSettings,
     pub theme: ThemeChoice,
     pub keymap: KeymapSettings,
+    pub input: InputSettings,
+    pub metronome: MetronomeSettings,
     /// `keymap` 객체 안의 모르는 키.
     keymap_extra: Map<String, Value>,
     /// 모르는 최상위 키. 다시 쓸 때 그대로 둔다.
