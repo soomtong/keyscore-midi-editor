@@ -438,6 +438,15 @@ impl ProjectWindow {
         self.transport_document_changed(cx);
     }
 
+    /// 앱 가상 포트의 이름이 바뀌었다(같은 엔드포인트). 지금 재생의 음색 기록을 새 이름으로 옮긴다.
+    pub(crate) fn transport_port_renamed(&mut self, old: &str, new: &str) {
+        for setup in &mut self.transport.setup {
+            if setup.destination == old {
+                new.clone_into(&mut setup.destination);
+            }
+        }
+    }
+
     pub(crate) fn report_missing(&mut self, missing: &[(String, PortProblem)]) {
         for (name, problem) in missing {
             let message = match problem {

@@ -272,10 +272,17 @@ fn tick(cx: &mut App) {
         }
     }
     housekeeping(cx, changed);
-    if check_server && engine::is_installed(cx) && !cx.global::<Engine>().all_registered() {
-        let ok = engine::recover(cx, failures == 0).is_ok();
-        let monitor = cx.global_mut::<PortMonitor>();
-        monitor.recover_failures = if ok { 0 } else { failures.saturating_add(1) };
+    if check_server && engine::is_installed(cx) {
+        if !cx.global::<Engine>().main_registered() {
+            let ok = engine::recover(cx, failures == 0).is_ok();
+            let monitor = cx.global_mut::<PortMonitor>();
+            monitor.recover_failures = if ok { 0 } else { failures.saturating_add(1) };
+        } else {
+            // 기본 포트는 멀쩡한데 추가 포트만 풀렸다: 재생을 멈추지 않고 그 포트만 다시 등록한다
+            for name in cx.global_mut::<Engine>().reregister_extras() {
+                crate::window::say_everywhere(cx, &format!("가상 포트 「{name}」을 다시 등록했다"));
+            }
+        }
     }
 }
 
