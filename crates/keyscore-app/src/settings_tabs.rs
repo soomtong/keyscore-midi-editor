@@ -354,6 +354,7 @@ impl SettingsWindow {
                 Control::KeyLayout,
                 format!("키 레이아웃: {}", layout_label(layout)),
                 &tabs.key_layout,
+                cx,
             ))
             .child(
                 div()
@@ -417,30 +418,35 @@ impl SettingsWindow {
                 Control::Port,
                 format!("포트: {}", port_choice_label(&m.port, &virtual_name)),
                 &tabs.port,
+                cx,
             ))
             .child(row(
                 "채널",
                 Control::Channel,
                 format!("채널: {}", m.channel),
                 &tabs.channel,
+                cx,
             ))
             .child(row(
                 "강박 노트",
                 Control::Accent,
                 format!("강박 노트: {}", percussion_label(m.accent)),
                 &tabs.accent,
+                cx,
             ))
             .child(row(
                 "약박 노트",
                 Control::Beat,
                 format!("약박 노트: {}", percussion_label(m.beat)),
                 &tabs.beat,
+                cx,
             ))
             .child(row(
                 "길이",
                 Control::Length,
                 format!("길이: {}", length_label(m.length_ms)),
                 &tabs.length,
+                cx,
             ))
             .child(
                 div()
@@ -456,7 +462,9 @@ fn row(
     control: Control,
     value: String,
     state: &Entity<Choice>,
+    cx: &App,
 ) -> impl IntoElement {
+    let focus = state.read(cx).focus_handle(cx);
     div()
         .flex()
         .items_center()
@@ -468,6 +476,18 @@ fn row(
                 .aria_label(value)
                 .test_support()
                 .w(gpui_kit::px(260.))
+                // 닫힌 선택 상자는 `space`로도 연다(macOS 팝업 버튼 관례, 계획 5). 선택 상자의 키 바인딩은
+                // `enter`만 열므로 같은 Action을 낸다. 열린 동안은 검색란이 포커스라 공백을 글자로 받는다.
+                .on_key_down(move |event: &KeyDownEvent, window, cx| {
+                    let k = &event.keystroke;
+                    if k.key == "space" && !k.modifiers.modified() && focus.is_focused(window) {
+                        window.dispatch_action(
+                            Box::new(gpui_kit::base::actions::Confirm { secondary: false }),
+                            cx,
+                        );
+                        cx.stop_propagation();
+                    }
+                })
                 .child(Select::new(state).search_placeholder("검색")),
         )
 }
