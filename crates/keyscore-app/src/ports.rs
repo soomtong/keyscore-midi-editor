@@ -73,6 +73,10 @@ pub fn is_monitoring(cx: &App) -> bool {
 /// 그 이름의 목적지가 지금 있는가. 감시가 돌지 않으면 모른다(`None`).
 #[must_use]
 pub fn port_present(cx: &App, name: &str) -> Option<bool> {
+    // 앱의 가상 포트는 소스라 목적지 목록에 없다. 있는 포트다(S2-T6d).
+    if crate::engine::is_own_port(cx, name) {
+        return Some(true);
+    }
     is_monitoring(cx).then(|| {
         cx.global::<PortMonitor>()
             .present
@@ -139,6 +143,9 @@ fn wanted_names(cx: &App) -> Vec<String> {
             }
         }
     }
+    // 앱의 가상 포트(S2-T6d)는 목적지가 아니라 감시하지 않는다.
+    let own = crate::engine::virtual_port_names(cx);
+    names.retain(|n| !own.contains(n));
     names
 }
 
@@ -264,13 +271,35 @@ fn tick(cx: &mut App) {
             }
         }
     }
+    housekeeping(cx, changed);
+    if check_server && engine::is_installed(cx) {
+        check_server_ports(cx, failures);
+    }
+}
+
+/// 서버 확인: 기본 포트가 풀렸으면 서버가 다시 뜬 것으로 보고 복구한다. 기본 포트는 멀쩡한데 추가 포트만
+/// 풀렸으면 재생을 멈추지 않고 그 포트만 다시 등록한다(S2-T6d 리뷰 2 지적 2).
+fn check_server_ports(cx: &mut App, failures: u32) {
+    if cx.global::<Engine>().main_registered() {
+        for name in cx.global_mut::<Engine>().reregister_extras() {
+            crate::window::say_everywhere(cx, &format!("가상 포트 「{name}」을 다시 등록했다"));
+        }
+        return;
+    }
+    let ok = engine::recover(cx, failures == 0).is_ok();
+    let monitor = cx.global_mut::<PortMonitor>();
+    monitor.recover_failures = if ok { 0 } else { failures.saturating_add(1) };
+}
+
+/// 감시 한 번의 뒷정리: 포트가 오갔으면 창을 다시 그리고, 지운 가상 포트를 스냅샷이 놓았으면 버린다(소스가
+/// 사라진다, S2-T6d).
+fn housekeeping(cx: &mut App, changed: bool) {
     if changed {
         refresh(cx);
     }
-    if check_server && engine::is_installed(cx) && !cx.global::<Engine>().main_registered() {
-        let ok = engine::recover(cx, failures == 0).is_ok();
-        let monitor = cx.global_mut::<PortMonitor>();
-        monitor.recover_failures = if ok { 0 } else { failures.saturating_add(1) };
+    if engine::is_installed(cx) {
+        cx.global_mut::<Engine>()
+            .release_retired(std::time::Duration::ZERO);
     }
 }
 

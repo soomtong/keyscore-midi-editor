@@ -27,6 +27,7 @@ use crate::keymap::conflict::{Conflict, ConflictKind};
 use crate::keymap::source::ActionRef;
 use crate::keymap::user::{Effective, UserKeymap, binding_conflicts};
 use crate::keymap::{self, Preset, canonical_keys};
+use crate::settings_ports::PortsTab;
 use crate::settings_tabs::Tabs;
 
 /// press-to-bind의 시퀀스 확정 대기(KM-5의 시퀀스 대기와 같다).
@@ -99,6 +100,8 @@ pub struct SettingsWindow {
     query_focused: bool,
     /// 입력·메트로놈 구역(S2-T6c).
     tabs: Tabs,
+    /// MIDI 출력 구역(S2-T6d).
+    ports_tab: PortsTab,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -242,8 +245,10 @@ impl SettingsWindow {
             },
         ));
         let tabs = Tabs::new(window, cx);
+        let ports_tab = PortsTab::new(window, cx);
         SettingsWindow {
             tabs,
+            ports_tab,
             section: SettingsSection::Keymap,
             focus: cx.focus_handle(),
             list_focus: cx.focus_handle(),
@@ -277,7 +282,34 @@ impl SettingsWindow {
     /// 입력·메트로놈 구역에서 포커스를 가진 컨트롤의 요소 id(시험용).
     #[must_use]
     pub fn focused_control(&self, window: &Window, cx: &App) -> Option<String> {
-        self.tabs.focused(window, cx).map(str::to_owned)
+        self.tabs
+            .focused(window, cx)
+            .or_else(|| self.ports_tab.focused(window, cx))
+            .map(str::to_owned)
+    }
+
+    /// MIDI 출력 구역에서 편집할 포트(시험용).
+    #[must_use]
+    pub fn selected_port(&self) -> Option<String> {
+        self.ports_tab.selected().map(str::to_owned)
+    }
+
+    /// MIDI 출력 구역의 이름 입력란 글자(시험용).
+    #[must_use]
+    pub fn port_name_text(&self, cx: &App) -> String {
+        self.ports_tab.name_text(cx)
+    }
+
+    pub(crate) fn ports_tab(&self) -> &PortsTab {
+        &self.ports_tab
+    }
+
+    pub(crate) fn ports_tab_mut(&mut self) -> &mut PortsTab {
+        &mut self.ports_tab
+    }
+
+    pub(crate) fn set_message(&mut self, message: String) {
+        self.message = Some(message);
     }
 
     pub(crate) fn tabs(&self) -> &Tabs {
@@ -324,6 +356,8 @@ impl SettingsWindow {
         }
         if section == SettingsSection::Keymap {
             self.focus_list(window, cx);
+        } else if section == SettingsSection::MidiOutput {
+            self.ports_tab.focus_first(window, cx);
         } else if !self.tabs.focus_first(section, window, cx) {
             window.focus(&self.focus, cx);
         }
@@ -1008,6 +1042,8 @@ impl Render for SettingsWindow {
             self.render_input(window, cx).into_any_element()
         } else if section == SettingsSection::Metronome {
             self.render_metronome(window, cx).into_any_element()
+        } else if section == SettingsSection::MidiOutput {
+            self.render_midi_output(window, cx).into_any_element()
         } else if section == SettingsSection::Ai {
             crate::settings_tabs::render_ai(cx).into_any_element()
         } else {

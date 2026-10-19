@@ -28,8 +28,8 @@ struct Rec {
 }
 
 impl MidiPort for Rec {
-    fn name(&self) -> &'static str {
-        "rec"
+    fn name(&self) -> String {
+        "rec".to_owned()
     }
 
     fn send(&self, at: HostTime, ump: &[u32]) -> Result<(), MidiError> {

@@ -314,8 +314,8 @@ fn create_virtual_output_long_names_are_enumerated_verbatim() {
     let stem = unique(&"x".repeat(1000));
     let a = client.create_virtual_output(&format!("{stem}a")).unwrap();
     let b = client.create_virtual_output(&format!("{stem}b")).unwrap();
-    assert_eq!(source_count(a.name()), 1);
-    assert_eq!(source_count(b.name()), 1);
+    assert_eq!(source_count(&a.name()), 1);
+    assert_eq!(source_count(&b.name()), 1);
 }
 
 /// 경계. 리뷰 2 뒤 거부 목록의 양 끝(U+200B·U+200F·U+2060·U+2064·U+FEFF·U+00AD)과 제어 문자(C0·DEL·C1)는

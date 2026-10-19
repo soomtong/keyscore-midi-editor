@@ -276,6 +276,102 @@ fn port_to_value(port: &OutputPort) -> Value {
     }
 }
 
+/// MIDI 출력 설정(OUT-1·2, 설정 > MIDI 출력). 추가 가상 포트는 엔진에 실제로 있는 것과 같게 둔다.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct MidiOutputSettings {
+    /// 기본 가상 포트 이름. 없으면 OUT-1의 기본 이름이다.
+    pub main_name: Option<String>,
+    /// 추가 가상 포트 이름(기본 포트와 합쳐 16개 이하)
+    pub virtual_ports: Vec<String>,
+}
+
+impl MidiOutputSettings {
+    /// 기본 포트 이름(설정에 없으면 OUT-1의 기본 이름).
+    #[must_use]
+    pub fn main_or_default(&self) -> String {
+        self.main_name
+            .clone()
+            .unwrap_or_else(|| keyscore_midi::DEFAULT_PORT_NAME.to_owned())
+    }
+
+    fn read(mut map: Map<String, Value>, warnings: &mut Vec<String>) -> (Self, Map<String, Value>) {
+        let mut m = MidiOutputSettings::default();
+        match map.remove("main_name") {
+            None => {}
+            Some(Value::String(name)) => match keyscore_midi::normalize_port_name(&name) {
+                Ok(name) => m.main_name = Some(name),
+                Err(_) => warnings.push(format!(
+                    "midi_output.main_name 「{name}」은 포트 이름으로 쓸 수 없어 기본값을 쓴다"
+                )),
+            },
+            Some(_) => {
+                warnings.push("midi_output.main_name은 글자여야 해 기본값을 쓴다".to_string());
+            }
+        }
+        match map.remove("virtual_ports") {
+            None => {}
+            Some(Value::Array(items)) => {
+                let main = m.main_or_default();
+                for item in items {
+                    let Value::String(raw) = item else {
+                        warnings.push(
+                            "midi_output.virtual_ports의 글자가 아닌 항목을 뺐다".to_string(),
+                        );
+                        continue;
+                    };
+                    let Ok(name) = keyscore_midi::normalize_port_name(&raw) else {
+                        warnings.push(format!(
+                            "midi_output.virtual_ports의 「{raw}」은 포트 이름으로 쓸 수 없어 뺐다"
+                        ));
+                        continue;
+                    };
+                    if keyscore_midi::same_port_name(&name, &main)
+                        || m.virtual_ports
+                            .iter()
+                            .any(|n| keyscore_midi::same_port_name(n, &name))
+                    {
+                        warnings.push(format!(
+                            "midi_output.virtual_ports의 「{name}」은 다른 가상 포트와 이름이 같아 뺐다"
+                        ));
+                        continue;
+                    }
+                    if m.virtual_ports.len() + 1 >= keyscore_midi::MAX_VIRTUAL_OUTPUTS {
+                        warnings.push(format!(
+                            "가상 포트는 {}개까지라 「{name}」을 뺐다",
+                            keyscore_midi::MAX_VIRTUAL_OUTPUTS
+                        ));
+                        continue;
+                    }
+                    m.virtual_ports.push(name);
+                }
+            }
+            Some(_) => warnings
+                .push("midi_output.virtual_ports는 이름 목록이어야 해 기본값을 쓴다".to_string()),
+        }
+        (m, map)
+    }
+
+    fn write(&self, map: &mut Map<String, Value>) {
+        match &self.main_name {
+            Some(name) => {
+                map.insert("main_name".to_string(), Value::from(name.as_str()));
+            }
+            None => {
+                map.remove("main_name");
+            }
+        }
+        map.insert(
+            "virtual_ports".to_string(),
+            Value::Array(
+                self.virtual_ports
+                    .iter()
+                    .map(|n| Value::from(n.as_str()))
+                    .collect(),
+            ),
+        );
+    }
+}
+
 /// 앱 설정 전체.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Settings {
@@ -284,12 +380,15 @@ pub struct Settings {
     pub keymap: KeymapSettings,
     pub input: InputSettings,
     pub metronome: MetronomeSettings,
+    pub midi_output: MidiOutputSettings,
     /// `keymap` 객체 안의 모르는 키.
     keymap_extra: Map<String, Value>,
     /// `input` 객체 안의 모르는 키.
     input_extra: Map<String, Value>,
     /// `metronome` 객체 안의 모르는 키.
     metronome_extra: Map<String, Value>,
+    /// `midi_output` 객체 안의 모르는 키.
+    midi_output_extra: Map<String, Value>,
     /// 모르는 최상위 키. 다시 쓸 때 그대로 둔다.
     extra: Map<String, Value>,
     /// `layout` 객체 안의 모르는 키(뒤 버전이 더한 패널 등).
@@ -379,6 +478,14 @@ impl Settings {
             }
             Some(_) => warnings.push("metronome 설정이 객체가 아니라 기본값을 쓴다".to_string()),
         }
+        match map.remove("midi_output") {
+            None => {}
+            Some(Value::Object(midi_output)) => {
+                (settings.midi_output, settings.midi_output_extra) =
+                    MidiOutputSettings::read(midi_output, &mut warnings);
+            }
+            Some(_) => warnings.push("midi_output 설정이 객체가 아니라 기본값을 쓴다".to_string()),
+        }
         if let Some(v) = map.remove("theme") {
             match serde_json::from_value::<ThemeChoice>(v) {
                 Ok(theme) => settings.theme = theme,
@@ -420,6 +527,9 @@ impl Settings {
         let mut metronome = self.metronome_extra.clone();
         self.metronome.write(&mut metronome);
         map.insert("metronome".to_string(), Value::Object(metronome));
+        let mut midi_output = self.midi_output_extra.clone();
+        self.midi_output.write(&mut midi_output);
+        map.insert("midi_output".to_string(), Value::Object(midi_output));
         map.insert(
             "theme".to_string(),
             serde_json::to_value(self.theme).map_err(io::Error::other)?,

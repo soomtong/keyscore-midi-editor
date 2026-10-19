@@ -242,7 +242,7 @@ fn drop_after_rename_frees_both_names() {
     drop(port);
     let again_a = client.create_virtual_output(&a).unwrap();
     let again_b = client.create_virtual_output(&b).unwrap();
-    assert_eq!((again_a.name(), again_b.name()), (a.as_str(), b.as_str()));
+    assert_eq!((again_a.name(), again_b.name()), (a, b));
 }
 
 /// 경계(「리뷰어에게」 1). 4워드 메시지도 스택 `MIDIEventList`에 들어간다. 1.0 소스에서 타입 0xD는

@@ -64,6 +64,25 @@ pub(crate) fn normalized_name(name: &str) -> Result<String, MidiError> {
     }
 }
 
+/// 앱이 가상 포트 이름을 미리 검사할 때 쓴다. 만들기·이름 바꾸기와 같은 규칙으로 고친 이름을 돌려준다.
+///
+/// # Errors
+///
+/// 규칙에 맞지 않으면 `InvalidName`.
+pub fn normalize_port_name(name: &str) -> Result<String, MidiError> {
+    normalized_name(name)
+}
+
+/// 두 이름이 보이는 모양으로 같은가(가상 포트 중복 규칙, 결정 `2026-10-15-port-name-visual-duplicates.md`).
+/// 규칙에 맞지 않는 이름은 서로 같지 않다고 본다.
+#[must_use]
+pub fn same_port_name(a: &str, b: &str) -> bool {
+    match (normalized_name(a), normalized_name(b)) {
+        (Ok(a), Ok(b)) => duplicate_key(&a) == duplicate_key(&b),
+        _ => false,
+    }
+}
+
 /// 정상 텍스트에 쓰이는 표시되지 않는 문자: ZWNJ·ZWJ(이모지, 페르시아어), 이체자 선택자, 태그 문자.
 fn allowed_ignorable(c: char) -> bool {
     matches!(
@@ -338,7 +357,7 @@ impl MidiClient {
         names.push(key);
         Ok(VirtualOutput {
             endpoint,
-            name: name.to_owned(),
+            name: Mutex::new(name.to_owned()),
         })
     }
 }
@@ -346,7 +365,9 @@ impl MidiClient {
 /// 가상 출력 포트. drop되면 CoreMIDI 쪽에서도 해제된다.
 pub struct VirtualOutput {
     endpoint: MIDIEndpointRef,
-    name: String,
+    /// 이름. 스냅샷이 `Arc`로 쥔 채 재생 중에도 바꿀 수 있게 잠금 안에 둔다(S2-T6d). 실시간 스레드의
+    /// `send`는 이름을 읽지 않으므로 이 잠금은 실시간 경로에 들지 않는다.
+    name: Mutex<String>,
 }
 
 impl VirtualOutput {
@@ -355,14 +376,26 @@ impl VirtualOutput {
     /// # Errors
     ///
     /// `InvalidName`, `DuplicateName`, `Os`. 실패하면 이름은 그대로다.
-    #[allow(unsafe_code)]
     pub fn rename(&mut self, name: &str) -> Result<(), MidiError> {
+        self.set_name(name)
+    }
+
+    /// [`rename`](Self::rename)과 같다. 다른 곳(스냅샷)이 `Arc`로 함께 쥔 동안에도 부를 수 있다.
+    /// 엔드포인트는 그대로라 고유 ID와 외부 앱의 연결이 유지된다.
+    ///
+    /// # Errors
+    ///
+    /// `InvalidName`, `DuplicateName`, `Os`. 실패하면 이름은 그대로다.
+    #[allow(unsafe_code)]
+    pub fn set_name(&self, name: &str) -> Result<(), MidiError> {
         let name = &normalized_name(name)?;
-        if *name == self.name {
+        // 이름 목록 잠금을 먼저 잡는다(만들기·drop과 같은 순서). 그 안에서 이 포트의 이름 잠금을 잡는다.
+        let mut names = port_names();
+        let mut current = self.name.lock().unwrap_or_else(PoisonError::into_inner);
+        if *name == *current {
             return Ok(());
         }
-        let mut names = port_names();
-        let (key, own) = (duplicate_key(name), duplicate_key(&self.name));
+        let (key, own) = (duplicate_key(name), duplicate_key(&current));
         if key != own && names.contains(&key) {
             return Err(MidiError::DuplicateName(name.to_owned()));
         }
@@ -380,7 +413,7 @@ impl VirtualOutput {
         if let Some(slot) = names.iter_mut().find(|k| **k == own) {
             *slot = key;
         }
-        name.clone_into(&mut self.name);
+        name.clone_into(&mut current);
         Ok(())
     }
 
@@ -401,7 +434,7 @@ impl VirtualOutput {
     #[allow(unsafe_code)]
     pub fn reregister(&mut self, client: &MidiClient) -> Result<(), MidiError> {
         let raw = client.raw()?;
-        let cf_name = CFString::new(&self.name);
+        let cf_name = CFString::new(&self.name());
         let mut endpoint: MIDIEndpointRef = 0;
         // SAFETY: 클라이언트는 캐시에서 얻은 유효한 참조이고, 이름 문자열은 호출 동안 살아 있으며, 출력
         // 포인터는 이 스택 변수를 가리킨다.
@@ -427,7 +460,7 @@ impl Drop for VirtualOutput {
     #[allow(unsafe_code)]
     fn drop(&mut self) {
         let mut names = port_names();
-        let own = duplicate_key(&self.name);
+        let own = duplicate_key(&self.name());
         if let Some(i) = names.iter().position(|k| *k == own) {
             names.swap_remove(i);
         }
@@ -439,8 +472,10 @@ impl Drop for VirtualOutput {
 }
 
 impl MidiPort for VirtualOutput {
-    fn name(&self) -> &str {
-        &self.name
+    fn name(&self) -> String {
+        self.name
+            .lock()
+            .map_or_else(|e| e.into_inner().clone(), |n| n.clone())
     }
 
     #[allow(unsafe_code)]

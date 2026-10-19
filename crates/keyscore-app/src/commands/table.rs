@@ -783,6 +783,13 @@ pub(super) const SPECS: &[CommandSpec] = &[
         &[],
     ),
     CommandSpec::elsewhere(
+        "midi::RemoveVirtualPort",
+        "가상 포트 삭제",
+        Surface::Settings,
+        "설정 > MIDI 출력",
+        &[],
+    ),
+    CommandSpec::elsewhere(
         "midi::RenameVirtualPort",
         "가상 포트 이름 변경",
         Surface::Settings,

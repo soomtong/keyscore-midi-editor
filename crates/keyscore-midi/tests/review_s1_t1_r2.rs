@@ -110,7 +110,7 @@ fn virtual_output_name_with_nul_matches_enumerated_name() {
     let name = format!("{}\0tail", unique("nul-name"));
     if let Ok(port) = client.create_virtual_output(&name) {
         assert!(
-            source_names().iter().any(|n| n == port.name()),
+            source_names().iter().any(|n| *n == port.name()),
             "포트 이름 {:?}이 열거에 없다",
             port.name()
         );

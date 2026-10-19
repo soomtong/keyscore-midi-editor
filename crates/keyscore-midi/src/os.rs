@@ -120,8 +120,8 @@ impl Drop for OsOutput {
 }
 
 impl MidiPort for OsOutput {
-    fn name(&self) -> &str {
-        &self.name
+    fn name(&self) -> String {
+        self.name.clone()
     }
 
     #[allow(unsafe_code)]
