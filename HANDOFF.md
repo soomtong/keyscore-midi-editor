@@ -1,4 +1,4 @@
-# HANDOFF: KeyScore S2 진행 중 — S2-T1~T5d·T6a·T6b 병합, S2-T6c 다음
+# HANDOFF: KeyScore S2 진행 중 — S2-T1~T5d·T6a~T6c 병합, S2-T6d 다음
 
 ## 목표
 
@@ -6,7 +6,7 @@
 
 ## 현재 브랜치
 
-`main` — S0 완료·서명(2026-10-15), S1-T1~T7과 계이름 텍스트 주석 `//` 변경 병합(테스트 818개 통과). S1 출구 서명(YoungTaek, 2026-10-16). S2-T1~T4·S2-T5a~T5d·S2-T6a·T6b 병합(테스트 약 1440개). S2-T6은 T6a(설정 창·키맵 편집기)·T6b(`?` 오버레이)·T6c(설정 탭·이월)로 나눴다. 다음은 S2-T6c.
+`main` — S0 완료·서명(2026-10-15), S1-T1~T7과 계이름 텍스트 주석 `//` 변경 병합(테스트 818개 통과). S1 출구 서명(YoungTaek, 2026-10-16). S2-T1~T4·S2-T5a~T5d·S2-T6a~T6c 병합(테스트 1467개). S2-T6은 T6a(설정 창·키맵 편집기)·T6b(`?` 오버레이)·T6c(입력·메트로놈·AI 탭)·T6d(MIDI 출력 탭)·T6e(이월 줄)로 나눴다. 다음은 S2-T6d.
 
 ## 완료된 작업
 
@@ -20,6 +20,7 @@
 - [x] S0-T5 계이름 텍스트 파서·내보내기(리뷰 9회, 결정 `2026-10-13-ktext-export-voice-budget.md`와 개정). 엄격 모드 왕복의 알려진 예외와 출력 크기 상한(선형, 256배)은 `docs/decisions/2026-10-12-ktext-implementation-details.md`
 - [x] S0-T8 `ksq-cli`(리뷰 11회, 결정 `2026-10-14-ksq-cli-output-path-scope.md`: `-o`는 일반 파일만). 픽스처 8곡 `assets/fixtures/`, 원본 텍스트 `tools/ksq-cli/fixtures-src/`
 - [x] S0 출구 보고서 `docs/reports/stage-0-exit.md`(자동 게이트 통과, 사람 항목 대기)
+- [x] S2-T6c 설정 > 입력·메트로놈·AI(리뷰 2회, 2회차 「병합 가능」, 병합 3162dbf). `settings.json`에 `input.key_layout`·`metronome{port,channel,accent,beat,length_ms}`(필드별 검사, 모르는 키 보존). `src/settings_tabs.rs`: 선택 상자(검색, Tab 정지점, `enter`/`space`로 열기), 노트는 GM 타악기 이름(`gm::percussion_label`), AI는 비활성 자리. 전역 처리기 `settings::SetKeyLayout`(저장만, 해석은 S3)·`settings::Calibrate`(입력 구역 + 알림, 마법사는 S5-T2). 엔진 `prepare(project, live, metronome_port)`가 메트로놈 포트를 트랙 포트 규칙으로 열고 `Prepared.metronome`, 없으면 클릭만 끄고 알림(`metronome_port_missing`). 재생 중 교체는 클릭 끄기 → swap → set_metronome → 켜기. 설정 변경은 `engine::metronome_changed`로 재생 창에 바로 반영. 메트로놈 이름 포트도 포트 감시 대상(모든 창). 결정: undo 상한 A(`2026-10-19-undo-history-memory-limit.md`, REQ EDT-1 문구 반영, 구현은 T6e)
 - [x] S2-T6b `?` 키맵 오버레이(리뷰 3회, 3회차 「병합 가능」, 병합 e3a9fe0). `src/overlay.rs`: 지금 모드 경로에서 엔진이 실제로 고르는 바인딩만(`bindings_for_input` 첫 승자), 명령 표 변형마다 한 줄, 변형 없는 인자는 키맵 원문(`effective_with`)에서 라벨, `Kbd`로 키, (키맵 판, 모드 경로) 캐시, 쪽 넘김 `Tab`, `Esc`(`help::CloseOverlay`)·`?`·바깥 클릭(`occlude`)으로 닫기, 팔레트·팝업과 하나만
 - [x] S2-T6a 설정 창과 키맵 편집기(리뷰 3회 + 결정 `2026-10-18-s2-t6a-review-limit.md` A의 좁은 확인 1회, 병합 31d9182). `src/settings_window.rs`(앱에 하나인 별도 창, 컨텍스트 `Settings > Keymap > Editing`, 시트 `Dialog`, 구역 이동 `ctrl-tab`, 키맵 밖 구역은 T6c 자리표시자), `src/keymap/user.rs`(실효 바인딩 `effective_with`(수식키 교환 반영, `null`·`zed::Unbind` GPUI 규칙), 충돌은 한 경로의 관련 컨텍스트(같음·바깥·안쪽·전역)의 같은 키·접두, `UserKeymap`: 편집 메서드는 실제 키를 받고 파일에 쓸 때 교환, 지우기는 `null` 대신 `["zed::Unbind", 이름]`, 같은 자리 여러 항목은 k번째 절). `keymap::save_user`(내용 기준 `.bak`, 원자적 쓰기, 곧바로 apply), `set_swap_alt_cmd`는 표준 지정 해제를 새 교환 상태로 고쳐 씀. press-to-bind는 앱 키 가로채기(`intercept_keystrokes`)로 받고 1 s에 확정. 새 Action 7개(`keymap::SelectNext/SelectPrev/FocusSearch`, `settings::NextSection/PrevSection`, `dialog::Confirm/Cancel`). 키맵 구역 키 `alt-1/alt-2/alt-m/cmd-shift-e/cmd-shift-i`. `window::Close`는 `defer`로 닫는다
 - [x] S2-T5d 포트 감시와 재연결(리뷰 3회, 3회차 「병합 가능」, 병합 23cdc56). `src/ports.rs`: 전역 `PortMonitor`(백그라운드 `PortWatcher::start`, 100 ms `tick`: 이벤트 반영 → 새 이름 `want` → `Lost`/`Reconnect` 처리, 1 s마다 가상 포트 `is_registered`, 실패는 처음 한 번만 알리고 10 s 간격 재시도). 쓰는 창: 「사라졌다」(재생 중이면 그 포트 빼고 다시 준비)·「다시 연결했다」(재생 중이면 다시 준비 + 그 목적지 음색 한 번)·「같은 이름의 다른 포트로 바꿨다」. 쓰지 않는 창: 핫플러그 묶음 줄(OUT-3). 엔진: 같은 이름은 고유 ID 최소(`best_match`, `Reconnector`와 같은 규칙), 연 포트는 `(PortInfo, Arc<OsOutput>)`로 재생 시작 때 정체 확인·안 쓰면 놓음, `recover_virtual_port`(빈 스냅샷 → `Arc::get_mut` → `reregister`). 상태줄 「포트 없음」. 열린 창 목록 `window::project_windows`. 테스트에서 CoreMIDI 알림은 목록보다 늦다: `wait_seen`으로 기다린 뒤 창을 연다
@@ -102,7 +103,7 @@ REQ 문구: 사람이 에이전트에게 수정을 허락한 범위(결정 문�
 
 ## 다음 에이전트에게
 
-1. S2-T6c(설정 탭)를 시작한다: 입력(키 레이아웃 건반형/계이름형 `settings::SetKeyLayout`, 보정 마법사 `settings::Calibrate` 자리), MIDI 출력(가상 포트 추가·이름 `midi::AddVirtualPort/RenameVirtualPort` OUT-2, 포트별 MIDI 클럭 OUT-5, 테스트 노트 `midi_send_test_note` 재사용, 리스너 표시 PRE-2는 확인 가능할 때), 메트로놈(MET-1, `MetronomeConfig` 포트·채널·노트·길이, 재생 중 반영), AI(비활성 자리). 단계 파일 S2-T6 절의 이월 줄을 모두 읽는다: undo 메모리 상한 결정 요청(EDT-1 「무제한」, 사람에게 물어야 함), 바탕 레이어 `alt-cmd-i`, 패널 너비 비율 저장, 창 최소 크기, `?` 오버레이 인자 라벨 컨텍스트(S2-T6b 리뷰 3). 설정 창은 `src/settings_window.rs`(구역 자리표시자를 채운다), 설정 파일 섹션 추가는 `src/settings.rs`(모르는 키 보존). 범위가 크면 T6c를 다시 나눈다. S2 출구 수동 확인 목록: MIDI 서버 재시작 감지(S2-T5d), 팔레트 첫 Esc(A13), 메뉴 키 등가물, IME, `keyscore-text` 시간 측정 테스트가 전체 실행 중 가끔 실패.
+1. S2-T6d(설정 > MIDI 출력)를 시작한다: 가상 포트 추가·이름 `midi::AddVirtualPort/RenameVirtualPort`(OUT-2, 최대 16, 엔진은 지금 가상 포트 하나 `Engine.main`뿐이라 포트 모델·트랙 포트 지정 방식을 계획에서 정한다), 포트별 MIDI Clock(OUT-5, 스케줄러 `set_clock(port, on)` 있음, 스냅샷마다 포트 번호가 바뀌므로 교체마다 다시 보냄), 테스트 노트(PRE-3, 인스펙터 `midi_send_test_note` 재사용), 리스너 표시(PRE-2, 확인 가능할 때). 단계 파일 S2-T6 절의 이월(S2-T6c 리뷰 2 제안 1: 교체 묶음의 실패 처리)을 함께 본다. 설정 창의 MIDI 출력 구역 자리표시자(`settings_window.rs`)를 채운다. 그다음 S2-T6e(undo 상한 알림, `alt-cmd-i`, 패널 너비, 창 최소 크기, 오버레이 인자 라벨). S2 출구 수동 확인 목록: MIDI 서버 재시작 감지(S2-T5d), 팔레트 첫 Esc(A13), 메뉴 키 등가물, IME, `keyscore-text` 시간 측정 테스트가 전체 실행 중 가끔 실패.
 2. Task 루프: 브랜치 `s2/t<번호>-<slug>` → `docs/reports/s2-t<번호>/plan.md` → 테스트 먼저(뼈대 `todo!()`로 실패 확인) → 구현 → 게이트 전부(커밋 전에) → `report.md` → 새 에이전트로 적대적 리뷰(`general-purpose`, 구현 맥락 없이, 양식 `plan/templates/adversarial-review.md`, 산출물만 남기고 커밋 금지, 기존 `.proptest-regressions` 삭제 금지) → 지적마다 커밋 하나 → 재리뷰(최대 3회) → `git merge --no-ff`.
 3. 자동 게이트: `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`, `cargo deny check`, `scripts/check-deps.sh`, `scripts/check-deps.test.sh`, `scripts/bench-check.test.sh`. `core`·`text`에 외부 의존을 더하면 `scripts/check-deps.sh`의 허용 목록도 고친다.
 4. REQ에 없는 결정은 임의로 정하지 말고 사람에게 묻거나 `docs/decisions/`에 결정 요청을 쓴다. 사람과의 대화는 한국어로 하고, 문서에 `**`를 쓰지 않는다.
