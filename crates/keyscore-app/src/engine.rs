@@ -307,7 +307,6 @@ impl Engine {
         self.main.is_registered()
     }
 
-    /// 재생 중인 창이 있는가.
     /// 지금 재생 중인 창(살아 있으면).
     pub(crate) fn owner(&self) -> Option<gpui_kit::Entity<ProjectWindow>> {
         self.owner.as_ref().and_then(WeakEntity::upgrade)
@@ -319,6 +318,7 @@ impl Engine {
         self.known_missing.remove(name);
     }
 
+    /// 재생 중인 창이 있는가.
     pub(crate) fn has_owner(&self) -> bool {
         self.owner.as_ref().is_some_and(|w| w.upgrade().is_some())
     }
