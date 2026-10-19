@@ -225,18 +225,22 @@ impl ProjectWindow {
             let scheduler = engine.scheduler();
             // 스케줄러가 돌려준 옛 스냅샷을 해제한다. 쌓이면 교체 명령이 큐에서 막힌다(리뷰 2 지적 1).
             scheduler.collect_garbage();
+            // 포트 번호는 스냅샷마다 다시 매겨진다. 명령은 따로 큐에 들어가므로, 스케줄러가 교체와 새 메트로놈
+            // 설정 사이에 깨면 새 스냅샷에 옛 포트 번호로 클릭이 나갈 수 있다. 교체 전에 클릭을 끄고 새 번호를
+            // 넘긴 뒤 다시 켠다(S2-T6c 리뷰 1 지적 2). 그 틈의 박 하나는 울리지 않을 수 있다.
+            scheduler.set_metronome_enabled(false)?;
             scheduler.swap(prepared.snapshot)?;
             // 교체는 들어갔다. 이 뒤의 실패는 상태를 되돌리지 않고 알리기만 한다(리뷰 2 제안 1).
             let mut send_error = None;
-            // 포트 번호는 스냅샷마다 다시 매겨진다. 교체마다 메트로놈 포트 번호를 새로 넘긴다.
+            let mut metronome_error = None;
             if let Some(port) = prepared.metronome
                 && let Err(e) = scheduler.set_metronome(metronome.config(port))
             {
-                send_error.get_or_insert(e);
-            }
-            if let Err(e) = scheduler.set_metronome_enabled(button && prepared.metronome.is_some())
+                metronome_error = Some(e);
+            } else if let Err(e) =
+                scheduler.set_metronome_enabled(button && prepared.metronome.is_some())
             {
-                send_error.get_or_insert(e);
+                metronome_error = Some(e);
             }
             for entry in prepared
                 .setup
@@ -256,10 +260,11 @@ impl ProjectWindow {
                 tempo,
                 send_error,
                 prepared.metronome_problem,
+                metronome_error,
             ))
         });
         match result {
-            Ok((missing, setup, routes, tempo, send_error, metronome_problem)) => {
+            Ok((missing, setup, routes, tempo, send_error, metronome_problem, metronome_error)) => {
                 self.transport.anchor = Some(Anchor {
                     at: now,
                     tick: here,
@@ -269,6 +274,10 @@ impl ProjectWindow {
                 self.transport.routes = routes;
                 self.report_missing(&missing);
                 self.report_metronome(metronome_problem.as_ref());
+                if let Some(e) = metronome_error {
+                    self.transport
+                        .say(format!("바뀐 메트로놈 설정을 보내지 못했다: {e}"));
+                }
                 if let Some(e) = send_error {
                     self.transport
                         .say(format!("바뀐 뱅크·프로그램을 보내지 못했다: {e}"));
