@@ -126,6 +126,10 @@ pub(crate) fn restart_watcher(cx: &mut App) {
 /// 열린 창들이 쓰는 이름 포트.
 fn wanted_names(cx: &App) -> Vec<String> {
     let mut names: Vec<String> = Vec::new();
+    // 메트로놈 포트도 이름으로 연다(MET-1). 사라졌다 돌아오면 트랙 포트처럼 다시 준비한다.
+    if let OutputPort::Named(name) = crate::transport::metronome_settings(cx).port {
+        names.push(name);
+    }
     for window in project_windows(cx) {
         for track in window.read(cx).document().read(cx).project().tracks() {
             if let OutputPort::Named(name) = track.port()
@@ -140,6 +144,10 @@ fn wanted_names(cx: &App) -> Vec<String> {
 
 /// 그 이름 포트를 쓰는 창들.
 fn windows_using(cx: &App, name: &str) -> Vec<gpui_kit::Entity<ProjectWindow>> {
+    // 메트로놈 포트는 모든 창이 쓴다.
+    if crate::transport::metronome_settings(cx).port == OutputPort::Named(name.to_owned()) {
+        return project_windows(cx);
+    }
     project_windows(cx)
         .into_iter()
         .filter(|w| {
@@ -314,4 +322,5 @@ fn refresh(cx: &mut App) {
     for window in project_windows(cx) {
         window.update(cx, |_, cx| cx.notify());
     }
+    crate::settings_window::ports_changed(cx);
 }

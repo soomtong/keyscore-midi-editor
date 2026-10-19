@@ -1,6 +1,6 @@
 //! 앱 설정 파일(`~/Library/Application Support/KeyScore/settings.json`).
 //!
-//! 패널 열림·크기와 테마를 저장한다(S2-T1). 이후 Task가 입력·MIDI·메트로놈·키맵 설정을 더한다.
+//! 패널 열림·크기와 테마(S2-T1), 키맵(S2-T6a), 입력·메트로놈(S2-T6c)을 저장한다.
 //! 모르는 키는 보존하고 없는 키는 기본값을 쓴다(REQ IO-1과 같은 태도). 쓰기는 임시 파일 + rename이라
 //! 쓰는 도중 죽어도 원래 파일이 남는다.
 
@@ -8,8 +8,14 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use std::time::Duration;
+
+use keyscore_core::{Channel, OutputPort, Pitch};
+use keyscore_midi::MetronomeConfig;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
+
+use crate::actions::args::KeyLayout;
 
 /// 패널 크기의 허용 범위(논리 픽셀). 밖의 값은 기본값으로 되돌린다.
 pub const PANEL_SIZE_RANGE: std::ops::RangeInclusive<f32> = 120.0..=1200.0;
@@ -118,14 +124,172 @@ pub struct KeymapSettings {
     pub swap_alt_cmd: bool,
 }
 
+/// 입력 설정(설정 > 입력). 음 키 레이아웃(P3)은 S3 Step 입력이 읽는다.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InputSettings {
+    pub key_layout: KeyLayout,
+}
+
+impl Default for InputSettings {
+    fn default() -> Self {
+        InputSettings {
+            key_layout: KeyLayout::Piano,
+        }
+    }
+}
+
+/// 메트로놈 설정(MET-1, 설정 > 메트로놈). 값은 늘 범위 안이다(읽을 때 고친다).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MetronomeSettings {
+    /// 클릭을 보낼 포트. 트랙 포트와 같은 모양이다.
+    pub port: OutputPort,
+    /// 채널 1–16
+    pub channel: u8,
+    /// 강박(마디 첫 박) 노트 0–127
+    pub accent: u8,
+    /// 약박 노트 0–127
+    pub beat: u8,
+    /// 클릭 길이(ms) 1–10000
+    pub length_ms: u32,
+}
+
+impl Default for MetronomeSettings {
+    /// 가상 포트, 채널 10, 강박 37, 약박 42(MET-1), 50 ms(S1-T5의 클릭 길이).
+    fn default() -> Self {
+        MetronomeSettings {
+            port: OutputPort::Virtual,
+            channel: 10,
+            accent: 37,
+            beat: 42,
+            length_ms: 50,
+        }
+    }
+}
+
+impl InputSettings {
+    fn read(mut map: Map<String, Value>, warnings: &mut Vec<String>) -> (Self, Map<String, Value>) {
+        let mut input = InputSettings::default();
+        if let Some(v) = map.remove("key_layout") {
+            match serde_json::from_value(v) {
+                Ok(layout) => input.key_layout = layout,
+                Err(_) => warnings
+                    .push("input.key_layout은 piano 또는 solfege라 기본값을 쓴다".to_string()),
+            }
+        }
+        (input, map)
+    }
+
+    fn write(self, map: &mut Map<String, Value>) {
+        let layout = match self.key_layout {
+            KeyLayout::Piano => "piano",
+            KeyLayout::Solfege => "solfege",
+        };
+        map.insert("key_layout".to_string(), Value::from(layout));
+    }
+}
+
+/// 클릭 길이(ms)의 허용 범위. 스케줄러의 노트 길이 상한(`MAX_NOTE_LENGTH`, 10 s)과 같다.
+pub const METRONOME_LENGTH_RANGE: std::ops::RangeInclusive<u32> = 1..=10_000;
+
+impl MetronomeSettings {
+    /// 스케줄러에 넘길 설정. `port`는 이 스냅샷에서 메트로놈 포트의 번호다.
+    #[must_use]
+    pub fn config(&self, port: u16) -> MetronomeConfig {
+        // 값은 읽을 때 범위 안으로 고쳤다. 그래도 밖이면(코드가 직접 넣은 값) 기본값을 쓴다.
+        let defaults = MetronomeConfig::default();
+        let channel = Channel::new(self.channel).unwrap_or(defaults.channel());
+        let accent = Pitch::new(self.accent).unwrap_or(defaults.accent());
+        let beat = Pitch::new(self.beat).unwrap_or(defaults.beat());
+        MetronomeConfig::new(port, channel, accent, beat)
+            .with_length(Duration::from_millis(u64::from(self.length_ms)))
+    }
+
+    fn read(mut map: Map<String, Value>, warnings: &mut Vec<String>) -> (Self, Map<String, Value>) {
+        let mut m = MetronomeSettings::default();
+        if let Some(v) = map.remove("port") {
+            match port_from_value(&v) {
+                Some(port) => m.port = port,
+                None => warnings.push(
+                    "metronome.port는 \"virtual\" 또는 {\"named\": 이름}이라 기본값을 쓴다"
+                        .to_string(),
+                ),
+            }
+        }
+        let mut int_field = |name: &str, range: std::ops::RangeInclusive<u32>| -> Option<u32> {
+            let v = map.remove(name)?;
+            let n = v
+                .as_u64()
+                .and_then(|n| u32::try_from(n).ok())
+                .filter(|n| range.contains(n));
+            if n.is_none() {
+                warnings.push(format!(
+                    "metronome.{name}는 {}–{} 사이 정수여야 해 기본값을 쓴다",
+                    range.start(),
+                    range.end()
+                ));
+            }
+            n
+        };
+        let byte = |n: u32| u8::try_from(n).ok();
+        if let Some(n) = int_field("channel", 1..=16).and_then(byte) {
+            m.channel = n;
+        }
+        if let Some(n) = int_field("accent", 0..=127).and_then(byte) {
+            m.accent = n;
+        }
+        if let Some(n) = int_field("beat", 0..=127).and_then(byte) {
+            m.beat = n;
+        }
+        if let Some(n) = int_field("length_ms", METRONOME_LENGTH_RANGE) {
+            m.length_ms = n;
+        }
+        (m, map)
+    }
+
+    fn write(&self, map: &mut Map<String, Value>) {
+        map.insert("port".to_string(), port_to_value(&self.port));
+        map.insert("channel".to_string(), Value::from(self.channel));
+        map.insert("accent".to_string(), Value::from(self.accent));
+        map.insert("beat".to_string(), Value::from(self.beat));
+        map.insert("length_ms".to_string(), Value::from(self.length_ms));
+    }
+}
+
+/// `.ksq` 트랙 포트와 같은 모양: `"virtual"` 또는 `{"named": 이름}`(빈 이름은 받지 않는다).
+fn port_from_value(v: &Value) -> Option<OutputPort> {
+    if v.as_str() == Some("virtual") {
+        return Some(OutputPort::Virtual);
+    }
+    let obj = v.as_object().filter(|o| o.len() == 1)?;
+    let name = obj.get("named")?.as_str().filter(|n| !n.is_empty())?;
+    Some(OutputPort::Named(name.to_owned()))
+}
+
+fn port_to_value(port: &OutputPort) -> Value {
+    match port {
+        OutputPort::Virtual => Value::from("virtual"),
+        OutputPort::Named(name) => {
+            let mut obj = Map::new();
+            obj.insert("named".to_string(), Value::from(name.as_str()));
+            Value::Object(obj)
+        }
+    }
+}
+
 /// 앱 설정 전체.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Settings {
     pub layout: LayoutSettings,
     pub theme: ThemeChoice,
     pub keymap: KeymapSettings,
+    pub input: InputSettings,
+    pub metronome: MetronomeSettings,
     /// `keymap` 객체 안의 모르는 키.
     keymap_extra: Map<String, Value>,
+    /// `input` 객체 안의 모르는 키.
+    input_extra: Map<String, Value>,
+    /// `metronome` 객체 안의 모르는 키.
+    metronome_extra: Map<String, Value>,
     /// 모르는 최상위 키. 다시 쓸 때 그대로 둔다.
     extra: Map<String, Value>,
     /// `layout` 객체 안의 모르는 키(뒤 버전이 더한 패널 등).
@@ -200,6 +364,21 @@ impl Settings {
             }
             Some(_) => warnings.push("keymap 설정이 객체가 아니라 기본값을 쓴다".to_string()),
         }
+        match map.remove("input") {
+            None => {}
+            Some(Value::Object(input)) => {
+                (settings.input, settings.input_extra) = InputSettings::read(input, &mut warnings);
+            }
+            Some(_) => warnings.push("input 설정이 객체가 아니라 기본값을 쓴다".to_string()),
+        }
+        match map.remove("metronome") {
+            None => {}
+            Some(Value::Object(metronome)) => {
+                (settings.metronome, settings.metronome_extra) =
+                    MetronomeSettings::read(metronome, &mut warnings);
+            }
+            Some(_) => warnings.push("metronome 설정이 객체가 아니라 기본값을 쓴다".to_string()),
+        }
         if let Some(v) = map.remove("theme") {
             match serde_json::from_value::<ThemeChoice>(v) {
                 Ok(theme) => settings.theme = theme,
@@ -235,6 +414,12 @@ impl Settings {
             Value::Bool(self.keymap.swap_alt_cmd),
         );
         map.insert("keymap".to_string(), Value::Object(keymap));
+        let mut input = self.input_extra.clone();
+        self.input.write(&mut input);
+        map.insert("input".to_string(), Value::Object(input));
+        let mut metronome = self.metronome_extra.clone();
+        self.metronome.write(&mut metronome);
+        map.insert("metronome".to_string(), Value::Object(metronome));
         map.insert(
             "theme".to_string(),
             serde_json::to_value(self.theme).map_err(io::Error::other)?,

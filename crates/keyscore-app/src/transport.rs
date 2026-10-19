@@ -4,10 +4,12 @@ use std::time::Duration;
 
 use gpui_kit::{BorrowAppContext as _, Context, SharedString, Window};
 use keyscore_core::{MusicTime, TempoMap, Tick};
-use keyscore_midi::{HostTime, MetronomeConfig, MidiError};
+use keyscore_midi::{HostTime, MidiError};
 
 use crate::actions::transport;
+use crate::app_state::AppSettings;
 use crate::engine::{Engine, PortProblem, Setup, TransportState};
+use crate::settings::MetronomeSettings;
 use crate::window::ProjectWindow;
 
 /// 메시지를 몇 개까지 남기는가. 오래된 것부터 버린다.
@@ -24,6 +26,8 @@ pub(crate) struct Transport {
     /// 지금 스냅샷의 목적지 → 포트 번호(테스트 노트, PRE-3).
     pub(crate) routes: Vec<(String, u16)>,
     pub(crate) metronome: bool,
+    /// 지금 스냅샷에 메트로놈 포트가 없다(MET-1). 그동안은 버튼이 켜져 있어도 클릭을 끈다.
+    pub(crate) metronome_missing: bool,
     pub(crate) messages: Vec<SharedString>,
 }
 
@@ -49,6 +53,12 @@ impl Transport {
         self.state = TransportState::Stopped;
         self.anchor = None;
         self.setup.clear();
+        self.metronome_missing = false;
+    }
+
+    /// 스케줄러에 넘길 메트로놈 켬: 버튼이 켜져 있고 이 스냅샷에 메트로놈 포트가 있을 때.
+    fn clicks(&self) -> bool {
+        self.metronome && !self.metronome_missing
     }
 }
 
@@ -176,7 +186,7 @@ impl ProjectWindow {
     ) {
         self.transport.metronome = !self.transport.metronome;
         let me = cx.entity().downgrade();
-        let on = self.transport.metronome;
+        let on = self.transport.clicks();
         if cx.has_global::<Engine>() && cx.global::<Engine>().is_owner(&me) {
             let result = cx
                 .global_mut::<Engine>()
@@ -206,16 +216,32 @@ impl ProjectWindow {
             .map_or(Tick::ZERO, |a| a.position_at(now));
         let document = self.document.clone();
         let old_setup = std::mem::take(&mut self.transport.setup);
+        let metronome = metronome_settings(cx);
+        let button = self.transport.metronome;
         let result = cx.update_global::<Engine, _>(|engine, cx| {
             let project = document.read(cx).project();
-            let prepared = engine.prepare(project, true)?;
+            let prepared = engine.prepare(project, true, &metronome.port)?;
             let tempo = project.tempo_map().clone();
             let scheduler = engine.scheduler();
             // 스케줄러가 돌려준 옛 스냅샷을 해제한다. 쌓이면 교체 명령이 큐에서 막힌다(리뷰 2 지적 1).
             scheduler.collect_garbage();
+            // 포트 번호는 스냅샷마다 다시 매겨진다. 명령은 따로 큐에 들어가므로, 스케줄러가 교체와 새 메트로놈
+            // 설정 사이에 깨면 새 스냅샷에 옛 포트 번호로 클릭이 나갈 수 있다. 교체 전에 클릭을 끄고 새 번호를
+            // 넘긴 뒤 다시 켠다(S2-T6c 리뷰 1 지적 2). 그 틈의 박 하나는 울리지 않을 수 있다.
+            scheduler.set_metronome_enabled(false)?;
             scheduler.swap(prepared.snapshot)?;
             // 교체는 들어갔다. 이 뒤의 실패는 상태를 되돌리지 않고 알리기만 한다(리뷰 2 제안 1).
             let mut send_error = None;
+            let mut metronome_error = None;
+            if let Some(port) = prepared.metronome
+                && let Err(e) = scheduler.set_metronome(metronome.config(port))
+            {
+                metronome_error = Some(e);
+            } else if let Err(e) =
+                scheduler.set_metronome_enabled(button && prepared.metronome.is_some())
+            {
+                metronome_error = Some(e);
+            }
             for entry in prepared
                 .setup
                 .iter()
@@ -233,10 +259,12 @@ impl ProjectWindow {
                 prepared.routes,
                 tempo,
                 send_error,
+                prepared.metronome_problem,
+                metronome_error,
             ))
         });
         match result {
-            Ok((missing, setup, routes, tempo, send_error)) => {
+            Ok((missing, setup, routes, tempo, send_error, metronome_problem, metronome_error)) => {
                 self.transport.anchor = Some(Anchor {
                     at: now,
                     tick: here,
@@ -245,6 +273,11 @@ impl ProjectWindow {
                 self.transport.setup = setup;
                 self.transport.routes = routes;
                 self.report_missing(&missing);
+                self.report_metronome(metronome_problem.as_ref());
+                if let Some(e) = metronome_error {
+                    self.transport
+                        .say(format!("바뀐 메트로놈 설정을 보내지 못했다: {e}"));
+                }
                 if let Some(e) = send_error {
                     self.transport
                         .say(format!("바뀐 뱅크·프로그램을 보내지 못했다: {e}"));
@@ -268,7 +301,8 @@ impl ProjectWindow {
         }
         let me = cx.entity().downgrade();
         let document = self.document.clone();
-        let metronome = self.transport.metronome;
+        let button = self.transport.metronome;
+        let metronome = metronome_settings(cx);
         // 앞 주인은 결과와 무관하게 정지 상태다. 아래 `stop`이 그 재생을 멈춘다.
         let previous = cx
             .global_mut::<Engine>()
@@ -284,25 +318,34 @@ impl ProjectWindow {
         // 트랙 수만큼 차서 재생이 실패할 수 있다(리뷰 1 지적 3).
         let result = cx.update_global::<Engine, _>(|engine, cx| {
             let project = document.read(cx).project();
-            let prepared = engine.prepare(project, false)?;
+            let prepared = engine.prepare(project, false, &metronome.port)?;
             let tempo = project.tempo_map().clone();
             let scheduler = engine.scheduler();
             scheduler.collect_garbage();
             scheduler.stop()?;
             scheduler.swap(prepared.snapshot)?;
-            scheduler.set_metronome(MetronomeConfig::default())?;
-            scheduler.set_metronome_enabled(metronome)?;
+            if let Some(port) = prepared.metronome {
+                scheduler.set_metronome(metronome.config(port))?;
+            }
+            scheduler.set_metronome_enabled(button && prepared.metronome.is_some())?;
             scheduler.play(from)?;
             engine.take_owner(Some(me.clone()));
-            Ok::<_, MidiError>((prepared.missing, prepared.setup, prepared.routes, tempo))
+            Ok::<_, MidiError>((
+                prepared.missing,
+                prepared.setup,
+                prepared.routes,
+                tempo,
+                prepared.metronome_problem,
+            ))
         });
         match result {
-            Ok((missing, setup, routes, tempo)) => {
+            Ok((missing, setup, routes, tempo, metronome_problem)) => {
                 self.transport.state = TransportState::Playing;
                 self.transport.anchor = Some(Anchor::new(from, tempo));
                 self.transport.setup = setup;
                 self.transport.routes = routes;
                 self.report_missing(&missing);
+                self.report_metronome(metronome_problem.as_ref());
             }
             Err(e) => {
                 // 실패 전에 들어간 명령(정지 등)이 있을 수 있다. 상태를 소리와 맞춘다.
@@ -364,6 +407,37 @@ impl ProjectWindow {
         self.transport_document_changed(cx);
     }
 
+    /// 메트로놈 포트를 찾지 못했으면 클릭을 끈 채로 두고 알린다(MET-1). 찾았으면 표시를 지운다.
+    fn report_metronome(&mut self, problem: Option<&(String, PortProblem)>) {
+        self.transport.metronome_missing = problem.is_some();
+        let Some((name, problem)) = problem else {
+            return;
+        };
+        let message = match problem {
+            PortProblem::NotFound => format!("메트로놈 포트 「{name}」이 없어 클릭이 나지 않는다"),
+            PortProblem::OpenFailed(e) => {
+                format!("메트로놈 포트 「{name}」을 열지 못해 클릭이 나지 않는다: {e}")
+            }
+            PortProblem::TooMany => format!(
+                "출력 포트가 너무 많아(최대 {}) 메트로놈 포트 「{name}」로 클릭이 나지 않는다",
+                keyscore_midi::MAX_SCHEDULER_PORTS
+            ),
+        };
+        if !self
+            .transport
+            .messages
+            .iter()
+            .any(|m| m.as_ref() == message)
+        {
+            self.transport.say(message);
+        }
+    }
+
+    /// 메트로놈 설정이 바뀌었다(설정 > 메트로놈). 재생 중이면 스냅샷을 다시 만들어 바로 반영한다.
+    pub(crate) fn transport_metronome_changed(&mut self, cx: &mut Context<Self>) {
+        self.transport_document_changed(cx);
+    }
+
     pub(crate) fn report_missing(&mut self, missing: &[(String, PortProblem)]) {
         for (name, problem) in missing {
             let message = match problem {
@@ -387,6 +461,15 @@ impl ProjectWindow {
                 self.transport.say(message);
             }
         }
+    }
+}
+
+/// 지금 메트로놈 설정(설정 창이 바꾼다). 설정 전역이 없으면(시험) 기본값.
+pub(crate) fn metronome_settings(cx: &gpui_kit::App) -> MetronomeSettings {
+    if cx.has_global::<AppSettings>() {
+        AppSettings::get(cx).metronome.clone()
+    } else {
+        MetronomeSettings::default()
     }
 }
 

@@ -19,6 +19,7 @@ mod overlay;
 pub mod palette;
 pub mod ports;
 pub mod settings;
+mod settings_tabs;
 pub mod settings_window;
 pub mod theme;
 mod track_list;

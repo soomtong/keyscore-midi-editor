@@ -22,10 +22,12 @@ use gpui_kit::{
 
 use crate::actions::args::{PresetName, SettingsSection};
 use crate::actions::{dialog, keymap as km, settings};
+use crate::app_state::AppSettings;
 use crate::keymap::conflict::{Conflict, ConflictKind};
 use crate::keymap::source::ActionRef;
 use crate::keymap::user::{Effective, UserKeymap, binding_conflicts};
 use crate::keymap::{self, Preset, canonical_keys};
+use crate::settings_tabs::Tabs;
 
 /// press-to-bind의 시퀀스 확정 대기(KM-5의 시퀀스 대기와 같다).
 const CAPTURE_SETTLE: Duration = Duration::from_secs(1);
@@ -95,6 +97,8 @@ pub struct SettingsWindow {
     message: Option<String>,
     /// 검색란에 포커스가 있는가(입력란 사건으로 센다).
     query_focused: bool,
+    /// 입력·메트로놈 구역(S2-T6c).
+    tabs: Tabs,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -145,6 +149,24 @@ pub fn current(cx: &App) -> Option<(AnyWindowHandle, Entity<SettingsWindow>)> {
 pub(crate) fn register(cx: &mut App) {
     cx.on_action(|action: &settings::Open, cx| open(cx, action.0.0));
     cx.on_action(|_: &km::Edit, cx| open(cx, Some(SettingsSection::Keymap)));
+    // 키 레이아웃은 설정 > 입력의 선택 상자와 팔레트가 같은 처리기를 쓴다(P3)
+    cx.on_action(|action: &settings::SetKeyLayout, cx| {
+        AppSettings::update(cx, |s| s.input.key_layout = action.0);
+        cx.refresh_windows();
+    });
+    // 보정 마법사는 S5-T2가 만든다. 그때까지는 입력 구역을 열고 알린다(7.6 대응표의 자리)
+    cx.on_action(|_: &settings::Calibrate, cx| {
+        open(cx, Some(SettingsSection::Input));
+        if let Some((_, view)) = current(cx) {
+            view.update(cx, |this, cx| {
+                this.message = Some(
+                    "보정 마법사는 녹음 단계(S5)에서 들어온다. 지금은 보정 없이 입력한다"
+                        .to_owned(),
+                );
+                cx.notify();
+            });
+        }
+    });
     // 프리셋·수식키 교환은 어느 창에서든(팔레트 포함) 된다(리뷰 1 지적 5)
     cx.on_action(|action: &km::SelectPreset, cx| {
         let preset = match action.0 {
@@ -162,6 +184,16 @@ pub(crate) fn register(cx: &mut App) {
     // 내보내기·가져오기는 파일 대화상자와 결과 알림이 설정 창의 일이다. 다른 창에서 부르면 설정 창을 열어 넘긴다
     cx.on_action(|_: &km::Export, cx| forward(cx, Box::new(km::Export)));
     cx.on_action(|_: &km::Import, cx| forward(cx, Box::new(km::Import)));
+}
+
+/// 포트가 오갔다(포트 감시). 열린 설정 창의 포트 목록을 다음에 그릴 때 다시 읽는다.
+pub(crate) fn ports_changed(cx: &mut App) {
+    if let Some((_, view)) = current(cx) {
+        view.update(cx, |this, cx| {
+            this.tabs.ports_changed();
+            cx.notify();
+        });
+    }
 }
 
 /// 설정 창(키맵 구역)을 열고 그 창에 Action을 넘긴다.
@@ -209,7 +241,9 @@ impl SettingsWindow {
                 InputEvent::Blur => this.query_focused = false,
             },
         ));
+        let tabs = Tabs::new(window, cx);
         SettingsWindow {
+            tabs,
             section: SettingsSection::Keymap,
             focus: cx.focus_handle(),
             list_focus: cx.focus_handle(),
@@ -238,6 +272,20 @@ impl SettingsWindow {
             .filter(|s| rows.iter().any(|r| r.name == *s))
             .or_else(|| rows.first().map(|r| r.name))
             .map(str::to_owned)
+    }
+
+    /// 입력·메트로놈 구역에서 포커스를 가진 컨트롤의 요소 id(시험용).
+    #[must_use]
+    pub fn focused_control(&self, window: &Window, cx: &App) -> Option<String> {
+        self.tabs.focused(window, cx).map(str::to_owned)
+    }
+
+    pub(crate) fn tabs(&self) -> &Tabs {
+        &self.tabs
+    }
+
+    pub(crate) fn tabs_mut(&mut self) -> &mut Tabs {
+        &mut self.tabs
     }
 
     #[must_use]
@@ -276,7 +324,7 @@ impl SettingsWindow {
         }
         if section == SettingsSection::Keymap {
             self.focus_list(window, cx);
-        } else {
+        } else if !self.tabs.focus_first(section, window, cx) {
             window.focus(&self.focus, cx);
         }
         cx.notify();
@@ -942,7 +990,6 @@ impl Focusable for SettingsWindow {
 
 impl Render for SettingsWindow {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let _ = window;
         let section = self.section;
         let sidebar: Vec<Button> = SECTIONS
             .iter()
@@ -957,6 +1004,12 @@ impl Render for SettingsWindow {
             .collect();
         let body = if section == SettingsSection::Keymap {
             self.render_keymap(cx).into_any_element()
+        } else if section == SettingsSection::Input {
+            self.render_input(window, cx).into_any_element()
+        } else if section == SettingsSection::Metronome {
+            self.render_metronome(window, cx).into_any_element()
+        } else if section == SettingsSection::Ai {
+            crate::settings_tabs::render_ai(cx).into_any_element()
         } else {
             let label = SECTIONS
                 .iter()
@@ -964,10 +1017,10 @@ impl Render for SettingsWindow {
                 .map_or("", |(_, _, l)| *l);
             div()
                 .id("settings-placeholder")
-                .aria_label(format!("{label}: S2-T6c에서 채운다"))
+                .aria_label(format!("{label}: S2-T6d에서 채운다"))
                 .test_support()
                 .text_color(cx.theme().muted_foreground)
-                .child(format!("{label} 설정은 S2-T6c에서 채운다"))
+                .child(format!("{label} 설정은 S2-T6d에서 채운다"))
                 .into_any_element()
         };
         let message = self.message.clone().unwrap_or_default();

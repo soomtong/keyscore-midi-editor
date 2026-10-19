@@ -350,8 +350,11 @@ impl ProjectWindow {
             // 정지 중: 이 프로젝트의 스냅샷을 넣어 포트를 연다(재생은 하지 않는다).
             let document = self.document.clone();
             let mut missing = Vec::new();
+            // 메트로놈 포트도 넘긴다. 빼면 준비가 그 포트를 「쓰지 않는 포트」로 보고 놓는다.
+            let metronome_port = crate::transport::metronome_settings(cx).port;
             let result = cx.update_global::<Engine, _>(|engine, cx| {
-                let prepared = engine.prepare(document.read(cx).project(), false)?;
+                let prepared =
+                    engine.prepare(document.read(cx).project(), false, &metronome_port)?;
                 let port = prepared
                     .routes
                     .iter()
