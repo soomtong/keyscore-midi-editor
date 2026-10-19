@@ -297,8 +297,8 @@ pub fn rename_virtual_port(cx: &mut App, old: &str, new: &str) -> Result<String,
                     prop: keyscore_core::TrackProp::Port(renamed.clone()),
                 })
                 .collect();
-            if !edits.is_empty() {
-                w.edit_document(edits, cx);
+            // 편집이 거부되면 교체도 없다. 그때는 아래에서 재생 창을 따로 다시 준비한다(리뷰 3 제안 3)
+            if !edits.is_empty() && w.edit_document(edits, cx) {
                 owner_edited |= is_owner;
             }
         });
@@ -399,22 +399,32 @@ pub fn install(cx: &mut App, options: &EngineOptions) -> Result<(), MidiError> {
             .iter()
             .any(|d| keyscore_midi::same_port_name(d.name(), name))
     };
-    let mut main_name = options.port_name.clone();
-    if collides(&main_name) && !collides(DEFAULT_PORT_NAME) {
-        let message = format!(
-            "기본 가상 포트 이름 「{main_name}」은 이미 있는 MIDI 목적지 이름이라 「{DEFAULT_PORT_NAME}」으로 만들었다"
-        );
-        eprintln!("{message}");
-        crate::window::say_everywhere(cx, &message);
-        DEFAULT_PORT_NAME.clone_into(&mut main_name);
-    }
-    let main = Arc::new(client.create_virtual_output(&main_name)?);
-    // 설정의 추가 가상 포트(OUT-2). 만들지 못한 것은 알리고 설정에는 남긴다(다음 시작 때 다시 해 본다).
+    // 설정의 추가 가상 포트(OUT-2). 기본 포트의 대체 이름이 이것과 겹치지 않게 먼저 읽는다.
     let wanted = if cx.has_global::<AppSettings>() {
         AppSettings::get(cx).midi_output.virtual_ports.clone()
     } else {
         Vec::new()
     };
+    let mut main_name = options.port_name.clone();
+    if collides(&main_name) {
+        // 대체 이름은 목적지와도, 설정의 추가 포트와도 겹치지 않는 첫 이름(「KeyScore Out」, 「KeyScore Out 2」…)
+        // 이다. 추가 포트와 겹치면 그 포트를 만들지 못한다(S2-T6d 리뷰 3 제안 2).
+        let free =
+            |c: &str| !collides(c) && !wanted.iter().any(|w| keyscore_midi::same_port_name(w, c));
+        let fallback = std::iter::once(DEFAULT_PORT_NAME.to_owned())
+            .chain((2..=u16::MAX).map(|n| format!("{DEFAULT_PORT_NAME} {n}")))
+            .find(|c| free(c));
+        if let Some(fallback) = fallback {
+            let message = format!(
+                "기본 가상 포트 이름 「{main_name}」은 이미 있는 MIDI 목적지 이름이라 「{fallback}」으로 만들었다"
+            );
+            eprintln!("{message}");
+            crate::window::say_everywhere(cx, &message);
+            main_name = fallback;
+        }
+    }
+    let main = Arc::new(client.create_virtual_output(&main_name)?);
+    // 추가 가상 포트를 만든다. 만들지 못한 것은 알리고 설정에는 남긴다(다음 시작 때 다시 해 본다).
     let mut extras = Vec::new();
     for name in wanted {
         // 지금 보이는 목적지와 이름이 같으면 만들지 않는다. 만들면 그 목적지를 쓰던 트랙이 앱 포트로 간다(편집기의
@@ -640,6 +650,26 @@ impl Engine {
     /// 재생을 멈추지 않는다. 지금 스냅샷이 쥔 포트는 놓일 때까지(재생을 멈추거나 그 포트를 쓰지 않게 될 때까지)
     /// 미루고 다음 서버 확인에서 다시 본다. 다시 등록한 이름을 돌려준다.
     pub(crate) fn reregister_extras(&mut self) -> Vec<String> {
+        // 정지 중이면 지난 재생의 스냅샷이 아직 그 포트를 쥐고 있을 수 있다(정지는 스냅샷을 바꾸지 않는다).
+        // 기본 포트만 든 스냅샷으로 바꿔 놓게 한다(S2-T6d 리뷰 3 지적 1). 재생 중이면 그 재생이 끝난 뒤 다음
+        // 서버 확인에서 다시 본다.
+        let lost = self.extras.iter().any(|p| !p.is_registered());
+        if lost && !self.has_owner() {
+            let main: Arc<dyn MidiPort> = self.main.clone();
+            if let Ok(snapshot) = Snapshot::new(TempoMap::default(), vec![main], Vec::new()) {
+                let _ = self.scheduler.swap(Arc::new(snapshot));
+            }
+            let deadline = std::time::Instant::now() + std::time::Duration::from_millis(200);
+            while std::time::Instant::now() < deadline
+                && self
+                    .extras
+                    .iter()
+                    .any(|p| !p.is_registered() && Arc::strong_count(p) > 1)
+            {
+                self.scheduler.collect_garbage();
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+        }
         self.scheduler.collect_garbage();
         let mut done = Vec::new();
         for port in &mut self.extras {
