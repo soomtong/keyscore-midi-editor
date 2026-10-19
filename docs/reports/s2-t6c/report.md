@@ -44,7 +44,7 @@
 ## 테스트 결과
 
 ~~~
-cargo test --workspace: 1448 passed, 0 failed, 0 ignored
+cargo test --workspace: 1461 passed, 0 failed, 0 ignored(리뷰 1 대응 뒤 전체 게이트. 리뷰 2 테스트 6개는 그 파일만 실행해 통과)
 ~~~
 
 | 계획의 테스트 # | 실제 테스트 이름 | 상태 |
