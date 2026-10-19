@@ -192,12 +192,8 @@ impl ProjectWindow {
             .iter()
             .find(|t| t.id() == track)
             .map(|t| t.port().clone());
-        let mut choices = vec![OutputPort::Virtual];
-        choices.extend(
-            keyscore_midi::destinations()
-                .into_iter()
-                .map(|d| OutputPort::Named(d.name().to_owned())),
-        );
+        // 기본 가상 포트, 추가 가상 포트(S2-T6d), 목적지
+        let mut choices = crate::engine::port_choices(cx);
         // 지금 포트가 목록에 없으면(포트가 사라짐) 그대로 보이게 넣는다
         if let Some(port) = current.clone().filter(|p| !choices.contains(p)) {
             choices.push(port);

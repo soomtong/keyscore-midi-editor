@@ -4,11 +4,11 @@
 //! 「키맵 편집 · 설정 · 대화상자: 다음 필드」), `Enter`나 `space`로 열고 화살표나 검색어로 고른다. 고르면 곧바로
 //! 설정에 남는다(`AppSettings`, 1 s 디바운스 저장). 메트로놈 값은 재생 중인 창에도 바로 반영된다.
 
-use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::component::IndexPath;
 use gpui_kit::component::button::Button;
 use gpui_kit::component::searchable_list::SearchableVec;
 use gpui_kit::component::select::{Select, SelectEvent, SelectState};
+use gpui_kit::component::{ActiveTheme as _, Disableable as _};
 use gpui_kit::{
     App, AppContext as _, ClickEvent, Context, Entity, FocusHandle, Focusable as _,
     InteractiveElement as _, IntoElement, KeyDownEvent, ParentElement as _, SharedString,
@@ -26,7 +26,7 @@ use crate::settings_window::SettingsWindow;
 /// 메트로놈 클릭 길이 목록(ms). 파일에 손으로 넣은 다른 값은 목록에 덧붙여 보인다.
 const LENGTHS_MS: [u32; 10] = [10, 20, 30, 50, 80, 100, 150, 200, 300, 500];
 
-type Choice = SelectState<SearchableVec<SharedString>>;
+pub(crate) type Choice = SelectState<SearchableVec<SharedString>>;
 
 /// 구역 안 컨트롤의 이름. 요소 id이고 시험이 포커스를 묻는 이름이다.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -225,12 +225,8 @@ impl Tabs {
         let mut force = false;
         if self.ports_stale {
             self.ports_stale = false;
-            let mut ports = vec![OutputPort::Virtual];
-            ports.extend(
-                keyscore_midi::destinations()
-                    .into_iter()
-                    .map(|d| OutputPort::Named(d.name().to_owned())),
-            );
+            // 기본 가상 포트, 추가 가상 포트(S2-T6d), 목적지
+            let mut ports = crate::engine::port_choices(cx);
             // 지금 값이 목록에 없으면(포트가 사라짐) 그대로 보이게 넣는다
             if !ports.contains(&now.1.port) {
                 ports.push(now.1.port.clone());
@@ -351,7 +347,7 @@ impl SettingsWindow {
             .gap_3()
             .child(row(
                 "키 레이아웃",
-                Control::KeyLayout,
+                Control::KeyLayout.id(),
                 format!("키 레이아웃: {}", layout_label(layout)),
                 &tabs.key_layout,
                 cx,
@@ -367,35 +363,15 @@ impl SettingsWindow {
                     .items_center()
                     .gap_2()
                     .child(div().w(gpui_kit::px(120.)).child("레이턴시 보정"))
-                    .child(
-                        div()
-                            .id("settings-calibrate")
-                            .aria_label("보정 마법사")
-                            .test_support()
-                            .track_focus(&calibrate)
-                            .rounded_md()
-                            .border_1()
-                            .border_color(if calibrate.is_focused(window) {
-                                cx.theme().ring
-                            } else {
-                                cx.theme().transparent
-                            })
-                            .on_key_down(cx.listener(|_, event: &KeyDownEvent, window, cx| {
-                                let k = &event.keystroke;
-                                if !k.modifiers.modified() && (k.key == "enter" || k.key == "space") {
-                                    window.dispatch_action(Box::new(settings::Calibrate), cx);
-                                    cx.stop_propagation();
-                                }
-                            }))
-                            .child(
-                                Button::new("settings-calibrate-button")
-                                    .label("보정 마법사")
-                                    .tab_stop(false)
-                                    .on_click(|_: &ClickEvent, window, cx| {
-                                        window.dispatch_action(Box::new(settings::Calibrate), cx);
-                                    }),
-                            ),
-                    ),
+                    .child(action_button(
+                        "settings-calibrate",
+                        "보정 마법사",
+                        &calibrate,
+                        false,
+                        || Box::new(settings::Calibrate),
+                        window,
+                        cx,
+                    )),
             )
     }
 
@@ -415,35 +391,35 @@ impl SettingsWindow {
             .gap_3()
             .child(row(
                 "포트",
-                Control::Port,
+                Control::Port.id(),
                 format!("포트: {}", port_choice_label(&m.port, &virtual_name)),
                 &tabs.port,
                 cx,
             ))
             .child(row(
                 "채널",
-                Control::Channel,
+                Control::Channel.id(),
                 format!("채널: {}", m.channel),
                 &tabs.channel,
                 cx,
             ))
             .child(row(
                 "강박 노트",
-                Control::Accent,
+                Control::Accent.id(),
                 format!("강박 노트: {}", percussion_label(m.accent)),
                 &tabs.accent,
                 cx,
             ))
             .child(row(
                 "약박 노트",
-                Control::Beat,
+                Control::Beat.id(),
                 format!("약박 노트: {}", percussion_label(m.beat)),
                 &tabs.beat,
                 cx,
             ))
             .child(row(
                 "길이",
-                Control::Length,
+                Control::Length.id(),
                 format!("길이: {}", length_label(m.length_ms)),
                 &tabs.length,
                 cx,
@@ -457,9 +433,9 @@ impl SettingsWindow {
 }
 
 /// 제목 + 선택 상자 한 줄. 감싼 칸의 id와 접근성 이름이 지금 값을 알린다.
-fn row(
+pub(crate) fn row(
     title: &'static str,
-    control: Control,
+    id: &'static str,
     value: String,
     state: &Entity<Choice>,
     cx: &App,
@@ -472,7 +448,7 @@ fn row(
         .child(div().w(gpui_kit::px(120.)).child(title))
         .child(
             div()
-                .id(control.id())
+                .id(id)
                 .aria_label(value)
                 .test_support()
                 .w(gpui_kit::px(260.))
@@ -489,6 +465,68 @@ fn row(
                     }
                 })
                 .child(Select::new(state).search_placeholder("검색")),
+        )
+}
+
+/// 검색 가능한 선택 상자 상태를 만든다.
+pub(crate) fn choice(
+    items: impl IntoIterator<Item = String>,
+    window: &mut Window,
+    cx: &mut Context<SettingsWindow>,
+) -> Entity<Choice> {
+    let items = labels(items);
+    cx.new(|cx| SelectState::new(items, None, window, cx).searchable(true))
+}
+
+/// 선택 상자 항목 목록.
+pub(crate) fn choice_items(items: impl IntoIterator<Item = String>) -> SearchableVec<SharedString> {
+    labels(items)
+}
+
+/// 포커스 칸으로 감싼 버튼 하나(`Tab` 정지점). `enter`/`space`와 누르기가 같은 Action을 낸다.
+pub(crate) fn action_button(
+    id: &'static str,
+    label: &'static str,
+    focus: &FocusHandle,
+    disabled: bool,
+    action: impl Fn() -> Box<dyn gpui_kit::Action> + Clone + 'static,
+    window: &Window,
+    cx: &App,
+) -> impl IntoElement {
+    let on_key = action.clone();
+    div()
+        .id(id)
+        .aria_label(if disabled {
+            format!("{label}(꺼짐)")
+        } else {
+            label.to_owned()
+        })
+        .test_support()
+        .track_focus(focus)
+        .rounded_md()
+        .border_1()
+        .border_color(if focus.is_focused(window) {
+            cx.theme().ring
+        } else {
+            cx.theme().transparent
+        })
+        .on_key_down(move |event: &KeyDownEvent, window, cx| {
+            let k = &event.keystroke;
+            if !k.modifiers.modified() && (k.key == "enter" || k.key == "space") {
+                if !disabled {
+                    window.dispatch_action(on_key(), cx);
+                }
+                cx.stop_propagation();
+            }
+        })
+        .child(
+            Button::new(SharedString::from(format!("{id}-button")))
+                .label(label)
+                .tab_stop(false)
+                .disabled(disabled)
+                .on_click(move |_: &ClickEvent, window, cx| {
+                    window.dispatch_action(action(), cx);
+                }),
         )
 }
 

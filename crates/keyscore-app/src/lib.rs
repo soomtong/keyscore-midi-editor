@@ -19,6 +19,7 @@ mod overlay;
 pub mod palette;
 pub mod ports;
 pub mod settings;
+mod settings_ports;
 mod settings_tabs;
 pub mod settings_window;
 pub mod theme;
@@ -73,6 +74,7 @@ pub fn init(cx: &mut App, settings_path: PathBuf) {
     })
     .detach();
     settings_window::register(cx);
+    settings_ports::register(cx);
     cx.on_action(|action: &SetTheme, cx| {
         let choice = match action.0 {
             ThemeKind::System => ThemeChoice::System,
@@ -150,7 +152,12 @@ pub fn run() {
             init(cx, settings::Settings::default_path());
             // 창보다 먼저, 앱의 첫 CoreMIDI 호출로 엔진을 연다(S1-T2). 실패해도 앱은 뜨고, 재생 Action이
             // 창에 「MIDI 엔진이 없다」를 남긴다.
-            if let Err(e) = engine::install(cx, &engine::EngineOptions::default()) {
+            // 기본 포트 이름은 설정 > MIDI 출력에서 바꾼 이름(OUT-2)이 있으면 그것이다.
+            let options = engine::EngineOptions {
+                port_name: AppSettings::get(cx).midi_output.main_or_default(),
+                ..engine::EngineOptions::default()
+            };
+            if let Err(e) = engine::install(cx, &options) {
                 eprintln!("KeyScore: MIDI 엔진을 열지 못했다: {e}");
             }
             // 포트 소멸·복귀 감시(OUT-3). 엔진이 없으면 아무 일도 하지 않는다.

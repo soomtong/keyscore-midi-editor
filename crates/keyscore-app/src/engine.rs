@@ -17,6 +17,7 @@ use keyscore_midi::{
     bank_select, destinations, program_change, render,
 };
 
+use crate::app_state::AppSettings;
 use crate::window::ProjectWindow;
 
 /// 엔진 설치 옵션. 테스트는 포트 이름을 고유하게 준다.
@@ -56,8 +57,10 @@ pub(crate) struct Engine {
     /// `is_present`로 확인한다(S2-T5d). 스냅샷이 들고 있는 동안은 살아 있다.
     opened: HashMap<String, (PortInfo, Arc<OsOutput>)>,
     scheduler: Scheduler,
-    /// 기본 가상 포트 이름(트랙 목록·포트 드롭다운 표시)
-    port_name: String,
+    /// 추가 가상 포트(OUT-2). 트랙은 이름으로 가리킨다. 스냅샷이 쓰는 동안은 그 스냅샷도 쥔다.
+    extras: Vec<Arc<VirtualOutput>>,
+    /// 지웠지만 스냅샷이 아직 쥐고 있는 추가 포트. 스냅샷이 놓으면 버려 CoreMIDI 소스가 사라진다.
+    retired: Vec<Arc<VirtualOutput>>,
     /// 지금 재생 중인 창. 한 번에 한 창만 재생한다.
     owner: Option<WeakEntity<ProjectWindow>>,
     /// 지난 재생 시작 때 찾지 못한 이름 포트. 재생 중 편집(스냅샷 교체)마다 메인 스레드에서 목적지를
@@ -140,49 +143,194 @@ pub enum PortEditError {
     Midi(#[from] MidiError),
 }
 
-/// 앱의 가상 포트 이름. 기본 포트가 먼저다.
+/// 앱의 가상 포트 이름. 기본 포트가 먼저다. 엔진이 없으면 설정의 이름이다.
 #[must_use]
 pub fn virtual_port_names(cx: &App) -> Vec<String> {
-    let _ = cx;
-    todo!()
+    if cx.has_global::<Engine>() {
+        let engine = cx.global::<Engine>();
+        std::iter::once(engine.main.name())
+            .chain(engine.extras.iter().map(|p| p.name()))
+            .collect()
+    } else if cx.has_global::<AppSettings>() {
+        let m = &AppSettings::get(cx).midi_output;
+        std::iter::once(m.main_or_default())
+            .chain(m.virtual_ports.iter().cloned())
+            .collect()
+    } else {
+        vec![DEFAULT_PORT_NAME.to_owned()]
+    }
 }
 
-/// 포트 메뉴 선택지: 기본 가상 포트, 추가 가상 포트(이름), 지금 보이는 CoreMIDI 목적지(이름).
+/// 이 이름이 앱의 가상 포트인가(기본 포트 포함). 포트 감시·상태줄은 앱 포트를 「없는 목적지」로 보지 않는다.
+#[must_use]
+pub fn is_own_port(cx: &App, name: &str) -> bool {
+    virtual_port_names(cx).iter().any(|n| n == name)
+}
+
+/// 포트 메뉴 선택지: 기본 가상 포트, 추가 가상 포트(이름), 지금 보이는 CoreMIDI 목적지(이름). 앱 포트와
+/// 이름이 같은 목적지는 빼고(앱 포트가 이긴다) 같은 이름은 한 번만 넣는다.
 #[must_use]
 pub fn port_choices(cx: &App) -> Vec<OutputPort> {
-    let _ = cx;
-    todo!()
+    let own = virtual_port_names(cx);
+    let mut choices = vec![OutputPort::Virtual];
+    choices.extend(own.iter().skip(1).cloned().map(OutputPort::Named));
+    for d in destinations() {
+        let port = OutputPort::Named(d.name().to_owned());
+        if !own.iter().any(|n| n == d.name()) && !choices.contains(&port) {
+            choices.push(port);
+        }
+    }
+    choices
 }
 
-/// 가상 포트를 하나 더 만든다(OUT-2). 이름은 「기본 포트 이름 N」 가운데 빈 것이다.
+/// 새 이름이 쓸 수 있는가: 규칙에 맞고, 지금 보이는 목적지 이름과 보이는 모양이 다르다. 다른 가상 포트와의
+/// 중복은 keyscore-midi가 본다. 고친 이름을 돌려준다.
+fn check_new_name(name: &str) -> Result<String, PortEditError> {
+    let name = keyscore_midi::normalize_port_name(name)?;
+    if destinations()
+        .iter()
+        .any(|d| keyscore_midi::same_port_name(d.name(), &name))
+    {
+        return Err(PortEditError::DestinationName(name));
+    }
+    Ok(name)
+}
+
+/// 가상 포트를 하나 더 만든다(OUT-2). 이름은 「기본 포트 이름 N」 가운데 빈 것이다. 합쳐 16개를 넘으면
+/// keyscore-midi가 거부한다.
 ///
 /// # Errors
 ///
 /// [`PortEditError`].
 pub fn add_virtual_port(cx: &mut App) -> Result<String, PortEditError> {
-    let _ = cx;
-    todo!()
+    if !cx.has_global::<Engine>() {
+        return Err(PortEditError::NoEngine);
+    }
+    let names = virtual_port_names(cx);
+    if names.len() >= keyscore_midi::MAX_VIRTUAL_OUTPUTS {
+        return Err(MidiError::TooManyPorts.into());
+    }
+    let base = names[0].clone();
+    let taken = |candidate: &str| {
+        names
+            .iter()
+            .any(|n| keyscore_midi::same_port_name(n, candidate))
+            || destinations()
+                .iter()
+                .any(|d| keyscore_midi::same_port_name(d.name(), candidate))
+    };
+    // 앱 포트는 16개 이하라 목적지가 아주 많지 않으면 앞 번호에서 빈 이름이 나온다.
+    let name = (2..=u16::MAX)
+        .map(|n| format!("{base} {n}"))
+        .find(|c| !taken(c))
+        .ok_or(MidiError::TooManyPorts)?;
+    let engine = cx.global_mut::<Engine>();
+    let port = engine.client.create_virtual_output(&name)?;
+    let name = port.name();
+    engine.extras.push(Arc::new(port));
+    let added = name.clone();
+    AppSettings::update(cx, |s| s.midi_output.virtual_ports.push(added));
+    cx.refresh_windows();
+    Ok(name)
 }
 
-/// 앱 가상 포트의 이름을 바꾼다. 열린 창의 트랙과 메트로놈 포트도 새 이름으로 고친다(결정
-/// 2026-10-19-virtual-port-rename-tracks A).
+/// 앱 가상 포트의 이름을 바꾸고 고친 새 이름을 돌려준다(엔드포인트는 그대로라 외부 신디 연결이 유지된다). 열린 창의 트랙과 메트로놈
+/// 포트도 새 이름으로 고친다(결정 2026-10-19-virtual-port-rename-tracks A, 창마다 undo 한 단위).
 ///
 /// # Errors
 ///
 /// [`PortEditError`].
-pub fn rename_virtual_port(cx: &mut App, old: &str, new: &str) -> Result<(), PortEditError> {
-    let _ = (cx, old, new);
-    todo!()
+pub fn rename_virtual_port(cx: &mut App, old: &str, new: &str) -> Result<String, PortEditError> {
+    if !cx.has_global::<Engine>() {
+        return Err(PortEditError::NoEngine);
+    }
+    let engine = cx.global::<Engine>();
+    let is_main = engine.main.name() == old;
+    let port = if is_main {
+        engine.main.clone()
+    } else {
+        engine
+            .extras
+            .iter()
+            .find(|p| p.name() == old)
+            .cloned()
+            .ok_or_else(|| PortEditError::NotFound(old.to_owned()))?
+    };
+    let new = check_new_name(new)?;
+    if new == old {
+        return Ok(new);
+    }
+    port.set_name(&new)?;
+    let new = port.name();
+    AppSettings::update(cx, |s| {
+        if is_main {
+            s.midi_output.main_name = Some(new.clone());
+        } else if let Some(slot) = s.midi_output.virtual_ports.iter_mut().find(|n| *n == old) {
+            slot.clone_from(&new);
+        }
+        if s.metronome.port == OutputPort::Named(old.to_owned()) {
+            s.metronome.port = OutputPort::Named(new.clone());
+        }
+    });
+    let renamed = OutputPort::Named(new.clone());
+    for window in crate::window::project_windows(cx) {
+        window.update(cx, |w, cx| {
+            let edits: Vec<keyscore_core::Edit> = w
+                .document()
+                .read(cx)
+                .project()
+                .tracks()
+                .iter()
+                .filter(|t| matches!(t.port(), OutputPort::Named(n) if n == old))
+                .map(|t| keyscore_core::Edit::SetTrackProp {
+                    track: t.id(),
+                    prop: keyscore_core::TrackProp::Port(renamed.clone()),
+                })
+                .collect();
+            if !edits.is_empty() {
+                w.edit_document(edits, cx);
+            }
+        });
+    }
+    cx.refresh_windows();
+    Ok(new)
 }
 
-/// 추가 가상 포트를 지운다. 그 포트를 쓰던 트랙은 이름을 그대로 둔다.
+/// 추가 가상 포트를 지운다. 그 포트를 쓰던 트랙은 이름을 그대로 둔다(「포트 없음」이 된다). 재생 중이면
+/// 스냅샷을 다시 만들어 그 포트를 뺀다. 스냅샷이 놓으면 CoreMIDI 소스가 사라진다.
 ///
 /// # Errors
 ///
 /// [`PortEditError`].
 pub fn remove_virtual_port(cx: &mut App, name: &str) -> Result<(), PortEditError> {
-    let _ = (cx, name);
-    todo!()
+    if !cx.has_global::<Engine>() {
+        return Err(PortEditError::NoEngine);
+    }
+    let engine = cx.global_mut::<Engine>();
+    if engine.main.name() == name {
+        return Err(PortEditError::Main);
+    }
+    let Some(i) = engine.extras.iter().position(|p| p.name() == name) else {
+        return Err(PortEditError::NotFound(name.to_owned()));
+    };
+    let port = engine.extras.remove(i);
+    engine.retired.push(port);
+    AppSettings::update(cx, |s| s.midi_output.virtual_ports.retain(|n| n != name));
+    let owner = cx.global::<Engine>().owner();
+    if let Some(owner) = owner {
+        // 재생 중: 그 포트 없이 다시 준비한다(트랙은 「포트 없음」으로 소리 내지 않는다)
+        owner.update(cx, ProjectWindow::transport_refresh);
+    } else {
+        // 정지 중: 지금 스냅샷이 그 포트를 쥐고 있을 수 있다. 기본 포트만 든 빈 스냅샷으로 바꾼다
+        let engine = cx.global_mut::<Engine>();
+        let main: Arc<dyn MidiPort> = engine.main.clone();
+        let _ = Snapshot::new(TempoMap::default(), vec![main], Vec::new())
+            .and_then(|snapshot| engine.scheduler.swap(Arc::new(snapshot)));
+    }
+    cx.global_mut::<Engine>()
+        .release_retired(std::time::Duration::from_millis(200));
+    cx.refresh_windows();
+    Ok(())
 }
 
 /// 메트로놈 설정이 바뀌었다(MET-1). 재생 중인 창이 있으면 스냅샷을 다시 만들어 클릭 포트·채널·노트·길이를
@@ -196,7 +344,7 @@ pub(crate) fn metronome_changed(cx: &mut App) {
         cx.global_mut::<Engine>().forget_missing(name);
     }
     if let Some(owner) = cx.global::<Engine>().owner() {
-        owner.update(cx, ProjectWindow::transport_metronome_changed);
+        owner.update(cx, ProjectWindow::transport_refresh);
     }
 }
 
@@ -212,6 +360,23 @@ pub fn install(cx: &mut App, options: &EngineOptions) -> Result<(), MidiError> {
     // 프로세스의 첫 CoreMIDI 호출이다(S1-T2 알림 조건).
     let client = MidiClient::new(&options.client_name)?;
     let main = Arc::new(client.create_virtual_output(&options.port_name)?);
+    // 설정의 추가 가상 포트(OUT-2). 만들지 못한 것은 알리고 설정에는 남긴다(다음 시작 때 다시 해 본다).
+    let wanted = if cx.has_global::<AppSettings>() {
+        AppSettings::get(cx).midi_output.virtual_ports.clone()
+    } else {
+        Vec::new()
+    };
+    let mut extras = Vec::new();
+    for name in wanted {
+        match client.create_virtual_output(&name) {
+            Ok(port) => extras.push(Arc::new(port)),
+            Err(e) => {
+                let message = format!("가상 포트 「{name}」을 만들지 못했다: {e}");
+                eprintln!("{message}");
+                crate::window::say_everywhere(cx, &message);
+            }
+        }
+    }
     let empty = Snapshot::new(
         TempoMap::default(),
         vec![main.clone() as Arc<dyn MidiPort>],
@@ -223,7 +388,8 @@ pub fn install(cx: &mut App, options: &EngineOptions) -> Result<(), MidiError> {
         main,
         opened: HashMap::new(),
         scheduler,
-        port_name: options.port_name.clone(),
+        extras,
+        retired: Vec::new(),
         owner: None,
         known_missing: HashSet::new(),
     });
@@ -234,7 +400,7 @@ pub fn install(cx: &mut App, options: &EngineOptions) -> Result<(), MidiError> {
 #[must_use]
 pub fn virtual_port_name(cx: &App) -> String {
     if cx.has_global::<Engine>() {
-        cx.global::<Engine>().port_name.clone()
+        cx.global::<Engine>().main.name()
     } else {
         DEFAULT_PORT_NAME.to_owned()
     }
@@ -358,6 +524,25 @@ impl Engine {
             }
             std::thread::sleep(std::time::Duration::from_millis(1));
         };
+        // 추가 가상 포트도 다시 등록한다(OUT-2). 하나라도 못 하면 그 오류를 낸다(나머지는 계속한다)
+        let mut extra_error = None;
+        for port in &mut self.extras {
+            let done = loop {
+                self.scheduler.collect_garbage();
+                if let Some(port) = Arc::get_mut(port) {
+                    break port.reregister(&self.client).map_err(RecoverError::from);
+                }
+                if std::time::Instant::now() > deadline {
+                    break Err(RecoverError::PortBusy);
+                }
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            };
+            if let Err(e) = done {
+                extra_error.get_or_insert(e);
+            }
+        }
+        self.retired.clear();
+        let result = result.and(extra_error.map_or(Ok(()), Err));
         // 포트 0이 늘 기본 가상 포트인 스냅샷으로 되돌린다(테스트 노트·미리듣기가 쓴다)
         // 등록 결과를 잃지 않도록 되돌리기 실패는 등록이 성공했을 때만 오류로 낸다(리뷰 1 제안 4)
         let main: Arc<dyn MidiPort> = self.main.clone();
@@ -365,6 +550,20 @@ impl Engine {
             .and_then(|snapshot| self.scheduler.swap(Arc::new(snapshot)));
         result?;
         back.map_err(RecoverError::from)
+    }
+
+    /// 지운 추가 포트 가운데 스냅샷이 놓은 것을 버린다. `wait`까지 스케줄러가 옛 스냅샷을 돌려주기를
+    /// 기다린다. 남은 것은 다음 호출(포트 감시의 주기)이 버린다.
+    pub(crate) fn release_retired(&mut self, wait: std::time::Duration) {
+        let deadline = std::time::Instant::now() + wait;
+        loop {
+            self.scheduler.collect_garbage();
+            self.retired.retain(|p| Arc::strong_count(p) > 1);
+            if self.retired.is_empty() || std::time::Instant::now() >= deadline {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
     }
 
     /// 기본 가상 포트가 MIDI 서버에 등록돼 있는가.
@@ -429,6 +628,7 @@ impl Engine {
                 .collect();
             self.opened.retain(|name, _| used.contains(name.as_str()));
         }
+        let main_name = self.main.name();
         let mut ports: Vec<Arc<dyn MidiPort>> = vec![self.main.clone()];
         let mut index: HashMap<&str, u16> = HashMap::new();
         let mut missing: Vec<(String, PortProblem)> = Vec::new();
@@ -437,6 +637,8 @@ impl Engine {
         for track in project.tracks() {
             let port = match track.port() {
                 OutputPort::Virtual => Some(0),
+                // 기본 포트를 이름으로 가리켜도 포트 0이다(앱 포트가 같은 이름의 목적지보다 먼저)
+                OutputPort::Named(name) if *name == main_name => Some(0),
                 OutputPort::Named(name) => match index.get(name.as_str()) {
                     Some(&i) => Some(i),
                     None if missing.iter().any(|(n, _)| n == name) => None,
@@ -444,7 +646,7 @@ impl Engine {
                         let opened = if ports.len() >= MAX_SCHEDULER_PORTS {
                             Err(PortProblem::TooMany)
                         } else {
-                            self.open_named(name, live, &mut available)
+                            self.open_port(name, live, &mut available)
                         };
                         match opened {
                             Ok(p) => {
@@ -466,6 +668,7 @@ impl Engine {
         // 메트로놈 포트(MET-1): 트랙이 이미 연 포트면 그 번호, 아니면 트랙 포트와 같은 규칙으로 연다.
         let (metronome, metronome_problem) = match metronome {
             OutputPort::Virtual => (Some(0), None),
+            OutputPort::Named(name) if *name == main_name => (Some(0), None),
             OutputPort::Named(name) if index.contains_key(name.as_str()) => {
                 (index.get(name.as_str()).copied(), None)
             }
@@ -475,7 +678,7 @@ impl Engine {
                 } else if ports.len() >= MAX_SCHEDULER_PORTS {
                     Err(PortProblem::TooMany)
                 } else {
-                    self.open_named(name, live, &mut available)
+                    self.open_port(name, live, &mut available)
                 };
                 match opened {
                     Ok(p) => {
@@ -489,7 +692,7 @@ impl Engine {
             }
         };
         let setup = effective_setups(project, &track_ports);
-        let mut routes = vec![(String::new(), 0)];
+        let mut routes = vec![(String::new(), 0), (main_name.clone(), 0)];
         routes.extend(index.iter().map(|(name, &i)| ((*name).to_owned(), i)));
         // 들리지 않는 트랙(뮤트, 다른 트랙의 솔로)의 뱅크·프로그램을 먼저 틱 0에 넣고, 그 뒤에 들리는 트랙을
         // 트랙 순서대로 렌더한다. 렌더러는 들리지 않는 트랙을 통째로 빼므로, 그대로 두면 재생 시작 때 chase가
@@ -536,6 +739,20 @@ impl Engine {
             metronome,
             metronome_problem,
         })
+    }
+
+    /// 이름 포트: 앱의 추가 가상 포트가 그 이름이면 그것(OUT-2), 아니면 CoreMIDI 목적지를 연다. 앱 포트는
+    /// 소스라 목적지 목록에 없다. 같은 이름의 목적지가 따로 있어도 앱 포트가 이긴다.
+    fn open_port(
+        &mut self,
+        name: &str,
+        live: bool,
+        available: &mut Option<Vec<PortInfo>>,
+    ) -> Result<Arc<dyn MidiPort>, PortProblem> {
+        if let Some(own) = self.extras.iter().find(|p| p.name() == name) {
+            return Ok(own.clone());
+        }
+        self.open_named(name, live, available)
     }
 
     /// 이름 포트를 연다. 한 번 연 포트는 다시 쓴다. 목적지 목록은 한 번만 읽는다.

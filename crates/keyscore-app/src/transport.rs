@@ -433,8 +433,8 @@ impl ProjectWindow {
         }
     }
 
-    /// 메트로놈 설정이 바뀌었다(설정 > 메트로놈). 재생 중이면 스냅샷을 다시 만들어 바로 반영한다.
-    pub(crate) fn transport_metronome_changed(&mut self, cx: &mut Context<Self>) {
+    /// 설정(메트로놈 포트·값, 가상 포트 목록)이 바뀌었다. 재생 중이면 스냅샷을 다시 만들어 바로 반영한다.
+    pub(crate) fn transport_refresh(&mut self, cx: &mut Context<Self>) {
         self.transport_document_changed(cx);
     }
 

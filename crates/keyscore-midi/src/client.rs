@@ -64,6 +64,25 @@ pub(crate) fn normalized_name(name: &str) -> Result<String, MidiError> {
     }
 }
 
+/// 앱이 가상 포트 이름을 미리 검사할 때 쓴다. 만들기·이름 바꾸기와 같은 규칙으로 고친 이름을 돌려준다.
+///
+/// # Errors
+///
+/// 규칙에 맞지 않으면 `InvalidName`.
+pub fn normalize_port_name(name: &str) -> Result<String, MidiError> {
+    normalized_name(name)
+}
+
+/// 두 이름이 보이는 모양으로 같은가(가상 포트 중복 규칙, 결정 `2026-10-15-port-name-visual-duplicates.md`).
+/// 규칙에 맞지 않는 이름은 서로 같지 않다고 본다.
+#[must_use]
+pub fn same_port_name(a: &str, b: &str) -> bool {
+    match (normalized_name(a), normalized_name(b)) {
+        (Ok(a), Ok(b)) => duplicate_key(&a) == duplicate_key(&b),
+        _ => false,
+    }
+}
+
 /// 정상 텍스트에 쓰이는 표시되지 않는 문자: ZWNJ·ZWJ(이모지, 페르시아어), 이체자 선택자, 태그 문자.
 fn allowed_ignorable(c: char) -> bool {
     matches!(

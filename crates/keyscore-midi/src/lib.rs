@@ -20,7 +20,10 @@ mod time;
 mod ump;
 mod watcher;
 
-pub use client::{DEFAULT_PORT_NAME, MAX_VIRTUAL_OUTPUTS, MidiClient, VirtualOutput, source_names};
+pub use client::{
+    DEFAULT_PORT_NAME, MAX_VIRTUAL_OUTPUTS, MidiClient, VirtualOutput, normalize_port_name,
+    same_port_name, source_names,
+};
 pub use encode::{
     Group, Midi1Message, bank_select, bend_to_14bit, cc_to_7bit, continue_, control_change,
     note_off, note_on, panic_messages, pitch_bend, program_change, song_position, start, stop,
