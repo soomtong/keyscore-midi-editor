@@ -520,7 +520,12 @@ fn settings_sections_keyboard_reachable(cx: &mut TestAppContext) {
     let (handle, _) = open_project(cx);
     let (sh, view) = open_settings(cx, handle, SettingsSection::Input);
     // 구역을 열면 첫 컨트롤에 포커스가 있다: Enter로 열고 아래 화살표로 다음 항목을 고른다
-    let focused = |cx: &mut TestAppContext| cx.read(|cx| view.read(cx).focused_control(cx));
+    let focused = |cx: &mut TestAppContext| {
+        cx.update_window(sh, |_, window, cx| {
+            view.read(cx).focused_control(window, cx)
+        })
+        .unwrap()
+    };
     assert_eq!(focused(cx).as_deref(), Some("settings-key-layout"));
     press(cx, sh, "enter");
     press(cx, sh, "down");

@@ -1392,7 +1392,7 @@ pub(super) const SPECS: &[CommandSpec] = &[
         "settings::SetKeyLayout",
         "키 레이아웃 건반형/계이름형",
         Surface::Settings,
-        "설정",
+        "설정 > 입력 > 레이아웃 선택 상자",
         &[
             Variant::new("건반형 레이아웃", "\"piano\""),
             Variant::new("계이름형 레이아웃", "\"solfege\""),

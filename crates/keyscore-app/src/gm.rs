@@ -147,3 +147,66 @@ pub fn program_label(program: Option<Program>) -> String {
         ),
     }
 }
+
+/// GM 타악기 이름(노트 35–81, GM Level 1 Percussion Key Map). 메트로놈 노트 고르기에 쓴다.
+pub const GM_PERCUSSION: [&str; 47] = [
+    "Acoustic Bass Drum",
+    "Bass Drum 1",
+    "Side Stick",
+    "Acoustic Snare",
+    "Hand Clap",
+    "Electric Snare",
+    "Low Floor Tom",
+    "Closed Hi-Hat",
+    "High Floor Tom",
+    "Pedal Hi-Hat",
+    "Low Tom",
+    "Open Hi-Hat",
+    "Low-Mid Tom",
+    "Hi-Mid Tom",
+    "Crash Cymbal 1",
+    "High Tom",
+    "Ride Cymbal 1",
+    "Chinese Cymbal",
+    "Ride Bell",
+    "Tambourine",
+    "Splash Cymbal",
+    "Cowbell",
+    "Crash Cymbal 2",
+    "Vibraslap",
+    "Ride Cymbal 2",
+    "Hi Bongo",
+    "Low Bongo",
+    "Mute Hi Conga",
+    "Open Hi Conga",
+    "Low Conga",
+    "High Timbale",
+    "Low Timbale",
+    "High Agogo",
+    "Low Agogo",
+    "Cabasa",
+    "Maracas",
+    "Short Whistle",
+    "Long Whistle",
+    "Short Guiro",
+    "Long Guiro",
+    "Claves",
+    "Hi Wood Block",
+    "Low Wood Block",
+    "Mute Cuica",
+    "Open Cuica",
+    "Mute Triangle",
+    "Open Triangle",
+];
+
+/// 노트 번호 표시. GM 타악기 범위(35–81)면 이름을 붙인다(`37 · Side Stick`, `60`).
+#[must_use]
+pub fn percussion_label(note: u8) -> String {
+    match note
+        .checked_sub(35)
+        .and_then(|i| GM_PERCUSSION.get(usize::from(i)))
+    {
+        Some(name) => format!("{note} · {name}"),
+        None => note.to_string(),
+    }
+}

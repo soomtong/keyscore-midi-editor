@@ -382,8 +382,8 @@ impl ProjectWindow {
 
     /// 재생 중인데 메트로놈 포트를 찾지 못해 클릭이 나지 않는가(MET-1).
     #[must_use]
-    pub fn metronome_port_missing(&self) -> bool {
-        todo!()
+    pub const fn metronome_port_missing(&self) -> bool {
+        self.transport.metronome_missing
     }
 
     /// 창이 남긴 메시지(엔진 없음, 없는 포트, MIDI 오류). 상태줄 표시는 S2-T5c다.

@@ -115,6 +115,24 @@ pub(crate) struct Prepared {
     /// 목적지(`OutputPort`의 이름, 가상은 빈 문자열) → 이 스냅샷의 포트 번호. 테스트 노트처럼 스냅샷
     /// 밖에서 보내는 메시지의 포트를 찾는다.
     pub(crate) routes: Vec<(String, u16)>,
+    /// 메트로놈 포트의 이 스냅샷 번호. 찾지 못하면 `None`이고 그 이유는 `metronome_problem`이다.
+    pub(crate) metronome: Option<u16>,
+    pub(crate) metronome_problem: Option<(String, PortProblem)>,
+}
+
+/// 메트로놈 설정이 바뀌었다(MET-1). 재생 중인 창이 있으면 스냅샷을 다시 만들어 클릭 포트·채널·노트·길이를
+/// 바로 바꾼다.
+pub(crate) fn metronome_changed(cx: &mut App) {
+    if !cx.has_global::<Engine>() {
+        return;
+    }
+    let port = crate::transport::metronome_settings(cx).port;
+    if let OutputPort::Named(name) = &port {
+        cx.global_mut::<Engine>().forget_missing(name);
+    }
+    if let Some(owner) = cx.global::<Engine>().owner() {
+        owner.update(cx, ProjectWindow::transport_metronome_changed);
+    }
 }
 
 /// 엔진을 설치한다. 이미 설치돼 있으면 아무 일도 하지 않는다.
@@ -290,6 +308,17 @@ impl Engine {
     }
 
     /// 재생 중인 창이 있는가.
+    /// 지금 재생 중인 창(살아 있으면).
+    pub(crate) fn owner(&self) -> Option<gpui_kit::Entity<ProjectWindow>> {
+        self.owner.as_ref().and_then(WeakEntity::upgrade)
+    }
+
+    /// 그 이름 포트를 「지난 재생 시작 때 못 찾음」에서 뺀다. 재생 중에 새로 고른 포트(메트로놈 포트 등)는
+    /// 다음 교체에서 목적지 목록을 다시 본다.
+    pub(crate) fn forget_missing(&mut self, name: &str) {
+        self.known_missing.remove(name);
+    }
+
     pub(crate) fn has_owner(&self) -> bool {
         self.owner.as_ref().is_some_and(|w| w.upgrade().is_some())
     }
@@ -302,11 +331,21 @@ impl Engine {
     /// 프로젝트를 스냅샷으로 바꾼다. 트랙 → 포트 라우팅(SEQ-7, OUT-4).
     ///
     /// `live`는 재생 중 편집의 교체다. 그때는 지난 재생 시작 때 못 찾은 포트를 다시 찾지 않는다.
+    /// `metronome`은 메트로놈 포트(MET-1)다. 트랙 포트와 같은 규칙으로 열어 스냅샷에 넣는다.
     ///
     /// # Errors
     ///
     /// 스냅샷을 만들 수 없으면(포트·이벤트 범위) 그 오류.
-    pub(crate) fn prepare(&mut self, project: &Project, live: bool) -> Result<Prepared, MidiError> {
+    #[allow(
+        clippy::too_many_lines,
+        reason = "포트 열기·음색·렌더를 한 스냅샷 준비로 한곳에 둔다"
+    )]
+    pub(crate) fn prepare(
+        &mut self,
+        project: &Project,
+        live: bool,
+        metronome: &OutputPort,
+    ) -> Result<Prepared, MidiError> {
         if !live {
             self.known_missing.clear();
         }
@@ -316,7 +355,9 @@ impl Engine {
             let used: HashSet<&str> = project
                 .tracks()
                 .iter()
-                .filter_map(|t| match t.port() {
+                .map(keyscore_core::Track::port)
+                .chain(std::iter::once(metronome))
+                .filter_map(|p| match p {
                     OutputPort::Named(name) => Some(name.as_str()),
                     OutputPort::Virtual => None,
                 })
@@ -357,6 +398,31 @@ impl Engine {
             };
             track_ports.push(port);
         }
+        // 메트로놈 포트(MET-1): 트랙이 이미 연 포트면 그 번호, 아니면 트랙 포트와 같은 규칙으로 연다.
+        let (metronome, metronome_problem) = match metronome {
+            OutputPort::Virtual => (Some(0), None),
+            OutputPort::Named(name) if index.contains_key(name.as_str()) => {
+                (index.get(name.as_str()).copied(), None)
+            }
+            OutputPort::Named(name) => {
+                let opened = if let Some((_, problem)) = missing.iter().find(|(n, _)| n == name) {
+                    Err(problem.clone())
+                } else if ports.len() >= MAX_SCHEDULER_PORTS {
+                    Err(PortProblem::TooMany)
+                } else {
+                    self.open_named(name, live, &mut available)
+                };
+                match opened {
+                    Ok(p) => {
+                        ports.push(p);
+                        let i = u16::try_from(ports.len() - 1).unwrap_or(u16::MAX);
+                        index.insert(name, i);
+                        (Some(i), None)
+                    }
+                    Err(problem) => (None, Some((name.clone(), problem))),
+                }
+            }
+        };
         let setup = effective_setups(project, &track_ports);
         let mut routes = vec![(String::new(), 0)];
         routes.extend(index.iter().map(|(name, &i)| ((*name).to_owned(), i)));
@@ -402,6 +468,8 @@ impl Engine {
             setup,
             missing,
             routes,
+            metronome,
+            metronome_problem,
         })
     }
 
