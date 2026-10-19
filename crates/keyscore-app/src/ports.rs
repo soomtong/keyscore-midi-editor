@@ -272,7 +272,7 @@ fn tick(cx: &mut App) {
         }
     }
     housekeeping(cx, changed);
-    if check_server && engine::is_installed(cx) && !cx.global::<Engine>().main_registered() {
+    if check_server && engine::is_installed(cx) && !cx.global::<Engine>().all_registered() {
         let ok = engine::recover(cx, failures == 0).is_ok();
         let monitor = cx.global_mut::<PortMonitor>();
         monitor.recover_failures = if ok { 0 } else { failures.saturating_add(1) };
