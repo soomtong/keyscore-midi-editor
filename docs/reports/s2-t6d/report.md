@@ -49,7 +49,7 @@
 ## 테스트 결과
 
 ~~~
-cargo test --workspace: 1476 passed, 0 failed, 2 ignored(무시 둘은 이 Task 전부터 있던 자식 프로세스 전용 테스트)
+cargo test --workspace: 1497 passed, 0 failed, 2 ignored(리뷰 3 대응 뒤 전체 게이트. 리뷰 4 제안 수정 뒤에는 리뷰 3·4 테스트와 clippy만 다시 돌렸다)(무시 둘은 이 Task 전부터 있던 자식 프로세스 전용 테스트)
 ~~~
 
 | 계획의 테스트 # | 실제 테스트 이름 | 상태 |
