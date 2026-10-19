@@ -656,11 +656,13 @@ impl Engine {
         let lost = self.extras.iter().any(|p| !p.is_registered());
         if lost && !self.has_owner() {
             let main: Arc<dyn MidiPort> = self.main.clone();
-            if let Ok(snapshot) = Snapshot::new(TempoMap::default(), vec![main], Vec::new()) {
-                let _ = self.scheduler.swap(Arc::new(snapshot));
-            }
+            let swapped = Snapshot::new(TempoMap::default(), vec![main], Vec::new())
+                .and_then(|snapshot| self.scheduler.swap(Arc::new(snapshot)));
+            // 교체가 들어가지 않았으면(큐가 가득 참) 기다려도 놓이지 않는다. 다음 서버 확인에서 다시 한다
+            // (리뷰 4 제안 1)
             let deadline = std::time::Instant::now() + std::time::Duration::from_millis(200);
-            while std::time::Instant::now() < deadline
+            while swapped.is_ok()
+                && std::time::Instant::now() < deadline
                 && self
                     .extras
                     .iter()
