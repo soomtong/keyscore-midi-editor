@@ -350,6 +350,26 @@ impl MidiOutputSettings {
             Some(_) => warnings
                 .push("midi_output.virtual_ports는 이름 목록이어야 해 기본값을 쓴다".to_string()),
         }
+        match map.remove("clock") {
+            None => {}
+            Some(Value::Array(items)) => {
+                for item in items {
+                    match port_from_value(&item) {
+                        Some(port) if !m.clock.contains(&port) => m.clock.push(port),
+                        Some(_) => warnings.push(
+                            "midi_output.clock에 같은 포트가 두 번 있어 하나를 뺐다".to_string(),
+                        ),
+                        None => warnings.push(
+                            "midi_output.clock의 포트가 아닌 항목을 뺐다(\"virtual\" 또는 {\"named\": 이름})"
+                                .to_string(),
+                        ),
+                    }
+                }
+            }
+            Some(_) => {
+                warnings.push("midi_output.clock은 포트 목록이어야 해 기본값을 쓴다".to_string());
+            }
+        }
         (m, map)
     }
 
@@ -370,6 +390,10 @@ impl MidiOutputSettings {
                     .map(|n| Value::from(n.as_str()))
                     .collect(),
             ),
+        );
+        map.insert(
+            "clock".to_string(),
+            Value::Array(self.clock.iter().map(port_to_value).collect()),
         );
     }
 }

@@ -7,6 +7,7 @@
 
 use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::component::IndexPath;
+use gpui_kit::component::checkbox::Checkbox;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::searchable_list::SearchableVec;
 use gpui_kit::component::select::SelectEvent;
@@ -16,7 +17,10 @@ use gpui_kit::{
     Styled as _, Subscription, TestSupportExt as _, Window, div,
 };
 
+use keyscore_core::OutputPort;
+
 use crate::actions::midi;
+use crate::app_state::AppSettings;
 use crate::engine::{self, PortEditError};
 use crate::settings_tabs::{Choice, action_button, choice, choice_items, row};
 use crate::settings_window::{self, SettingsWindow};
@@ -33,6 +37,7 @@ pub(crate) struct PortsTab {
     name_shown: String,
     add: FocusHandle,
     remove: FocusHandle,
+    test: FocusHandle,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -80,6 +85,7 @@ impl PortsTab {
             name_shown: String::new(),
             add: cx.focus_handle().tab_stop(true),
             remove: cx.focus_handle().tab_stop(true),
+            test: cx.focus_handle().tab_stop(true),
             _subscriptions: subscriptions,
         }
     }
@@ -95,7 +101,9 @@ impl PortsTab {
 
     /// 포커스를 가진 컨트롤의 요소 id.
     pub(crate) fn focused(&self, window: &Window, cx: &App) -> Option<&'static str> {
-        if self.add.is_focused(window) {
+        if self.test.is_focused(window) {
+            Some("settings-port-test")
+        } else if self.add.is_focused(window) {
             Some("settings-port-add")
         } else if self.remove.is_focused(window) {
             Some("settings-port-remove")
@@ -263,7 +271,119 @@ impl SettingsWindow {
                 "외부 신디는 이 이름의 MIDI 입력을 고른다. 이름을 바꿔도 연결은 유지되고, 열린 프로젝트의 \
                  트랙도 새 이름을 따른다. 기본 포트는 지울 수 없다(최대 16개).",
             ))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .child(action_button(
+                        "settings-port-test",
+                        "테스트 노트 보내기",
+                        &tab.test,
+                        false,
+                        || Box::new(midi::SendTestNote),
+                        window,
+                        cx,
+                    ))
+                    .child(div().text_color(cx.theme().muted_foreground).child(
+                        "고른 포트로 채널 1의 가운데 C를 보낸다. 신디에서 들리는지 확인한다(PRE-3).",
+                    )),
+            )
+            .child(port_status(&tab.names, cx))
+            .child(render_clock_list(cx))
     }
+
+    /// 설정 창에서 낸 `midi::SendTestNote`: 고른 가상 포트로 테스트 노트를 보낸다(프로젝트 창에서는 현재
+    /// 트랙으로 보낸다).
+    pub(crate) fn ports_test_note(
+        &mut self,
+        _: &midi::SendTestNote,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let target = self
+            .ports_tab()
+            .selected()
+            .map_or_else(|| engine::virtual_port_name(cx), str::to_owned);
+        let message = match engine::send_port_test_note(cx, &target) {
+            Ok(()) => format!("테스트 노트를 보냈다: {target} ch1. 신디에서 들리는지 확인한다"),
+            Err(reason) => reason,
+        };
+        self.set_message(message);
+        cx.notify();
+    }
+}
+
+/// 포트 상태(PRE-2). 가상 포트에 리스너가 붙었는지는 공개 API로 알 수 없어(SP-4) 앱이 아는 것만 보인다.
+fn port_status(names: &[String], cx: &App) -> impl IntoElement {
+    let last = match engine::last_test_note(cx) {
+        Some((at, port)) => {
+            let ago = at.elapsed().map_or(0, |d| d.as_secs());
+            format!("「{port}」, {ago}초 전")
+        }
+        None => "없음".to_owned(),
+    };
+    let main = names.first().cloned().unwrap_or_default();
+    let text = format!(
+        "가상 포트 {}개 활성 · 마지막 테스트 노트: {last} · 들리지 않으면 신디의 MIDI 입력에서 「{main}」을 고른다",
+        names.len()
+    );
+    div()
+        .id("settings-port-status")
+        .aria_label(text.clone())
+        .test_support()
+        .text_color(cx.theme().muted_foreground)
+        .child(text)
+}
+
+/// 포트별 MIDI Clock(OUT-5): 포트 선택지마다 체크 상자 하나. 켜 둔 포트가 지금 없으면 그것도 보인다.
+fn render_clock_list(cx: &App) -> impl IntoElement {
+    let main = engine::virtual_port_name(cx);
+    let on = crate::transport::clock_settings(cx);
+    let mut ports = engine::port_choices(cx);
+    for port in &on {
+        if !ports.contains(port) {
+            ports.push(port.clone());
+        }
+    }
+    let rows = ports.into_iter().map(|port| {
+        let name = match &port {
+            OutputPort::Virtual => main.clone(),
+            OutputPort::Named(n) => n.clone(),
+        };
+        let checked = on.contains(&port);
+        let id = format!("settings-clock-{name}");
+        div()
+            .id(SharedString::from(id.clone()))
+            .aria_label(format!("{name}: {}", if checked { "켬" } else { "끔" }))
+            .test_support()
+            .child(
+                Checkbox::new(SharedString::from(format!("{id}-box")))
+                    .label(name)
+                    .checked(checked)
+                    .on_click(move |_, _, cx| toggle_clock(cx, &port)),
+            )
+    });
+    div()
+        .flex()
+        .flex_col()
+        .gap_1()
+        .child("MIDI Clock(24 ppqn, Start/Stop/Continue/SPP)")
+        .children(rows)
+}
+
+/// 그 포트의 클럭을 켜거나 끈다. 재생 중이면 곧바로 반영한다.
+fn toggle_clock(cx: &mut App, port: &OutputPort) {
+    AppSettings::update(cx, |s| {
+        let clock = &mut s.midi_output.clock;
+        if let Some(i) = clock.iter().position(|p| p == port) {
+            clock.remove(i);
+        } else {
+            clock.push(port.clone());
+        }
+    });
+    engine::clock_changed(cx);
+    cx.refresh_windows();
 }
 
 /// 처리기의 결과를 설정 창(열려 있으면) 또는 열린 프로젝트 창에 알린다.

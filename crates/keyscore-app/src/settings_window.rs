@@ -1072,6 +1072,7 @@ impl Render for SettingsWindow {
                 this.step_section(-1, window, cx);
             }))
             .on_action(cx.listener(Self::export))
+            .on_action(cx.listener(Self::ports_test_note))
             .on_action(cx.listener(Self::import))
             .size_full()
             .flex()
