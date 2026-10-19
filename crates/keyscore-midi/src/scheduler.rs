@@ -1444,8 +1444,8 @@ mod tests {
     struct Null;
 
     impl MidiPort for Null {
-        fn name(&self) -> &'static str {
-            "null"
+        fn name(&self) -> String {
+            "null".to_owned()
         }
 
         fn send(&self, _at: HostTime, _ump: &[u32]) -> Result<(), MidiError> {

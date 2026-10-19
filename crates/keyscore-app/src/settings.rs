@@ -276,6 +276,15 @@ fn port_to_value(port: &OutputPort) -> Value {
     }
 }
 
+/// MIDI 출력 설정(OUT-1·2, 설정 > MIDI 출력). 추가 가상 포트는 엔진에 실제로 있는 것과 같게 둔다.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct MidiOutputSettings {
+    /// 기본 가상 포트 이름. 없으면 OUT-1의 기본 이름이다.
+    pub main_name: Option<String>,
+    /// 추가 가상 포트 이름(기본 포트와 합쳐 16개 이하)
+    pub virtual_ports: Vec<String>,
+}
+
 /// 앱 설정 전체.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Settings {
@@ -284,6 +293,7 @@ pub struct Settings {
     pub keymap: KeymapSettings,
     pub input: InputSettings,
     pub metronome: MetronomeSettings,
+    pub midi_output: MidiOutputSettings,
     /// `keymap` 객체 안의 모르는 키.
     keymap_extra: Map<String, Value>,
     /// `input` 객체 안의 모르는 키.

@@ -870,6 +870,8 @@ pub mod midi {
         [
             /// 가상 포트 추가(최대 16)
             AddVirtualPort,
+            /// 고른 추가 가상 포트 삭제(S2-T6d, 기본 포트는 지울 수 없다)
+            RemoveVirtualPort,
             /// 연결 테스트 노트 송신
             SendTestNote,
         ]
@@ -1412,7 +1414,8 @@ pub mod window {
 
 /// 모든 Action 이름(정렬). 카탈로그 285개, S2-T1 패널 토글 2개(`view::ToggleTrackList`, `view::ToggleBottomPanel`),
 /// 그 뒤 Task가 더한 것(`palette::Close`, S2-T6a의 `keymap::SelectNext`·`SelectPrev`·`FocusSearch`,
-/// `settings::NextSection`·`PrevSection`, `dialog::Confirm`·`Cancel`, S2-T6b의 `help::CloseOverlay`)이다. `mode::Back`은 S2-T3에서 뺐다.
+/// `settings::NextSection`·`PrevSection`, `dialog::Confirm`·`Cancel`, S2-T6b의 `help::CloseOverlay`, S2-T6d의
+/// `midi::RemoveVirtualPort`)이다. `mode::Back`은 S2-T3에서 뺐다.
 pub const ALL_ACTION_NAMES: &[&str] = &[
     "ai::Accept",
     "ai::AcceptGhost",
@@ -1545,6 +1548,7 @@ pub const ALL_ACTION_NAMES: &[&str] = &[
     "lyric::Prev",
     "lyric::Suggest",
     "midi::AddVirtualPort",
+    "midi::RemoveVirtualPort",
     "midi::RenameVirtualPort",
     "midi::SelectOutputPort",
     "midi::SendTestNote",

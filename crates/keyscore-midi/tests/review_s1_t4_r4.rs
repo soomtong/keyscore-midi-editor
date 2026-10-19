@@ -39,8 +39,8 @@ struct Rec {
 }
 
 impl MidiPort for Rec {
-    fn name(&self) -> &'static str {
-        "rec"
+    fn name(&self) -> String {
+        "rec".to_owned()
     }
 
     fn send(&self, at: HostTime, ump: &[u32]) -> Result<(), MidiError> {
@@ -64,8 +64,8 @@ struct Gate {
 }
 
 impl MidiPort for Gate {
-    fn name(&self) -> &'static str {
-        "gate"
+    fn name(&self) -> String {
+        "gate".to_owned()
     }
 
     fn send(&self, _at: HostTime, _ump: &[u32]) -> Result<(), MidiError> {

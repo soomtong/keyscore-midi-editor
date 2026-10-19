@@ -179,7 +179,7 @@ fn create_virtual_output_seventeenth_fails_with_too_many_ports() {
     ports.pop();
     let extra = client.create_virtual_output(&unique("max-extra")).unwrap();
     assert!(wait_until(Duration::from_secs(2), || has_source(
-        extra.name()
+        &extra.name()
     )));
 }
 

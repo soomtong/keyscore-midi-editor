@@ -120,6 +120,71 @@ pub(crate) struct Prepared {
     pub(crate) metronome_problem: Option<(String, PortProblem)>,
 }
 
+/// 가상 포트를 추가·이름 변경·삭제하지 못한 이유.
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum PortEditError {
+    /// MIDI 엔진이 없다
+    #[error("MIDI 엔진이 없다")]
+    NoEngine,
+    /// 그 이름의 앱 가상 포트가 없다
+    #[error("가상 포트 「{0}」이 없다")]
+    NotFound(String),
+    /// 기본 포트는 지울 수 없다
+    #[error("기본 가상 포트는 지울 수 없다")]
+    Main,
+    /// 지금 보이는 CoreMIDI 목적지와 이름이 같다
+    #[error("「{0}」은 이미 있는 MIDI 목적지 이름이다")]
+    DestinationName(String),
+    /// keyscore-midi가 거부했다(이름 규칙, 중복, 16개 상한)
+    #[error("{0}")]
+    Midi(#[from] MidiError),
+}
+
+/// 앱의 가상 포트 이름. 기본 포트가 먼저다.
+#[must_use]
+pub fn virtual_port_names(cx: &App) -> Vec<String> {
+    let _ = cx;
+    todo!()
+}
+
+/// 포트 메뉴 선택지: 기본 가상 포트, 추가 가상 포트(이름), 지금 보이는 CoreMIDI 목적지(이름).
+#[must_use]
+pub fn port_choices(cx: &App) -> Vec<OutputPort> {
+    let _ = cx;
+    todo!()
+}
+
+/// 가상 포트를 하나 더 만든다(OUT-2). 이름은 「기본 포트 이름 N」 가운데 빈 것이다.
+///
+/// # Errors
+///
+/// [`PortEditError`].
+pub fn add_virtual_port(cx: &mut App) -> Result<String, PortEditError> {
+    let _ = cx;
+    todo!()
+}
+
+/// 앱 가상 포트의 이름을 바꾼다. 열린 창의 트랙과 메트로놈 포트도 새 이름으로 고친다(결정
+/// 2026-10-19-virtual-port-rename-tracks A).
+///
+/// # Errors
+///
+/// [`PortEditError`].
+pub fn rename_virtual_port(cx: &mut App, old: &str, new: &str) -> Result<(), PortEditError> {
+    let _ = (cx, old, new);
+    todo!()
+}
+
+/// 추가 가상 포트를 지운다. 그 포트를 쓰던 트랙은 이름을 그대로 둔다.
+///
+/// # Errors
+///
+/// [`PortEditError`].
+pub fn remove_virtual_port(cx: &mut App, name: &str) -> Result<(), PortEditError> {
+    let _ = (cx, name);
+    todo!()
+}
+
 /// 메트로놈 설정이 바뀌었다(MET-1). 재생 중인 창이 있으면 스냅샷을 다시 만들어 클릭 포트·채널·노트·길이를
 /// 바로 바꾼다.
 pub(crate) fn metronome_changed(cx: &mut App) {

@@ -280,6 +280,19 @@ impl SettingsWindow {
         self.tabs.focused(window, cx).map(str::to_owned)
     }
 
+    /// MIDI 출력 구역에서 편집할 포트(시험용).
+    #[must_use]
+    pub fn selected_port(&self) -> Option<String> {
+        todo!()
+    }
+
+    /// MIDI 출력 구역의 이름 입력란 글자(시험용).
+    #[must_use]
+    pub fn port_name_text(&self, cx: &App) -> String {
+        let _ = cx;
+        todo!()
+    }
+
     pub(crate) fn tabs(&self) -> &Tabs {
         &self.tabs
     }
