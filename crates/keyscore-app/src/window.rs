@@ -79,6 +79,9 @@ pub struct ProjectWindow {
     /// 문서가 바뀌면 재생 중 스냅샷을 교체한다(TRN-3). 창이 닫히면 재생을 멈춘다.
     _document_changed: Subscription,
     _released: Subscription,
+    /// 마지막으로 그릴 때 요청한 사이드 패널 너비(트랙 목록, 인스펙터). 창이 좁으면 저장값을 줄여 요청한다.
+    /// 조절 사건에서 이 값과 다른 패널만 사람이 끈 패널로 보고 저장한다.
+    requested: (f32, f32),
     /// 창 크기 바뀜 구독(패널 크기 상태를 새로 만든다).
     _window_resized: Subscription,
 }
@@ -149,6 +152,7 @@ impl ProjectWindow {
             history_notice_shown: false,
             _document_changed: document_changed,
             _released: released,
+            requested: (0.0, 0.0),
             _window_resized: window_resized,
         };
         this.refresh_fields(window, cx);
@@ -862,8 +866,26 @@ impl ProjectWindow {
                 if sizes.len() != expected {
                     return;
                 }
-                let track = l.track_list_open.then(|| sizes[0]);
-                let inspector = l.inspector_open.then(|| sizes[sizes.len() - 1]);
+                // 사람이 끈 패널만 저장한다. 창이 좁아 줄여 그린 다른 패널 값을 저장하면 안 된다(S2-T6f 리뷰 1
+                // 지적 1). 그릴 때 요청한 너비와 다른 패널이 끈 패널이다.
+                // 메인이 최소 너비에 닿은 채 한쪽 경계를 끌면 gpui-base가 반대쪽 패널을 밀어낸다. 둘 다 바뀌었으면
+                // 더 많이 바뀐 쪽이 끈 패널이고 밀린 쪽은 저장하지 않는다.
+                let (asked_track, asked_inspector) = self.requested;
+                let last = sizes.len() - 1;
+                let track_delta = if l.track_list_open {
+                    (asked_track - sizes[0]).abs()
+                } else {
+                    0.0
+                };
+                let inspector_delta = if l.inspector_open {
+                    (asked_inspector - sizes[last]).abs()
+                } else {
+                    0.0
+                };
+                let track = (track_delta > SIZE_EPSILON && track_delta >= inspector_delta)
+                    .then(|| sizes[0]);
+                let inspector = (inspector_delta > SIZE_EPSILON && inspector_delta > track_delta)
+                    .then(|| sizes[last]);
                 self.change_layout(cx, |l| {
                     if let Some(v) = track.filter(|&v| keep(v)) {
                         l.track_list_width = v;
@@ -907,6 +929,11 @@ impl Focusable for ProjectWindow {
 impl Render for ProjectWindow {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let layout = self.layout;
+        // 창이 저장된 사이드 패널 합보다 좁으면 우리가 먼저 비율로 줄여 요청한다(gpui-base가 줄이면 어느 패널을
+        // 사람이 끌었는지 가릴 수 없다). 메인 영역에는 최소 크기를 남긴다.
+        let (track_w, inspector_w) =
+            fit_side_panels(layout, f32::from(window.viewport_size().width));
+        self.requested = (track_w, inspector_w);
         let range = px(*PANEL_SIZE_RANGE.start())..px(*PANEL_SIZE_RANGE.end());
         let main_label = match self.mode.view() {
             View::Arrangement => "배치 뷰",
@@ -946,7 +973,7 @@ impl Render for ProjectWindow {
                                 .when(layout.track_list_open, |g| {
                                     g.child(
                                         resizable_panel()
-                                            .size(px(layout.track_list_width))
+                                            .size(px(track_w))
                                             .size_range(range.clone())
                                             .child(track_list),
                                     )
@@ -955,7 +982,7 @@ impl Render for ProjectWindow {
                                 .when(layout.inspector_open, |g| {
                                     g.child(
                                         resizable_panel()
-                                            .size(px(layout.inspector_width))
+                                            .size(px(inspector_w))
                                             .size_range(range.clone())
                                             .child(inspector),
                                     )
@@ -992,6 +1019,45 @@ impl Render for ProjectWindow {
             .children(self.render_overlay(cx))
     }
 }
+
+/// 창 너비에 맞춘 사이드 패널 너비(트랙 목록, 인스펙터). 펴진 패널 합과 메인 최소 너비가 창보다 크면 둘을 같은
+/// 비율로 줄인다. 저장값은 바꾸지 않는다.
+fn fit_side_panels(layout: LayoutSettings, width: f32) -> (f32, f32) {
+    let track = if layout.track_list_open {
+        layout.track_list_width
+    } else {
+        0.0
+    };
+    let inspector = if layout.inspector_open {
+        layout.inspector_width
+    } else {
+        0.0
+    };
+    let room = (width - MAIN_MIN_WIDTH).max(0.0);
+    let total = track + inspector;
+    if total <= room || total <= 0.0 || width <= 0.0 {
+        return (layout.track_list_width, layout.inspector_width);
+    }
+    let scale = room / total;
+    (
+        if layout.track_list_open {
+            track * scale
+        } else {
+            layout.track_list_width
+        },
+        if layout.inspector_open {
+            inspector * scale
+        } else {
+            layout.inspector_width
+        },
+    )
+}
+
+/// 사이드 패널을 줄일 때 메인 영역에 남기는 너비(논리 픽셀).
+const MAIN_MIN_WIDTH: f32 = 120.0;
+
+/// 패널 크기를 같다고 볼 차이(논리 픽셀). 비율 계산의 부동소수 오차를 「조절」로 보지 않는다.
+const SIZE_EPSILON: f32 = 0.5;
 
 fn sizes_of(state: &Entity<ResizableState>, cx: &App) -> Vec<f32> {
     state
