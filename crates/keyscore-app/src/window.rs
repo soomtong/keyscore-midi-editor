@@ -74,9 +74,13 @@ pub struct ProjectWindow {
     pub(crate) palette: Option<(Entity<CommandPalette>, Subscription)>,
     /// 트랜스포트 상태(S2-T5a).
     pub(crate) transport: Transport,
+    /// undo 상한 알림을 이미 냈는가(창마다 한 번, EDT-1 결정 A).
+    history_notice_shown: bool,
     /// 문서가 바뀌면 재생 중 스냅샷을 교체한다(TRN-3). 창이 닫히면 재생을 멈춘다.
     _document_changed: Subscription,
     _released: Subscription,
+    /// 창 크기 바뀜 구독(패널 크기 상태를 새로 만든다).
+    _window_resized: Subscription,
 }
 
 impl ProjectWindow {
@@ -97,6 +101,7 @@ impl ProjectWindow {
             this.keep_current_track(cx);
             this.sync_fields(window, cx);
             this.transport_document_changed(cx);
+            this.notice_history_limit(cx);
         });
         let current_track = document
             .read(cx)
@@ -108,6 +113,12 @@ impl ProjectWindow {
         let fields = crate::fields::Fields::new(window, cx);
         let inspector = crate::inspector::Inspector::new(window, cx);
         let released = cx.on_release(|_, cx| crate::transport::release(cx));
+        // 창 크기가 바뀌면 gpui-base가 모든 패널을 비율로 늘리거나 줄인다. 사이드·아래 패널은 저장된 크기를 지키고
+        // 메인 영역이 늘고 주는 것이 맞다(7.1). 크기 상태를 새로 만들면 패널은 저장된 크기로, 메인은 나머지로
+        // 그려지고, 다음 조절이 비율로 줄어든 값을 저장하지 않는다(S2-T1 리뷰 3 제안 1).
+        let window_resized = cx.observe_window_bounds(window, |this, _, cx| {
+            this.reset_panel_states(cx);
+        });
         let me = cx.entity().downgrade();
         if cx.has_global::<OpenWindows>() {
             let list = &mut cx.global_mut::<OpenWindows>().0;
@@ -135,11 +146,22 @@ impl ProjectWindow {
             overlay: None,
             palette: None,
             transport: Transport::default(),
+            history_notice_shown: false,
             _document_changed: document_changed,
             _released: released,
+            _window_resized: window_resized,
         };
         this.refresh_fields(window, cx);
         this
+    }
+
+    /// 패널 크기 상태를 새로 만든다. 새 상태는 각 패널의 저장된 크기로 시작한다.
+    fn reset_panel_states(&mut self, cx: &mut Context<Self>) {
+        let (horizontal, vertical, subscriptions) = Self::fresh_states(cx);
+        self.horizontal = horizontal;
+        self.vertical = vertical;
+        self.resize_subscriptions = subscriptions;
+        cx.notify();
     }
 
     /// 새 크기 상태 둘과 그 구독. 끌기와 프로그램 조절 모두 `Resized`를 낸다(gpui-base
@@ -281,6 +303,22 @@ impl ProjectWindow {
                 false
             }
         }
+    }
+
+    /// undo 기록이 상한을 넘어 오래된 단계를 처음 버렸으면 상태줄에 한 번 알린다(EDT-1, 결정
+    /// `docs/decisions/2026-10-19-undo-history-memory-limit.md` A).
+    fn notice_history_limit(&mut self, cx: &mut Context<Self>) {
+        if self.history_notice_shown || self.document.read(cx).dropped_undo_units() == 0 {
+            return;
+        }
+        self.history_notice_shown = true;
+        self.say(
+            format!(
+                "되돌리기 기록이 메모리 상한({} MiB)을 넘어 가장 오래된 단계부터 버렸다",
+                crate::document::HISTORY_LIMIT_BYTES / (1024 * 1024)
+            ),
+            cx,
+        );
     }
 
     /// 창 메시지를 남긴다(상태줄 표시는 S2-T5c).
@@ -806,10 +844,7 @@ impl ProjectWindow {
             || before.inspector_open != after.inspector_open
             || before.bottom_open != after.bottom_open;
         if shape_changed {
-            let (horizontal, vertical, subscriptions) = Self::fresh_states(cx);
-            self.horizontal = horizontal;
-            self.vertical = vertical;
-            self.resize_subscriptions = subscriptions;
+            self.reset_panel_states(cx);
         }
         AppSettings::update(cx, |s| merge_changes(&mut s.layout, before, after));
         cx.notify();
