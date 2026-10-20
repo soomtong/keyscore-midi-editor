@@ -159,10 +159,12 @@ fn wanted_names(cx: &App) -> Vec<String> {
 
 /// 그 이름 포트를 쓰는 창들.
 fn windows_using(cx: &App, name: &str) -> Vec<gpui_kit::Entity<ProjectWindow>> {
-    // 메트로놈 포트와 클럭 포트는 모든 창이 쓴다.
+    // 메트로놈 포트와 클럭 포트는 모든 창이 쓴다. 다만 앱 가상 포트 이름이면 같은 이름의 목적지는 쓰이지 않는다
+    // (앱 포트가 이긴다). 그 목적지의 오감은 핫플러그 알림으로 보인다(S2-T6e 리뷰 2 지적 1).
     let port = OutputPort::Named(name.to_owned());
-    if crate::transport::metronome_settings(cx).port == port
-        || crate::transport::clock_settings(cx).contains(&port)
+    if !crate::engine::is_own_port(cx, name)
+        && (crate::transport::metronome_settings(cx).port == port
+            || crate::transport::clock_settings(cx).contains(&port))
     {
         return project_windows(cx);
     }
