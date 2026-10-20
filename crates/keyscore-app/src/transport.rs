@@ -8,7 +8,7 @@ use keyscore_midi::{HostTime, MidiError};
 
 use crate::actions::transport;
 use crate::app_state::AppSettings;
-use crate::engine::{Engine, PortProblem, Setup, TransportState};
+use crate::engine::{Engine, PortProblem, Setup, TransportState, clock_commands};
 use crate::settings::MetronomeSettings;
 use crate::window::ProjectWindow;
 
@@ -28,6 +28,8 @@ pub(crate) struct Transport {
     pub(crate) metronome: bool,
     /// 지금 스냅샷에 메트로놈 포트가 없다(MET-1). 그동안은 버튼이 켜져 있어도 클릭을 끈다.
     pub(crate) metronome_missing: bool,
+    /// 지난 교체에서 메트로놈 설정이 들어가지 않았다. 다음 교체까지 클릭을 켜지 않는다.
+    metronome_unset: bool,
     pub(crate) messages: Vec<SharedString>,
 }
 
@@ -54,12 +56,27 @@ impl Transport {
         self.anchor = None;
         self.setup.clear();
         self.metronome_missing = false;
+        self.metronome_unset = false;
     }
 
     /// 스케줄러에 넘길 메트로놈 켬: 버튼이 켜져 있고 이 스냅샷에 메트로놈 포트가 있을 때.
     fn clicks(&self) -> bool {
-        self.metronome && !self.metronome_missing
+        self.metronome && !self.metronome_missing && !self.metronome_unset
     }
+}
+
+/// 스냅샷을 넣은 결과. 창 상태에 옮기고 알릴 것.
+struct Swapped {
+    missing: Vec<(String, PortProblem)>,
+    setup: Vec<Setup>,
+    routes: Vec<(String, u16)>,
+    tempo: TempoMap,
+    metronome_problem: Option<(String, PortProblem)>,
+    clock_missing: Vec<(String, PortProblem)>,
+    /// 교체 뒤 명령의 실패(재생 중 교체에서만). 교체는 들어갔으므로 알리기만 한다.
+    metronome_error: Option<MidiError>,
+    clock_error: Option<MidiError>,
+    send_error: Option<MidiError>,
 }
 
 /// 재생 위치의 기준점: 이 호스트 시각에 이 틱이었고, 그 뒤로는 이 템포 맵으로 흐른다.
@@ -217,18 +234,29 @@ impl ProjectWindow {
         let document = self.document.clone();
         let old_setup = std::mem::take(&mut self.transport.setup);
         let metronome = metronome_settings(cx);
+        let clock_ports = clock_settings(cx);
         let button = self.transport.metronome;
         let result = cx.update_global::<Engine, _>(|engine, cx| {
             let project = document.read(cx).project();
-            let prepared = engine.prepare(project, true, &metronome.port)?;
+            let prepared = engine.prepare(project, true, &metronome.port, &clock_ports)?;
             let tempo = project.tempo_map().clone();
+            // 지난 클럭 상태를 꺼낸다. 이 묶음이 끝까지 성공해야 새 상태를 적는다. 중간에 실패하면 모르는 상태로
+            // 남아 다음 교체가 모든 번호를 다시 맞춘다(S2-T6c 리뷰 2 제안 1 이월).
+            let old_clock = engine.take_clock_state();
+            let (clock_off, clock_on) = clock_commands(old_clock.as_deref(), &prepared.clock);
             let scheduler = engine.scheduler();
             // 스케줄러가 돌려준 옛 스냅샷을 해제한다. 쌓이면 교체 명령이 큐에서 막힌다(리뷰 2 지적 1).
             scheduler.collect_garbage();
-            // 포트 번호는 스냅샷마다 다시 매겨진다. 명령은 따로 큐에 들어가므로, 스케줄러가 교체와 새 메트로놈
-            // 설정 사이에 깨면 새 스냅샷에 옛 포트 번호로 클릭이 나갈 수 있다. 교체 전에 클릭을 끄고 새 번호를
-            // 넘긴 뒤 다시 켠다(S2-T6c 리뷰 1 지적 2). 그 틈의 박 하나는 울리지 않을 수 있다.
+            // 포트 번호는 스냅샷마다 다시 매겨진다. 명령은 따로 큐에 들어가므로, 스케줄러가 교체와 새 설정 사이에
+            // 깨면 새 스냅샷에 옛 포트 번호로 클릭·클럭이 나갈 수 있다. 교체 전에 클릭과 바뀐 클럭 번호를 끄고,
+            // 교체 뒤에 새 번호로 켠다(S2-T6c 리뷰 1 지적 2). 그 틈의 박 하나(클럭 한 칸)는 빠질 수 있다.
             scheduler.set_metronome_enabled(false)?;
+            let mut clock_error = None;
+            for port in clock_off {
+                if let Err(e) = scheduler.set_clock(port, false) {
+                    clock_error.get_or_insert(e);
+                }
+            }
             scheduler.swap(prepared.snapshot)?;
             // 교체는 들어갔다. 이 뒤의 실패는 상태를 되돌리지 않고 알리기만 한다(리뷰 2 제안 1).
             let mut send_error = None;
@@ -242,6 +270,11 @@ impl ProjectWindow {
             {
                 metronome_error = Some(e);
             }
+            for port in clock_on {
+                if let Err(e) = scheduler.set_clock(port, true) {
+                    clock_error.get_or_insert(e);
+                }
+            }
             for entry in prepared
                 .setup
                 .iter()
@@ -253,35 +286,29 @@ impl ProjectWindow {
                     }
                 }
             }
-            Ok::<_, MidiError>((
-                prepared.missing,
-                prepared.setup,
-                prepared.routes,
+            if clock_error.is_none() {
+                engine.set_clock_state(prepared.clock);
+            }
+            Ok::<_, MidiError>(Swapped {
+                missing: prepared.missing,
+                setup: prepared.setup,
+                routes: prepared.routes,
                 tempo,
-                send_error,
-                prepared.metronome_problem,
+                metronome_problem: prepared.metronome_problem,
+                clock_missing: prepared.clock_missing,
                 metronome_error,
-            ))
+                clock_error,
+                send_error,
+            })
         });
         match result {
-            Ok((missing, setup, routes, tempo, send_error, metronome_problem, metronome_error)) => {
+            Ok(swapped) => {
                 self.transport.anchor = Some(Anchor {
                     at: now,
                     tick: here,
-                    tempo,
+                    tempo: swapped.tempo.clone(),
                 });
-                self.transport.setup = setup;
-                self.transport.routes = routes;
-                self.report_missing(&missing);
-                self.report_metronome(metronome_problem.as_ref());
-                if let Some(e) = metronome_error {
-                    self.transport
-                        .say(format!("바뀐 메트로놈 설정을 보내지 못했다: {e}"));
-                }
-                if let Some(e) = send_error {
-                    self.transport
-                        .say(format!("바뀐 뱅크·프로그램을 보내지 못했다: {e}"));
-                }
+                self.apply_swapped(swapped);
             }
             Err(e) => {
                 self.transport.setup = old_setup;
@@ -303,6 +330,7 @@ impl ProjectWindow {
         let document = self.document.clone();
         let button = self.transport.metronome;
         let metronome = metronome_settings(cx);
+        let clock_ports = clock_settings(cx);
         // 앞 주인은 결과와 무관하게 정지 상태다. 아래 `stop`이 그 재생을 멈춘다.
         let previous = cx
             .global_mut::<Engine>()
@@ -318,8 +346,11 @@ impl ProjectWindow {
         // 트랙 수만큼 차서 재생이 실패할 수 있다(리뷰 1 지적 3).
         let result = cx.update_global::<Engine, _>(|engine, cx| {
             let project = document.read(cx).project();
-            let prepared = engine.prepare(project, false, &metronome.port)?;
+            let prepared = engine.prepare(project, false, &metronome.port, &clock_ports)?;
             let tempo = project.tempo_map().clone();
+            // 실패하면 클럭 상태는 모르는 채로 남는다(다음 재생이 모든 번호를 다시 맞춘다)
+            let old_clock = engine.take_clock_state();
+            let (clock_off, clock_on) = clock_commands(old_clock.as_deref(), &prepared.clock);
             let scheduler = engine.scheduler();
             scheduler.collect_garbage();
             scheduler.stop()?;
@@ -328,24 +359,33 @@ impl ProjectWindow {
                 scheduler.set_metronome(metronome.config(port))?;
             }
             scheduler.set_metronome_enabled(button && prepared.metronome.is_some())?;
+            // 클럭 번호는 재생 전에 맞춘다. 재생 시작의 Start/SPP가 그 포트들로 나간다(OUT-5).
+            for port in clock_off {
+                scheduler.set_clock(port, false)?;
+            }
+            for port in clock_on {
+                scheduler.set_clock(port, true)?;
+            }
             scheduler.play(from)?;
+            engine.set_clock_state(prepared.clock);
             engine.take_owner(Some(me.clone()));
-            Ok::<_, MidiError>((
-                prepared.missing,
-                prepared.setup,
-                prepared.routes,
+            Ok::<_, MidiError>(Swapped {
+                missing: prepared.missing,
+                setup: prepared.setup,
+                routes: prepared.routes,
                 tempo,
-                prepared.metronome_problem,
-            ))
+                metronome_problem: prepared.metronome_problem,
+                clock_missing: prepared.clock_missing,
+                metronome_error: None,
+                clock_error: None,
+                send_error: None,
+            })
         });
         match result {
-            Ok((missing, setup, routes, tempo, metronome_problem)) => {
+            Ok(swapped) => {
                 self.transport.state = TransportState::Playing;
-                self.transport.anchor = Some(Anchor::new(from, tempo));
-                self.transport.setup = setup;
-                self.transport.routes = routes;
-                self.report_missing(&missing);
-                self.report_metronome(metronome_problem.as_ref());
+                self.transport.anchor = Some(Anchor::new(from, swapped.tempo.clone()));
+                self.apply_swapped(swapped);
             }
             Err(e) => {
                 // 실패 전에 들어간 명령(정지 등)이 있을 수 있다. 상태를 소리와 맞춘다.
@@ -405,6 +445,57 @@ impl ProjectWindow {
         // 한 번 보낸다(따로 보내면 두 번 나간다, 리뷰 1 제안 5).
         self.transport.setup.retain(|s| s.destination != name);
         self.transport_document_changed(cx);
+    }
+
+    /// 교체 결과를 창 상태에 옮기고 문제를 알린다.
+    fn apply_swapped(&mut self, s: Swapped) {
+        self.transport.setup = s.setup;
+        self.transport.routes = s.routes;
+        self.report_missing(&s.missing);
+        self.report_metronome(s.metronome_problem.as_ref());
+        // 메트로놈 설정이 들어가지 않았으면 다음 교체까지 버튼 토글로 켜지 않는다(옛 포트 번호로 울리지 않게,
+        // S2-T6c 리뷰 2 제안 1 이월)
+        self.transport.metronome_unset = s.metronome_error.is_some();
+        for (name, problem) in &s.clock_missing {
+            let message = match problem {
+                PortProblem::NotFound => {
+                    format!("MIDI Clock 포트 「{name}」이 없어 클럭을 보내지 않는다")
+                }
+                PortProblem::OpenFailed(e) => {
+                    format!("MIDI Clock 포트 「{name}」을 열지 못해 클럭을 보내지 않는다: {e}")
+                }
+                PortProblem::TooMany => format!(
+                    "출력 포트가 너무 많아(최대 {}) MIDI Clock 포트 「{name}」로 클럭을 보내지 않는다",
+                    keyscore_midi::MAX_SCHEDULER_PORTS
+                ),
+            };
+            self.say_once(message);
+        }
+        if let Some(e) = s.metronome_error {
+            self.transport
+                .say(format!("바뀐 메트로놈 설정을 보내지 못했다: {e}"));
+        }
+        if let Some(e) = s.clock_error {
+            self.transport.say(format!(
+                "MIDI Clock 설정을 보내지 못했다(다음 편집 때 다시 맞춘다): {e}"
+            ));
+        }
+        if let Some(e) = s.send_error {
+            self.transport
+                .say(format!("바뀐 뱅크·프로그램을 보내지 못했다: {e}"));
+        }
+    }
+
+    /// 같은 메시지가 이미 있으면 다시 남기지 않는다.
+    fn say_once(&mut self, message: String) {
+        if !self
+            .transport
+            .messages
+            .iter()
+            .any(|m| m.as_ref() == message)
+        {
+            self.transport.say(message);
+        }
     }
 
     /// 메트로놈 포트를 찾지 못했으면 클릭을 끈 채로 두고 알린다(MET-1). 찾았으면 표시를 지운다.
@@ -479,6 +570,15 @@ pub(crate) fn metronome_settings(cx: &gpui_kit::App) -> MetronomeSettings {
         AppSettings::get(cx).metronome.clone()
     } else {
         MetronomeSettings::default()
+    }
+}
+
+/// 지금 클럭 포트 설정(OUT-5). 설정 전역이 없으면(시험) 없음.
+pub(crate) fn clock_settings(cx: &gpui_kit::App) -> Vec<keyscore_core::OutputPort> {
+    if cx.has_global::<AppSettings>() {
+        AppSettings::get(cx).midi_output.clock.clone()
+    } else {
+        Vec::new()
     }
 }
 

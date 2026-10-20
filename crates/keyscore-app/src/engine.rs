@@ -61,6 +61,10 @@ pub(crate) struct Engine {
     extras: Vec<Arc<VirtualOutput>>,
     /// 지웠지만 스냅샷이 아직 쥐고 있는 추가 포트. 스냅샷이 놓으면 버려 CoreMIDI 소스가 사라진다.
     retired: Vec<Arc<VirtualOutput>>,
+    /// 스케줄러에 켜 둔 클럭 포트(이름, 번호). `None`이면 모른다(처음, 또는 지난 명령 묶음이 실패했다).
+    clock_state: Option<Vec<(String, u16)>>,
+    /// 마지막으로 보낸 테스트 노트(시각, 포트 이름, PRE-2·PRE-3)
+    last_test: Option<(std::time::SystemTime, String)>,
     /// 지금 재생 중인 창. 한 번에 한 창만 재생한다.
     owner: Option<WeakEntity<ProjectWindow>>,
     /// 지난 재생 시작 때 찾지 못한 이름 포트. 재생 중 편집(스냅샷 교체)마다 메인 스레드에서 목적지를
@@ -121,6 +125,29 @@ pub(crate) struct Prepared {
     /// 메트로놈 포트의 이 스냅샷 번호. 찾지 못하면 `None`이고 그 이유는 `metronome_problem`이다.
     pub(crate) metronome: Option<u16>,
     pub(crate) metronome_problem: Option<(String, PortProblem)>,
+    /// 클럭을 켤 포트(OUT-5): (포트 이름, 이 스냅샷 번호). 기본 포트의 이름은 빈 문자열이다.
+    pub(crate) clock: Vec<(String, u16)>,
+    /// 찾지 못한 클럭 포트와 이유.
+    pub(crate) clock_missing: Vec<(String, PortProblem)>,
+}
+
+/// `prepare`가 트랙 밖 포트를 열 때 함께 넘기는 상태.
+struct ExtraPorts<'a, 'b> {
+    main_name: &'b str,
+    ports: &'b mut Vec<Arc<dyn MidiPort>>,
+    index: &'b mut HashMap<&'a str, u16>,
+    missing: &'b [(String, PortProblem)],
+    live: bool,
+    available: &'b mut Option<Vec<PortInfo>>,
+}
+
+/// 클럭 포트의 이름 열쇠(`Virtual`은 빈 문자열, 이름 포트는 그 이름). 이름으로 가리킨 기본 포트는 그 이름을
+/// 쓰지만 번호는 0이라 클럭 명령 계산에는 차이가 없다.
+fn port_key(port: &OutputPort) -> String {
+    match port {
+        OutputPort::Virtual => String::new(),
+        OutputPort::Named(name) => name.clone(),
+    }
 }
 
 /// 가상 포트를 추가·이름 변경·삭제하지 못한 이유.
@@ -272,8 +299,15 @@ pub fn rename_virtual_port(cx: &mut App, old: &str, new: &str) -> Result<String,
         } else if let Some(slot) = s.midi_output.virtual_ports.iter_mut().find(|n| *n == old) {
             slot.clone_from(&new);
         }
-        if s.metronome.port == OutputPort::Named(old.to_owned()) {
+        let was = OutputPort::Named(old.to_owned());
+        if s.metronome.port == was {
             s.metronome.port = OutputPort::Named(new.clone());
+        }
+        // 클럭 포트 목록도 새 이름을 따른다(OUT-5). 새 이름이 이미 있으면 하나만 남긴다
+        if s.midi_output.clock.contains(&was) {
+            let renamed = OutputPort::Named(new.clone());
+            s.midi_output.clock.retain(|p| *p != was && *p != renamed);
+            s.midi_output.clock.push(renamed);
         }
     });
     let renamed = OutputPort::Named(new.clone());
@@ -363,6 +397,122 @@ fn ports_edited(cx: &mut App, name: &str, refresh_owner: bool) {
     }
     crate::settings_window::ports_changed(cx);
     cx.refresh_windows();
+}
+
+/// 클럭 포트 짝(이름, 스냅샷 번호)이 `old`에서 `new`로 바뀔 때 스케줄러에 보낼 (끌 번호, 켤 번호).
+/// 짝이 같으면 아무것도 보내지 않는다. `old`가 없으면(처음, 또는 지난 묶음이 실패해 스케줄러 상태를 모른다)
+/// 모든 번호를 끄고 새 번호를 켠다.
+#[must_use]
+pub fn clock_commands(
+    old: Option<&[(String, u16)]>,
+    new: &[(String, u16)],
+) -> (Vec<u16>, Vec<u16>) {
+    let mut on: Vec<u16> = new.iter().map(|(_, i)| *i).collect();
+    on.sort_unstable();
+    on.dedup();
+    let Some(old) = old else {
+        let all = (0..u16::try_from(MAX_SCHEDULER_PORTS).unwrap_or(u16::MAX)).collect();
+        return (all, on);
+    };
+    let mut was: Vec<(&str, u16)> = old.iter().map(|(n, i)| (n.as_str(), *i)).collect();
+    let mut now: Vec<(&str, u16)> = new.iter().map(|(n, i)| (n.as_str(), *i)).collect();
+    was.sort_unstable();
+    was.dedup();
+    now.sort_unstable();
+    now.dedup();
+    if was == now {
+        return (Vec::new(), Vec::new());
+    }
+    let mut off: Vec<u16> = old.iter().map(|(_, i)| *i).collect();
+    off.sort_unstable();
+    off.dedup();
+    (off, on)
+}
+
+/// 앱이 마지막으로 보낸 테스트 노트(시각, 포트 이름). 리스너 연결은 알 수 없어(SP-4) 앱이 아는 것만 보인다.
+#[must_use]
+pub fn last_test_note(cx: &App) -> Option<(std::time::SystemTime, String)> {
+    if cx.has_global::<Engine>() {
+        cx.global::<Engine>().last_test.clone()
+    } else {
+        None
+    }
+}
+
+/// 앱 가상 포트 하나로 테스트 노트(채널 1, 가운데 C, 벨로시티 100, 미리듣기 길이)를 보낸다(PRE-3, 설정 >
+/// MIDI 출력). 정지 중이면 기본 포트와 그 포트를 든 스냅샷을 넣는다(인스펙터의 정지 중 경로와 같다). 다른
+/// 창이 재생 중이면 그 재생의 스냅샷을 바꾸지 않는다. 그 재생이 이 포트를 쓸 때만 보낸다.
+///
+/// # Errors
+///
+/// 보내지 못한 이유(사람이 읽는 글).
+pub fn send_port_test_note(cx: &mut App, name: &str) -> Result<(), String> {
+    if !cx.has_global::<Engine>() {
+        return Err(
+            "MIDI 엔진이 없어 테스트 노트를 보낼 수 없다(CoreMIDI를 열지 못했다)".to_owned(),
+        );
+    }
+    let engine = cx.global::<Engine>();
+    let is_main = engine.main.name() == name;
+    let extra = engine.extras.iter().find(|p| p.name() == name).cloned();
+    if !is_main && extra.is_none() {
+        return Err(format!("가상 포트 「{name}」이 없다"));
+    }
+    let port = if is_main {
+        // 기본 포트는 어느 스냅샷에서나 포트 0이다
+        0
+    } else if let Some(owner) = engine.owner() {
+        owner
+            .read(cx)
+            .transport
+            .routes
+            .iter()
+            .find(|(d, _)| d == name)
+            .map(|(_, i)| *i)
+            .ok_or_else(|| {
+                format!(
+                    "다른 창이 재생 중이고 그 재생이 「{name}」을 쓰지 않아 테스트 노트를 보낼 수 없다. 정지한 뒤 다시 한다"
+                )
+            })?
+    } else {
+        let engine = cx.global_mut::<Engine>();
+        let main: Arc<dyn MidiPort> = engine.main.clone();
+        let extra: Arc<dyn MidiPort> = extra.unwrap_or_else(|| engine.main.clone());
+        Snapshot::new(TempoMap::default(), vec![main, extra], Vec::new())
+            .and_then(|snapshot| engine.scheduler.swap(Arc::new(snapshot)))
+            .map_err(|e| format!("테스트 노트를 보내지 못했다: {e}"))?;
+        1
+    };
+    let pitch = keyscore_core::Pitch::new(60).map_err(|e| e.to_string())?;
+    let velocity = keyscore_core::Velocity::from_midi1(100).map_err(|e| e.to_string())?;
+    let engine = cx.global_mut::<Engine>();
+    engine
+        .scheduler
+        .preview(
+            port,
+            keyscore_core::Channel::new(1).map_err(|e| e.to_string())?,
+            pitch,
+            velocity,
+            keyscore_midi::DEFAULT_PREVIEW_LENGTH,
+        )
+        .map_err(|e| format!("테스트 노트를 보내지 못했다: {e}"))?;
+    engine.note_test_sent(name.to_owned());
+    Ok(())
+}
+
+/// 클럭 포트 설정이 바뀌었다(OUT-5). 재생 중이면 스냅샷을 다시 만들어 바로 반영한다.
+pub(crate) fn clock_changed(cx: &mut App) {
+    if !cx.has_global::<Engine>() {
+        return;
+    }
+    for port in crate::transport::clock_settings(cx) {
+        if let OutputPort::Named(name) = port {
+            cx.global_mut::<Engine>().forget_missing(&name);
+        }
+    }
+    if let Some(owner) = cx.global::<Engine>().owner() {
+        owner.update(cx, ProjectWindow::transport_refresh);
+    }
 }
 
 /// 메트로놈 설정이 바뀌었다(MET-1). 재생 중인 창이 있으면 스냅샷을 다시 만들어 클릭 포트·채널·노트·길이를
@@ -458,6 +608,8 @@ pub fn install(cx: &mut App, options: &EngineOptions) -> Result<(), MidiError> {
         scheduler,
         extras,
         retired: Vec::new(),
+        clock_state: None,
+        last_test: None,
         owner: None,
         known_missing: HashSet::new(),
     });
@@ -687,6 +839,20 @@ impl Engine {
         done
     }
 
+    /// 스케줄러의 클럭 상태를 꺼낸다(교체 묶음이 끝까지 성공하면 `set_clock_state`로 다시 적는다).
+    pub(crate) fn take_clock_state(&mut self) -> Option<Vec<(String, u16)>> {
+        self.clock_state.take()
+    }
+
+    pub(crate) fn set_clock_state(&mut self, state: Vec<(String, u16)>) {
+        self.clock_state = Some(state);
+    }
+
+    /// 테스트 노트를 보냈다(포트 이름).
+    pub(crate) fn note_test_sent(&mut self, port: String) {
+        self.last_test = Some((std::time::SystemTime::now(), port));
+    }
+
     /// 지금 재생 중인 창(살아 있으면).
     pub(crate) fn owner(&self) -> Option<gpui_kit::Entity<ProjectWindow>> {
         self.owner.as_ref().and_then(WeakEntity::upgrade)
@@ -725,6 +891,7 @@ impl Engine {
         project: &Project,
         live: bool,
         metronome: &OutputPort,
+        clock_ports: &[OutputPort],
     ) -> Result<Prepared, MidiError> {
         if !live {
             self.known_missing.clear();
@@ -737,6 +904,7 @@ impl Engine {
                 .iter()
                 .map(keyscore_core::Track::port)
                 .chain(std::iter::once(metronome))
+                .chain(clock_ports)
                 .filter_map(|p| match p {
                     OutputPort::Named(name) => Some(name.as_str()),
                     OutputPort::Virtual => None,
@@ -781,32 +949,28 @@ impl Engine {
             };
             track_ports.push(port);
         }
-        // 메트로놈 포트(MET-1): 트랙이 이미 연 포트면 그 번호, 아니면 트랙 포트와 같은 규칙으로 연다.
-        let (metronome, metronome_problem) = match metronome {
-            OutputPort::Virtual => (Some(0), None),
-            OutputPort::Named(name) if *name == main_name => (Some(0), None),
-            OutputPort::Named(name) if index.contains_key(name.as_str()) => {
-                (index.get(name.as_str()).copied(), None)
-            }
-            OutputPort::Named(name) => {
-                let opened = if let Some((_, problem)) = missing.iter().find(|(n, _)| n == name) {
-                    Err(problem.clone())
-                } else if ports.len() >= MAX_SCHEDULER_PORTS {
-                    Err(PortProblem::TooMany)
-                } else {
-                    self.open_port(name, live, &mut available)
-                };
-                match opened {
-                    Ok(p) => {
-                        ports.push(p);
-                        let i = u16::try_from(ports.len() - 1).unwrap_or(u16::MAX);
-                        index.insert(name, i);
-                        (Some(i), None)
-                    }
-                    Err(problem) => (None, Some((name.clone(), problem))),
-                }
-            }
+        // 메트로놈 포트(MET-1)와 클럭 포트(OUT-5): 트랙이 이미 연 포트면 그 번호, 아니면 트랙 포트와 같은 규칙으로
+        // 연다(트랙이 쓰지 않아도 스냅샷에 넣는다).
+        let mut extra = ExtraPorts {
+            main_name: &main_name,
+            ports: &mut ports,
+            index: &mut index,
+            missing: &missing,
+            live,
+            available: &mut available,
         };
+        let (metronome, metronome_problem) = match self.extra_port(metronome, &mut extra) {
+            Ok(i) => (Some(i), None),
+            Err(problem) => (None, Some(problem)),
+        };
+        let mut clock = Vec::new();
+        let mut clock_missing = Vec::new();
+        for port in clock_ports {
+            match self.extra_port(port, &mut extra) {
+                Ok(i) => clock.push((port_key(port), i)),
+                Err(problem) => clock_missing.push(problem),
+            }
+        }
         let setup = effective_setups(project, &track_ports);
         let mut routes = vec![(String::new(), 0), (main_name.clone(), 0)];
         routes.extend(index.iter().map(|(name, &i)| ((*name).to_owned(), i)));
@@ -854,7 +1018,42 @@ impl Engine {
             routes,
             metronome,
             metronome_problem,
+            clock,
+            clock_missing,
         })
+    }
+
+    /// 트랙 밖에서 쓰는 포트(메트로놈, 클럭)의 스냅샷 번호. 트랙이 연 포트면 그 번호, 트랙이 못 찾은 이름이면
+    /// 같은 이유, 아니면 트랙 포트와 같은 규칙으로 연다.
+    fn extra_port<'a>(
+        &mut self,
+        port: &'a OutputPort,
+        e: &mut ExtraPorts<'a, '_>,
+    ) -> Result<u16, (String, PortProblem)> {
+        let name = match port {
+            OutputPort::Virtual => return Ok(0),
+            OutputPort::Named(name) if name == e.main_name => return Ok(0),
+            OutputPort::Named(name) => name,
+        };
+        if let Some(&i) = e.index.get(name.as_str()) {
+            return Ok(i);
+        }
+        let opened = if let Some((_, problem)) = e.missing.iter().find(|(n, _)| n == name) {
+            Err(problem.clone())
+        } else if e.ports.len() >= MAX_SCHEDULER_PORTS {
+            Err(PortProblem::TooMany)
+        } else {
+            self.open_port(name, e.live, e.available)
+        };
+        match opened {
+            Ok(p) => {
+                e.ports.push(p);
+                let i = u16::try_from(e.ports.len() - 1).unwrap_or(u16::MAX);
+                e.index.insert(name, i);
+                Ok(i)
+            }
+            Err(problem) => Err((name.clone(), problem)),
+        }
     }
 
     /// 이름 포트: 앱의 추가 가상 포트가 그 이름이면 그것(OUT-2), 아니면 CoreMIDI 목적지를 연다. 앱 포트는

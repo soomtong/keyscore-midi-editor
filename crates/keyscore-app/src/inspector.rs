@@ -352,9 +352,14 @@ impl ProjectWindow {
             let mut missing = Vec::new();
             // 메트로놈 포트도 넘긴다. 빼면 준비가 그 포트를 「쓰지 않는 포트」로 보고 놓는다.
             let metronome_port = crate::transport::metronome_settings(cx).port;
+            let clock_ports = crate::transport::clock_settings(cx);
             let result = cx.update_global::<Engine, _>(|engine, cx| {
-                let prepared =
-                    engine.prepare(document.read(cx).project(), false, &metronome_port)?;
+                let prepared = engine.prepare(
+                    document.read(cx).project(),
+                    false,
+                    &metronome_port,
+                    &clock_ports,
+                )?;
                 let port = prepared
                     .routes
                     .iter()
@@ -394,10 +399,14 @@ impl ProjectWindow {
         let port = port_label(track.port(), &virtual_name);
         let channel = track.channel().get();
         match result {
-            Ok(true) => self.say(
-                format!("테스트 노트를 보냈다: {port} ch{channel}. 신디에서 들리는지 확인한다"),
-                cx,
-            ),
+            Ok(true) => {
+                // 설정 > MIDI 출력의 포트 상태가 보인다(PRE-2)
+                cx.global_mut::<Engine>().note_test_sent(port.clone());
+                self.say(
+                    format!("테스트 노트를 보냈다: {port} ch{channel}. 신디에서 들리는지 확인한다"),
+                    cx,
+                );
+            }
             Ok(false) => self.say(
                 format!("출력 포트 「{port}」을 열지 못해 테스트 노트를 보내지 못했다"),
                 cx,
