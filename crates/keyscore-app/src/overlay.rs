@@ -74,7 +74,7 @@ fn lines_for(path: &[&str], cx: &App) -> Vec<Line> {
         .collect();
     let entries = crate::commands::palette_entries(cx);
     // 변형이 없는(값이 열린) 인자의 표기는 GPUI Action에서 꺼낼 수 없어(`Debug`는 이름만 찍는다) 키맵 원문에서
-    // 찾는다. 키는 엔진이 실제로 거는 키(수식키 교환 반영)로 맞춘다(리뷰 2 지적 2).
+    // 찾는다(리뷰 2 지적 2). 원문 항목은 인자로 Action을 다시 만들어 엔진의 Action과 맞춘다.
     let source = {
         let (layers, _) = crate::keymap::current_layers(cx);
         crate::keymap::user::effective_with(&layers, crate::keymap::options(cx).swap_alt_cmd)
@@ -111,10 +111,16 @@ fn lines_for(path: &[&str], cx: &App) -> Vec<Line> {
         let (order, title, key) = if let Some(i) = found {
             (i, entries[i].label().to_string(), format!("#{i}"))
         } else {
-            let typed = crate::keymap::canonical_keys(&keys_text(binding.keystrokes()));
+            // 키·이름으로 찾으면 같은 키가 다른 컨텍스트에서 다른 인자로 걸린 경우 엔진이 고르지 않은 항목을
+            // 집는다. 항목의 인자로 Action을 만들어 엔진이 고른 Action과 같은 것을 쓴다(S2-T6b 리뷰 3 제안)
             let label = source
                 .iter()
-                .find(|e| e.name == name && crate::keymap::canonical_keys(&e.keys) == typed)
+                .find(|e| {
+                    e.name == name
+                        && cx
+                            .build_action(&e.name, e.args.clone())
+                            .is_ok_and(|built| built.partial_eq(action))
+                })
                 .map_or_else(|| name.to_owned(), |e| e.action.clone());
             let args = label
                 .strip_prefix(name)
@@ -163,14 +169,6 @@ fn key_element(k: &Keystroke) -> gpui_kit::AnyElement {
         return div().px_1().child("⌦").into_any_element();
     }
     Kbd::new(k.clone()).into_any_element()
-}
-
-/// 바인딩 키 시퀀스의 GPUI 표기.
-fn keys_text(keys: &[gpui_kit::KeybindingKeystroke]) -> String {
-    keys.iter()
-        .map(gpui_kit::KeybindingKeystroke::unparse)
-        .collect::<Vec<_>>()
-        .join(" ")
 }
 
 fn page_count(lines: usize) -> usize {
