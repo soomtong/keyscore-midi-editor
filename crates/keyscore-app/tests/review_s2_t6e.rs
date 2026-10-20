@@ -651,7 +651,9 @@ fn review_clock_named_main_port_shows_on(cx: &mut TestAppContext) {
     );
 }
 
-/// 대조군: 같은 하네스에서 나타난 클럭 포트는 정지 뒤 다시 재생하면 Clock을 받는다. 편집만으로는 받지 못한다(재생 시작이 「없음」으로 기억했고 포트 감시가 그 이름을 보지 않는다).
+/// 대조군: 같은 하네스에서 나타난 클럭 포트는 정지 뒤 다시 재생하면 Clock을 받는다. 리뷰 1 때는 편집만으로는
+/// 받지 못했다(재생 시작이 「없음」으로 기억했고 포트 감시가 그 이름을 보지 않았다). 지적 1 수정 뒤에는 포트
+/// 감시가 이어 주므로 편집 뒤에도 받는다(구현자가 기대값을 바꿨다).
 #[gpui_kit::test]
 fn review_control_clock_port_appearing_needs_replay(cx: &mut TestAppContext) {
     if run_isolated("review_control_clock_port_appearing_needs_replay") {
@@ -664,7 +666,7 @@ fn review_control_clock_port_appearing_needs_replay(cx: &mut TestAppContext) {
     pump_for(cx, h, Duration::from_millis(300));
     let dest = Destination::new(&dest_name);
     pump_for(cx, h, Duration::from_secs(1));
-    // 편집(트랙 하나 더하기)으로 스냅샷을 다시 만들어도 이어지지 않는다
+    // 편집(트랙 하나 더하기)으로 스냅샷을 다시 만들면 이어져 있다(포트 감시가 먼저 이었다)
     let track = keyscore_core::Track::new(
         "Y",
         keyscore_core::Channel::new(3).unwrap(),
@@ -683,10 +685,9 @@ fn review_control_clock_port_appearing_needs_replay(cx: &mut TestAppContext) {
     });
     cx.run_until_parked();
     let after_edit = dest.collect(Duration::from_millis(500));
-    assert_eq!(
-        count(&after_edit, 0xF8),
-        0,
-        "편집으로 이어졌다(지적 재검토 필요)"
+    assert!(
+        count(&after_edit, 0xF8) > 0,
+        "나타난 클럭 포트가 편집 뒤에도 이어지지 않았다"
     );
     // 다시 재생하면 이어진다: 스케줄러·하네스는 늦게 나타난 목적지로 Clock을 보낼 수 있다
     run(cx, h, transport::Stop);
