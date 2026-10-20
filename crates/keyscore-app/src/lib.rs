@@ -137,6 +137,7 @@ pub fn project_window_options(_: &App) -> WindowOptions {
             title: Some("KeyScore".into()),
             ..Default::default()
         }),
+        window_min_size: Some(PROJECT_WINDOW_MIN_SIZE),
         ..Default::default()
     }
 }

@@ -113,6 +113,7 @@ pub fn window_options() -> WindowOptions {
             title: Some("설정".into()),
             ..Default::default()
         }),
+        window_min_size: Some(crate::SETTINGS_WINDOW_MIN_SIZE),
         ..Default::default()
     }
 }
