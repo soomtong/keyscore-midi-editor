@@ -5,7 +5,7 @@
 use std::path::PathBuf;
 
 use gpui_kit::test::TestWindowExt as _;
-use gpui_kit::{AnyWindowHandle, AppContext as _, Entity, TestAppContext, px};
+use gpui_kit::{AnyWindowHandle, AppContext as _, Entity, TestAppContext, px, size};
 use keyscore_app::actions::view::{ToggleBottomPanel, ToggleInspector, ToggleTrackList};
 use keyscore_app::app_state::AppSettings;
 use keyscore_app::settings::{LayoutSettings, Settings};
@@ -294,4 +294,35 @@ fn non_utf8_settings_file_is_backed_up_byte_for_byte() {
     assert_eq!(std::fs::read(&bak).unwrap(), bytes);
     // 원본도 읽기에서 지워지지 않는다.
     assert_eq!(std::fs::read(&path).unwrap(), bytes);
+}
+
+// ---------- S2-T6f: 리뷰 3 제안 1(부록)을 저장소 테스트로 ----------
+
+/// 창 크기를 바꾸면 사이드·아래 패널은 저장된 크기를 지키고 메인 영역이 늘고 준다.
+#[gpui_kit::test]
+fn window_resize_keeps_side_panels_at_stored_widths(cx: &mut TestAppContext) {
+    start_with(cx, "window-resize", |_| {});
+    let (handle, view) = open(cx);
+    let layout = cx.read(|cx| view.read(cx).layout());
+    check_window(cx, handle, &view, layout, "창 크기 바꾸기 전");
+    cx.simulate_window_resize(handle, size(px(1000.0), px(700.0)));
+    draw(cx, handle);
+    let after = cx.read(|cx| view.read(cx).layout());
+    check_window(cx, handle, &view, after, "창 크기 바꾼 뒤");
+}
+
+/// 창 크기를 바꾼 뒤 인스펙터만 조절하면 트랙 목록의 저장 너비가 바뀌지 않는다.
+#[gpui_kit::test]
+fn inspector_resize_after_window_resize_keeps_track_list_width(cx: &mut TestAppContext) {
+    start_with(cx, "window-resize-then-inspector", |_| {});
+    let (handle, view) = open(cx);
+    cx.simulate_window_resize(handle, size(px(1000.0), px(700.0)));
+    draw(cx, handle);
+    resize(cx, handle, &view, false, 2, 200.0);
+    let layout = cx.read(|cx| view.read(cx).layout());
+    let saved = cx.read(|cx| AppSettings::get(cx).layout);
+    assert!(
+        close(layout.track_list_width, 220.0) && close(saved.track_list_width, 220.0),
+        "창 {layout:?}, 설정 {saved:?}"
+    );
 }

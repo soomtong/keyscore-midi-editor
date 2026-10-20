@@ -105,6 +105,18 @@ pub struct SettingsWindow {
     _subscriptions: Vec<Subscription>,
 }
 
+/// 설정 창의 창 옵션.
+#[must_use]
+pub fn window_options() -> WindowOptions {
+    WindowOptions {
+        titlebar: Some(TitlebarOptions {
+            title: Some("설정".into()),
+            ..Default::default()
+        }),
+        ..Default::default()
+    }
+}
+
 /// 설정 창을 연다. 이미 있으면 앞으로 가져오고 구역만 바꾼다. 구역이 없으면 키맵이다.
 pub fn open(cx: &mut App, section: Option<SettingsSection>) {
     if let Some((handle, view)) = current(cx) {
@@ -118,14 +130,7 @@ pub fn open(cx: &mut App, section: Option<SettingsSection>) {
         });
         return;
     }
-    let options = WindowOptions {
-        titlebar: Some(TitlebarOptions {
-            title: Some("설정".into()),
-            ..Default::default()
-        }),
-        ..Default::default()
-    };
-    let opened = gpui_kit::open_window(options, cx, |window, cx| {
+    let opened = gpui_kit::open_window(window_options(), cx, |window, cx| {
         cx.new(|cx| {
             let mut this = SettingsWindow::new(window, cx);
             this.set_section(section.unwrap_or(SettingsSection::Keymap), window, cx);

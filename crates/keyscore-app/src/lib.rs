@@ -116,6 +116,31 @@ pub enum OpenError {
     Window(String),
 }
 
+/// 프로젝트 창의 최소 크기(논리 픽셀). 펴진 세 패널의 기본 크기(트랙 목록 220, 인스펙터 260, 아래 160)와
+/// 메인 영역, 트랜스포트 줄·상태줄이 들어가고, 상태줄 위에 뜨는 모드 메뉴가 모드 표시를 덮지 않는 크기다.
+pub const PROJECT_WINDOW_MIN_SIZE: gpui_kit::Size<gpui_kit::Pixels> = gpui_kit::Size {
+    width: gpui_kit::px(720.0),
+    height: gpui_kit::px(480.0),
+};
+
+/// 설정 창의 최소 크기(구역 목록 + 선택 상자 한 줄이 들어간다).
+pub const SETTINGS_WINDOW_MIN_SIZE: gpui_kit::Size<gpui_kit::Pixels> = gpui_kit::Size {
+    width: gpui_kit::px(560.0),
+    height: gpui_kit::px(400.0),
+};
+
+/// 프로젝트 창의 창 옵션.
+#[must_use]
+pub fn project_window_options(_: &App) -> WindowOptions {
+    WindowOptions {
+        titlebar: Some(TitlebarOptions {
+            title: Some("KeyScore".into()),
+            ..Default::default()
+        }),
+        ..Default::default()
+    }
+}
+
 /// 프로젝트 하나로 새 창을 연다.
 ///
 /// # Errors
@@ -125,14 +150,21 @@ pub fn open_project_window(
     project: Project,
     cx: &mut App,
 ) -> Result<(AnyWindowHandle, gpui_kit::Entity<ProjectWindow>), OpenError> {
-    let document = ProjectDocument::new(project)?;
-    let options = WindowOptions {
-        titlebar: Some(TitlebarOptions {
-            title: Some("KeyScore".into()),
-            ..Default::default()
-        }),
-        ..Default::default()
-    };
+    open_project_window_with_history_limit(project, document::HISTORY_LIMIT_BYTES, cx)
+}
+
+/// undo 히스토리 상한을 정해 창을 연다(시험이 작은 상한으로 상한 알림을 본다). 앱은 [`open_project_window`]를 쓴다.
+///
+/// # Errors
+///
+/// [`OpenError`].
+pub fn open_project_window_with_history_limit(
+    project: Project,
+    limit_bytes: usize,
+    cx: &mut App,
+) -> Result<(AnyWindowHandle, gpui_kit::Entity<ProjectWindow>), OpenError> {
+    let document = ProjectDocument::with_limit(project, limit_bytes)?;
+    let options = project_window_options(cx);
     gpui_kit::open_window(options, cx, |window, cx| {
         let document = cx.new(|_| document);
         cx.new(|cx| {

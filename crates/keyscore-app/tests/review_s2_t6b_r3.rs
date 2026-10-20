@@ -428,3 +428,47 @@ fn overlay_lines_is_fresh_before_redraw(cx: &mut TestAppContext) {
     reload(cx, handle);
     assert!(lines(cx, &view).is_some());
 }
+
+// ---------- S2-T6f: 리뷰 3 부록 C1·C2를 저장소 테스트로 ----------
+
+/// 손으로 쓴 전역 `f1` → `play::SelectTrack(2)`가 Play의 `f1`(1)과 겹칠 때, 라벨은 엔진이 실제로 고른 것과 같다.
+#[gpui_kit::test]
+fn argument_label_with_global_override(cx: &mut TestAppContext) {
+    start(
+        cx,
+        "global",
+        Some(r#"[{"bindings": {"f1": "play::SelectTrack(2)"}}]"#),
+    );
+    let (handle, view) = open(cx);
+    run(cx, handle, mode::Play);
+    run(cx, handle, help::KeymapOverlay);
+    let bad = arg_mismatches(cx, &view);
+    assert!(bad.is_empty(), "{bad:#?}");
+}
+
+/// vim: 편집기로 Normal의 카운트 키 `1`을 `2`로 옮기면 Normal의 `2`는 `Count(1)`, `PianoRoll`의 `2`는 그대로
+/// `Count(2)`다. 두 경로의 라벨이 엔진이 고른 것과 같다.
+#[gpui_kit::test]
+fn argument_label_editor_rebind_shadowed_by_deeper_context(cx: &mut TestAppContext) {
+    start(cx, "deeper", None);
+    let (handle, view) = open(cx);
+    cx.update(|cx| keymap::set_preset(cx, keymap::Preset::Vim));
+    cx.run_until_parked();
+    cx.update(|cx| {
+        let (layers, user) = keymap::current_layers(cx);
+        let mut user = user.unwrap();
+        let eff = keymap::user::effective_with(&layers, false);
+        user.bind("operator::Count", Some("Normal"), "2", &eff);
+        keymap::save_user(cx, &user).unwrap();
+    });
+    cx.run_until_parked();
+    render(cx, handle);
+    run(cx, handle, help::KeymapOverlay);
+    let normal = arg_mismatches(cx, &view);
+    event(cx, handle, &view, ModeEvent::ToggleView);
+    let roll = arg_mismatches(cx, &view);
+    assert!(
+        normal.is_empty() && roll.is_empty(),
+        "{normal:#?} {roll:#?}"
+    );
+}

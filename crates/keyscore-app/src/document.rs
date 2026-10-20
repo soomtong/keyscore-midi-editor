@@ -5,8 +5,9 @@
 
 use keyscore_core::{Document, Edit, ModelError, Project};
 
-/// undo 히스토리 메모리 상한의 임시값. 정책은 S2-T6에서 정한다(S0-T4 이월, EDT-1).
-const HISTORY_LIMIT_BYTES: usize = 256 * 1024 * 1024;
+/// undo 히스토리 메모리 상한(창마다). 넘으면 가장 오래된 단위부터 버리고 처음 한 번 알린다(EDT-1, 결정
+/// `docs/decisions/2026-10-19-undo-history-memory-limit.md` A).
+pub const HISTORY_LIMIT_BYTES: usize = 256 * 1024 * 1024;
 
 /// 창의 문서. GPUI `Entity<ProjectDocument>`로 담긴다.
 pub struct ProjectDocument {
@@ -20,10 +21,25 @@ impl ProjectDocument {
     ///
     /// 프로젝트가 히스토리 상한보다 크면 [`ModelError`].
     pub fn new(project: Project) -> Result<Self, ModelError> {
+        Self::with_limit(project, HISTORY_LIMIT_BYTES)
+    }
+
+    /// 히스토리 상한을 정해 만든다(시험이 작은 상한을 쓴다).
+    ///
+    /// # Errors
+    ///
+    /// 프로젝트가 히스토리 상한보다 크면 [`ModelError`].
+    pub fn with_limit(project: Project, limit_bytes: usize) -> Result<Self, ModelError> {
         Ok(ProjectDocument {
-            document: Document::new(project, HISTORY_LIMIT_BYTES)?,
+            document: Document::new(project, limit_bytes)?,
             dirty: false,
         })
+    }
+
+    /// 상한 때문에 지금까지 버린 undo 단위 수.
+    #[must_use]
+    pub fn dropped_undo_units(&self) -> u64 {
+        self.document.dropped_undo_units()
     }
 
     #[must_use]
