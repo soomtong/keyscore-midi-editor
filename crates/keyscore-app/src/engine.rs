@@ -141,7 +141,8 @@ struct ExtraPorts<'a, 'b> {
     available: &'b mut Option<Vec<PortInfo>>,
 }
 
-/// 클럭 포트의 이름 열쇠(기본 포트는 빈 문자열). 이름으로 가리킨 기본 포트도 빈 문자열이다.
+/// 클럭 포트의 이름 열쇠(`Virtual`은 빈 문자열, 이름 포트는 그 이름). 이름으로 가리킨 기본 포트는 그 이름을
+/// 쓰지만 번호는 0이라 클럭 명령 계산에는 차이가 없다.
 fn port_key(port: &OutputPort) -> String {
     match port {
         OutputPort::Virtual => String::new(),
