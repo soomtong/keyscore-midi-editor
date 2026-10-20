@@ -79,9 +79,10 @@ pub struct ProjectWindow {
     /// 문서가 바뀌면 재생 중 스냅샷을 교체한다(TRN-3). 창이 닫히면 재생을 멈춘다.
     _document_changed: Subscription,
     _released: Subscription,
-    /// 마지막으로 그릴 때 요청한 사이드 패널 너비(트랙 목록, 인스펙터). 창이 좁으면 저장값을 줄여 요청한다.
-    /// 조절 사건에서 이 값과 다른 패널만 사람이 끈 패널로 보고 저장한다.
-    requested: (f32, f32),
+    /// 가로 패널 크기 상태가 지금 그리는 사이드 패널 너비(트랙 목록, 인스펙터)의 기준. 상태를 새로 만든 뒤
+    /// 처음 그릴 때 요청한 너비로 채우고, 조절을 저장할 때마다 그 조절 뒤 너비로 옮긴다. 조절 사건에서 이 값과
+    /// 다른 패널만 사람이 끈 패널로 본다. `None`이면 상태를 새로 만들어 아직 그리지 않았다.
+    baseline: Option<(f32, f32)>,
     /// 창 크기 바뀜 구독(패널 크기 상태를 새로 만든다).
     _window_resized: Subscription,
 }
@@ -152,7 +153,7 @@ impl ProjectWindow {
             history_notice_shown: false,
             _document_changed: document_changed,
             _released: released,
-            requested: (0.0, 0.0),
+            baseline: None,
             _window_resized: window_resized,
         };
         this.refresh_fields(window, cx);
@@ -165,6 +166,7 @@ impl ProjectWindow {
         self.horizontal = horizontal;
         self.vertical = vertical;
         self.resize_subscriptions = subscriptions;
+        self.baseline = None;
         cx.notify();
     }
 
@@ -870,8 +872,9 @@ impl ProjectWindow {
                 // 지적 1). 그릴 때 요청한 너비와 다른 패널이 끈 패널이다.
                 // 메인이 최소 너비에 닿은 채 한쪽 경계를 끌면 gpui-base가 반대쪽 패널을 밀어낸다. 둘 다 바뀌었으면
                 // 더 많이 바뀐 쪽이 끈 패널이고 밀린 쪽은 저장하지 않는다.
-                let (asked_track, asked_inspector) = self.requested;
                 let last = sizes.len() - 1;
+                let (asked_track, asked_inspector) =
+                    self.baseline.unwrap_or((sizes[0], sizes[last]));
                 let track_delta = if l.track_list_open {
                     (asked_track - sizes[0]).abs()
                 } else {
@@ -886,6 +889,8 @@ impl ProjectWindow {
                     .then(|| sizes[0]);
                 let inspector = (inspector_delta > SIZE_EPSILON && inspector_delta > track_delta)
                     .then(|| sizes[last]);
+                // 다음 조절의 기준은 이 조절 뒤 그린 너비다(줄여 그리는 동안 저장값과 다르다, 리뷰 2 지적 2)
+                self.baseline = Some((sizes[0], sizes[last]));
                 self.change_layout(cx, |l| {
                     if let Some(v) = track.filter(|&v| keep(v)) {
                         l.track_list_width = v;
@@ -933,7 +938,10 @@ impl Render for ProjectWindow {
         // 사람이 끌었는지 가릴 수 없다). 메인 영역에는 최소 크기를 남긴다.
         let (track_w, inspector_w) =
             fit_side_panels(layout, f32::from(window.viewport_size().width));
-        self.requested = (track_w, inspector_w);
+        // 새 상태는 요청한 너비로 그려진다(패널 최소보다 작게 요청하지 않는다). 그것이 첫 기준이다
+        if self.baseline.is_none() {
+            self.baseline = Some((track_w, inspector_w));
+        }
         let range = px(*PANEL_SIZE_RANGE.start())..px(*PANEL_SIZE_RANGE.end());
         let main_label = match self.mode.view() {
             View::Arrangement => "배치 뷰",
@@ -1023,6 +1031,7 @@ impl Render for ProjectWindow {
 /// 창 너비에 맞춘 사이드 패널 너비(트랙 목록, 인스펙터). 펴진 패널 합과 메인 최소 너비가 창보다 크면 둘을 같은
 /// 비율로 줄인다. 저장값은 바꾸지 않는다.
 fn fit_side_panels(layout: LayoutSettings, width: f32) -> (f32, f32) {
+    let min = *PANEL_SIZE_RANGE.start();
     let track = if layout.track_list_open {
         layout.track_list_width
     } else {
@@ -1038,15 +1047,30 @@ fn fit_side_panels(layout: LayoutSettings, width: f32) -> (f32, f32) {
     if total <= room || total <= 0.0 || width <= 0.0 {
         return (layout.track_list_width, layout.inspector_width);
     }
+    // 같은 비율로 줄이되 펴진 패널은 패널 최소(gpui-base가 그 아래로 그리지 않는다)보다 작게 요청하지 않는다.
+    // 한쪽이 최소에 걸리면 남는 자리를 다른 쪽에 준다(리뷰 2 지적 1)
     let scale = room / total;
+    let (mut t, mut i) = (track * scale, inspector * scale);
+    if layout.track_list_open && t < min {
+        t = min;
+        if layout.inspector_open {
+            i = (room - t).max(min);
+        }
+    }
+    if layout.inspector_open && i < min {
+        i = min;
+        if layout.track_list_open {
+            t = (room - i).max(min);
+        }
+    }
     (
         if layout.track_list_open {
-            track * scale
+            t
         } else {
             layout.track_list_width
         },
         if layout.inspector_open {
-            inspector * scale
+            i
         } else {
             layout.inspector_width
         },
