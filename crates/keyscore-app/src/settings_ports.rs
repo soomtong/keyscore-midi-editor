@@ -289,7 +289,7 @@ impl SettingsWindow {
                         "고른 포트로 채널 1의 가운데 C를 보낸다. 신디에서 들리는지 확인한다(PRE-3).",
                     )),
             )
-            .child(port_status(&tab.names, cx))
+            .child(port_status(&tab.names, &selected, cx))
             .child(render_clock_list(cx))
     }
 
@@ -315,7 +315,7 @@ impl SettingsWindow {
 }
 
 /// 포트 상태(PRE-2). 가상 포트에 리스너가 붙었는지는 공개 API로 알 수 없어(SP-4) 앱이 아는 것만 보인다.
-fn port_status(names: &[String], cx: &App) -> impl IntoElement {
+fn port_status(names: &[String], selected: &str, cx: &App) -> impl IntoElement {
     let last = match engine::last_test_note(cx) {
         Some((at, port)) => {
             let ago = at.elapsed().map_or(0, |d| d.as_secs());
@@ -323,9 +323,9 @@ fn port_status(names: &[String], cx: &App) -> impl IntoElement {
         }
         None => "없음".to_owned(),
     };
-    let main = names.first().cloned().unwrap_or_default();
+    // 안내는 지금 고른 포트 이름으로 한다(리뷰 1 제안 2)
     let text = format!(
-        "가상 포트 {}개 활성 · 마지막 테스트 노트: {last} · 들리지 않으면 신디의 MIDI 입력에서 「{main}」을 고른다",
+        "가상 포트 {}개 활성 · 마지막 테스트 노트: {last} · 들리지 않으면 신디의 MIDI 입력에서 「{selected}」을 고른다",
         names.len()
     );
     div()
