@@ -99,3 +99,7 @@ cargo test --workspace: 1507 passed, 0 failed, 2 ignored(무시 둘은 이전부
 | 제안 3: 처음 나타난 포트에도 「다시 연결했다」 문구 | 트랙·메트로놈 포트와 같은 문구라 그대로 둔다 |
 
 리뷰 테스트 `tests/review_s2_t6e_r2.rs`(6개)는 남기고 모두 통과한다.
+
+## 리뷰 3 대응
+
+판정 「병합 가능」. 제안 하나(트랙이 앱 추가 포트 Y를 쓰는 창에서는 같은 이름 목적지 Y의 오감이 알려지지 않는다, S2-T6d부터 있던 동작)는 S2-T6f로 이월한다. 대조군 `review3_control_track_on_own_port_hides_same_name_destination`이 지금 동작을 잡고 있어 고칠 때 기대값을 함께 바꾼다. 리뷰 테스트 `tests/review_s2_t6e_r3.rs`(4개)는 남긴다.
