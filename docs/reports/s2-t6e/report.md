@@ -1,0 +1,79 @@
+# Task 보고: S2-T6e 포트별 MIDI Clock, 테스트 노트, 포트 상태 표시
+
+- PR: 브랜치 `s2/t6e-clock-test-note`
+- 계획 파일: docs/reports/s2-t6e/plan.md
+- 계획 대비 달라진 점
+  - 시험 API `ProjectWindow::clock_ports`는 만들지 않았다. 테스트는 목적지에서 받은 메시지로 본다.
+  - 엔진 공개 함수 `send_port_test_note`를 더했다(설정 창이 부른다).
+  - 클럭 포트 상태는 창이 아니라 엔진(`Engine.clock_state`)이 가진다. 스케줄러의 클럭 마스크는 앱에 하나라, 재생하는 창이 바뀌어도 지난 상태와 비교해야 한다.
+
+## 구현 요약
+
+- `src/settings.rs`: `midi_output.clock`(포트 목록).
+  - 모양은 메트로놈 포트와 같다(`"virtual"` 또는 `{"named": 이름}`).
+  - 잘못된 항목과 중복은 빼고 경고한다.
+- `src/engine.rs`
+  - `prepare(…, clock_ports)`: 메트로놈과 클럭 포트를 같은 도우미(`extra_port`)로 연다.
+    - 트랙이 연 포트면 그 번호를 쓰고, 트랙이 못 찾은 이름이면 같은 이유로 실패한다.
+    - 아니면 트랙 포트 규칙으로 열어, 트랙이 쓰지 않아도 스냅샷에 넣는다.
+    - 결과는 `Prepared.clock`(이름, 번호)과 `clock_missing`이다.
+  - `clock_commands(old, new)`: 끌 번호와 켤 번호를 계산한다.
+    - 짝이 같으면 명령이 없다.
+    - 짝이 다르면 옛 번호를 끄고 새 번호를 켠다.
+    - 지난 상태를 모르면 모든 번호를 끈 뒤 새 번호를 켠다.
+  - `Engine.clock_state`
+    - 교체 묶음을 시작할 때 꺼낸다(`take_clock_state`).
+    - 묶음이 끝까지 성공해야 다시 적는다. 실패하면 모르는 상태로 남아, 다음 교체가 처음부터 맞춘다(S2-T6c 리뷰 2 제안 1 이월).
+  - `send_port_test_note(name)`: 테스트 노트(ch1, 60, 100, 200 ms)를 보낸다.
+    - 기본 포트는 포트 0으로 보낸다.
+    - 정지 중이면 기본 포트와 그 포트를 든 스냅샷을 넣고 보낸다.
+    - 다른 창이 재생 중이면 그 재생이 이 포트를 쓸 때만 그 번호로 보낸다. 쓰지 않으면 거부하고 알린다.
+  - `note_test_sent`·`last_test_note`: 마지막 테스트 노트를 기록한다. 인스펙터 경로도 기록한다.
+  - `clock_changed`: 재생 중이면 다시 준비한다.
+  - 가상 포트 이름을 바꾸면 클럭 목록도 새 이름으로 바뀐다.
+- `src/transport.rs`
+  - 재생 시작 순서는 교체 → 메트로놈 → 클럭 끄기·켜기 → 재생이다. 재생 시작의 Start/SPP가 새 클럭 포트로 나간다.
+  - 재생 중 교체 순서는 클릭 끄기 → 바뀐 클럭 번호 끄기 → 교체 → 메트로놈 → 새 클럭 번호 켜기 → 바뀐 음색이다.
+  - 결과는 `Swapped`로 묶어 `apply_swapped`가 알린다. 없는 클럭 포트, 클럭·메트로놈 명령 실패를 알린다.
+  - 메트로놈 설정이 들어가지 않았으면(`metronome_unset`) 다음 교체까지 버튼 토글이 클릭을 켜지 않는다.
+- `src/settings_ports.rs`
+  - 「테스트 노트 보내기」 버튼(Tab 정지점)과 설정 창의 `midi::SendTestNote` 처리기.
+  - 포트 상태 줄(`settings-port-status`): 가상 포트 수, 마지막 테스트 노트(포트, 몇 초 전), 「신디의 MIDI 입력에서 이 포트를 고른다」 안내.
+  - MIDI Clock 목록: 포트 선택지마다 체크 상자 하나. 켜 둔 포트가 지금 없어도 보인다.
+
+## 테스트 결과
+
+~~~
+cargo test --workspace: 1507 passed, 0 failed, 2 ignored(무시 둘은 이전부터 있던 자식 프로세스 전용 테스트)
+~~~
+
+| 계획의 테스트 # | 실제 테스트 이름 | 상태 |
+| --- | --- | --- |
+| 1 | `clock_settings_round_trip` | 통과 |
+| 2 | `clock_port_receives_start_clock_stop` | 통과 |
+| 3 | `clock_toggle_while_playing_and_survives_edits` | 통과 |
+| 4 | `settings_test_note_sends_to_selected_port` | 통과 |
+| 5 | `port_status_shows_known_facts` | 통과 |
+| 6 | `clock_commands_resend_everything_after_failure` | 통과 |
+| 7 | `clock_follows_virtual_port_rename` | 통과 |
+
+## 자동 게이트
+
+- [x] fmt
+- [x] clippy -D warnings
+- [x] test
+- [x] deny
+- [x] 단계별 추가 게이트: `scripts/check-deps.sh`
+
+## 알려진 한계
+
+- 재생 중에 새로 켠 클럭 포트는 Clock만 받는다. Start/SPP는 다음 재생 시작부터다(스케줄러 동작). 외부 장치는 다음 재생 시작부터 위치를 맞춘다.
+- 재생 중 교체에서 클럭 번호가 바뀌면 그 틈의 클럭 한 칸이 빠질 수 있다(번호가 같으면 명령이 없다).
+- 설정 창의 테스트 노트는 앱 가상 포트로만 보낸다. 목적지(외부 장치)로의 테스트는 트랙 인스펙터의 「테스트」를 쓴다.
+- 리스너 연결 표시는 없다(SP-4). 「몇 초 전」은 설정 창을 다시 그릴 때 갱신된다.
+- 메트로놈 버튼을 켠 채 메트로놈 설정 명령이 실패하면, 다음 교체(편집·설정 변경)까지 클릭이 나지 않는다.
+
+## 리뷰어에게
+
+- `clock_state`를 꺼내고 다시 적는 흐름이 재생 시작·재생 중 교체·정지 중 다른 교체(테스트 노트, 포트 삭제, 서버 복구)와 맞는지. 정지 중 교체는 마스크를 바꾸지 않는다. 다음 재생의 짝이 같으면 같은 번호에 같은 이름이 오므로 명령 없이 맞다고 본다.
+- 클럭이 엉뚱한 포트로 나가는 틈이 있는지.
