@@ -122,7 +122,7 @@ impl Document {
     /// 값이 처음 늘 때 사람에게 알린다.
     #[must_use]
     pub fn dropped_undo_units(&self) -> u64 {
-        todo!()
+        self.history.dropped()
     }
 
     #[must_use]

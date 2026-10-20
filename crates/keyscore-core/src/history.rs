@@ -32,6 +32,8 @@ pub(crate) struct History {
     used_bytes: usize,
     /// 참이면 다음 `apply`가 직전 단위와 묶이지 않는다.
     sealed: bool,
+    /// 상한 때문에 지금까지 버린 undo 단위 수
+    dropped: u64,
 }
 
 impl History {
@@ -43,6 +45,7 @@ impl History {
             limit_bytes,
             used_bytes: 0,
             sealed: true,
+            dropped: 0,
         }
     }
 
@@ -152,8 +155,14 @@ impl History {
         while self.used_bytes > self.limit_bytes && self.undo.len() > 1 {
             if let Some(oldest) = self.undo.pop_front() {
                 self.used_bytes -= oldest.bytes;
+                self.dropped = self.dropped.saturating_add(1);
             }
         }
+    }
+
+    /// 상한 때문에 지금까지 버린 undo 단위 수.
+    pub(crate) const fn dropped(&self) -> u64 {
+        self.dropped
     }
 
     /// 다음 `apply`가 직전 단위와 묶이지 않게 한다(모드 전환, 다른 대상 선택 등).
