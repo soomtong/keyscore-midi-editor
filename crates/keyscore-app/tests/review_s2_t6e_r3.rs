@@ -448,6 +448,8 @@ fn review3_control_track_on_own_port_hides_same_name_destination(cx: &mut TestAp
     eprintln!("A: {in_a:?}\nB: {in_b:?}");
     assert_eq!(said(cx, &b, &y, "새로 보인다"), 1, "{in_b:?}");
     assert_eq!(said(cx, &b, &y, "없어졌다"), 1, "{in_b:?}");
-    let in_a_about_y = in_a.iter().filter(|m| m.contains(&y)).count();
-    assert_eq!(in_a_about_y, 0, "{in_a:?}");
+    // S2-T6f: 트랙이 앱 포트 Y를 쓰는 창 A에도 같은 이름 목적지의 오감이 알려진다(리뷰 3 제안을 고쳐
+    // 기대값을 바꿨다)
+    assert_eq!(said(cx, &a, &y, "새로 보인다"), 1, "{in_a:?}");
+    assert_eq!(said(cx, &a, &y, "없어졌다"), 1, "{in_a:?}");
 }

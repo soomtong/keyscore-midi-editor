@@ -118,6 +118,13 @@ impl Document {
         self.history.undo_len()
     }
 
+    /// 메모리 상한 때문에 지금까지 버린 undo 단위 수(결정 2026-10-19-undo-history-memory-limit A). 앱은 이
+    /// 값이 처음 늘 때 사람에게 알린다.
+    #[must_use]
+    pub fn dropped_undo_units(&self) -> u64 {
+        self.history.dropped()
+    }
+
     #[must_use]
     pub fn redo_len(&self) -> usize {
         self.history.redo_len()
