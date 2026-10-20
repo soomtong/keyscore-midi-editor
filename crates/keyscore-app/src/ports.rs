@@ -134,6 +134,14 @@ fn wanted_names(cx: &App) -> Vec<String> {
     if let OutputPort::Named(name) = crate::transport::metronome_settings(cx).port {
         names.push(name);
     }
+    // 클럭 포트(OUT-5)도 같다(S2-T6e 리뷰 1 지적 1)
+    for port in crate::transport::clock_settings(cx) {
+        if let OutputPort::Named(name) = port
+            && !names.contains(&name)
+        {
+            names.push(name);
+        }
+    }
     for window in project_windows(cx) {
         for track in window.read(cx).document().read(cx).project().tracks() {
             if let OutputPort::Named(name) = track.port()
@@ -151,8 +159,11 @@ fn wanted_names(cx: &App) -> Vec<String> {
 
 /// 그 이름 포트를 쓰는 창들.
 fn windows_using(cx: &App, name: &str) -> Vec<gpui_kit::Entity<ProjectWindow>> {
-    // 메트로놈 포트는 모든 창이 쓴다.
-    if crate::transport::metronome_settings(cx).port == OutputPort::Named(name.to_owned()) {
+    // 메트로놈 포트와 클럭 포트는 모든 창이 쓴다.
+    let port = OutputPort::Named(name.to_owned());
+    if crate::transport::metronome_settings(cx).port == port
+        || crate::transport::clock_settings(cx).contains(&port)
+    {
         return project_windows(cx);
     }
     project_windows(cx)
