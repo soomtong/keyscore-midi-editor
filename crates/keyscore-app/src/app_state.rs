@@ -35,6 +35,12 @@ impl AppSettings {
         });
     }
 
+    /// 설정 파일 위치(자동 저장본·키맵 파일이 그 옆에 있다).
+    #[must_use]
+    pub fn path(cx: &App) -> &std::path::Path {
+        &cx.global::<AppSettings>().path
+    }
+
     #[must_use]
     pub fn get(cx: &App) -> &Settings {
         &cx.global::<AppSettings>().settings

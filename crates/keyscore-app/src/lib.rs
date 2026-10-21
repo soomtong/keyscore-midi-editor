@@ -5,6 +5,7 @@
 
 pub mod actions;
 pub mod app_state;
+pub mod autosave;
 pub mod command_palette;
 pub mod commands;
 pub mod dispatch;
@@ -51,6 +52,7 @@ pub fn init(cx: &mut App, settings_path: PathBuf) {
     // 사용자 키맵은 설정 파일 옆에 둔다(KM-6: ~/Library/Application Support/KeyScore/keymap.json).
     let keymap_path = settings_path.with_file_name("keymap.json");
     AppSettings::install(settings_path, cx);
+    autosave::init(cx);
     theme::apply(AppSettings::get(cx).theme, cx);
     cx.on_action(|_: &New, cx| {
         let _ = open_project_window(Project::new(), cx);
@@ -215,5 +217,7 @@ pub fn run() {
             ports::start_monitor(cx);
             let _ = open_project_window(Project::new(), cx);
             cx.activate(true);
+            // 끝난 세션의 자동 저장본이 있으면 첫 창에서 복구를 묻는다(IO-5, 8.4).
+            autosave::offer_recovery(cx);
         });
 }

@@ -32,6 +32,10 @@ pub struct ProjectDocument {
     /// 지적 1·2).
     file_id: Option<crate::files::FileId>,
     read_only: Option<ReadOnly>,
+    /// 편집·되돌리기·다시 실행마다 는다. 자동 저장본이 쓴 뒤 또 바뀌었는지 본다(S2-T7b).
+    revision: u64,
+    /// 크래시 뒤 자동 저장본에서 되살렸고 아직 저장하지 않았다.
+    recovered: bool,
 }
 
 impl ProjectDocument {
@@ -54,6 +58,8 @@ impl ProjectDocument {
             path: None,
             file_id: None,
             read_only: None,
+            revision: 0,
+            recovered: false,
         })
     }
 
@@ -80,6 +86,7 @@ impl ProjectDocument {
         }
         self.document.apply(edits, None)?;
         self.dirty = true;
+        self.revision += 1;
         Ok(())
     }
 
@@ -89,6 +96,7 @@ impl ProjectDocument {
     pub fn undo(&mut self) -> Result<bool, ModelError> {
         let done = self.document.undo()?;
         self.dirty |= done;
+        self.revision += u64::from(done);
         Ok(done)
     }
 
@@ -98,6 +106,7 @@ impl ProjectDocument {
     pub fn redo(&mut self) -> Result<bool, ModelError> {
         let done = self.document.redo()?;
         self.dirty |= done;
+        self.revision += u64::from(done);
         Ok(done)
     }
 
@@ -115,6 +124,28 @@ impl ProjectDocument {
     #[must_use]
     pub fn path(&self) -> Option<&Path> {
         self.path.as_deref()
+    }
+
+    /// 문서 내용의 판 번호.
+    #[must_use]
+    pub const fn revision(&self) -> u64 {
+        self.revision
+    }
+
+    /// 자동 저장본에서 되살렸고 아직 저장하지 않았는가.
+    #[must_use]
+    pub const fn is_recovered(&self) -> bool {
+        self.recovered
+    }
+
+    /// 자동 저장본에서 되살린 문서로 표시한다. 원래 파일과 다를 수 있어 「바뀜」이다.
+    /// 원래 파일은 읽지 않는다(정체를 위한 메타데이터만 본다, 8.4).
+    pub(crate) fn mark_recovered(&mut self, path: Option<PathBuf>, read_only: Option<ReadOnly>) {
+        self.file_id = path.as_deref().and_then(crate::files::FileId::of);
+        self.path = path;
+        self.read_only = read_only;
+        self.dirty = true;
+        self.recovered = true;
     }
 
     /// 열거나 저장한 때의 파일 정체.
@@ -156,5 +187,6 @@ impl ProjectDocument {
         self.path = Some(path);
         self.read_only = None;
         self.dirty = false;
+        self.recovered = false;
     }
 }

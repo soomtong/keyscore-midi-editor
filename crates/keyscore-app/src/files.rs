@@ -57,6 +57,7 @@ pub enum FileError {
 
 /// 파일 작업 Action을 건다(`init`이 부른다). 저장·다른 이름·닫기는 창의 처리기다(`ProjectWindow`).
 pub(crate) fn register(cx: &mut App) {
+    cx.set_global(RecentCache(std::cell::RefCell::default()));
     cx.on_action(|_: &file::Open, cx| open_dialog(cx));
     cx.on_action(|action: &file::OpenRecent, cx| open_recent(PathBuf::from(&action.0), cx));
 }
@@ -183,14 +184,50 @@ pub(crate) fn unsaved_windows(cx: &App) -> Vec<Entity<ProjectWindow>> {
 /// 최근 파일(최근이 먼저).
 #[must_use]
 pub fn recent_files(cx: &App) -> Vec<PathBuf> {
-    recent_entries(cx).iter().map(PathBuf::from).collect()
+    recent_view(cx, |v| v.entries.iter().map(PathBuf::from).collect())
 }
 
-/// 설정의 최근 목록에서 같은 파일을 하나로 합친 것(앞의 것을 남긴다). 손으로 고친 설정은 같은 파일을 다른
-/// 모양으로 가질 수 있고, 다음 넣기 전까지는 설정에 그대로 남는다(리뷰 2 지적 4).
-fn recent_entries(cx: &App) -> Vec<String> {
+/// 최근 목록의 표시 형태. 같은 파일 판정과 라벨은 파일 시스템을 부르므로, 설정의 목록이 바뀔 때만 다시
+/// 계산한다. 메뉴는 키맵을 걸 때마다, 팔레트는 열 때마다 만든다(S2-T7a 리뷰 3 참고: 느린 볼륨).
+#[derive(Default)]
+struct RecentView {
+    /// 계산한 원본(설정의 `recent_files`).
+    source: Option<Vec<String>>,
+    /// 같은 파일을 하나로 합친 목록(앞의 것을 남긴다).
+    entries: Vec<String>,
+    labels: Vec<(String, String)>,
+    computations: u64,
+}
+
+struct RecentCache(std::cell::RefCell<RecentView>);
+
+impl gpui_kit::Global for RecentCache {}
+
+fn recent_view<R>(cx: &App, read: impl FnOnce(&RecentView) -> R) -> R {
+    let source = &AppSettings::get(cx).recent_files;
+    let fresh;
+    let cache = if cx.has_global::<RecentCache>() {
+        &cx.global::<RecentCache>().0
+    } else {
+        // 전역을 만들 수 없는(읽기 전용) 문맥에서 처음 부르면 이번만 계산한다.
+        fresh = std::cell::RefCell::new(RecentView::default());
+        &fresh
+    };
+    let mut view = cache.borrow_mut();
+    if view.source.as_ref() != Some(source) {
+        let entries = merge_same_files(source);
+        view.labels = label_entries(&entries);
+        view.entries = entries;
+        view.source = Some(source.clone());
+        view.computations += 1;
+    }
+    read(&view)
+}
+
+/// 같은 파일을 하나로 합친다. 손으로 고친 설정은 같은 파일을 다른 모양으로 가질 수 있다(리뷰 2 지적 4).
+fn merge_same_files(source: &[String]) -> Vec<String> {
     let mut kept: Vec<String> = Vec::new();
-    for entry in &AppSettings::get(cx).recent_files {
+    for entry in source {
         if !kept
             .iter()
             .any(|k| same_file(Path::new(k), Path::new(entry)))
@@ -212,7 +249,10 @@ pub(crate) fn request_close(view: &Entity<ProjectWindow>, cx: &mut App) -> bool 
         return false;
     }
     if !dirty {
-        view.update(cx, ProjectWindow::stop_playback);
+        view.update(cx, |w, cx| {
+            w.stop_playback(cx);
+            w.close_autosave(cx);
+        });
         return true;
     }
     set_busy_now(view, true, cx);
@@ -284,6 +324,9 @@ impl ProjectWindow {
         let mut title = doc.display_name();
         if doc.read_only().is_some() {
             title.push_str(" (읽기 전용)");
+        }
+        if doc.is_recovered() {
+            title.push_str(" (복구됨)");
         }
         window.set_window_title(&title);
         window.set_window_edited(doc.is_dirty());
@@ -438,6 +481,8 @@ fn write(view: &Entity<ProjectWindow>, path: &Path, cx: &mut AsyncApp) -> Result
         let saved = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
         let document = view.read(cx).document().clone();
         document.update(cx, |d, _| d.mark_saved(saved));
+        // 저장은 내용을 바꾸지 않아 문서 관찰자를 깨우지 않는다. 자동 저장본은 여기서 지운다(S2-T7b).
+        view.update(cx, ProjectWindow::autosave_document_changed);
         refresh(view, cx);
         Ok(())
     })
@@ -461,7 +506,7 @@ async fn report_save_error(
 }
 
 /// 시트를 띄우고 누른 단추의 번호를 기다린다. 창이 없어졌으면 `None`.
-async fn ask(
+pub(crate) async fn ask(
     handle: AnyWindowHandle,
     level: PromptLevel,
     message: &str,
@@ -605,8 +650,8 @@ fn add_recent(path: &Path, cx: &mut App) {
 
 /// 최근 목록에서 뺀다. 목록은 정규화한 경로라, 다른 모양(상대 경로, 링크)으로 가리켜도 같은 파일이면 뺀다.
 fn remove_recent(path: &Path, cx: &mut App) {
-    let target = normalize_new(path);
-    let same = |p: &String| Path::new(p) == path || normalize_new(Path::new(p)) == target;
+    // 표시와 같은 판정이다. 하드 링크 쌍은 함께 빠진다(리뷰 3 제안 3).
+    let same = |p: &String| same_file(Path::new(p), path);
     if !AppSettings::get(cx).recent_files.iter().any(same) {
         return;
     }
@@ -617,7 +662,10 @@ fn remove_recent(path: &Path, cx: &mut App) {
 /// 최근 파일 메뉴·팔레트의 이름: 파일 이름. 같은 이름이 여럿이면 서로 구별될 때까지 위 폴더를 붙인다
 /// (「song.ksq — x/proj」, 리뷰 1 지적 5).
 pub(crate) fn recent_labels(cx: &App) -> Vec<(String, String)> {
-    let recent = &recent_entries(cx);
+    recent_view(cx, |v| v.labels.clone())
+}
+
+fn label_entries(recent: &[String]) -> Vec<(String, String)> {
     let names: Vec<String> = recent.iter().map(|p| file_name(Path::new(p))).collect();
     recent
         .iter()
@@ -691,6 +739,11 @@ fn default_directory() -> PathBuf {
     if documents.is_dir() { documents } else { home }
 }
 
+/// 어느 창이 `path`의 파일을 열고 있는가(복구가 같은 파일 두 창을 피한다).
+pub(crate) fn is_open_anywhere(path: &Path, cx: &App) -> bool {
+    window_with_path(path, None, cx).is_some()
+}
+
 /// `path`를 연 창(`except`는 뺀다).
 fn window_with_path(
     path: &Path,
@@ -714,9 +767,19 @@ fn same_file(a: &Path, b: &Path) -> bool {
 
 /// 문서의 파일이 `path`와 같은가: 경로로, 또는 열거나 저장한 때의 정체로(바깥에서 옮기거나 이름을 바꾼 경우,
 /// 리뷰 2 지적 1·2).
+///
+/// 기억한 정체는 문서 경로의 파일이 없어졌을 때만 쓴다. 경로에 다른 파일이 있으면(바깥에서 다시 썼거나
+/// `.bak`으로 옮기고 새로 썼다) 기억한 정체는 낡았다. 그 inode는 옛 파일이거나, FAT처럼 번호를 다시 쓰는
+/// 파일 시스템에서는 전혀 다른 파일일 수 있다(S2-T7a 리뷰 3 제안 1·2).
 fn is_document_file(doc: &crate::document::ProjectDocument, path: &Path) -> bool {
-    doc.path().is_some_and(|p| same_file(p, path))
-        || doc.file_id().is_some_and(|id| FileId::of(path) == Some(id))
+    let Some(own) = doc.path() else {
+        return false;
+    };
+    if same_file(own, path) {
+        return true;
+    }
+    doc.file_id()
+        .is_some_and(|id| FileId::of(own).is_none() && FileId::of(path) == Some(id))
 }
 
 /// 파일 정체: 장치와 inode.
@@ -745,7 +808,7 @@ impl FileId {
     }
 }
 
-fn active_project_window(cx: &App) -> Option<Entity<ProjectWindow>> {
+pub(crate) fn active_project_window(cx: &App) -> Option<Entity<ProjectWindow>> {
     let active = cx.active_window()?;
     project_windows(cx)
         .into_iter()
@@ -763,7 +826,7 @@ fn set_busy(view: &Entity<ProjectWindow>, busy: bool, cx: &mut AsyncApp) {
     cx.update(|cx| set_busy_now(view, busy, cx));
 }
 
-fn set_busy_now(view: &Entity<ProjectWindow>, busy: bool, cx: &mut App) {
+pub(crate) fn set_busy_now(view: &Entity<ProjectWindow>, busy: bool, cx: &mut App) {
     view.update(cx, |w, _| w.file_flow = busy);
 }
 
@@ -772,8 +835,19 @@ fn close_now(view: &Entity<ProjectWindow>, cx: &mut AsyncApp) {
     cx.update(|cx| close_now_sync(view, cx));
 }
 
-fn close_now_sync(view: &Entity<ProjectWindow>, cx: &mut App) {
-    view.update(cx, ProjectWindow::stop_playback);
+pub(crate) fn close_now_sync(view: &Entity<ProjectWindow>, cx: &mut App) {
+    // 닫는 창의 저장본은 지운다(저장했거나 버리기로 했다).
+    view.update(cx, |w, cx| {
+        w.stop_playback(cx);
+        w.close_autosave(cx);
+    });
     let handle = view.read(cx).window_handle();
     let _ = handle.update(cx, |_, window, _| window.remove_window());
+}
+
+/// 최근 목록 라벨을 계산한 횟수(시험이 메뉴 생성의 캐시를 본다).
+#[doc(hidden)]
+#[must_use]
+pub fn recent_label_computations(cx: &App) -> u64 {
+    recent_view(cx, |v| v.computations)
 }
