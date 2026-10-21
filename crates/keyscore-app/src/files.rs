@@ -139,21 +139,19 @@ pub fn open_path(
 
 /// 바뀐 창마다 차례로 닫기 시트를 띄운다. 모두 저장하거나 버렸으면 참, 하나라도 취소하면 거짓이다
 /// (`app::Quit`이 참일 때만 끝낸다). 답한 창은 바로 닫는다(macOS 「변경 사항 검토」와 같다).
+///
+/// 시트는 창 단위라 그동안 다른 창을 고치거나 새 창을 열 수 있다. 그래서 시작할 때의 목록이 아니라 매번
+/// 지금 바뀐 창을 다시 찾고, 남지 않을 때까지 묻는다(리뷰 1 지적 2).
 pub fn confirm_close_all(cx: &mut App) -> Task<bool> {
-    let views = project_windows(cx);
     cx.spawn(async move |cx| {
-        for view in views {
-            let (handle, busy, dirty) = cx.update(|cx| {
+        loop {
+            let Some(view) = cx.update(|cx| unsaved_windows(cx).into_iter().next()) else {
+                return true;
+            };
+            let (handle, busy) = cx.update(|cx| {
                 let w = view.read(cx);
-                (
-                    w.window_handle(),
-                    w.file_flow,
-                    w.document().read(cx).is_dirty(),
-                )
+                (w.window_handle(), w.file_flow)
             });
-            if !cx.update(|cx| cx.windows().contains(&handle)) || !dirty {
-                continue;
-            }
             // 다른 흐름의 시트가 떠 있으면 그 답을 모른다. 끝내지 않는다.
             if busy {
                 return false;
@@ -167,8 +165,19 @@ pub fn confirm_close_all(cx: &mut App) -> Task<bool> {
             }
             close_now(&view, cx);
         }
-        true
     })
+}
+
+/// 열려 있고 저장 안 된 변경이 있는 프로젝트 창.
+pub(crate) fn unsaved_windows(cx: &App) -> Vec<Entity<ProjectWindow>> {
+    let open = cx.windows();
+    project_windows(cx)
+        .into_iter()
+        .filter(|w| {
+            let w = w.read(cx);
+            open.contains(&w.window_handle()) && w.document().read(cx).is_dirty()
+        })
+        .collect()
 }
 
 /// 최근 파일(최근이 먼저).

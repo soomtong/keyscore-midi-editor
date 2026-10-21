@@ -72,6 +72,11 @@ pub fn init(cx: &mut App, settings_path: PathBuf) {
         cx.spawn(async move |cx| {
             if confirmed.await {
                 cx.update(|cx| {
+                    // 확인이 끝난 뒤 이 갱신 전에 고친 창이 있으면 다시 묻는다(리뷰 1 지적 2).
+                    if !files::unsaved_windows(cx).is_empty() {
+                        cx.dispatch_action(&Quit);
+                        return;
+                    }
                     AppSettings::flush(cx);
                     cx.quit();
                 });
