@@ -28,6 +28,9 @@ pub struct ProjectDocument {
     dirty: bool,
     /// 이 문서의 파일(정규화한 경로). 새 프로젝트는 없다.
     path: Option<PathBuf>,
+    /// 열거나 저장한 때의 파일 정체. 그 뒤 바깥에서 옮기거나 이름을 바꿔도 같은 파일임을 안다(S2-T7a 리뷰 2
+    /// 지적 1·2).
+    file_id: Option<crate::files::FileId>,
     read_only: Option<ReadOnly>,
 }
 
@@ -49,6 +52,7 @@ impl ProjectDocument {
             document: Document::new(project, limit_bytes)?,
             dirty: false,
             path: None,
+            file_id: None,
             read_only: None,
         })
     }
@@ -113,6 +117,11 @@ impl ProjectDocument {
         self.path.as_deref()
     }
 
+    /// 열거나 저장한 때의 파일 정체.
+    pub(crate) fn file_id(&self) -> Option<crate::files::FileId> {
+        self.file_id
+    }
+
     #[must_use]
     pub fn read_only(&self) -> Option<ReadOnly> {
         self.read_only
@@ -135,12 +144,15 @@ impl ProjectDocument {
 
     /// 파일에서 읽은 문서로 표시한다.
     pub(crate) fn set_file(&mut self, path: PathBuf, read_only: Option<ReadOnly>) {
+        self.file_id = crate::files::FileId::of(&path);
         self.path = Some(path);
         self.read_only = read_only;
     }
 
     /// `path`에 저장했다. 바뀜을 끄고 읽기 전용을 푼다(새 파일은 이 앱의 형식 버전이다).
     pub(crate) fn mark_saved(&mut self, path: PathBuf) {
+        // 저장은 임시 파일 + rename이라 정체(inode)가 바뀐다. 새 파일의 것을 남긴다.
+        self.file_id = crate::files::FileId::of(&path);
         self.path = Some(path);
         self.read_only = None;
         self.dirty = false;

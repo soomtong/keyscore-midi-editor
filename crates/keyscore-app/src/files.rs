@@ -357,7 +357,7 @@ async fn save_as(view: &Entity<ProjectWindow>, cx: &mut AsyncApp) -> bool {
     };
     let name = file_name(&path);
     // 상위 버전 원본은 다른 이름으로 저장해도 덮어쓰지 않는다(리뷰 1 지적 1). 링크·하드 링크로 가리켜도 같다.
-    if read_only.is_some() && current.as_deref().is_some_and(|c| same_file(c, &path)) {
+    if read_only.is_some() && cx.update(|cx| is_document_file(view.read(cx).document().read(cx), &path)) {
         report_save_error(handle, &name, &FileError::NewerFormatOriginal, cx).await;
         return false;
     }
@@ -667,13 +667,7 @@ fn window_with_path(
     project_windows(cx)
         .into_iter()
         .filter(|w| except.is_none_or(|e| e != w))
-        .find(|w| {
-            w.read(cx)
-                .document()
-                .read(cx)
-                .path()
-                .is_some_and(|p| same_file(p, path))
-        })
+        .find(|w| is_document_file(w.read(cx).document().read(cx), path))
 }
 
 /// 같은 파일인가: 정규형 경로가 같거나(링크·`..`·대소문자 등은 `canonicalize`가 푼다), 둘 다 있고 같은
@@ -682,14 +676,40 @@ fn same_file(a: &Path, b: &Path) -> bool {
     if a == b || normalize_new(a) == normalize_new(b) {
         return true;
     }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt as _;
-        if let (Ok(x), Ok(y)) = (fs::metadata(a), fs::metadata(b)) {
-            return x.dev() == y.dev() && x.ino() == y.ino();
+    matches!((FileId::of(a), FileId::of(b)), (Some(x), Some(y)) if x == y)
+}
+
+/// 문서의 파일이 `path`와 같은가: 경로로, 또는 열거나 저장한 때의 정체로(바깥에서 옮기거나 이름을 바꾼 경우,
+/// 리뷰 2 지적 1·2).
+fn is_document_file(doc: &crate::document::ProjectDocument, path: &Path) -> bool {
+    doc.path().is_some_and(|p| same_file(p, path))
+        || doc.file_id().is_some_and(|id| FileId::of(path) == Some(id))
+}
+
+/// 파일 정체: 장치와 inode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct FileId {
+    dev: u64,
+    ino: u64,
+}
+
+impl FileId {
+    /// 있는 파일의 정체. 없거나 읽을 수 없으면 `None`.
+    pub(crate) fn of(path: &Path) -> Option<FileId> {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt as _;
+            fs::metadata(path).ok().map(|m| FileId {
+                dev: m.dev(),
+                ino: m.ino(),
+            })
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = path;
+            None
         }
     }
-    false
 }
 
 fn active_project_window(cx: &App) -> Option<Entity<ProjectWindow>> {
