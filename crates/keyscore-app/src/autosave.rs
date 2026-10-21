@@ -1,7 +1,9 @@
 //! 자동 저장본과 크래시 후 복구(S2-T7b, IO-5, 8.4).
 //!
 //! 저장본은 설정 파일 옆 `autosave/`에만 쓴다(앱에서는 `~/Library/Application Support/KeyScore/autosave/`).
-//! 프로젝트 폴더와 원래 파일은 건드리지 않는다. 창마다 파일 둘이다.
+//! 프로젝트 폴더와 원래 파일은 건드리지 않는다. 창마다 파일 둘이다. 키는 창마다 고유하다(프로세스, 시각,
+//! 순번). 원래 경로는 메타에만 둔다. 경로로 키를 만들면 같은 파일을 연 다른 창(복구 창, 다른 실행)이 서로의
+//! 저장본을 덮거나 지운다(S2-T7b 리뷰 1 지적 2·3·4).
 //!
 //! - `<키>.ksq`: 문서 내용(평문 `.ksq`).
 //! - `<키>.json`: 메타 `{"path": 원래 경로 또는 null, "read_only": 상위 형식 버전 또는 null,
@@ -26,6 +28,9 @@ use crate::window::{ProjectWindow, project_windows};
 /// 문서가 바뀐 뒤 저장본이 생기기까지(IO-5).
 pub const AUTOSAVE_DELAY: Duration = Duration::from_secs(30);
 
+/// 이보다 오래된 임시 파일만 끝난 세션의 것으로 본다.
+const STALE_TEMP_AGE: Duration = Duration::from_secs(60);
+
 /// 복구 시트 단추. 시험이 이 글자로 답한다.
 const RECOVER: &str = "복구";
 const DISCARD: &str = "버리기";
@@ -34,6 +39,7 @@ const DISCARD: &str = "버리기";
 #[derive(Debug)]
 pub struct Recoverable {
     key: String,
+    session: String,
     path: Option<PathBuf>,
     read_only: Option<ReadOnly>,
     pid: Option<u32>,
@@ -64,8 +70,8 @@ impl gpui_kit::Global for Session {}
 
 /// 창 하나의 자동 저장 상태(`ProjectWindow`가 가진다).
 pub(crate) struct WindowAutosave {
-    /// 새 프로젝트의 키(창마다 다르다).
-    untitled_key: String,
+    /// 이 창의 저장본 키(창마다 다르다). 복구한 창은 저장본의 키를 이어받는다.
+    key: String,
     /// 지금 저장본이 있는 키.
     written: Option<String>,
     /// 타이머 또는 쓰기가 진행 중이다.
@@ -79,7 +85,7 @@ pub(crate) struct WindowAutosave {
 impl WindowAutosave {
     pub(crate) fn new() -> Self {
         WindowAutosave {
-            untitled_key: untitled_key(),
+            key: new_key(),
             written: None,
             pending: None,
             failure_shown: false,
@@ -227,7 +233,8 @@ impl ProjectWindow {
     /// 타이머가 이미 있으면 그대로 둔다: 첫 변경부터 재므로 계속 고쳐도 30 s 안에 저장본이 생긴다.
     pub(crate) fn autosave_document_changed(&mut self, cx: &mut Context<Self>) {
         if self.autosave.closed || !self.document().read(cx).is_dirty() {
-            self.autosave.pending = None;
+            // 진행 중인 작업은 놓지 않는다. 쓰기 도중이면 끝난 뒤 `finish_autosave`가 방금 쓴 것을 지운다. 놓으면
+            // 그 뒷정리가 사라져 저장한 문서의 저장본이 남는다(리뷰 1 지적 1).
             self.remove_autosave(cx);
             return;
         }
@@ -267,9 +274,7 @@ impl ProjectWindow {
         if self.autosave.closed || !doc.is_dirty() {
             return None;
         }
-        let key = doc
-            .path()
-            .map_or_else(|| self.autosave.untitled_key.clone(), path_key);
+        let key = self.autosave.key.clone();
         let session = cx.global::<Session>();
         let meta = serde_json::json!({
             "path": doc.path().map(|p| p.display().to_string()),
@@ -289,12 +294,7 @@ impl ProjectWindow {
     fn finish_autosave(&mut self, job: &Job, result: io::Result<()>, cx: &mut Context<Self>) {
         match result {
             Ok(()) => {
-                // 다른 이름으로 저장 등으로 키가 바뀌었으면 옛 저장본을 지운다.
-                if let Some(old) = self.autosave.written.replace(job.key.clone())
-                    && old != job.key
-                {
-                    remove_files(&job.dir, &old);
-                }
+                self.autosave.written = Some(job.key.clone());
                 self.autosave.failure_shown = false;
                 let doc = self.document().read(cx);
                 let (dirty, revision) = (doc.is_dirty(), doc.revision());
@@ -306,10 +306,16 @@ impl ProjectWindow {
                 }
             }
             Err(e) => {
-                // 다음 변경 때 다시 시도한다. 알림은 성공하기 전까지 한 번.
+                // 더 고치지 않아도 30 s 뒤 다시 시도한다(리뷰 1 지적 5). 알림은 성공하기 전까지 한 번.
                 if !self.autosave.failure_shown {
                     self.autosave.failure_shown = true;
                     self.say(format!("자동 저장본을 쓰지 못했다: {e}"), cx);
+                }
+                if !self.autosave.closed
+                    && self.document().read(cx).is_dirty()
+                    && self.autosave.pending.is_none()
+                {
+                    self.schedule_autosave(cx);
                 }
             }
         }
@@ -384,6 +390,7 @@ fn scan(cx: &App) -> Scan {
         };
         scan.good.push(Recoverable {
             key,
+            session: session.to_owned(),
             path: meta["path"].as_str().map(PathBuf::from),
             read_only: meta["read_only"].as_u64().map(ReadOnly::NewerFormat),
             pid: meta["pid"].as_u64().and_then(|p| u32::try_from(p).ok()),
@@ -409,8 +416,13 @@ fn session_alive(dir: &Path, session: &str) -> bool {
 }
 
 fn recover(good: Vec<Recoverable>, host: &Entity<ProjectWindow>, cx: &mut App) {
+    let dir = autosave_dir(cx);
     let mut restored = false;
     for item in good {
+        // 시트가 떠 있는 동안 다른 실행이 가져갔으면 건드리지 않는다.
+        if !still_dead(&dir, &item) {
+            continue;
+        }
         // 같은 파일을 이미 연 창이 있으면 경로 없이 연다(같은 파일 두 창 금지).
         let path = item
             .path
@@ -423,10 +435,8 @@ fn recover(good: Vec<Recoverable>, host: &Entity<ProjectWindow>, cx: &mut App) {
         view.update(cx, |w, cx| {
             w.document()
                 .update(cx, |d, _| d.mark_recovered(path.clone(), item.read_only));
-            if path.is_none() {
-                w.autosave.untitled_key.clone_from(&item.key);
-            }
-            // 저장본을 이 세션 것으로 가져온다(다시 복구 대상이 되지 않게). 창이 다시 쓸 때 키가 바뀌면 지운다.
+            // 저장본을 이 세션 것으로 가져온다(다시 복구 대상이 되지 않게).
+            w.autosave.key.clone_from(&item.key);
             w.autosave.written = Some(item.key.clone());
             if let Some(job) = w.prepare_autosave(cx) {
                 let result = job.write();
@@ -446,13 +456,27 @@ fn recover(good: Vec<Recoverable>, host: &Entity<ProjectWindow>, cx: &mut App) {
 fn discard(good: &[Recoverable], cx: &mut App) {
     let dir = autosave_dir(cx);
     for item in good {
+        // 시트를 띄운 뒤 다른 실행이 가져간 저장본은 지우지 않는다(리뷰 1 지적 3).
+        if !still_dead(&dir, item) {
+            continue;
+        }
         remove_files(&dir, &item.key);
         remove_stale_temps(item.path.as_deref(), item.pid);
     }
 }
 
-/// 끝난 세션이 원래 파일 옆에 남긴 임시 파일(`.<이름>.tmp-<pid>-<n>`)을 지운다. 그 pid의 것만 지우므로 다른
-/// 프로그램의 쓰기와 겹치지 않는다.
+/// 저장본이 아직 찾았을 때의 끝난 세션 것인가.
+fn still_dead(dir: &Path, item: &Recoverable) -> bool {
+    let session = fs::read_to_string(dir.join(format!("{}.json", item.key)))
+        .ok()
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+        .and_then(|m| m["session"].as_str().map(str::to_owned));
+    session.as_deref() == Some(item.session.as_str()) && !session_alive(dir, &item.session)
+}
+
+/// 끝난 세션이 원래 파일 옆에 남긴 임시 파일(`.<이름>.tmp-<pid>-<n>`)을 지운다. 그 pid의 것만, 그리고
+/// [`STALE_TEMP_AGE`]보다 오래된 것만 지운다. pid는 다시 쓰일 수 있어, 같은 pid의 다른 프로그램이 지금 쓰는
+/// 임시 파일을 지우지 않게 한다(리뷰 1 제안 7). 쓰기 하나가 그만큼 걸리지는 않는다.
 fn remove_stale_temps(path: Option<&Path>, pid: Option<u32>) {
     let (Some(path), Some(pid)) = (path, pid) else {
         return;
@@ -465,7 +489,13 @@ fn remove_stale_temps(path: Option<&Path>, pid: Option<u32>) {
         return;
     };
     for entry in entries.filter_map(Result::ok) {
-        if entry.file_name().to_string_lossy().starts_with(&prefix) {
+        let old = entry
+            .metadata()
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| t.elapsed().ok())
+            .is_some_and(|age| age >= STALE_TEMP_AGE);
+        if old && entry.file_name().to_string_lossy().starts_with(&prefix) {
             let _ = fs::remove_file(entry.path());
         }
     }
@@ -497,22 +527,12 @@ fn write_atomic(path: &Path, text: &str) -> io::Result<()> {
     result
 }
 
-/// 원래 경로의 키: FNV-1a 64비트 16진. 실행마다 같아야 해서 표준 해셔(무작위 씨앗)를 쓰지 않는다.
-fn path_key(path: &Path) -> String {
-    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-    for byte in path.as_os_str().as_encoded_bytes() {
-        hash ^= u64::from(*byte);
-        hash = hash.wrapping_mul(0x0100_0000_01b3);
-    }
-    format!("{hash:016x}")
-}
-
-/// 새 프로젝트 창의 키: 프로세스, 시각, 순번.
-fn untitled_key() -> String {
+/// 창의 키: 프로세스, 시각, 순번.
+fn new_key() -> String {
     static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_nanos());
-    format!("untitled-{}-{nanos}-{n}", std::process::id())
+    format!("{}-{nanos}-{n}", std::process::id())
 }

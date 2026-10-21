@@ -591,6 +591,16 @@ fn recovery_removes_stale_temp_files_of_dead_session(cx: &mut TestAppContext) {
     let other = dir.join(".song.ksq.tmp-12345-0");
     std::fs::write(&stale, "half").unwrap();
     std::fs::write(&other, "someone else").unwrap();
+    // 끝난 세션의 임시 파일은 오래됐다(갓 만든 파일은 같은 pid의 다른 프로그램 것일 수 있다).
+    let old = std::time::SystemTime::now() - Duration::from_secs(600);
+    for p in [&stale, &other] {
+        std::fs::File::options()
+            .write(true)
+            .open(p)
+            .unwrap()
+            .set_modified(old)
+            .unwrap();
+    }
     let auto = autosave_dir(cx);
     plant_dead(&auto, "song", &ksq::to_string(&sample()), Some(&path), None);
     launch_with_recovery(cx);
