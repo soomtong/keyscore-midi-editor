@@ -405,3 +405,209 @@ fn review_close_stepped_into_autosave_write_leaves_nothing(cx: &mut TestAppConte
         assert!(autosaves(cx).is_empty(), "k={k}: 버린 창의 저장본이 남았다");
     }
 }
+
+// ---------- 리뷰 1 부록 A(수정 확인) ----------
+
+// ---------------------------------------------------------------- 부록 A: 깨뜨린 시도
+
+/// 앱의 저장본 키(원래 경로의 FNV-1a 64비트 16진, `autosave.rs`의 `path_key`와 같은 계산).
+fn path_key(path: &Path) -> String {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in path.as_os_str().as_encoded_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x0100_0000_01b3);
+    }
+    format!("{hash:016x}")
+}
+
+fn autosave_texts(cx: &mut TestAppContext) -> Vec<String> {
+    autosaves(cx)
+        .iter()
+        .map(|p| std::fs::read_to_string(p).unwrap())
+        .collect()
+}
+
+/// A1. 30 s 타이머의 백그라운드 쓰기가 끝난 직후, 그 결과를 받기 전에 `Cmd+S`가 먼저 돌면 저장본이 남는다.
+/// 문서는 깨끗한데 저장본이 남고, 정상 종료(잠금 해제) 뒤 다음 실행이 저장한 문서의 복구를 제안한다.
+/// 시험 실행기는 한 단계씩(`tick`) 돌려 「쓰기 끝 → 저장 → 결과 받기」 순서를 찾는다.
+#[gpui_kit::test]
+fn review_a1_save_racing_autosave_write_leaves_saved_doc_recoverable(cx: &mut TestAppContext) {
+    let dir = start(cx, "race-save");
+    let mut leaked = None;
+    for k in 0..40 {
+        let path = dir.join(format!("song{k}.ksq"));
+        write_sample(&path);
+        let (handle, view) = open_file(cx, &path);
+        touch(cx, handle);
+        // `advance_clock`은 진행하며 모든 작업을 돌린다. 시계만 옮기고 한 단계씩 돌린다.
+        cx.dispatcher
+            .scheduler()
+            .clock()
+            .advance(AUTOSAVE_DELAY + Duration::from_secs(1));
+        for _ in 0..k {
+            if !cx.executor().tick() {
+                break;
+            }
+        }
+        cx.update_window(handle, |_, window, cx| {
+            window.dispatch_action(Box::new(file::Save), cx);
+        })
+        .unwrap();
+        cx.run_until_parked();
+        advance(cx, AUTOSAVE_DELAY * 2);
+        assert!(!dirty(cx, &view));
+        let key = path_key(&path);
+        if autosave_dir(cx).join(format!("{key}.ksq")).exists() {
+            leaked = Some(path);
+            break;
+        }
+    }
+    let Some(path) = leaked else {
+        return;
+    };
+    // 정상 종료 뒤 다음 실행.
+    let auto = autosave_dir(cx);
+    release_session_locks(&auto);
+    let next = cx.new_app();
+    next.update(|cx| init(cx, dir.join("settings.json")));
+    let found = next.read(autosave::find_recoverable);
+    panic!(
+        "저장한 {}의 저장본이 남아 다음 실행이 복구를 제안한다: {:?}",
+        path.display(),
+        found
+            .iter()
+            .map(|r| r.path().map(Path::to_path_buf))
+            .collect::<Vec<_>>()
+    );
+}
+
+/// A2. 파일 F를 연 창이 있을 때 F의 끝난 저장본을 복구하면, 경로 없이 연 복구 창이 F의 키(경로 해시)를 물려받는다.
+/// F 창이 30 s 뒤 저장본을 쓰면 복구 창의 저장본을 덮고, F 창을 저장하면 그 키를 지운다. 복구 창은 바뀐 채
+/// 저장본이 없다(두 번째 크래시에서 복구한 작업을 잃는다).
+#[gpui_kit::test]
+fn review_a2_recovered_untitled_shares_key_with_open_file_window(cx: &mut TestAppContext) {
+    let dir = start(cx, "shared-key");
+    let path = dir.join("song.ksq");
+    write_sample(&path);
+    let (file_handle, _) = open_file(cx, &path);
+    let auto = autosave_dir(cx);
+    plant_dead(&auto, &path_key(&path), &edited(), Some(&path), 999_999);
+    cx.update(autosave::offer_recovery);
+    cx.run_until_parked();
+    answer(cx, "복구");
+    let recovered = windows(cx)
+        .into_iter()
+        .find(|w| cx.read(|cx| w.read(cx).document().read(cx).path().is_none()))
+        .expect("경로 없이 연 복구 창");
+    let recovered_text = text_of(cx, &recovered);
+    touch(cx, file_handle);
+    advance(cx, AUTOSAVE_DELAY + Duration::from_secs(1));
+    assert!(
+        autosave_texts(cx).contains(&recovered_text),
+        "복구 창의 저장본이 F 창의 저장본에 덮였다"
+    );
+    run(cx, file_handle, file::Save);
+    assert!(dirty(cx, &recovered));
+    assert!(
+        autosave_texts(cx).contains(&recovered_text),
+        "F 창을 저장하자 바뀐 복구 창의 저장본이 지워졌다"
+    );
+}
+
+/// A3. 복구 시트가 떠 있는 동안 F를 열어 고치면(30 s 뒤 저장본이 생김) [버리기]가 그 살아 있는 저장본을 지운다.
+#[gpui_kit::test]
+fn review_a3_discard_deletes_live_autosave_of_file_opened_during_sheet(cx: &mut TestAppContext) {
+    let dir = start(cx, "discard-live");
+    let path = dir.join("song.ksq");
+    write_sample(&path);
+    let auto = autosave_dir(cx);
+    plant_dead(&auto, &path_key(&path), &edited(), Some(&path), 999_999);
+    launch_with_recovery(cx);
+    let (handle, view) = open_file(cx, &path);
+    touch(cx, handle);
+    advance(cx, AUTOSAVE_DELAY + Duration::from_secs(1));
+    let live = text_of(cx, &view);
+    assert!(autosave_texts(cx).contains(&live));
+    answer(cx, "버리기");
+    assert!(dirty(cx, &view));
+    assert!(
+        autosave_texts(cx).contains(&live),
+        "[버리기]가 이 실행에서 고친 창의 저장본을 지웠다"
+    );
+}
+
+/// A4. 같은 파일을 연 살아 있는 다른 실행의 저장본(같은 경로 해시 키)을 이 실행이 덮어쓰고, 창을 닫을 때 지운다.
+#[gpui_kit::test]
+fn review_a4_live_other_session_autosave_of_same_file_overwritten(cx: &mut TestAppContext) {
+    let dir = start(cx, "other-live");
+    let path = dir.join("song.ksq");
+    write_sample(&path);
+    let auto = autosave_dir(cx);
+    std::fs::create_dir_all(&auto).unwrap();
+    let lock = std::fs::File::create(auto.join("session-other.lock")).unwrap();
+    lock.try_lock().unwrap();
+    let key = path_key(&path);
+    std::fs::write(auto.join(format!("{key}.ksq")), edited()).unwrap();
+    std::fs::write(
+        auto.join(format!("{key}.json")),
+        serde_json::json!({"path": path.display().to_string(), "read_only": null,
+            "session": "other", "pid": 1})
+        .to_string(),
+    )
+    .unwrap();
+    let (handle, _) = open_file(cx, &path);
+    touch(cx, handle);
+    advance(cx, AUTOSAVE_DELAY + Duration::from_secs(1));
+    let meta: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(auto.join(format!("{key}.json"))).unwrap())
+            .unwrap();
+    drop(lock);
+    assert_eq!(
+        meta["session"], "other",
+        "살아 있는 다른 실행의 저장본을 덮어썼다"
+    );
+}
+
+/// A5. 저장본 쓰기가 한 번 실패한 뒤 막힘이 풀려도, 더 고치지 않으면 다시 쓰지 않는다. 바뀐 문서가 저장본 없이
+/// 남는다(그 뒤 크래시면 실패 전 30 s 넘는 작업을 잃는다).
+#[gpui_kit::test]
+fn review_a5_failed_autosave_retried_without_new_edit(cx: &mut TestAppContext) {
+    start(cx, "retry");
+    let blocker = autosave_dir(cx);
+    let _ = std::fs::remove_dir_all(&blocker);
+    std::fs::write(&blocker, "not a directory").unwrap();
+    let (handle, view) = open(cx, sample());
+    touch(cx, handle);
+    advance(cx, AUTOSAVE_DELAY + Duration::from_secs(1));
+    std::fs::remove_file(&blocker).unwrap();
+    advance(cx, AUTOSAVE_DELAY * 10);
+    assert!(dirty(cx, &view));
+    assert_eq!(
+        autosaves(cx).len(),
+        1,
+        "막힘이 풀린 뒤 5분이 지나도 바뀐 문서의 저장본이 없다"
+    );
+}
+
+/// A6. 끝난 세션의 pid가 지금 살아 있는 다른 프로세스에 다시 쓰였으면, 복구·버리기가 그 프로세스의 임시 파일을 지운다.
+#[gpui_kit::test]
+fn review_a6_stale_temp_cleanup_hits_reused_live_pid(cx: &mut TestAppContext) {
+    let dir = start(cx, "pid-reuse");
+    let path = dir.join("song.ksq");
+    write_sample(&path);
+    let mut child = std::process::Command::new("sleep")
+        .arg("30")
+        .spawn()
+        .unwrap();
+    let pid = child.id();
+    let temp = dir.join(format!(".song.ksq.tmp-{pid}-0"));
+    std::fs::write(&temp, "in flight").unwrap();
+    let auto = autosave_dir(cx);
+    plant_dead(&auto, "k", &edited(), Some(&path), pid);
+    launch_with_recovery(cx);
+    answer(cx, "버리기");
+    let kept = temp.exists();
+    child.kill().unwrap();
+    child.wait().unwrap();
+    assert!(kept, "살아 있는 프로세스(pid {pid})의 임시 파일을 지웠다");
+}
