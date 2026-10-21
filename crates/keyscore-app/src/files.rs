@@ -191,7 +191,10 @@ pub fn recent_files(cx: &App) -> Vec<PathBuf> {
 fn recent_entries(cx: &App) -> Vec<String> {
     let mut kept: Vec<String> = Vec::new();
     for entry in &AppSettings::get(cx).recent_files {
-        if !kept.iter().any(|k| same_file(Path::new(k), Path::new(entry))) {
+        if !kept
+            .iter()
+            .any(|k| same_file(Path::new(k), Path::new(entry)))
+        {
             kept.push(entry.clone());
         }
     }
@@ -365,7 +368,9 @@ async fn save_as(view: &Entity<ProjectWindow>, cx: &mut AsyncApp) -> bool {
     };
     let name = file_name(&path);
     // 상위 버전 원본은 다른 이름으로 저장해도 덮어쓰지 않는다(리뷰 1 지적 1). 링크·하드 링크로 가리켜도 같다.
-    if read_only.is_some() && cx.update(|cx| is_document_file(view.read(cx).document().read(cx), &path)) {
+    if read_only.is_some()
+        && cx.update(|cx| is_document_file(view.read(cx).document().read(cx), &path))
+    {
         report_save_error(handle, &name, &FileError::NewerFormatOriginal, cx).await;
         return false;
     }
