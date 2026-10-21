@@ -44,6 +44,9 @@ pub enum FileError {
     /// 파일에 쓸 권한이 없다(결정 2026-10-21-s2-t7-save-policy-and-split 1 A).
     #[error("파일에 쓸 권한이 없다")]
     PermissionDenied,
+    /// 새 버전 앱이 만든 원본 위에 다른 이름으로 저장하려 했다(결정 2026-10-12-ksq-newer-version-save A).
+    #[error("새 버전 앱이 만든 원본은 덮어쓸 수 없다. 다른 파일을 고른다")]
+    NewerFormatOriginal,
     /// 다른 창이 이미 그 파일을 열고 있다.
     #[error("다른 창이 이미 이 파일을 열고 있다: {}", .0.display())]
     AlreadyOpen(PathBuf),
@@ -323,11 +326,13 @@ async fn save(view: &Entity<ProjectWindow>, cx: &mut AsyncApp) -> bool {
 
 /// 다른 이름으로 저장. 성공하면 참.
 async fn save_as(view: &Entity<ProjectWindow>, cx: &mut AsyncApp) -> bool {
-    let (handle, current) = cx.update(|cx| {
+    let (handle, current, read_only) = cx.update(|cx| {
         let w = view.read(cx);
+        let d = w.document().read(cx);
         (
             w.window_handle(),
-            w.document().read(cx).path().map(Path::to_path_buf),
+            d.path().map(Path::to_path_buf),
+            d.read_only(),
         )
     });
     let directory = current
@@ -342,8 +347,13 @@ async fn save_as(view: &Entity<ProjectWindow>, cx: &mut AsyncApp) -> bool {
         return false;
     };
     let name = file_name(&path);
-    let target = normalize_new(&path);
-    if cx.update(|cx| window_with_path(&target, Some(view), cx).is_some()) {
+    // 상위 버전 원본은 다른 이름으로 저장해도 덮어쓰지 않는다(리뷰 1 지적 1). 링크·하드 링크로 가리켜도 같다.
+    if read_only.is_some() && current.as_deref().is_some_and(|c| same_file(c, &path)) {
+        report_save_error(handle, &name, &FileError::NewerFormatOriginal, cx).await;
+        return false;
+    }
+    if cx.update(|cx| window_with_path(&path, Some(view), cx).is_some()) {
+        let target = normalize_new(&path);
         report_save_error(handle, &name, &FileError::AlreadyOpen(target), cx).await;
         return false;
     }
@@ -616,7 +626,29 @@ fn window_with_path(
     project_windows(cx)
         .into_iter()
         .filter(|w| except.is_none_or(|e| e != w))
-        .find(|w| w.read(cx).document().read(cx).path() == Some(path))
+        .find(|w| {
+            w.read(cx)
+                .document()
+                .read(cx)
+                .path()
+                .is_some_and(|p| same_file(p, path))
+        })
+}
+
+/// 같은 파일인가: 정규형 경로가 같거나(링크·`..`·대소문자 등은 `canonicalize`가 푼다), 둘 다 있고 같은
+/// 장치의 같은 inode다(하드 링크, 리뷰 1 지적 6).
+fn same_file(a: &Path, b: &Path) -> bool {
+    if a == b || normalize_new(a) == normalize_new(b) {
+        return true;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt as _;
+        if let (Ok(x), Ok(y)) = (fs::metadata(a), fs::metadata(b)) {
+            return x.dev() == y.dev() && x.ino() == y.ino();
+        }
+    }
+    false
 }
 
 fn active_project_window(cx: &App) -> Option<Entity<ProjectWindow>> {
