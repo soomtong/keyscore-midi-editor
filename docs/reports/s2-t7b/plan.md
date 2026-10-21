@@ -39,11 +39,15 @@ pub const AUTOSAVE_DELAY: Duration = Duration::from_secs(30);
 pub fn autosave_dir(cx: &App) -> PathBuf;                      // 설정 파일 옆 autosave/
 pub struct Recoverable { pub path: Option<PathBuf>, pub read_only: Option<ReadOnly>, … }
 pub fn find_recoverable(cx: &App) -> Vec<Recoverable>;         // 끝난 세션의 저장본
-pub fn offer_recovery(cx: &mut App) -> Task<()>;                // run()이 부른다(시험도)
+pub fn offer_recovery(cx: &mut App);                            // run()이 부른다(시험도). 흐름은 스스로 detach
 pub fn flush_all(cx: &mut App);                                 // on_app_quit: 바뀐 창의 저장본을 지금 쓴다
 
 // keyscore_app::document
-impl ProjectDocument { pub fn is_recovered(&self) -> bool; pub(crate) fn mark_recovered(&mut self, …); }
+impl ProjectDocument { pub fn revision(&self) -> u64; pub fn is_recovered(&self) -> bool; pub(crate) fn mark_recovered(&mut self, path, read_only); }
+// keyscore_app::app_state
+impl AppSettings { pub fn path(cx: &App) -> &Path; }
+// keyscore_app::files
+#[doc(hidden)] pub fn recent_label_computations(cx: &App) -> u64;
 ~~~
 
 ## 테스트 목록

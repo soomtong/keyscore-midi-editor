@@ -89,6 +89,8 @@ pub struct ProjectWindow {
     handle: gpui_kit::AnyWindowHandle,
     /// 저장·닫기 흐름이 돌고 있다(시트가 떠 있을 수 있다). 그동안 새 흐름을 시작하지 않는다(S2-T7a).
     pub(crate) file_flow: bool,
+    /// 자동 저장본 상태(S2-T7b).
+    pub(crate) autosave: crate::autosave::WindowAutosave,
 }
 
 impl ProjectWindow {
@@ -111,6 +113,7 @@ impl ProjectWindow {
             this.transport_document_changed(cx);
             this.notice_history_limit(cx);
             this.refresh_file_state(window, cx);
+            this.autosave_document_changed(cx);
         });
         let current_track = document
             .read(cx)
@@ -162,6 +165,7 @@ impl ProjectWindow {
             _window_resized: window_resized,
             handle: window.window_handle(),
             file_flow: false,
+            autosave: crate::autosave::WindowAutosave::new(),
         };
         this.refresh_fields(window, cx);
         this.refresh_file_state(window, cx);

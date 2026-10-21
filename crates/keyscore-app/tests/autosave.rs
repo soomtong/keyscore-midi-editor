@@ -153,9 +153,8 @@ fn title(cx: &mut TestAppContext, view: &Entity<ProjectWindow>) -> String {
 /// 시험 시작 때 열린 빈 창 하나와 복구 제안(앱의 `run`과 같다).
 fn launch_with_recovery(cx: &mut TestAppContext) -> AnyWindowHandle {
     let (handle, _) = open(cx, Project::new());
-    let task = cx.update(autosave::offer_recovery);
+    cx.update(autosave::offer_recovery);
     cx.run_until_parked();
-    drop(task);
     handle
 }
 
@@ -170,7 +169,10 @@ fn autosave_written_30s_after_change_outside_project_folder(cx: &mut TestAppCont
     write_sample(&path);
     let (handle, view) = open_file(cx, &path);
     touch(cx, handle);
-    advance(cx, AUTOSAVE_DELAY - Duration::from_secs(1));
+    advance(
+        cx,
+        AUTOSAVE_DELAY.checked_sub(Duration::from_secs(1)).unwrap(),
+    );
     assert!(autosaves(cx).is_empty(), "30 s 전에 저장본이 생겼다");
     advance(cx, Duration::from_secs(2));
     let saved = autosaves(cx);
@@ -414,6 +416,8 @@ fn dead_session_autosaves_are_recoverable() {
     child.wait().unwrap();
     let probe = std::fs::File::open(dir.join("session-child.lock")).unwrap();
     assert!(probe.try_lock().is_ok(), "죽은 자식의 잠금이 풀리지 않았다");
+    // 시험이 쥔 잠금을 놓는다. 쥔 채면 앱 판정도 「살아 있음」이 된다(같은 프로세스라도 열린 파일마다 잠금).
+    drop(probe);
     // 앱 판정도 같다.
     let cx = TestAppContext::single();
     cx.update(|cx| init(cx, base.join("settings.json")));
@@ -547,9 +551,8 @@ fn recover_path_already_open_opens_untitled(cx: &mut TestAppContext) {
     let (_h, _) = open_file(cx, &path);
     let auto = autosave_dir(cx);
     plant_dead(&auto, "song", &ksq::to_string(&sample()), Some(&path), None);
-    let task = cx.update(autosave::offer_recovery);
+    cx.update(autosave::offer_recovery);
     cx.run_until_parked();
-    drop(task);
     answer(cx, "복구");
     let all = windows(cx);
     assert_eq!(all.len(), 2);
@@ -666,5 +669,48 @@ fn menu_build_uses_cached_recent_labels(cx: &mut TestAppContext) {
     assert!(
         cx.read(files::recent_label_computations) <= before + 1,
         "목록이 그대로인데 라벨을 다시 계산했다"
+    );
+}
+
+#[gpui_kit::test]
+fn close_during_autosave_write_leaves_no_autosave(cx: &mut TestAppContext) {
+    start(cx, "close-in-flight");
+    let (handle, view) = open(cx, sample());
+    touch(cx, handle);
+    // 타이머만 울리고 백그라운드 쓰기는 아직 끝내지 않은 채 창을 닫는다.
+    cx.executor()
+        .advance_clock(AUTOSAVE_DELAY + Duration::from_secs(1));
+    cx.update_window(handle, |_, window, cx| {
+        window.dispatch_action(Box::new(keyscore_app::actions::window::Close), cx);
+    })
+    .unwrap();
+    cx.run_until_parked();
+    answer(cx, "저장 안 함");
+    advance(cx, AUTOSAVE_DELAY * 2);
+    assert!(autosaves(cx).is_empty(), "버린 창의 저장본이 남았다");
+    // 시험이 뷰를 쥐고 있어도(뷰가 살아 있어도) 다시 쓰지 않는다.
+    drop(view);
+}
+
+#[gpui_kit::test]
+fn closed_view_kept_alive_does_not_autosave_again(cx: &mut TestAppContext) {
+    start(cx, "closed-alive");
+    let (handle, view) = open(cx, sample());
+    touch(cx, handle);
+    run(cx, handle, keyscore_app::actions::window::Close);
+    answer(cx, "저장 안 함");
+    // 닫힌 창의 문서가 바뀌어도(뷰는 시험이 쥐고 있다) 저장본을 만들지 않는다.
+    view.update(cx, |w, cx| {
+        w.document().update(cx, |d, cx| {
+            let _ = d.apply(vec![]);
+            cx.notify();
+        });
+    });
+    advance(cx, AUTOSAVE_DELAY * 2);
+    let left = autosaves(cx);
+    assert!(
+        left.is_empty(),
+        "{left:?} {:?}",
+        left.first().map(|p| meta_of(p))
     );
 }
