@@ -489,7 +489,8 @@ fn open_recent(path: PathBuf, cx: &mut App) {
 }
 
 /// 파일들을 연다. 실패는 시트 하나로 모아 알린다. 하나라도 열었고 `origin`이 손대지 않은 새 창이면 그
-/// 창을 닫는다(macOS 문서 앱 관례). `forget_failed`면 열지 못한 파일을 최근 목록에서 뺀다.
+/// 창을 닫는다(macOS 문서 앱 관례). 그 창에 저장 흐름이 돌고 있으면(대화상자가 떠 있다) 닫지 않는다. 닫으면
+/// 대화상자의 답이 보이지 않는 문서를 쓴다(리뷰 1 지적 3). `forget_failed`면 열지 못한 파일을 최근 목록에서 뺀다.
 fn open_paths(
     paths: &[PathBuf],
     origin: Option<&Entity<ProjectWindow>>,
@@ -512,6 +513,7 @@ fn open_paths(
     let origin_handle = origin.map(|o| o.read(cx).window_handle());
     if let (Some(origin), Some(handle)) = (origin, opened)
         && origin_handle != Some(handle)
+        && !origin.read(cx).file_flow
         && origin.read(cx).document().read(cx).is_pristine()
     {
         close_now_sync(origin, cx);
