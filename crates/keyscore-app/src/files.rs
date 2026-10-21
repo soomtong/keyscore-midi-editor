@@ -521,13 +521,30 @@ fn open_paths(
     if failures.is_empty() {
         return;
     }
-    // 시트를 띄울 창: 연 창, 명령을 낸 창, 둘 다 없으면 새 창.
+    // 시트를 띄울 창: 연 창, 명령을 낸 창, 그 밖의 창 가운데 흐름이 돌지 않는 첫 창. 없으면 새 창. 흐름이 도는
+    // 창에는 이미 시트가 떠 있을 수 있어 겹치지 않게 피하고, 띄우는 동안 그 창의 흐름으로 표시한다(리뷰 2
+    // 지적 3).
+    let views = project_windows(cx);
+    let open = cx.windows();
+    let free = |handle: AnyWindowHandle, cx: &App| {
+        views
+            .iter()
+            .find(|v| v.read(cx).window_handle() == handle)
+            .filter(|v| open.contains(&handle) && !v.read(cx).file_flow)
+            .cloned()
+    };
     let host = opened
-        .or(origin_handle.filter(|h| cx.windows().contains(h)))
+        .and_then(|h| free(h, cx))
+        .or_else(|| origin_handle.and_then(|h| free(h, cx)))
+        .or_else(|| {
+            views
+                .iter()
+                .find_map(|v| free(v.read(cx).window_handle(), cx))
+        })
         .or_else(|| {
             crate::open_project_window(Project::new(), cx)
                 .ok()
-                .map(|(h, _)| h)
+                .map(|(_, v)| v)
         });
     let Some(host) = host else {
         eprintln!("KeyScore: 파일을 열지 못했다: {}", failures.join("; "));
@@ -539,9 +556,11 @@ fn open_paths(
         "파일을 열지 못했다".to_owned()
     };
     let detail = failures.join("\n");
+    set_busy_now(&host, true, cx);
     cx.spawn(async move |cx| {
+        let handle = cx.update(|cx| host.read(cx).window_handle());
         ask(
-            host,
+            handle,
             PromptLevel::Critical,
             &message,
             Some(&detail),
@@ -549,6 +568,7 @@ fn open_paths(
             cx,
         )
         .await;
+        set_busy(&host, false, cx);
     })
     .detach();
 }
