@@ -534,7 +534,6 @@ fn review_recent_labels_distinct_for_same_name_and_parent_name(cx: &mut TestAppC
 }
 
 /// 손대지 않은 새 창에서 「다른 이름으로 저장」 대화상자를 연 채 다른 파일을 열면 그 창이 닫힌다. 그 뒤
-
 /// 대화상자에 답하면 닫힌 창의 문서가 파일로 써진다.
 #[gpui_kit::test]
 fn review_open_replacing_window_with_pending_save_dialog(cx: &mut TestAppContext) {
