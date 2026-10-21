@@ -5,6 +5,7 @@
 
 pub mod actions;
 pub mod app_state;
+pub mod autosave;
 pub mod command_palette;
 pub mod commands;
 pub mod dispatch;

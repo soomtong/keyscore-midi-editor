@@ -777,3 +777,10 @@ fn close_now_sync(view: &Entity<ProjectWindow>, cx: &mut App) {
     let handle = view.read(cx).window_handle();
     let _ = handle.update(cx, |_, window, _| window.remove_window());
 }
+
+/// 최근 목록 라벨을 계산한 횟수(시험이 메뉴 생성의 캐시를 본다).
+#[doc(hidden)]
+#[must_use]
+pub fn recent_label_computations(_cx: &App) -> u64 {
+    todo!()
+}
