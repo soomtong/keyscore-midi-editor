@@ -508,3 +508,109 @@ fn review_r2_save_without_focus_saves(cx: &mut TestAppContext) {
         "포커스가 없으면 저장이 아무 일도 하지 않는다"
     );
 }
+
+// ---------- 리뷰 2 부록 A(수정 확인) ----------
+
+/// 상위 버전 원본을 연 뒤 Finder에서 옮기면, 옮긴 원본을 「다른 이름으로 저장」으로 골라 덮을 수 있다.
+#[gpui_kit::test]
+fn review_r2_save_as_onto_moved_newer_original_keeps_original(cx: &mut TestAppContext) {
+    let dir = start(cx, "newer-moved");
+    let path = dir.join("future.ksq");
+    let (handle, _, before) = open_newer(cx, &path);
+    let moved = dir.join("moved.ksq");
+    std::fs::rename(&path, &moved).unwrap();
+    run(cx, handle, file::Save);
+    answer(cx, "다른 이름으로 저장");
+    answer_new_path(cx, Some(moved.clone()));
+    if cx.has_pending_prompt() {
+        answer(cx, "확인");
+    }
+    assert_eq!(
+        std::fs::read(&moved).unwrap(),
+        before,
+        "옮긴 상위 버전 원본이 버전 1로 덮였다"
+    );
+}
+
+/// 연 파일을 바깥에서 이름을 바꾼 뒤 새 이름으로 열면 같은 파일이 두 창에 열린다.
+#[gpui_kit::test]
+fn review_r2_open_renamed_file_activates_existing_window(cx: &mut TestAppContext) {
+    let dir = start(cx, "renamed");
+    let path = dir.join("a.ksq");
+    write_sample(&path);
+    let (first, _) = open_file(cx, &path);
+    let renamed = dir.join("b.ksq");
+    std::fs::rename(&path, &renamed).unwrap();
+    let (again, _) = cx.update(|cx| files::open_path(&renamed, cx)).unwrap();
+    assert_eq!(again, first, "같은 파일(inode)이 두 창에 열렸다");
+}
+
+/// 열기 실패 시트가 떠 있는 바뀐 창에 끝내기를 내면 같은 창에 시트가 겹친다.
+#[gpui_kit::test]
+fn review_r2_quit_during_open_error_sheet_does_not_stack(cx: &mut TestAppContext) {
+    let dir = start(cx, "quit-open-error");
+    let bad = dir.join("broken.ksq");
+    std::fs::write(&bad, "{ not json").unwrap();
+    let (handle, _) = open(cx, sample());
+    touch(cx, handle);
+    run(cx, handle, file::Open);
+    cx.simulate_path_prompt_response(move |_| Some(vec![bad]));
+    cx.run_until_parked();
+    assert!(prompt_text(cx).contains("열지 못했다"));
+    let quit = start_quit(cx);
+    answer(cx, "확인");
+    assert!(
+        !(cx.has_pending_prompt() && quit.get().is_none()),
+        "열기 실패 시트 뒤에 끝내기 시트가 같은 창에 겹쳐 있었다"
+    );
+}
+
+/// 열기 실패 시트가 떠 있는 바뀐 창에 닫기를 내면 같은 창에 시트가 겹친다.
+#[gpui_kit::test]
+fn review_r2_close_during_open_error_sheet_does_not_stack(cx: &mut TestAppContext) {
+    let dir = start(cx, "close-open-error");
+    let bad = dir.join("broken.ksq");
+    std::fs::write(&bad, "{ not json").unwrap();
+    let (handle, _) = open(cx, sample());
+    touch(cx, handle);
+    run(cx, handle, file::Open);
+    cx.simulate_path_prompt_response(move |_| Some(vec![bad]));
+    cx.run_until_parked();
+    run(cx, handle, window_actions::Close);
+    answer(cx, "확인");
+    assert!(
+        !cx.has_pending_prompt(),
+        "열기 실패 시트 뒤에 닫기 시트가 같은 창에 겹쳐 있었다"
+    );
+}
+
+/// 설정에 같은 파일이 두 모양으로 있으면 시작하자마자 메뉴에 두 줄이다.
+#[gpui_kit::test]
+fn review_r2_recent_noncanonical_duplicate_at_startup_shown_once(cx: &mut TestAppContext) {
+    let dir = std::env::temp_dir().join(format!(
+        "ks-review-t7a-r2-{}-startup-dup",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("sub")).unwrap();
+    let path = dir.join("song.ksq");
+    write_sample(&path);
+    let roundabout = dir.join("sub/../song.ksq");
+    std::fs::write(
+        dir.join("settings.json"),
+        serde_json::json!({ "recent_files": [
+            path.canonicalize().unwrap().display().to_string(),
+            roundabout.display().to_string()
+        ] })
+        .to_string(),
+    )
+    .unwrap();
+    cx.update(|cx| init(cx, dir.join("settings.json")));
+    let n = cx.update(|cx| {
+        keyscore_app::commands::palette_entries(cx)
+            .iter()
+            .filter(|e| e.name() == "file::OpenRecent")
+            .count()
+    });
+    assert_eq!(n, 1, "같은 파일이 최근 파일에 두 줄");
+}
