@@ -82,7 +82,7 @@
 
 - 범위: IO-5, 7.5의 파일 단축키, 자동 저장본(`~/Library/Application Support/KeyScore/autosave/<경로 해시>.ksq`, 30 s), 크래시 후 복구 제안, 저장 안 된 변경의 닫기 시트, 최근 파일.
 - 테스트 게이트: 저장 중 kill 시뮬레이션 후 원본 보존. 자동 저장본이 프로젝트 폴더에 생기지 않음.
-- 나누기(결정 `docs/decisions/2026-10-21-s2-t7-save-policy-and-split.md` 2): T7a 새로 만들기·열기·저장·닫기 시트·끝내기·최근 파일, T7b 자동 저장본·복구, T7c 가져오기·내보내기 메뉴.
+- 나누기(결정 `docs/decisions/2026-10-21-s2-t7-save-policy-and-split.md` 2): T7a 새로 만들기·열기·저장·닫기 시트·끝내기·최근 파일, T7b 자동 저장본·복구, T7c 가져오기·내보내기 메뉴(결정 `2026-10-22-s2-t7c-import-export.md`: SMF는 새 창, 텍스트는 지금 프로젝트의 재생 위치, 손실은 결과 요약), T7d OUT-8 대체 매핑 제안과 S2-T7b 리뷰 4 이월.
 - 이월(S0-T6 리뷰 1 제안 6): 상위 `format_version` 파일의 저장 정책. 결정 `docs/decisions/2026-10-12-ksq-newer-version-save.md` A(T7a).
 - 이월(S2-T7a 리뷰 3 제안, T7b에서): 파일 정체(`FileId`, 장치·inode)는 FAT32에서 inode 번호 재사용으로 새 파일을 옛 창으로 묶을 수 있다(`st_birthtime` 추가 방안). 원본을 `.bak`으로 옮기고 새 파일을 쓰면 백업을 따로 열 수 없다(정체 추적의 결과, 복구와 함께 기대 동작을 정한다). `remove_recent`가 하드 링크 쌍을 함께 빼지 않는다. 메뉴를 만들 때마다 최근 항목 쌍마다 파일 시스템을 부른다. 수용 테스트는 `docs/reports/s2-t7a/review-3.md` 부록 A.
 - 이월(S2-T7b 리뷰 4 제안·이월, T7c 또는 S2 출구 전에): 첫 저장본 쓰기에서 메타·내용 rename 사이에 크래시하면 내용 없는 메타가 남아 그 세션의 잠금 파일도 지워지지 않는다(수용 테스트 `docs/reports/s2-t7b/review-4.md` 부록 D1). `discard`가 복구 잠금(`claimed`)을 보지 않는다. `recover`의 잠금 검사와 잠그기 사이 틈(잠금 성공 때만 여는 방안). 바뀐 창 없이 크래시한 세션의 잠금 파일은 정리 기회가 없다. `init`의 `try_lock` 실패는 다시 시도하지 않는다. 저장본 이름은 단계 파일의 `<경로 해시>.ksq`가 아니라 창마다 고유한 키다(리뷰 1 지적 2·3·4).
