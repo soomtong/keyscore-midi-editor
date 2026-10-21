@@ -16,6 +16,8 @@ use std::fmt::Write as _;
 use std::fs;
 use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use gpui_kit::{App, AppContext as _, Context, Entity, PromptButton, PromptLevel, Task};
@@ -68,12 +70,41 @@ struct Session {
 
 impl gpui_kit::Global for Session {}
 
+/// 한 창의 저장본 파일을 바꾸는 차례. 쓰기는 준비할 때 세대 번호를 받고, 바닥(`floor`)보다 낮은 세대는
+/// rename하지 않고 버린다. 성공한 쓰기와 지우기는 잠금 안에서 바닥을 올린다. 그래서 늦게 끝난 옛 쓰기가
+/// 종료 훅이 쓴 최신 저장본을 덮거나(리뷰 2 지적 1), 지운 뒤에 저장본을 되살리지 않는다(창이 사라진 뒤 끝난
+/// 쓰기 포함, 리뷰 2 제안 5).
+#[derive(Default)]
+struct Slot {
+    next: AtomicU64,
+    floor: Mutex<u64>,
+}
+
+impl Slot {
+    fn issue(&self) -> u64 {
+        self.next.fetch_add(1, Ordering::Relaxed)
+    }
+
+    /// 지금까지 준비한 모든 쓰기를 무효로 하고 파일을 지운다.
+    fn remove(&self, dir: &Path, key: &str) {
+        let mut floor = self
+            .floor
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        *floor = self.next.load(Ordering::Relaxed);
+        remove_files(dir, key);
+    }
+}
+
 /// 창 하나의 자동 저장 상태(`ProjectWindow`가 가진다).
 pub(crate) struct WindowAutosave {
     /// 이 창의 저장본 키(창마다 다르다). 복구한 창은 저장본의 키를 이어받는다.
     key: String,
-    /// 지금 저장본이 있는 키.
-    written: Option<String>,
+    /// 이 창의 저장본 파일을 바꾸는 쓰기·지우기의 차례.
+    slot: Arc<Slot>,
+    /// 복구한 저장본 내용 파일의 배타 잠금. 이 세션 것으로 다시 쓰기 전까지(쓰기가 실패해도) 다른 실행이 같은
+    /// 저장본을 복구 대상으로 보지 않게 한다(리뷰 2 제안 2).
+    claim: Option<fs::File>,
     /// 타이머 또는 쓰기가 진행 중이다.
     pending: Option<Task<()>>,
     /// 실패를 이미 알렸다(성공하면 다시 알린다).
@@ -86,7 +117,8 @@ impl WindowAutosave {
     pub(crate) fn new() -> Self {
         WindowAutosave {
             key: new_key(),
-            written: None,
+            slot: Arc::default(),
+            claim: None,
             pending: None,
             failure_shown: false,
             closed: false,
@@ -217,14 +249,57 @@ pub(crate) struct Job {
     content: String,
     meta: String,
     revision: u64,
+    slot: Arc<Slot>,
+    generation: u64,
+}
+
+/// 쓰기 결과.
+#[derive(Debug, PartialEq, Eq)]
+enum Outcome {
+    Written,
+    /// 더 새 쓰기나 지우기가 먼저 끝나 이 쓰기는 버렸다.
+    Superseded,
 }
 
 impl Job {
-    /// 내용을 먼저, 메타를 나중에 쓴다. 메타가 있으면 내용도 온전하다. 각각 임시 파일 + rename이다.
-    fn write(&self) -> io::Result<()> {
+    /// 세대별 임시 파일에 내용과 메타를 쓰고, 차례 잠금 안에서 세대를 확인한 뒤 내용 → 메타 순으로 rename한다.
+    /// 메타가 있으면 내용도 온전하다.
+    fn write(&self) -> io::Result<Outcome> {
         fs::create_dir_all(&self.dir)?;
-        write_atomic(&self.dir.join(format!("{}.ksq", self.key)), &self.content)?;
-        write_atomic(&self.dir.join(format!("{}.json", self.key)), &self.meta)
+        let content = self.dir.join(format!("{}.ksq", self.key));
+        let meta = self.dir.join(format!("{}.json", self.key));
+        let content_tmp = self
+            .dir
+            .join(format!("{}.ksq.tmp-{}", self.key, self.generation));
+        let meta_tmp = self
+            .dir
+            .join(format!("{}.json.tmp-{}", self.key, self.generation));
+        let staged = write_synced(&content_tmp, &self.content)
+            .and_then(|()| write_synced(&meta_tmp, &self.meta));
+        let result = staged.and_then(|()| {
+            let mut floor = self
+                .slot
+                .floor
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if self.generation < *floor {
+                return Ok(Outcome::Superseded);
+            }
+            let had_meta = meta.exists();
+            fs::rename(&content_tmp, &content)?;
+            if let Err(e) = fs::rename(&meta_tmp, &meta) {
+                // 처음 쓰는 저장본이면 메타 없는 내용 파일을 남기지 않는다(리뷰 2 제안 5).
+                if !had_meta {
+                    let _ = fs::remove_file(&content);
+                }
+                return Err(e);
+            }
+            *floor = self.generation + 1;
+            Ok(Outcome::Written)
+        });
+        let _ = fs::remove_file(&content_tmp);
+        let _ = fs::remove_file(&meta_tmp);
+        result
     }
 }
 
@@ -257,14 +332,11 @@ impl ProjectWindow {
                     (job, result)
                 })
                 .await;
-            let finished = this.update(cx, |w, cx| {
+            // 쓰는 동안 뷰가 사라졌으면(창을 닫았다) 닫기가 이미 차례를 올려 이 쓰기는 버려졌다.
+            let _ = this.update(cx, |w, cx| {
                 w.autosave.pending = None;
                 w.finish_autosave(&job, result, cx);
             });
-            // 쓰는 동안 뷰가 사라졌다(창을 닫았다). 방금 쓴 저장본을 남기지 않는다.
-            if finished.is_err() {
-                remove_files(&job.dir, &job.key);
-            }
         }));
     }
 
@@ -288,13 +360,18 @@ impl ProjectWindow {
             content: ksq::to_string(doc.project()),
             meta: meta.to_string(),
             revision: doc.revision(),
+            slot: self.autosave.slot.clone(),
+            generation: self.autosave.slot.issue(),
         })
     }
 
-    fn finish_autosave(&mut self, job: &Job, result: io::Result<()>, cx: &mut Context<Self>) {
+    fn finish_autosave(&mut self, job: &Job, result: io::Result<Outcome>, cx: &mut Context<Self>) {
         match result {
-            Ok(()) => {
-                self.autosave.written = Some(job.key.clone());
+            Ok(outcome) => {
+                if outcome == Outcome::Written {
+                    // 이 세션 것으로 다시 썼으니 복구 때의 잠금은 더 필요 없다.
+                    self.autosave.claim = None;
+                }
                 self.autosave.failure_shown = false;
                 let doc = self.document().read(cx);
                 let (dirty, revision) = (doc.is_dirty(), doc.revision());
@@ -327,11 +404,12 @@ impl ProjectWindow {
         self.remove_autosave(cx);
     }
 
-    /// 이 창의 저장본을 지운다(명시 저장, 창 닫기).
+    /// 이 창의 저장본을 지운다(명시 저장, 창 닫기). 진행 중인 쓰기도 무효가 된다.
     pub(crate) fn remove_autosave(&mut self, cx: &App) {
-        if let Some(key) = self.autosave.written.take() {
-            remove_files(&autosave_dir(cx), &key);
-        }
+        self.autosave
+            .slot
+            .remove(&autosave_dir(cx), &self.autosave.key);
+        self.autosave.claim = None;
     }
 }
 
@@ -377,7 +455,7 @@ fn scan(cx: &App) -> Scan {
             scan.corrupt += 1;
             continue;
         };
-        if session == own || session_alive(&dir, session) {
+        if session == own || session_alive(&dir, session) || claimed(content) {
             continue;
         }
         let Some(project) = fs::read_to_string(content)
@@ -415,6 +493,42 @@ fn session_alive(dir: &Path, session: &str) -> bool {
     }
 }
 
+/// 다른 실행(또는 이 실행의 다른 창)이 복구하며 내용 파일을 잠갔는가.
+fn claimed(content: &Path) -> bool {
+    fs::File::open(content).is_ok_and(|f| f.try_lock().is_err())
+}
+
+/// 저장본이 하나도 남지 않은 끝난 세션의 잠금 파일을 지운다(크래시마다 쌓이지 않게, 리뷰 2 제안 3).
+fn remove_dead_locks(dir: &Path, own: &str) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    let names: Vec<PathBuf> = entries.filter_map(Result::ok).map(|e| e.path()).collect();
+    let sessions_in_use: Vec<String> = names
+        .iter()
+        .filter(|p| p.extension().is_some_and(|x| x == "json"))
+        .filter_map(|p| fs::read_to_string(p).ok())
+        .filter_map(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+        .filter_map(|m| m["session"].as_str().map(str::to_owned))
+        .collect();
+    for path in &names {
+        let Some(session) = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .and_then(|n| {
+                n.strip_prefix("session-")?
+                    .strip_suffix(".lock")
+                    .map(str::to_owned)
+            })
+        else {
+            continue;
+        };
+        if session != own && !sessions_in_use.contains(&session) && !session_alive(dir, &session) {
+            let _ = fs::remove_file(path);
+        }
+    }
+}
+
 fn recover(good: Vec<Recoverable>, host: &Entity<ProjectWindow>, cx: &mut App) {
     let dir = autosave_dir(cx);
     let mut restored = false;
@@ -435,9 +549,12 @@ fn recover(good: Vec<Recoverable>, host: &Entity<ProjectWindow>, cx: &mut App) {
         view.update(cx, |w, cx| {
             w.document()
                 .update(cx, |d, _| d.mark_recovered(path.clone(), item.read_only));
-            // 저장본을 이 세션 것으로 가져온다(다시 복구 대상이 되지 않게).
+            // 저장본을 이 세션 것으로 가져온다(다시 복구 대상이 되지 않게). 다시 쓰기 전에 내용 파일을 잠가,
+            // 쓰기가 실패해도 다른 실행이 가져가지 않게 한다.
             w.autosave.key.clone_from(&item.key);
-            w.autosave.written = Some(item.key.clone());
+            w.autosave.claim = fs::File::open(dir.join(format!("{}.ksq", item.key)))
+                .ok()
+                .filter(|f| f.try_lock().is_ok());
             if let Some(job) = w.prepare_autosave(cx) {
                 let result = job.write();
                 w.finish_autosave(&job, result, cx);
@@ -448,6 +565,7 @@ fn recover(good: Vec<Recoverable>, host: &Entity<ProjectWindow>, cx: &mut App) {
         });
         remove_stale_temps(item.path.as_deref(), item.pid);
     }
+    remove_dead_locks(&dir, &cx.global::<Session>().id.clone());
     if restored && host.read(cx).document().read(cx).is_pristine() {
         crate::files::close_now_sync(host, cx);
     }
@@ -463,6 +581,7 @@ fn discard(good: &[Recoverable], cx: &mut App) {
         remove_files(&dir, &item.key);
         remove_stale_temps(item.path.as_deref(), item.pid);
     }
+    remove_dead_locks(&dir, &cx.global::<Session>().id.clone());
 }
 
 /// 저장본이 아직 찾았을 때의 끝난 세션 것인가.
@@ -509,22 +628,10 @@ fn remove_files(dir: &Path, key: &str) {
     let _ = fs::remove_file(dir.join(format!("{key}.ksq")));
 }
 
-fn write_atomic(path: &Path, text: &str) -> io::Result<()> {
-    let temp = path.with_extension(format!(
-        "{}.tmp",
-        path.extension()
-            .map_or_else(String::new, |e| e.to_string_lossy().into_owned())
-    ));
-    let result = (|| {
-        let mut file = fs::File::create(&temp)?;
-        file.write_all(text.as_bytes())?;
-        file.sync_all()?;
-        fs::rename(&temp, path)
-    })();
-    if result.is_err() {
-        let _ = fs::remove_file(&temp);
-    }
-    result
+fn write_synced(path: &Path, text: &str) -> io::Result<()> {
+    let mut file = fs::File::create(path)?;
+    file.write_all(text.as_bytes())?;
+    file.sync_all()
 }
 
 /// 창의 키: 프로세스, 시각, 순번.
