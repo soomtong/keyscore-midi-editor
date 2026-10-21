@@ -559,7 +559,8 @@ fn add_recent(path: &Path, cx: &mut App) {
     let entry = path.display().to_string();
     let before = AppSettings::get(cx).recent_files.clone();
     AppSettings::update(cx, |s| {
-        s.recent_files.retain(|p| *p != entry);
+        // 손으로 고친 설정은 정규화하지 않은 경로를 가질 수 있다. 같은 파일이면 모양이 달라도 뺀다(리뷰 1 지적 4).
+        s.recent_files.retain(|p| !same_file(Path::new(p), path));
         s.recent_files.insert(0, entry);
         s.recent_files.truncate(MAX_RECENT_FILES);
     });
@@ -580,7 +581,8 @@ fn remove_recent(path: &Path, cx: &mut App) {
     crate::set_menus(cx);
 }
 
-/// 최근 파일 메뉴·팔레트의 이름: 파일 이름. 같은 이름이 여럿이면 부모 폴더 이름을 붙인다.
+/// 최근 파일 메뉴·팔레트의 이름: 파일 이름. 같은 이름이 여럿이면 서로 구별될 때까지 위 폴더를 붙인다
+/// (「song.ksq — x/proj」, 리뷰 1 지적 5).
 pub(crate) fn recent_labels(cx: &App) -> Vec<(String, String)> {
     let recent = &AppSettings::get(cx).recent_files;
     let names: Vec<String> = recent.iter().map(|p| file_name(Path::new(p))).collect();
@@ -588,18 +590,46 @@ pub(crate) fn recent_labels(cx: &App) -> Vec<(String, String)> {
         .iter()
         .zip(&names)
         .map(|(path, name)| {
-            let label = if names.iter().filter(|n| *n == name).count() > 1 {
-                let parent = Path::new(path)
-                    .parent()
-                    .and_then(Path::file_name)
-                    .map_or_else(String::new, |p| p.to_string_lossy().into_owned());
-                format!("{name} — {parent}")
-            } else {
+            let others: Vec<&String> = recent
+                .iter()
+                .zip(&names)
+                .filter(|(p, n)| *n == name && *p != path)
+                .map(|(p, _)| p)
+                .collect();
+            let label = if others.is_empty() {
                 name.clone()
+            } else {
+                format!("{name} — {}", distinct_folder(path, &others))
             };
             (label, path.clone())
         })
         .collect()
+}
+
+/// `path`의 부모 폴더 꼬리를 `others`의 것과 다를 때까지 늘린다. 끝까지 같으면 부모 경로 전체다.
+fn distinct_folder(path: &str, others: &[&String]) -> String {
+    let folders = |p: &str| -> Vec<String> {
+        Path::new(p)
+            .parent()
+            .map(|d| {
+                d.components()
+                    .map(|c| c.as_os_str().to_string_lossy().into_owned())
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    let tail = |parts: &[String], k: usize| parts[parts.len().saturating_sub(k)..].join("/");
+    let mine = folders(path);
+    let theirs: Vec<Vec<String>> = others.iter().map(|p| folders(p)).collect();
+    for k in 1..=mine.len() {
+        let candidate = tail(&mine, k);
+        if theirs.iter().all(|t| tail(t, k) != candidate) {
+            return candidate;
+        }
+    }
+    Path::new(path)
+        .parent()
+        .map_or_else(String::new, |d| d.display().to_string())
 }
 
 // ---------------------------------------------------------------- 도움 함수
