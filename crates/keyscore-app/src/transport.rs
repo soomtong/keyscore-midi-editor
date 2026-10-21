@@ -397,6 +397,11 @@ impl ProjectWindow {
         cx.notify();
     }
 
+    /// 이 창의 재생을 멈춘다(정지 Action, 창 닫기).
+    pub(crate) fn stop_playback(&mut self, cx: &mut Context<Self>) {
+        self.stop(cx);
+    }
+
     fn stop(&mut self, cx: &mut Context<Self>) {
         let me = cx.entity().downgrade();
         if cx.has_global::<Engine>() && cx.global::<Engine>().is_owner(&me) {

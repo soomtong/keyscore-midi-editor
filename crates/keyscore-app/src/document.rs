@@ -11,6 +11,9 @@ use keyscore_core::{Document, Edit, ModelError, Project};
 /// `docs/decisions/2026-10-19-undo-history-memory-limit.md` A).
 pub const HISTORY_LIMIT_BYTES: usize = 256 * 1024 * 1024;
 
+/// 새 프로젝트의 이름.
+pub const UNTITLED: &str = "제목 없음";
+
 /// 파일을 덮어쓰지 않는 이유.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReadOnly {
@@ -23,6 +26,9 @@ pub struct ProjectDocument {
     document: Document,
     /// 저장한 뒤 바뀌었는가(S2-T7의 닫기 시트·자동 저장이 쓴다).
     dirty: bool,
+    /// 이 문서의 파일(정규화한 경로). 새 프로젝트는 없다.
+    path: Option<PathBuf>,
+    read_only: Option<ReadOnly>,
 }
 
 impl ProjectDocument {
@@ -42,6 +48,8 @@ impl ProjectDocument {
         Ok(ProjectDocument {
             document: Document::new(project, limit_bytes)?,
             dirty: false,
+            path: None,
+            read_only: None,
         })
     }
 
@@ -102,27 +110,39 @@ impl ProjectDocument {
     /// 이 문서의 파일. 새 프로젝트는 없다.
     #[must_use]
     pub fn path(&self) -> Option<&Path> {
-        todo!()
+        self.path.as_deref()
     }
 
     #[must_use]
     pub fn read_only(&self) -> Option<ReadOnly> {
-        todo!()
+        self.read_only
     }
 
     /// 창 제목과 시트에 쓰는 이름: 파일 이름, 새 프로젝트면 「제목 없음」.
     #[must_use]
     pub fn display_name(&self) -> String {
-        todo!()
+        self.path
+            .as_deref()
+            .and_then(Path::file_name)
+            .map_or_else(|| UNTITLED.to_owned(), |n| n.to_string_lossy().into_owned())
+    }
+
+    /// 손대지 않은 새 프로젝트인가(열기가 이 창을 연 파일 창으로 바꾼다).
+    #[must_use]
+    pub fn is_pristine(&self) -> bool {
+        self.path.is_none() && !self.dirty && self.document.undo_len() == 0
     }
 
     /// 파일에서 읽은 문서로 표시한다.
-    pub(crate) fn set_file(&mut self, _path: PathBuf, _read_only: Option<ReadOnly>) {
-        todo!()
+    pub(crate) fn set_file(&mut self, path: PathBuf, read_only: Option<ReadOnly>) {
+        self.path = Some(path);
+        self.read_only = read_only;
     }
 
-    /// `path`에 저장했다. 바뀜을 끄고 읽기 전용을 푼다.
-    pub(crate) fn mark_saved(&mut self, _path: PathBuf) {
-        todo!()
+    /// `path`에 저장했다. 바뀜을 끄고 읽기 전용을 푼다(새 파일은 이 앱의 형식 버전이다).
+    pub(crate) fn mark_saved(&mut self, path: PathBuf) {
+        self.path = Some(path);
+        self.read_only = None;
+        self.dirty = false;
     }
 }

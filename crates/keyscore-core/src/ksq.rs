@@ -45,7 +45,7 @@ impl Warning {
     /// `2026-10-12-ksq-newer-version-save` A). 문구가 아니라 이 값으로 판별하게 따로 둔다.
     #[must_use]
     pub fn newer_format_version(&self) -> Option<u64> {
-        todo!()
+        self.newer_version
     }
 }
 

@@ -398,6 +398,24 @@ impl MidiOutputSettings {
     }
 }
 
+/// 최근 파일 목록을 읽는다. 문자열만 받고, 겹치거나 넘치는 항목은 버린다(손으로 고친 파일).
+fn read_recent_files(value: Value, warnings: &mut Vec<String>) -> Vec<String> {
+    let Value::Array(items) = value else {
+        warnings.push("recent_files가 배열이 아니라 비운다".to_string());
+        return Vec::new();
+    };
+    let mut recent = Vec::new();
+    for item in items {
+        match item {
+            Value::String(path) if !recent.contains(&path) => recent.push(path),
+            Value::String(_) => {}
+            _ => warnings.push("recent_files의 문자열이 아닌 항목을 버린다".to_string()),
+        }
+    }
+    recent.truncate(crate::files::MAX_RECENT_FILES);
+    recent
+}
+
 /// 앱 설정 전체.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Settings {
@@ -514,6 +532,9 @@ impl Settings {
             }
             Some(_) => warnings.push("midi_output 설정이 객체가 아니라 기본값을 쓴다".to_string()),
         }
+        if let Some(v) = map.remove("recent_files") {
+            settings.recent_files = read_recent_files(v, &mut warnings);
+        }
         if let Some(v) = map.remove("theme") {
             match serde_json::from_value::<ThemeChoice>(v) {
                 Ok(theme) => settings.theme = theme,
@@ -561,6 +582,15 @@ impl Settings {
         map.insert(
             "theme".to_string(),
             serde_json::to_value(self.theme).map_err(io::Error::other)?,
+        );
+        map.insert(
+            "recent_files".to_string(),
+            Value::Array(
+                self.recent_files
+                    .iter()
+                    .map(|p| Value::String(p.clone()))
+                    .collect(),
+            ),
         );
         let text = serde_json::to_string_pretty(&Value::Object(map)).map_err(io::Error::other)?;
         if let Some(dir) = path.parent() {

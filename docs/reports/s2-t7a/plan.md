@@ -54,18 +54,28 @@ impl Warning {
 }
 
 // keyscore_app::document
+pub const UNTITLED: &str = "제목 없음";
 pub enum ReadOnly { NewerFormat(u64) }
 impl ProjectDocument {
-    pub fn path(&self) -> Option<&Path>;
+    pub fn path(&self) -> Option<&Path>;           // 정규화한 경로
     pub fn read_only(&self) -> Option<ReadOnly>;
     pub fn display_name(&self) -> String;          // 파일 이름 또는 「제목 없음」
+    pub fn is_pristine(&self) -> bool;             // 경로 없음, 바뀜 없음, undo 없음
+    pub(crate) fn set_file(&mut self, path: PathBuf, read_only: Option<ReadOnly>);
     pub(crate) fn mark_saved(&mut self, path: PathBuf);
 }
 
+// keyscore_app::window
+impl ProjectWindow { pub fn window_handle(&self) -> AnyWindowHandle; }
+pub fn open_project_windows(cx: &App) -> Vec<Entity<ProjectWindow>>;
+
 // keyscore_app::files (새 모듈)
-pub fn open_path(path: &Path, cx: &mut App) -> Result<Entity<ProjectWindow>, FileError>;
-pub fn save_project(path: &Path, project: &Project) -> Result<(), FileError>; // 확장자로 압축, ksq::write_file
-pub enum FileError { Read(KsqError), Write(KsqError), PermissionDenied, NewerFormat(u64), AlreadyOpen(PathBuf), Window(String) }
+pub const MAX_RECENT_FILES: usize = 10;
+pub fn open_path(path: &Path, cx: &mut App) -> Result<(AnyWindowHandle, Entity<ProjectWindow>), FileError>;
+pub fn save_project(path: &Path, project: &Project) -> Result<(), FileError>; // 쓰기 권한 확인 + 확장자로 압축 + ksq::write_file
+pub fn confirm_close_all(cx: &mut App) -> Task<bool>;
+pub fn recent_files(cx: &App) -> Vec<PathBuf>;
+pub enum FileError { Read(KsqError), Write(KsqError), PermissionDenied, AlreadyOpen(PathBuf), Window(OpenError) }
 
 // keyscore_app::settings
 pub struct Settings { …, pub recent_files: Vec<String> }

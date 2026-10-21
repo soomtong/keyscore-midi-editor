@@ -10,6 +10,8 @@ use gpui_kit::{Action, App, KeyContext, Keystroke, Menu, MenuItem, SharedString}
 use schemars::JsonSchema;
 use serde::Deserialize;
 
+use crate::actions::file::OpenRecent;
+
 /// 메뉴바의 메뉴. 7.6의 일곱 메뉴 앞에 macOS 앱 메뉴를 둔다.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum MenuId {
@@ -256,6 +258,28 @@ pub fn palette_entries(cx: &App) -> Vec<PaletteEntry> {
     let mut entries = Vec::with_capacity(specs().len());
     for spec in specs() {
         let doc = docs.get(spec.name).copied().unwrap_or_default();
+        // 최근 파일은 표에 고정된 변형이 아니라 지금 목록이다(S2-T7a).
+        if spec.name == RECENT {
+            let recent = crate::files::recent_labels(cx);
+            // 목록이 비어도 팔레트에서 찾을 수는 있어야 한다(UI-11). 실행할 것이 없는 줄로 둔다.
+            if recent.is_empty() {
+                entries.push(PaletteEntry {
+                    name: spec.name,
+                    label: spec.label.into(),
+                    description: format!("{doc} (목록이 비었다)").into(),
+                    action: None,
+                });
+            }
+            for (label, path) in recent {
+                entries.push(PaletteEntry {
+                    name: spec.name,
+                    label: format!("{}: {label}", spec.label).into(),
+                    description: path.clone().into(),
+                    action: Some(Box::new(OpenRecent(path))),
+                });
+            }
+            continue;
+        }
         if spec.variants.is_empty() {
             let action = cx.build_action(spec.name, None).ok();
             let description = if action.is_some() {
@@ -324,6 +348,9 @@ pub fn menus(cx: &App) -> Vec<Menu> {
 /// 메뉴 항목 하나. 변형이 있으면 하위 메뉴, 인자가 열려 있으면 꺼진 빈 하위 메뉴다(최근 파일은 S2-T7).
 /// 인자 없음(`null`) 변형이 있으면 그것만 바로 항목으로 둔다(설정, macOS 관례). 나머지 변형은 팔레트에만 있다.
 fn menu_item(spec: &CommandSpec, cx: &App) -> MenuItem {
+    if spec.name == RECENT {
+        return recent_menu(spec, cx);
+    }
     if let Some(plain) = spec.variants.iter().find(|v| v.args == "null") {
         return action_item(plain.label, spec.name, None, cx);
     }
@@ -349,6 +376,28 @@ fn menu_item(spec: &CommandSpec, cx: &App) -> MenuItem {
             })
             .collect(),
         disabled: false,
+    })
+}
+
+/// 「최근 파일」 Action 이름.
+const RECENT: &str = "file::OpenRecent";
+
+/// 최근 파일 하위 메뉴: 파일마다 한 항목(키 없음). 목록이 비면 꺼진다.
+fn recent_menu(spec: &CommandSpec, cx: &App) -> MenuItem {
+    let items: Vec<MenuItem> = crate::files::recent_labels(cx)
+        .into_iter()
+        .map(|(label, path)| MenuItem::Action {
+            name: label.into(),
+            action: Box::new(OpenRecent(path)),
+            os_action: None,
+            checked: false,
+            disabled: false,
+        })
+        .collect();
+    MenuItem::submenu(Menu {
+        name: spec.label.into(),
+        disabled: items.is_empty(),
+        items,
     })
 }
 

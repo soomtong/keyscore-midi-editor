@@ -87,6 +87,8 @@ pub struct ProjectWindow {
     _window_resized: Subscription,
     /// 이 뷰를 담은 창(파일 흐름이 시트를 띄우고 창을 닫는다).
     handle: gpui_kit::AnyWindowHandle,
+    /// 저장·닫기 흐름이 돌고 있다(시트가 떠 있을 수 있다). 그동안 새 흐름을 시작하지 않는다(S2-T7a).
+    pub(crate) file_flow: bool,
 }
 
 impl ProjectWindow {
@@ -108,6 +110,7 @@ impl ProjectWindow {
             this.sync_fields(window, cx);
             this.transport_document_changed(cx);
             this.notice_history_limit(cx);
+            this.refresh_file_state(window, cx);
         });
         let current_track = document
             .read(cx)
@@ -158,8 +161,17 @@ impl ProjectWindow {
             baseline: None,
             _window_resized: window_resized,
             handle: window.window_handle(),
+            file_flow: false,
         };
         this.refresh_fields(window, cx);
+        this.refresh_file_state(window, cx);
+        // 창 닫기 단추와 `window::Close`는 같은 확인을 거친다. 바뀐 문서는 시트로 묻고, 닫을 때 재생을 멈춘다
+        // (S2-T5a 이월: 뷰 해제를 기다리지 않는다).
+        let me = cx.entity().downgrade();
+        window.on_window_should_close(cx, move |_, cx| {
+            me.upgrade()
+                .is_none_or(|view| crate::files::request_close(&view, cx))
+        });
         this
     }
 
@@ -639,6 +651,9 @@ impl ProjectWindow {
             .on_action(cx.listener(Self::edit_redo))
             .on_action(cx.listener(Self::open_palette))
             .on_action(cx.listener(Self::help_keymap_overlay))
+            .on_action(cx.listener(Self::file_save))
+            .on_action(cx.listener(Self::file_save_as))
+            .on_action(cx.listener(Self::window_close))
             // 맨 키를 피하려고 감싼 메뉴 항목(`commands::RunCommand`). 실행 함수로 실제 Action을 낸다.
             .on_action(cx.listener(|_, run: &RunCommand, window, cx| {
                 if let Ok(action) = cx.build_action(&run.name, run.args.clone()) {
