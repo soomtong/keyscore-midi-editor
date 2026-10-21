@@ -528,7 +528,10 @@ fn review_r2_b1_flush_overwritten_by_older_inflight_write(cx: &mut TestAppContex
         dispatch(cx, handle, track::New);
         cx.update(autosave::flush_all);
         let latest = text_of(cx, &view);
-        assert_eq!(autosave_text_for(cx, &path).as_deref(), Some(latest.as_str()));
+        assert_eq!(
+            autosave_text_for(cx, &path).as_deref(),
+            Some(latest.as_str())
+        );
         // 이미 시작한 백그라운드 쓰기는 프로세스가 끝나기 전에 마저 끝난다(시계는 옮기지 않는다).
         cx.run_until_parked();
         if autosave_text_for(cx, &path).as_deref() != Some(latest.as_str()) {
@@ -559,7 +562,10 @@ fn review_r2_b2_failed_claim_lets_other_run_take_same_autosave(cx: &mut TestAppC
     let found = other.read(autosave::find_recoverable).len();
     std::fs::set_permissions(&auto, std::fs::Permissions::from_mode(0o755)).unwrap();
     assert!(held, "A가 복구 창을 열지 않았다");
-    assert_eq!(found, 0, "A가 연 복구 창의 저장본을 다른 실행이 또 복구 대상으로 본다");
+    assert_eq!(
+        found, 0,
+        "A가 연 복구 창의 저장본을 다른 실행이 또 복구 대상으로 본다"
+    );
 }
 
 /// B4. 끝난 세션의 잠금 파일은 복구·버리기 뒤에도 남아 크래시마다 쌓인다.
