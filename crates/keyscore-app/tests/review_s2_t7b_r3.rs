@@ -427,3 +427,69 @@ fn review_r3_dead_lock_cleanup_keeps_live_and_in_use_locks(cx: &mut TestAppConte
     probe.update(|cx| init(cx, dir.join("settings.json")));
     assert!(probe.read(autosave::find_recoverable).is_empty());
 }
+
+// ---------- 리뷰 3 부록 A(수정 확인) ----------
+
+// ---------------------------------------------------------------- 부록 A: 깨뜨린 시도
+
+
+/// C1. 막 뜬 다른 실행이 잠금 파일을 만들고 아직 잠그지 않은 틈에 이 실행이 [버리기]·[복구]를 마치면, 끝난 세션
+/// 잠금 정리가 그 잠금 파일을 지운다. 그 실행은 잠금 파일 없이 살아, 그 뒤 뜬 실행이 그 실행의 저장본을
+/// 끝난 세션 것으로 보고 복구 대상에 넣는다.
+#[gpui_kit::test]
+fn review_r3_c1_fresh_session_lock_removed_by_dead_lock_cleanup(cx: &mut TestAppContext) {
+    let dir = start(cx, "fresh-lock");
+    let auto = autosave_dir(cx);
+    plant_dead(&auto, "k", &edited("Old"), None);
+    launch_with_recovery(cx);
+    // 다른 실행 C의 `init`: `File::create`까지 마치고 `try_lock` 전이다.
+    let fresh = auto.join("session-fresh.lock");
+    let c_lock = std::fs::File::create(&fresh).unwrap();
+    answer(cx, "버리기");
+    // C가 잠그고, C의 바뀐 창이 저장본을 쓴다.
+    c_lock.try_lock().unwrap();
+    plant(&auto, "c-window", &edited("Live"), None, "fresh");
+    let lock_survived = fresh.exists();
+    let later = cx.new_app();
+    later.update(|cx| init(cx, dir.join("settings.json")));
+    let found = later.read(autosave::find_recoverable).len();
+    drop(c_lock);
+    assert_eq!(found, 0, "살아 있는 실행 C의 저장본을 복구 대상으로 본다");
+    assert!(lock_survived, "막 뜬 실행의 잠금 파일을 지웠다");
+}
+
+/// C2. 두 실행이 같은 끝난 저장본을 함께 제안받는다. A가 [복구]했지만 이 세션 것으로 다시 쓰지 못해(저장본
+/// 폴더에 쓸 수 없음) 내용 파일 잠금만 쥔 채다. B의 [복구]는 `still_dead`만 보고 잠금을 보지 않아 같은 키로
+/// 두 번째 복구 창을 연다.
+#[gpui_kit::test]
+fn review_r3_c2_claimed_autosave_recovered_again_by_open_sheet(cx: &mut TestAppContext) {
+    let dir = start(cx, "claim-race");
+    let auto = autosave_dir(cx);
+    plant_dead(&auto, "k", &edited("Claimed"), None);
+    launch_with_recovery(cx);
+    let mut b = cx.new_app();
+    b.update(|cx| init(cx, dir.join("settings.json")));
+    launch_with_recovery(&mut b);
+    set_mode(&auto, 0o555);
+    answer(cx, "복구");
+    let a_held = windows(cx).iter().any(|w| dirty(cx, w));
+    answer(&mut b, "복구");
+    let b_dirty = windows(&mut b).iter().filter(|w| dirty(&mut b, w)).count();
+    set_mode(&auto, 0o755);
+    assert!(a_held, "A가 복구 창을 열지 않았다");
+    assert_eq!(b_dirty, 0, "A가 잠근 저장본으로 B가 또 복구 창을 열었다");
+}
+
+/// C3. 쓰기 도중 끝난 세션이 남긴 세대별 임시 파일은 [버리기] 뒤에도 저장본 폴더에 남는다.
+#[gpui_kit::test]
+fn review_r3_c3_crash_left_generation_temps_survive_discard(cx: &mut TestAppContext) {
+    start(cx, "crash-temps");
+    let auto = autosave_dir(cx);
+    plant_dead(&auto, "k", &edited("T"), None);
+    std::fs::write(auto.join("k.ksq.tmp-3"), "partial").unwrap();
+    std::fs::write(auto.join("k.json.tmp-3"), "{").unwrap();
+    launch_with_recovery(cx);
+    answer(cx, "버리기");
+    assert!(autosaves(cx).is_empty());
+    assert!(temps(&auto).is_empty(), "남은 임시 파일: {:?}", temps(&auto));
+}
