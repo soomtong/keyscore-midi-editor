@@ -85,6 +85,8 @@ pub struct ProjectWindow {
     baseline: Option<(f32, f32)>,
     /// 창 크기 바뀜 구독(패널 크기 상태를 새로 만든다).
     _window_resized: Subscription,
+    /// 이 뷰를 담은 창(파일 흐름이 시트를 띄우고 창을 닫는다).
+    handle: gpui_kit::AnyWindowHandle,
 }
 
 impl ProjectWindow {
@@ -155,6 +157,7 @@ impl ProjectWindow {
             _released: released,
             baseline: None,
             _window_resized: window_resized,
+            handle: window.window_handle(),
         };
         this.refresh_fields(window, cx);
         this
@@ -208,6 +211,12 @@ impl ProjectWindow {
     #[must_use]
     pub fn document(&self) -> &Entity<ProjectDocument> {
         &self.document
+    }
+
+    /// 이 뷰를 담은 창.
+    #[must_use]
+    pub fn window_handle(&self) -> gpui_kit::AnyWindowHandle {
+        self.handle
     }
 
     /// 모드 FSM의 현재 상태.
@@ -1143,6 +1152,12 @@ pub(crate) fn project_windows(cx: &App) -> Vec<Entity<ProjectWindow>> {
         .iter()
         .filter_map(gpui_kit::WeakEntity::upgrade)
         .collect()
+}
+
+/// 열린 프로젝트 창들(시험과 파일 흐름이 쓴다).
+#[must_use]
+pub fn open_project_windows(cx: &App) -> Vec<Entity<ProjectWindow>> {
+    project_windows(cx)
 }
 
 /// 열린 모든 창에 메시지를 남긴다.

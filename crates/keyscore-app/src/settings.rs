@@ -407,6 +407,8 @@ pub struct Settings {
     pub input: InputSettings,
     pub metronome: MetronomeSettings,
     pub midi_output: MidiOutputSettings,
+    /// 최근 파일 경로(최근이 먼저, S2-T7a).
+    pub recent_files: Vec<String>,
     /// `keymap` 객체 안의 모르는 키.
     keymap_extra: Map<String, Value>,
     /// `input` 객체 안의 모르는 키.

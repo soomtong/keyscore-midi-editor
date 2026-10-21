@@ -11,6 +11,7 @@ pub mod dispatch;
 pub mod document;
 pub mod engine;
 mod fields;
+pub mod files;
 pub mod gm;
 mod inspector;
 pub mod keymap;
@@ -74,6 +75,7 @@ pub fn init(cx: &mut App, settings_path: PathBuf) {
     })
     .detach();
     settings_window::register(cx);
+    files::register(cx);
     settings_ports::register(cx);
     cx.on_action(|action: &SetTheme, cx| {
         let choice = match action.0 {

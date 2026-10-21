@@ -505,3 +505,15 @@ fn ksq_write_file_relative_path_works() {
     result.unwrap();
     assert!(dir.0.join("rel.ksq").exists());
 }
+
+#[test]
+fn warning_newer_format_version_reports_only_newer_versions() {
+    // 상위 버전 경고만 버전을 돌려준다. 앱은 이것으로 읽기 전용을 정한다(결정 2026-10-12-ksq-newer-version-save A).
+    let (_, warnings) = ksq::from_str(r#"{"format_version": 7, "future": true}"#).unwrap();
+    assert_eq!(warnings.len(), 1);
+    assert_eq!(warnings[0].newer_format_version(), Some(7));
+    let (_, warnings) = ksq::from_str(r#"{"format_version": 1}"#).unwrap();
+    assert!(warnings.iter().all(|w| w.newer_format_version().is_none()));
+    let (_, warnings) = ksq::from_str("{}").unwrap();
+    assert!(warnings.is_empty());
+}

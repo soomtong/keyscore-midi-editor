@@ -3,11 +3,20 @@
 //! 모델은 `core::Document`(undo 엔진)를 거쳐서만 바뀐다. 이 타입은 읽기(`project`)와
 //! `apply`·`undo`·`redo`만 내주고 `&mut Project`를 내주지 않는다(S2-T1 리뷰 초점).
 
+use std::path::{Path, PathBuf};
+
 use keyscore_core::{Document, Edit, ModelError, Project};
 
 /// undo 히스토리 메모리 상한(창마다). 넘으면 가장 오래된 단위부터 버리고 처음 한 번 알린다(EDT-1, 결정
 /// `docs/decisions/2026-10-19-undo-history-memory-limit.md` A).
 pub const HISTORY_LIMIT_BYTES: usize = 256 * 1024 * 1024;
+
+/// 파일을 덮어쓰지 않는 이유.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReadOnly {
+    /// 이 앱보다 새 형식 버전의 파일(결정 `2026-10-12-ksq-newer-version-save` A). 「다른 이름으로 저장」만 된다.
+    NewerFormat(u64),
+}
 
 /// 창의 문서. GPUI `Entity<ProjectDocument>`로 담긴다.
 pub struct ProjectDocument {
@@ -88,5 +97,32 @@ impl ProjectDocument {
     #[must_use]
     pub const fn is_dirty(&self) -> bool {
         self.dirty
+    }
+
+    /// 이 문서의 파일. 새 프로젝트는 없다.
+    #[must_use]
+    pub fn path(&self) -> Option<&Path> {
+        todo!()
+    }
+
+    #[must_use]
+    pub fn read_only(&self) -> Option<ReadOnly> {
+        todo!()
+    }
+
+    /// 창 제목과 시트에 쓰는 이름: 파일 이름, 새 프로젝트면 「제목 없음」.
+    #[must_use]
+    pub fn display_name(&self) -> String {
+        todo!()
+    }
+
+    /// 파일에서 읽은 문서로 표시한다.
+    pub(crate) fn set_file(&mut self, _path: PathBuf, _read_only: Option<ReadOnly>) {
+        todo!()
+    }
+
+    /// `path`에 저장했다. 바뀜을 끄고 읽기 전용을 푼다.
+    pub(crate) fn mark_saved(&mut self, _path: PathBuf) {
+        todo!()
     }
 }
