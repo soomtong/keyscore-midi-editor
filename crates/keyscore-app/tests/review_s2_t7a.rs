@@ -415,3 +415,148 @@ fn review_open_nfd_name_activates_existing_window(cx: &mut TestAppContext) {
     let (again, _) = cx.update(|cx| files::open_path(&nfd, cx)).unwrap();
     assert_eq!(again, first, "같은 파일이 두 창에 열렸다");
 }
+
+// ---------- 리뷰 1 부록 A(수정 확인) ----------
+
+/// 상위 버전 파일을 「다른 이름으로 저장」에서 원본과 같은 경로로 고르면 원본이 버전 1로 덮인다.
+#[gpui_kit::test]
+fn review_save_as_onto_newer_version_original_keeps_original(cx: &mut TestAppContext) {
+    let dir = start(cx, "newer-same-path");
+    let path = dir.join("future.ksq");
+    std::fs::write(
+        &path,
+        r#"{"format_version": 7, "future": {"x": 1}, "tracks": []}"#,
+    )
+    .unwrap();
+    let before = std::fs::read(&path).unwrap();
+    let (handle, _) = cx.update(|cx| files::open_path(&path, cx)).unwrap();
+    activate(cx, handle);
+    touch(cx, handle);
+    run(cx, handle, file::Save);
+    answer(cx, "다른 이름으로 저장");
+    answer_new_path(cx, Some(path.clone()));
+    assert_eq!(
+        std::fs::read(&path).unwrap(),
+        before,
+        "읽기 전용(상위 버전) 원본이 버전 1로 덮였다"
+    );
+}
+
+/// 끝내기 시트가 다른 창에 떠 있는 동안 이미 지나간(깨끗했던) 창을 고치면, 묻지 않고 끝내기가 참이 된다.
+#[gpui_kit::test]
+fn review_quit_window_edited_during_other_sheet_is_asked(cx: &mut TestAppContext) {
+    start(cx, "quit-race-edit");
+    let (clean, clean_view) = open(cx, sample());
+    let (dirty_handle, _) = open(cx, sample());
+    touch(cx, dirty_handle);
+    let quit = start_quit(cx);
+    assert!(cx.has_pending_prompt());
+    // 시트는 창 단위다. 다른 창은 편집할 수 있다.
+    touch(cx, clean);
+    assert!(dirty(cx, &clean_view));
+    answer(cx, "저장 안 함");
+    assert!(
+        !(quit.get() == Some(true) && dirty(cx, &clean_view)),
+        "바뀐 창을 묻지 않고 끝내기가 참이 됐다(변경 사항을 잃는다)"
+    );
+}
+
+/// 끝내기 시트가 떠 있는 동안 새 창을 열어 고치면, 묻지 않고 끝내기가 참이 된다.
+#[gpui_kit::test]
+fn review_quit_window_opened_during_sheet_is_asked(cx: &mut TestAppContext) {
+    start(cx, "quit-race-new");
+    let (first, _) = open(cx, sample());
+    touch(cx, first);
+    let quit = start_quit(cx);
+    let (late, late_view) = open(cx, sample());
+    touch(cx, late);
+    activate(cx, first);
+    answer(cx, "저장 안 함");
+    assert!(
+        !(quit.get() == Some(true) && dirty(cx, &late_view)),
+        "끝내기 도중 연 창의 변경 사항을 묻지 않았다"
+    );
+}
+
+/// 하드 링크 두 이름으로 열면 두 창이 같은 파일을 가진다.
+#[gpui_kit::test]
+fn review_open_hard_link_activates_existing_window(cx: &mut TestAppContext) {
+    let dir = start(cx, "hardlink");
+    let path = dir.join("tune.ksq");
+    write_sample(&path);
+    let other = dir.join("other.ksq");
+    std::fs::hard_link(&path, &other).unwrap();
+    let (first, _) = cx.update(|cx| files::open_path(&path, cx)).unwrap();
+    let (again, _) = cx.update(|cx| files::open_path(&other, cx)).unwrap();
+    assert_eq!(again, first, "같은 파일(inode)이 두 창에 열렸다");
+}
+
+/// 설정에 정규화하지 않은 경로가 있으면 같은 파일이 최근 목록에 두 번 남는다.
+#[gpui_kit::test]
+fn review_recent_noncanonical_settings_entry_is_deduped(cx: &mut TestAppContext) {
+    let dir = std::env::temp_dir().join(format!("ks-review-t7a-{}-noncanon", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("sub")).unwrap();
+    let path = dir.join("song.ksq");
+    write_sample(&path);
+    let roundabout = dir.join("sub/../song.ksq");
+    std::fs::write(
+        dir.join("settings.json"),
+        serde_json::json!({ "recent_files": [roundabout.display().to_string()] }).to_string(),
+    )
+    .unwrap();
+    cx.update(|cx| init(cx, dir.join("settings.json")));
+    cx.update(|cx| files::open_path(&path, cx)).unwrap();
+    let recent = cx.update(|cx| files::recent_files(cx));
+    assert_eq!(recent.len(), 1, "같은 파일이 두 번: {recent:?}");
+}
+
+/// 이름과 부모 폴더 이름이 모두 같은 두 최근 파일은 메뉴·팔레트에서 구별되지 않는다.
+#[gpui_kit::test]
+fn review_recent_labels_distinct_for_same_name_and_parent_name(cx: &mut TestAppContext) {
+    let dir = start(cx, "labels");
+    let a = dir.join("x/proj/song.ksq");
+    let b = dir.join("y/proj/song.ksq");
+    for p in [&a, &b] {
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        write_sample(p);
+        cx.update(|cx| files::open_path(p, cx)).unwrap();
+    }
+    let labels: Vec<String> = cx.update(|cx| {
+        keyscore_app::commands::palette_entries(cx)
+            .iter()
+            .filter(|e| e.label().starts_with("최근 파일:"))
+            .map(|e| e.label().to_string())
+            .collect()
+    });
+    assert_eq!(labels.len(), 2);
+    assert_ne!(labels[0], labels[1], "{labels:?}");
+}
+
+/// 손대지 않은 새 창에서 「다른 이름으로 저장」 대화상자를 연 채 다른 파일을 열면 그 창이 닫힌다. 그 뒤
+
+/// 대화상자에 답하면 닫힌 창의 문서가 파일로 써진다.
+#[gpui_kit::test]
+fn review_open_replacing_window_with_pending_save_dialog(cx: &mut TestAppContext) {
+    let dir = start(cx, "replace-busy");
+    let other = dir.join("other.ksq");
+    write_sample(&other);
+    let (handle, _) = open(cx, Project::new());
+    run(cx, handle, file::SaveAs);
+    assert!(cx.did_prompt_for_new_path());
+    run(cx, handle, file::Open);
+    assert!(cx.did_prompt_for_paths());
+    cx.simulate_path_prompt_response(move |_| Some(vec![other]));
+    cx.run_until_parked();
+    let closed = !is_open(cx, handle);
+    let ghost = dir.join("ghost.ksq");
+    cx.simulate_new_path_selection({
+        let g = ghost.clone();
+        move |_| Some(g)
+    });
+    cx.run_until_parked();
+    assert!(
+        !(closed && ghost.exists()),
+        "닫힌 창의 문서가 파일로 써졌다"
+    );
+}
