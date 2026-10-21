@@ -70,7 +70,7 @@ fn import_matches_existing_conversion_on_samples() {
         let notes: usize = project
             .tracks()
             .iter()
-            .flat_map(|t| t.clips())
+            .flat_map(Track::clips)
             .map(|(_, c)| c.notes().len())
             .sum();
         assert_eq!(report.notes, notes);

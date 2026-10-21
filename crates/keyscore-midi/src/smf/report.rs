@@ -2,7 +2,7 @@
 
 use keyscore_core::{ModelError, Project, Velocity};
 
-use super::raw::{SmfError, SmfEventKind, SmfFile, SmfFormat};
+use super::raw::{SmfError, SmfEventKind, SmfFile, SmfFormat, SmfTrack};
 use super::song::Song;
 
 /// 모델로 옮기는 메타: 트랙 이름, 템포, 박자표, 가사.
@@ -85,7 +85,7 @@ pub fn smf_import(file: &SmfFile) -> Result<(Project, ImportReport), ImportError
         ..ImportReport::default()
     };
     let mut file_lyrics: usize = 0;
-    for event in file.tracks().iter().flat_map(|t| t.events()) {
+    for event in file.tracks().iter().flat_map(SmfTrack::events) {
         match event.kind() {
             SmfEventKind::Meta { kind: 0x05, .. } => file_lyrics += 1,
             SmfEventKind::Meta { kind, .. } if KEPT_META.contains(kind) => {}
