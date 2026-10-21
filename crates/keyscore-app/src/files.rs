@@ -183,11 +183,19 @@ pub(crate) fn unsaved_windows(cx: &App) -> Vec<Entity<ProjectWindow>> {
 /// 최근 파일(최근이 먼저).
 #[must_use]
 pub fn recent_files(cx: &App) -> Vec<PathBuf> {
-    AppSettings::get(cx)
-        .recent_files
-        .iter()
-        .map(PathBuf::from)
-        .collect()
+    recent_entries(cx).iter().map(PathBuf::from).collect()
+}
+
+/// 설정의 최근 목록에서 같은 파일을 하나로 합친 것(앞의 것을 남긴다). 손으로 고친 설정은 같은 파일을 다른
+/// 모양으로 가질 수 있고, 다음 넣기 전까지는 설정에 그대로 남는다(리뷰 2 지적 4).
+fn recent_entries(cx: &App) -> Vec<String> {
+    let mut kept: Vec<String> = Vec::new();
+    for entry in &AppSettings::get(cx).recent_files {
+        if !kept.iter().any(|k| same_file(Path::new(k), Path::new(entry))) {
+            kept.push(entry.clone());
+        }
+    }
+    kept
 }
 
 /// 창을 닫아도 되는가. 참이면 바로 닫아도 된다(재생은 이미 멈췄다). 바뀐 창이면 시트를 띄우고 거짓을
@@ -604,7 +612,7 @@ fn remove_recent(path: &Path, cx: &mut App) {
 /// 최근 파일 메뉴·팔레트의 이름: 파일 이름. 같은 이름이 여럿이면 서로 구별될 때까지 위 폴더를 붙인다
 /// (「song.ksq — x/proj」, 리뷰 1 지적 5).
 pub(crate) fn recent_labels(cx: &App) -> Vec<(String, String)> {
-    let recent = &AppSettings::get(cx).recent_files;
+    let recent = &recent_entries(cx);
     let names: Vec<String> = recent.iter().map(|p| file_name(Path::new(p))).collect();
     recent
         .iter()
