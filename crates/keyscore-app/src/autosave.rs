@@ -29,7 +29,7 @@ use crate::window::{ProjectWindow, project_windows};
 pub const AUTOSAVE_DELAY: Duration = Duration::from_secs(30);
 
 /// 이보다 오래된 임시 파일만 끝난 세션의 것으로 본다.
-const STALE_TEMP_AGE: Duration = Duration::from_secs(60);
+const STALE_TEMP_AGE: Duration = Duration::from_mins(1);
 
 /// 복구 시트 단추. 시험이 이 글자로 답한다.
 const RECOVER: &str = "복구";
