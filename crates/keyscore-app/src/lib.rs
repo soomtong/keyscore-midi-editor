@@ -11,6 +11,7 @@ pub mod dispatch;
 pub mod document;
 pub mod engine;
 mod fields;
+pub mod files;
 pub mod gm;
 mod inspector;
 pub mod keymap;
@@ -54,6 +55,8 @@ pub fn init(cx: &mut App, settings_path: PathBuf) {
     cx.on_action(|_: &New, cx| {
         let _ = open_project_window(Project::new(), cx);
     });
+    // 프로젝트 창은 자기 처리기(`ProjectWindow::window_close`)가 저장 확인을 거쳐 닫는다. 이것은 그 밖의 창
+    // (설정 창)이다.
     cx.on_action(|_: &Close, cx| {
         // 키로 부르면 그 창의 디스패치 안이라 지금은 그 창을 갱신할 수 없다. 디스패치가 끝난 뒤 닫는다
         // (S2-T6a 리뷰 1 지적 9).
@@ -63,9 +66,23 @@ pub fn init(cx: &mut App, settings_path: PathBuf) {
             });
         }
     });
+    // 끝내기 전에 바뀐 창마다 닫기 시트로 묻는다(7.5). 하나라도 취소하면 끝내지 않는다.
     cx.on_action(|_: &Quit, cx| {
-        AppSettings::flush(cx);
-        cx.quit();
+        let confirmed = files::confirm_close_all(cx);
+        cx.spawn(async move |cx| {
+            if confirmed.await {
+                cx.update(|cx| {
+                    // 확인이 끝난 뒤 이 갱신 전에 고친 창이 있으면 다시 묻는다(리뷰 1 지적 2).
+                    if !files::unsaved_windows(cx).is_empty() {
+                        cx.dispatch_action(&Quit);
+                        return;
+                    }
+                    AppSettings::flush(cx);
+                    cx.quit();
+                });
+            }
+        })
+        .detach();
     });
     // Quit Action을 거치지 않는 종료(Dock 메뉴, 로그아웃)에서도 디바운스 중인 설정을 저장한다(리뷰 1 제안 9).
     cx.on_app_quit(|cx| {
@@ -74,6 +91,7 @@ pub fn init(cx: &mut App, settings_path: PathBuf) {
     })
     .detach();
     settings_window::register(cx);
+    files::register(cx);
     settings_ports::register(cx);
     cx.on_action(|action: &SetTheme, cx| {
         let choice = match action.0 {
@@ -97,7 +115,7 @@ pub fn init(cx: &mut App, settings_path: PathBuf) {
 }
 
 /// 키맵을 걸 때마다: 앱 메뉴(S2-T4)와 상태줄.
-fn set_menus(cx: &mut App) {
+pub(crate) fn set_menus(cx: &mut App) {
     // 명령 표가 메뉴의 유일한 원천이다(KM-13). 키 등가물은 GPUI가 메뉴를 걸 때 현재 키맵에서 굽는다.
     let menus = commands::menus(cx);
     cx.set_menus(menus);

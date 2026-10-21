@@ -35,11 +35,23 @@ pub enum Compression {
 
 /// 읽기는 성공했지만 사용자에게 알릴 것.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Warning(String);
+pub struct Warning {
+    message: String,
+    newer_version: Option<u64>,
+}
+
+impl Warning {
+    /// 파일 형식 버전이 이 앱보다 새롭다는 경고면 그 버전. 앱은 이 파일을 덮어쓰지 않는다(결정
+    /// `2026-10-12-ksq-newer-version-save` A). 문구가 아니라 이 값으로 판별하게 따로 둔다.
+    #[must_use]
+    pub fn newer_format_version(&self) -> Option<u64> {
+        self.newer_version
+    }
+}
 
 impl fmt::Display for Warning {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.0)
+        f.write_str(&self.message)
     }
 }
 
@@ -373,9 +385,12 @@ pub fn from_str(text: &str) -> Result<(Project, Vec<Warning>), KsqError> {
     if let Some(v) = version
         && v > FORMAT_VERSION
     {
-        warnings.push(Warning(format!(
-            "파일 형식 버전 {v}은 이 앱이 아는 버전({FORMAT_VERSION})보다 새롭다. 모르는 내용은 보존하지만 해석하지 못한 부분이 있을 수 있다"
-        )));
+        warnings.push(Warning {
+            message: format!(
+                "파일 형식 버전 {v}은 이 앱이 아는 버전({FORMAT_VERSION})보다 새롭다. 모르는 내용은 보존하지만 해석하지 못한 부분이 있을 수 있다"
+            ),
+            newer_version: Some(v),
+        });
     }
     if let Some(v) = fields.take("key") {
         let (key, extra) = read_key(v, "key")?;

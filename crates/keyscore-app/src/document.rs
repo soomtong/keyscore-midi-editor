@@ -3,17 +3,35 @@
 //! 모델은 `core::Document`(undo 엔진)를 거쳐서만 바뀐다. 이 타입은 읽기(`project`)와
 //! `apply`·`undo`·`redo`만 내주고 `&mut Project`를 내주지 않는다(S2-T1 리뷰 초점).
 
+use std::path::{Path, PathBuf};
+
 use keyscore_core::{Document, Edit, ModelError, Project};
 
 /// undo 히스토리 메모리 상한(창마다). 넘으면 가장 오래된 단위부터 버리고 처음 한 번 알린다(EDT-1, 결정
 /// `docs/decisions/2026-10-19-undo-history-memory-limit.md` A).
 pub const HISTORY_LIMIT_BYTES: usize = 256 * 1024 * 1024;
 
+/// 새 프로젝트의 이름.
+pub const UNTITLED: &str = "제목 없음";
+
+/// 파일을 덮어쓰지 않는 이유.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReadOnly {
+    /// 이 앱보다 새 형식 버전의 파일(결정 `2026-10-12-ksq-newer-version-save` A). 「다른 이름으로 저장」만 된다.
+    NewerFormat(u64),
+}
+
 /// 창의 문서. GPUI `Entity<ProjectDocument>`로 담긴다.
 pub struct ProjectDocument {
     document: Document,
     /// 저장한 뒤 바뀌었는가(S2-T7의 닫기 시트·자동 저장이 쓴다).
     dirty: bool,
+    /// 이 문서의 파일(정규화한 경로). 새 프로젝트는 없다.
+    path: Option<PathBuf>,
+    /// 열거나 저장한 때의 파일 정체. 그 뒤 바깥에서 옮기거나 이름을 바꿔도 같은 파일임을 안다(S2-T7a 리뷰 2
+    /// 지적 1·2).
+    file_id: Option<crate::files::FileId>,
+    read_only: Option<ReadOnly>,
 }
 
 impl ProjectDocument {
@@ -33,6 +51,9 @@ impl ProjectDocument {
         Ok(ProjectDocument {
             document: Document::new(project, limit_bytes)?,
             dirty: false,
+            path: None,
+            file_id: None,
+            read_only: None,
         })
     }
 
@@ -88,5 +109,52 @@ impl ProjectDocument {
     #[must_use]
     pub const fn is_dirty(&self) -> bool {
         self.dirty
+    }
+
+    /// 이 문서의 파일. 새 프로젝트는 없다.
+    #[must_use]
+    pub fn path(&self) -> Option<&Path> {
+        self.path.as_deref()
+    }
+
+    /// 열거나 저장한 때의 파일 정체.
+    pub(crate) fn file_id(&self) -> Option<crate::files::FileId> {
+        self.file_id
+    }
+
+    #[must_use]
+    pub fn read_only(&self) -> Option<ReadOnly> {
+        self.read_only
+    }
+
+    /// 창 제목과 시트에 쓰는 이름: 파일 이름, 새 프로젝트면 「제목 없음」.
+    #[must_use]
+    pub fn display_name(&self) -> String {
+        self.path
+            .as_deref()
+            .and_then(Path::file_name)
+            .map_or_else(|| UNTITLED.to_owned(), |n| n.to_string_lossy().into_owned())
+    }
+
+    /// 손대지 않은 새 프로젝트인가(열기가 이 창을 연 파일 창으로 바꾼다).
+    #[must_use]
+    pub fn is_pristine(&self) -> bool {
+        self.path.is_none() && !self.dirty && self.document.undo_len() == 0
+    }
+
+    /// 파일에서 읽은 문서로 표시한다.
+    pub(crate) fn set_file(&mut self, path: PathBuf, read_only: Option<ReadOnly>) {
+        self.file_id = crate::files::FileId::of(&path);
+        self.path = Some(path);
+        self.read_only = read_only;
+    }
+
+    /// `path`에 저장했다. 바뀜을 끄고 읽기 전용을 푼다(새 파일은 이 앱의 형식 버전이다).
+    pub(crate) fn mark_saved(&mut self, path: PathBuf) {
+        // 저장은 임시 파일 + rename이라 정체(inode)가 바뀐다. 새 파일의 것을 남긴다.
+        self.file_id = crate::files::FileId::of(&path);
+        self.path = Some(path);
+        self.read_only = None;
+        self.dirty = false;
     }
 }
