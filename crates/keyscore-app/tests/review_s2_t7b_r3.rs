@@ -396,6 +396,15 @@ fn review_r3_dead_lock_cleanup_keeps_live_and_in_use_locks(cx: &mut TestAppConte
     std::fs::write(auto.join("session-dead-gone.lock"), "").unwrap();
     plant_dead(&auto, "bad", "not ksq", None);
     std::fs::write(auto.join("session-dead-bad.lock"), "").unwrap();
+    // 끝난 세션의 잠금 파일은 오래됐다(리뷰 3 지적 1 수정: 막 만든 잠금 파일은 지우지 않는다. 구현자가 고침).
+    for name in ["session-dead-gone.lock", "session-dead-bad.lock"] {
+        std::fs::File::options()
+            .write(true)
+            .open(auto.join(name))
+            .unwrap()
+            .set_modified(std::time::SystemTime::now() - std::time::Duration::from_mins(10))
+            .unwrap();
+    }
     let locks_before: Vec<String> = std::fs::read_dir(&auto)
         .unwrap()
         .filter_map(Result::ok)
@@ -431,7 +440,6 @@ fn review_r3_dead_lock_cleanup_keeps_live_and_in_use_locks(cx: &mut TestAppConte
 // ---------- 리뷰 3 부록 A(수정 확인) ----------
 
 // ---------------------------------------------------------------- 부록 A: 깨뜨린 시도
-
 
 /// C1. 막 뜬 다른 실행이 잠금 파일을 만들고 아직 잠그지 않은 틈에 이 실행이 [버리기]·[복구]를 마치면, 끝난 세션
 /// 잠금 정리가 그 잠금 파일을 지운다. 그 실행은 잠금 파일 없이 살아, 그 뒤 뜬 실행이 그 실행의 저장본을
@@ -491,5 +499,9 @@ fn review_r3_c3_crash_left_generation_temps_survive_discard(cx: &mut TestAppCont
     launch_with_recovery(cx);
     answer(cx, "버리기");
     assert!(autosaves(cx).is_empty());
-    assert!(temps(&auto).is_empty(), "남은 임시 파일: {:?}", temps(&auto));
+    assert!(
+        temps(&auto).is_empty(),
+        "남은 임시 파일: {:?}",
+        temps(&auto)
+    );
 }

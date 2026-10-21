@@ -576,6 +576,14 @@ fn review_r2_b4_dead_session_lock_files_pile_up(cx: &mut TestAppContext) {
     plant_dead(&auto, "k", &edited("L"), None);
     let dead_lock = auto.join("session-dead-k.lock");
     std::fs::write(&dead_lock, "").unwrap();
+    // 끝난 세션의 잠금 파일은 오래됐다. 막 만든 잠금 파일은 잠그기 전인 다른 실행 것일 수 있어 지우지 않는다
+    // (S2-T7b 리뷰 3 지적 1, 구현자가 고침).
+    std::fs::File::options()
+        .write(true)
+        .open(&dead_lock)
+        .unwrap()
+        .set_modified(std::time::SystemTime::now() - std::time::Duration::from_mins(10))
+        .unwrap();
     launch_with_recovery(cx);
     answer(cx, "버리기");
     assert!(autosaves(cx).is_empty());

@@ -137,9 +137,16 @@ pub(crate) fn init(cx: &mut App) {
     let dir = autosave_dir(cx);
     let lock = fs::create_dir_all(&dir).ok().and_then(|()| {
         let path = dir.join(format!("session-{id}.lock"));
-        let file = fs::File::create(&path).ok()?;
-        file.try_lock().ok()?;
-        Some((path, file))
+        // 만들고 잠그는 사이에 다른 실행이 그 파일을 지웠으면(끝난 세션의 잠금으로 오인) 다시 만든다. 잠근 파일이
+        // 경로의 파일과 같은지 확인한다.
+        for _ in 0..3 {
+            let file = fs::File::create(&path).ok()?;
+            file.try_lock().ok()?;
+            if same_inode(&file, &path) {
+                return Some((path, file));
+            }
+        }
+        None
     });
     cx.set_global(Session { id, pid, lock });
     // 정상 종료에는 바뀐 창이 없다(끝내기가 물었다). 취소할 수 없는 종료(Dock 메뉴·로그아웃)에서는 바뀐 창의
@@ -262,8 +269,8 @@ enum Outcome {
 }
 
 impl Job {
-    /// 세대별 임시 파일에 내용과 메타를 쓰고, 차례 잠금 안에서 세대를 확인한 뒤 내용 → 메타 순으로 rename한다.
-    /// 메타가 있으면 내용도 온전하다.
+    /// 세대별 임시 파일에 내용과 메타를 쓰고, 차례 잠금 안에서 세대를 확인한 뒤 메타 → 내용 순으로 rename한다.
+    /// 각 파일은 언제나 어느 회차의 온전한 내용이다.
     fn write(&self) -> io::Result<Outcome> {
         fs::create_dir_all(&self.dir)?;
         let content = self.dir.join(format!("{}.ksq", self.key));
@@ -285,12 +292,15 @@ impl Job {
             if self.generation < *floor {
                 return Ok(Outcome::Superseded);
             }
-            let had_meta = meta.exists();
-            fs::rename(&content_tmp, &content)?;
-            if let Err(e) = fs::rename(&meta_tmp, &meta) {
-                // 처음 쓰는 저장본이면 메타 없는 내용 파일을 남기지 않는다(리뷰 2 제안 5).
-                if !had_meta {
-                    let _ = fs::remove_file(&content);
+            // 메타를 먼저 바꾼다. 메타가 이 세션을 가리키면 내용이 옛 회차여도 다른 실행이 가져가지 않는다. 내용을
+            // 먼저 바꾸면, 메타 rename이 실패할 때 복구 잠금(`claim`)은 지워진 옛 내용 inode에 남고 새 내용
+            // 파일은 끝난 세션 것으로 보여 다른 실행이 가져간다(리뷰 3 제안 4).
+            let had_content = content.exists();
+            fs::rename(&meta_tmp, &meta)?;
+            if let Err(e) = fs::rename(&content_tmp, &content) {
+                // 처음 쓰는 저장본이면 내용 없는 메타를 남기지 않는다(리뷰 2 제안 5).
+                if !had_content {
+                    let _ = fs::remove_file(&meta);
                 }
                 return Err(e);
             }
@@ -523,7 +533,18 @@ fn remove_dead_locks(dir: &Path, own: &str) {
         else {
             continue;
         };
-        if session != own && !sessions_in_use.contains(&session) && !session_alive(dir, &session) {
+        // 막 만든 잠금 파일은 아직 잠그기 전일 수 있다(`init`이 만들고 잠그는 사이). 오래된 것만 지운다(리뷰 3
+        // 지적 1).
+        let old = fs::metadata(path)
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| t.elapsed().ok())
+            .is_some_and(|age| age >= STALE_TEMP_AGE);
+        if old
+            && session != own
+            && !sessions_in_use.contains(&session)
+            && !session_alive(dir, &session)
+        {
             let _ = fs::remove_file(path);
         }
     }
@@ -534,7 +555,8 @@ fn recover(good: Vec<Recoverable>, host: &Entity<ProjectWindow>, cx: &mut App) {
     let mut restored = false;
     for item in good {
         // 시트가 떠 있는 동안 다른 실행이 가져갔으면 건드리지 않는다.
-        if !still_dead(&dir, &item) {
+        let content = dir.join(format!("{}.ksq", item.key));
+        if !still_dead(&dir, &item) || claimed(&content) {
             continue;
         }
         // 같은 파일을 이미 연 창이 있으면 경로 없이 연다(같은 파일 두 창 금지).
@@ -552,6 +574,7 @@ fn recover(good: Vec<Recoverable>, host: &Entity<ProjectWindow>, cx: &mut App) {
             // 저장본을 이 세션 것으로 가져온다(다시 복구 대상이 되지 않게). 다시 쓰기 전에 내용 파일을 잠가,
             // 쓰기가 실패해도 다른 실행이 가져가지 않게 한다.
             w.autosave.key.clone_from(&item.key);
+            remove_generation_temps(&dir, &item.key);
             w.autosave.claim = fs::File::open(dir.join(format!("{}.ksq", item.key)))
                 .ok()
                 .filter(|f| f.try_lock().is_ok());
@@ -579,6 +602,7 @@ fn discard(good: &[Recoverable], cx: &mut App) {
             continue;
         }
         remove_files(&dir, &item.key);
+        remove_generation_temps(&dir, &item.key);
         remove_stale_temps(item.path.as_deref(), item.pid);
     }
     remove_dead_locks(&dir, &cx.global::<Session>().id.clone());
@@ -622,6 +646,21 @@ fn remove_stale_temps(path: Option<&Path>, pid: Option<u32>) {
 
 // ---------------------------------------------------------------- 도움 함수
 
+/// 끝난 세션이 쓰다 남긴 세대별 임시 파일(`<키>.ksq.tmp-<세대>`, `<키>.json.tmp-<세대>`)을 지운다(리뷰 3
+/// 제안 3). 그 키는 이제 이 세션 것이거나 버렸다.
+fn remove_generation_temps(dir: &Path, key: &str) {
+    let prefixes = [format!("{key}.ksq.tmp-"), format!("{key}.json.tmp-")];
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.filter_map(Result::ok) {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if prefixes.iter().any(|p| name.starts_with(p.as_str())) {
+            let _ = fs::remove_file(entry.path());
+        }
+    }
+}
+
 fn remove_files(dir: &Path, key: &str) {
     // 메타를 먼저 지운다. 중간에 멈춰도 메타 없는 내용만 남아 복구 대상이 되지 않는다.
     let _ = fs::remove_file(dir.join(format!("{key}.json")));
@@ -632,6 +671,23 @@ fn write_synced(path: &Path, text: &str) -> io::Result<()> {
     let mut file = fs::File::create(path)?;
     file.write_all(text.as_bytes())?;
     file.sync_all()
+}
+
+/// 열린 파일이 지금 `path`의 파일인가.
+fn same_inode(file: &fs::File, path: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt as _;
+        match (file.metadata(), fs::metadata(path)) {
+            (Ok(a), Ok(b)) => a.dev() == b.dev() && a.ino() == b.ino(),
+            _ => false,
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (file, path);
+        true
+    }
 }
 
 /// 창의 키: 프로세스, 시각, 순번.
