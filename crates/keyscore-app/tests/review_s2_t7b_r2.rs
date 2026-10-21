@@ -507,3 +507,74 @@ fn review_r2_close_answer_interleaved_with_write_leaves_nothing(cx: &mut TestApp
     }
     assert!(leaked.is_empty(), "버린 창의 저장본이 남았다: {leaked:?}");
 }
+
+// ---------- 리뷰 2 부록 A(수정 확인) ----------
+
+// ---------------------------------------------------------------- 부록 A: 깨뜨린 시도
+
+/// B1. 끝내기 훅(`flush_all`)이 최신 내용을 쓴 뒤, 그 전에 준비한 30 s 타이머의 백그라운드 쓰기가 옛 내용으로 덮는다.
+#[gpui_kit::test]
+fn review_r2_b1_flush_overwritten_by_older_inflight_write(cx: &mut TestAppContext) {
+    let dir = start(cx, "flush-stale");
+    let mut broken = Vec::new();
+    for k in 0..12 {
+        let path = dir.join(format!("song{k}.ksq"));
+        write_sample(&path);
+        let (handle, view) = open_file(cx, &path);
+        touch(cx, handle);
+        advance_clock_only(cx, AUTOSAVE_DELAY + Duration::from_secs(1));
+        ticks(cx, k);
+        // 쓰기가 끝나기 전에 또 고치고 Dock에서 끝낸다(끝내기 훅).
+        dispatch(cx, handle, track::New);
+        cx.update(autosave::flush_all);
+        let latest = text_of(cx, &view);
+        assert_eq!(autosave_text_for(cx, &path).as_deref(), Some(latest.as_str()));
+        // 이미 시작한 백그라운드 쓰기는 프로세스가 끝나기 전에 마저 끝난다(시계는 옮기지 않는다).
+        cx.run_until_parked();
+        if autosave_text_for(cx, &path).as_deref() != Some(latest.as_str()) {
+            broken.push(k);
+        }
+        run(cx, handle, file::Save);
+    }
+    assert!(
+        broken.is_empty(),
+        "끝내기 훅이 쓴 최신 저장본을 옛 쓰기가 덮었다: k={broken:?}"
+    );
+}
+
+/// B2. 복구 창이 저장본을 이 세션 것으로 바꾸지 못하면(저장본 폴더에 쓸 수 없음) 메타는 끝난 세션 그대로라, 그
+/// 동안 뜬 다른 실행이 같은 저장본을 또 복구 대상으로 본다.
+#[gpui_kit::test]
+fn review_r2_b2_failed_claim_lets_other_run_take_same_autosave(cx: &mut TestAppContext) {
+    use std::os::unix::fs::PermissionsExt as _;
+    let dir = start(cx, "claim-fail");
+    let auto = autosave_dir(cx);
+    plant_dead(&auto, "k", &edited("Claimed"), None);
+    launch_with_recovery(cx);
+    std::fs::set_permissions(&auto, std::fs::Permissions::from_mode(0o555)).unwrap();
+    answer(cx, "복구");
+    let held = windows(cx).iter().any(|w| dirty(cx, w));
+    let other = cx.new_app();
+    other.update(|cx| init(cx, dir.join("settings.json")));
+    let found = other.read(autosave::find_recoverable).len();
+    std::fs::set_permissions(&auto, std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(held, "A가 복구 창을 열지 않았다");
+    assert_eq!(found, 0, "A가 연 복구 창의 저장본을 다른 실행이 또 복구 대상으로 본다");
+}
+
+/// B4. 끝난 세션의 잠금 파일은 복구·버리기 뒤에도 남아 크래시마다 쌓인다.
+#[gpui_kit::test]
+fn review_r2_b4_dead_session_lock_files_pile_up(cx: &mut TestAppContext) {
+    start(cx, "dead-locks");
+    let auto = autosave_dir(cx);
+    plant_dead(&auto, "k", &edited("L"), None);
+    let dead_lock = auto.join("session-dead-k.lock");
+    std::fs::write(&dead_lock, "").unwrap();
+    launch_with_recovery(cx);
+    answer(cx, "버리기");
+    assert!(autosaves(cx).is_empty());
+    assert!(
+        !dead_lock.exists(),
+        "끝난 세션의 잠금 파일이 남았다(저장본 폴더에 크래시마다 하나씩 쌓인다)"
+    );
+}
