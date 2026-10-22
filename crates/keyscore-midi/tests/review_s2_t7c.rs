@@ -134,7 +134,13 @@ fn one_clip(notes: Vec<Note>) -> Project {
     p
 }
 
-fn reimport(p: &Project) -> (Project, keyscore_midi::ImportReport, keyscore_midi::ExportReport) {
+fn reimport(
+    p: &Project,
+) -> (
+    Project,
+    keyscore_midi::ImportReport,
+    keyscore_midi::ExportReport,
+) {
     let (file, ex) = smf_export(p, SmfFormat::Parallel).unwrap();
     let back = SmfFile::read(&file.write()).unwrap();
     let (q, report) = smf_import(&back).unwrap();
@@ -146,12 +152,20 @@ fn reimport(p: &Project) -> (Project, keyscore_midi::ImportReport, keyscore_midi
 #[test]
 fn reimport_of_chord_lyric_reports_nothing_unattached() {
     let v = Velocity::from_midi1(100).unwrap().get();
-    let p = one_clip(vec![note(0, 480, 60, v).with_lyric("la"), note(0, 480, 64, v)]);
+    let p = one_clip(vec![
+        note(0, 480, 60, v).with_lyric("la"),
+        note(0, 480, 64, v),
+    ]);
     let (q, report, ex) = reimport(&p);
     assert!(ex.is_lossless(), "{ex:?}");
     let lyrics: Vec<String> = q.tracks()[0]
         .clips()
-        .flat_map(|(_, c)| c.notes().iter().filter_map(|n| n.lyric().map(str::to_owned)).collect::<Vec<_>>())
+        .flat_map(|(_, c)| {
+            c.notes()
+                .iter()
+                .filter_map(|n| n.lyric().map(str::to_owned))
+                .collect::<Vec<_>>()
+        })
         .collect();
     assert_eq!(lyrics, vec!["la".to_owned()], "가사는 그대로 왕복한다");
     assert_eq!(report.unattached_lyrics, 0, "{report:?}");
@@ -165,7 +179,12 @@ fn overlapping_same_pitch_export_is_counted() {
     let (q, _, ex) = reimport(&p);
     let notes: Vec<(u64, u32)> = q.tracks()[0]
         .clips()
-        .flat_map(|(_, c)| c.notes().iter().map(|n| (n.start().get(), n.length())).collect::<Vec<_>>())
+        .flat_map(|(_, c)| {
+            c.notes()
+                .iter()
+                .map(|n| (n.start().get(), n.length()))
+                .collect::<Vec<_>>()
+        })
         .collect();
     assert!(
         notes == vec![(0, 1920), (480, 480)] || !ex.is_lossless(),
@@ -178,8 +197,13 @@ fn overlapping_same_pitch_export_is_counted() {
 fn velocity_zero_export_is_counted() {
     let p = one_clip(vec![note(0, 480, 60, 0)]);
     let (q, _, ex) = reimport(&p);
-    let got = q.tracks()[0].clips().next().unwrap().1.notes()[0].velocity().get();
-    assert!(got == 0 || ex.velocity_rounded == 1, "0이 {got}로 바뀌었는데 세지 않았다");
+    let got = q.tracks()[0].clips().next().unwrap().1.notes()[0]
+        .velocity()
+        .get();
+    assert!(
+        got == 0 || ex.velocity_rounded == 1,
+        "0이 {got}로 바뀌었는데 세지 않았다"
+    );
 }
 
 /// 지적 6: 지휘 트랙의 곡 제목, 0 µs 템포, 분모 2^20 박자표는 버리지만 세지 않는다.
