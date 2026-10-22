@@ -63,7 +63,8 @@ allowed_external() {
   case "$1" in
     # flate2: .ksqz gzip 저장(REQ IO-1, S0-T6).
     keyscore-core) echo "serde serde_json thiserror flate2 proptest insta criterion" ;;
-    keyscore-text) echo "thiserror proptest insta criterion" ;;
+    # serde_json: 텍스트 변환이 .ksq의 모르는 키 손실을 본다(S2-T7c, core가 이미 쓴다).
+    keyscore-text) echo "thiserror serde_json proptest insta criterion" ;;
     # serde_json·flate2: 파일의 format_version과 모르는 키를 직접 본다(core가 이미 쓰는 crate).
     ksq-cli) echo "thiserror serde_json flate2 proptest" ;;
   esac

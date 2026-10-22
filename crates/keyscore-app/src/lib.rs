@@ -14,6 +14,7 @@ pub mod engine;
 mod fields;
 pub mod files;
 pub mod gm;
+pub mod import_export;
 mod inspector;
 pub mod keymap;
 pub mod mode;

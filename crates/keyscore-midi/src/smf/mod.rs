@@ -8,7 +8,9 @@
 //! 모델에는 아직 컨트롤러 레인 저장소가 없어(S6, CTL-7) CC 보존은 [`Song`]까지다.
 
 mod raw;
+mod report;
 mod song;
 
 pub use raw::{SmfError, SmfEvent, SmfEventKind, SmfFile, SmfFormat, SmfLimits, SmfTrack};
+pub use report::{ExportReport, ImportError, ImportReport, smf_export, smf_import};
 pub use song::{MAX_SONG_TICKS, Song, SongNote, SongTrack};

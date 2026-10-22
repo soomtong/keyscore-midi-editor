@@ -14,6 +14,7 @@ mod export;
 mod lengths;
 mod parse;
 mod parsed;
+pub mod project;
 
 pub use diag::{Diagnostic, Mode, ParseError};
 pub use export::{ExportTrack, export};

@@ -39,8 +39,8 @@ pub use ports::{
 pub use render::{Rendered, render};
 pub use scheduler::{MAX_SCHEDULER_PORTS, ScheduledEvent, Scheduler, SchedulerConfig, Snapshot};
 pub use smf::{
-    MAX_SONG_TICKS, SmfError, SmfEvent, SmfEventKind, SmfFile, SmfFormat, SmfLimits, SmfTrack,
-    Song, SongNote, SongTrack,
+    ExportReport, ImportError, ImportReport, MAX_SONG_TICKS, SmfError, SmfEvent, SmfEventKind,
+    SmfFile, SmfFormat, SmfLimits, SmfTrack, Song, SongNote, SongTrack, smf_export, smf_import,
 };
 pub use time::HostTime;
 pub use ump::ump_word_count;
