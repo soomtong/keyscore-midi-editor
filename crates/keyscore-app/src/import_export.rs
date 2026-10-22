@@ -193,7 +193,11 @@ async fn import_smf(view: &Entity<ProjectWindow>, cx: &mut AsyncApp) {
     let opened = cx.update(|cx| {
         let (_, imported) = crate::open_project_window(project, cx).ok()?;
         imported.update(cx, |w, cx| {
-            w.document().update(cx, |d, _| d.mark_imported(stem));
+            // 알려 문서 관찰자를 깨운다. 그래야 첫 편집 전에도 자동 저장 타이머가 걸린다(IO-5, 리뷰 1 지적 2).
+            w.document().update(cx, |d, cx| {
+                d.mark_imported(stem);
+                cx.notify();
+            });
             w.say(import_summary(&name, &report), cx);
         });
         files::refresh(&imported, cx);
