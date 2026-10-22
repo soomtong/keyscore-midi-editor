@@ -252,6 +252,7 @@ fn tick(cx: &mut App) {
         (events, actions, check_server, monitor.recover_failures)
     };
     announce_hotplug(cx, &events);
+    release_returned_devices(cx, &events);
     let changed = !events.is_empty();
     for (action, was_connected) in actions {
         match action {
@@ -290,6 +291,16 @@ fn tick(cx: &mut App) {
     housekeeping(cx, changed);
     if check_server && engine::is_installed(cx) {
         check_server_ports(cx, failures);
+    }
+}
+
+/// 대체 매핑으로 만든 가상 포트의 장치가 돌아왔으면 그 포트를 지운다(OUT-3 재연결, 결정
+/// 2026-10-22-out8-port-mapping-sheet 3 A). 다음 감시에서 그 이름을 목적지로 원하게 된다.
+fn release_returned_devices(cx: &mut App, events: &[PortEvent]) {
+    for event in events {
+        if let PortEvent::Appeared(port) = event {
+            engine::release_mapped(cx, port.name());
+        }
     }
 }
 

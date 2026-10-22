@@ -283,6 +283,9 @@ pub struct MidiOutputSettings {
     pub main_name: Option<String>,
     /// 추가 가상 포트 이름(기본 포트와 합쳐 16개 이하)
     pub virtual_ports: Vec<String>,
+    /// 추가 가상 포트 가운데 없는 포트의 대체 매핑(OUT-8)으로 만든 것. 같은 이름의 목적지가 나타나면 지운다
+    /// (결정 `2026-10-22-out8-port-mapping-sheet.md` 3 A). `virtual_ports`에 있는 이름만 둔다.
+    pub mapped_ports: Vec<String>,
     /// MIDI Clock을 보낼 포트(OUT-5, 기본 없음). 메트로놈 포트와 같은 모양이고 중복이 없다.
     pub clock: Vec<OutputPort>,
 }
@@ -350,6 +353,28 @@ impl MidiOutputSettings {
             Some(_) => warnings
                 .push("midi_output.virtual_ports는 이름 목록이어야 해 기본값을 쓴다".to_string()),
         }
+        match map.remove("mapped_ports") {
+            None => {}
+            Some(Value::Array(items)) => {
+                for item in items {
+                    match item {
+                        Value::String(name)
+                            if m.virtual_ports.contains(&name)
+                                && !m.mapped_ports.contains(&name) =>
+                        {
+                            m.mapped_ports.push(name);
+                        }
+                        // 추가 포트에 없는 이름은 표시할 포트가 없다(손으로 고친 파일)
+                        _ => warnings.push(
+                            "midi_output.mapped_ports의 추가 가상 포트가 아니거나 겹친 항목을 뺐다"
+                                .to_string(),
+                        ),
+                    }
+                }
+            }
+            Some(_) => warnings
+                .push("midi_output.mapped_ports는 이름 목록이어야 해 기본값을 쓴다".to_string()),
+        }
         match map.remove("clock") {
             None => {}
             Some(Value::Array(items)) => {
@@ -391,6 +416,20 @@ impl MidiOutputSettings {
                     .collect(),
             ),
         );
+        // 대체 매핑을 쓰지 않은 설정 파일은 그대로 둔다
+        if self.mapped_ports.is_empty() {
+            map.remove("mapped_ports");
+        } else {
+            map.insert(
+                "mapped_ports".to_string(),
+                Value::Array(
+                    self.mapped_ports
+                        .iter()
+                        .map(|n| Value::from(n.as_str()))
+                        .collect(),
+                ),
+            );
+        }
         map.insert(
             "clock".to_string(),
             Value::Array(self.clock.iter().map(port_to_value).collect()),

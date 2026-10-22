@@ -438,3 +438,150 @@ fn recovered_window_offers_sheet(cx: &mut TestAppContext) {
         "복구한 창이 없다"
     );
 }
+
+// ---------- 같은 이름의 장치가 돌아올 때(리뷰 1 지적 1, 결정 3 A) ----------
+
+/// 다른 앱(또는 다시 꽂은 USB 장치)의 입력처럼 보이는 목적지.
+struct Device {
+    _dest: coremidi::VirtualDestination,
+    _client: coremidi::Client,
+}
+
+impl Device {
+    fn new(name: &str) -> Device {
+        let client = coremidi::Client::new(&format!("ks-t7d-dev-{name}")).unwrap();
+        let dest = client
+            .virtual_destination(name, |_: &coremidi::PacketList| {})
+            .unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        while !keyscore_midi::destinations()
+            .iter()
+            .any(|d| d.name() == name)
+        {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "목적지 {name}이 보이지 않는다"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        Device {
+            _dest: dest,
+            _client: client,
+        }
+    }
+}
+
+fn mapped_ports(cx: &mut TestAppContext) -> Vec<String> {
+    cx.read(|cx| AppSettings::get(cx).midi_output.mapped_ports.clone())
+}
+
+/// 감시 주기만큼 시계를 돌리며 조건을 기다린다(CoreMIDI 알림은 실제 시간으로 온다).
+fn pump(cx: &mut TestAppContext, done: impl Fn(&mut TestAppContext) -> bool, why: &str) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(4);
+    loop {
+        cx.executor()
+            .advance_clock(keyscore_app::ports::POLL_INTERVAL);
+        cx.run_until_parked();
+        if done(cx) {
+            return;
+        }
+        assert!(std::time::Instant::now() < deadline, "{why}");
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+}
+
+#[gpui_kit::test]
+fn returning_device_removes_mapped_port(cx: &mut TestAppContext) {
+    let (dir, _) = start(cx, "return");
+    cx.update(keyscore_app::ports::start_monitor);
+    let device = unique("return synth");
+    let path = dir.join("song.ksq");
+    write_project(&path, &project_on(&[named(&device)]));
+    let (_, view) = open_file(cx, &path);
+    answer(cx, MAP);
+    assert_eq!(mapped_ports(cx), vec![device.clone()]);
+    let _back = Device::new(&device);
+    pump(
+        cx,
+        |cx| !own_ports(cx).contains(&device),
+        "장치가 돌아와도 대체 가상 포트가 남았다",
+    );
+    assert!(saved_virtual_ports(cx).is_empty());
+    assert!(mapped_ports(cx).is_empty());
+    // 트랙은 이름 그대로 장치를 가리킨다
+    assert_eq!(ports_of(cx, &view), vec![named(&device)]);
+    let said = messages(cx, &view).join("\n");
+    assert!(
+        said.contains("돌아와 대체로 만든 가상 포트를 지웠다"),
+        "{said}"
+    );
+}
+
+#[gpui_kit::test]
+fn returning_device_keeps_user_and_renamed_ports(cx: &mut TestAppContext) {
+    let (dir, _) = start(cx, "keep");
+    cx.update(keyscore_app::ports::start_monitor);
+    // 사용자가 직접 만든 포트(S2-T6d 규칙: 앱 포트가 이긴다)
+    let user = unique("keep user");
+    cx.update(|cx| engine::add_named_virtual_port(cx, &user))
+        .unwrap();
+    // 매핑으로 만들었지만 사용자가 이름을 바꾼 포트
+    let mapped = unique("keep mapped");
+    let path = dir.join("song.ksq");
+    write_project(&path, &project_on(&[named(&mapped)]));
+    let _ = open_file(cx, &path);
+    answer(cx, MAP);
+    let renamed = unique("keep renamed");
+    cx.update(|cx| engine::rename_virtual_port(cx, &mapped, &renamed))
+        .unwrap();
+    assert!(mapped_ports(cx).is_empty(), "이름을 바꾸면 표시를 지운다");
+    let _a = Device::new(&user);
+    let _b = Device::new(&renamed);
+    for _ in 0..10 {
+        cx.executor()
+            .advance_clock(keyscore_app::ports::POLL_INTERVAL);
+        cx.run_until_parked();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    let own = own_ports(cx);
+    assert!(own.contains(&user) && own.contains(&renamed), "{own:?}");
+}
+
+#[gpui_kit::test]
+fn startup_drops_mapped_port_whose_device_is_present(cx: &mut TestAppContext) {
+    let dir = temp_dir("startup");
+    let device = unique("startup synth");
+    let other = unique("startup other");
+    std::fs::write(
+        dir.join("settings.json"),
+        serde_json::json!({"midi_output": {
+            "virtual_ports": [device, other], "mapped_ports": [device, other]}})
+        .to_string(),
+    )
+    .unwrap();
+    let _back = Device::new(&device);
+    cx.update(|cx| init(cx, dir.join("settings.json")));
+    let options = EngineOptions {
+        client_name: "ks-t7d-startup".to_owned(),
+        port_name: unique("startup main"),
+    };
+    cx.update(|cx| engine::install(cx, &options)).unwrap();
+    let own = own_ports(cx);
+    assert!(!own.contains(&device) && own.contains(&other), "{own:?}");
+    assert_eq!(saved_virtual_ports(cx), vec![other.clone()]);
+    assert_eq!(mapped_ports(cx), vec![other]);
+}
+
+#[test]
+fn settings_keep_only_mapped_names_that_are_virtual_ports() {
+    let dir = temp_dir("settings");
+    let path = dir.join("settings.json");
+    std::fs::write(
+        &path,
+        r#"{"midi_output": {"virtual_ports": ["A", "B"], "mapped_ports": ["B", "C", 3, "B"]}}"#,
+    )
+    .unwrap();
+    let (settings, warnings) = keyscore_app::settings::Settings::load(&path);
+    assert_eq!(settings.midi_output.mapped_ports, vec!["B".to_owned()]);
+    assert_eq!(warnings.len(), 3, "{warnings:?}");
+}

@@ -175,7 +175,7 @@ fn apply(view: &Entity<ProjectWindow>, lines: &[Line], cx: &mut App) {
     let mut targets: Vec<(&str, OutputPort)> = Vec::new();
     for line in lines {
         match &line.mapping {
-            Mapping::Create(name) => match engine::add_named_virtual_port(cx, name) {
+            Mapping::Create(name) => match engine::add_mapped_virtual_port(cx, name) {
                 Ok(made) => {
                     created += 1;
                     if made != line.saved {
