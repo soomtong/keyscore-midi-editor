@@ -421,7 +421,11 @@ fn imported_smf_window_is_autosaved(cx: &mut TestAppContext) {
     cx.executor()
         .advance_clock(AUTOSAVE_DELAY + Duration::from_secs(1));
     cx.run_until_parked();
-    assert_eq!(autosaves(cx), 1, "가져와 저장 안 된 창의 자동 저장본이 없다");
+    assert_eq!(
+        autosaves(cx),
+        1,
+        "가져와 저장 안 된 창의 자동 저장본이 없다"
+    );
 }
 
 /// 지적 4: 같은 이름 트랙의 채널·프로그램이 블록과 다르면 블록의 ch·prog가 소리 없이 사라진다.
@@ -437,7 +441,7 @@ fn import_text_into_same_name_track_keeps_block_channel() {
         .find(|t| t.clips().any(|(_, c)| c.start().get() == 7680))
         .unwrap();
     assert_eq!(
-        (placed.channel().get(), placed.program().map(|p| p.get())),
+        (placed.channel().get(), placed.program().map(keyscore_core::Program::get)),
         (5, Some(40)),
         "블록의 ch5 prog40이 ch1 트랙에 들어가 바뀌었다"
     );

@@ -415,7 +415,7 @@ fn import_export_respect_file_flow(cx: &mut TestAppContext) {
 #[gpui_kit::test]
 fn menu_and_palette_run_import_export(cx: &mut TestAppContext) {
     start(cx, "menus");
-    let (_handle, _) = open(cx, sample());
+    let (handle, _) = open(cx, sample());
     let menus = cx.update(|cx| keyscore_app::commands::menus(cx));
     let file_menu = menus.iter().find(|m| m.name == "파일").expect("파일 메뉴");
     for name in [
@@ -430,4 +430,35 @@ fn menu_and_palette_run_import_export(cx: &mut TestAppContext) {
         });
         assert!(found, "{name}이 파일 메뉴에서 실행할 수 있는 항목이 아니다");
     }
+    // 팔레트에도 실행할 수 있는 줄로 있다(UI-11).
+    let palette = cx.update(|cx| keyscore_app::commands::palette_entries(cx));
+    for name in [
+        "file::ImportSmf",
+        "file::ExportSmf",
+        "file::ImportText",
+        "file::ExportText",
+    ] {
+        assert!(
+            palette
+                .iter()
+                .any(|e| e.name() == name && e.action().is_some()),
+            "{name}을 팔레트에서 실행할 수 없다"
+        );
+    }
+    // 팔레트로 실행하면 대화상자가 뜬다.
+    let action = palette
+        .iter()
+        .find(|e| e.name() == "file::ImportText")
+        .and_then(|e| e.action())
+        .unwrap()
+        .boxed_clone();
+    cx.update_window(handle, |_, window, cx| {
+        keyscore_app::dispatch::run_action(action, window, cx);
+    })
+    .unwrap();
+    cx.run_until_parked();
+    assert!(
+        cx.did_prompt_for_paths(),
+        "팔레트 실행이 가져오기를 시작하지 않았다"
+    );
 }

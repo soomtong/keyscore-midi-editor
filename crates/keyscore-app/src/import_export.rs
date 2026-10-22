@@ -296,6 +296,10 @@ async fn export_text(view: &Entity<ProjectWindow>, cx: &mut AsyncApp) {
         refuse_open_project_file(&path, cx)?;
         let (text, losses) = project_to_text(view.read(cx).document().read(cx).project())
             .map_err(|e| e.to_string())?;
+        // 되읽은 결과가 손실로 설명되지 않으면 쓰지 않는다(`ksq-cli`와 같다, 리뷰 1 제안 7).
+        if let Some(mismatch) = losses.iter().find(|l| matches!(l, Loss::Mismatch { .. })) {
+            return Err(mismatch.to_string());
+        }
         write_bytes_atomic(&path, text.as_bytes()).map_err(|e| e.to_string())?;
         Ok::<_, String>(losses)
     });
@@ -362,6 +366,12 @@ fn export_smf_summary(name: &str, report: &ExportReport) -> String {
         lost.push(format!(
             "7비트로 반올림한 벨로시티 {}개",
             report.velocity_rounded
+        ));
+    }
+    if report.overlapping_notes > 0 {
+        lost.push(format!(
+            "같은 음높이와 겹쳐 길이가 바뀔 노트 {}개",
+            report.overlapping_notes
         ));
     }
     if report.empty_tracks > 0 {
