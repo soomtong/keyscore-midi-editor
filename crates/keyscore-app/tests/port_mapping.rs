@@ -106,18 +106,16 @@ fn plan_visually_same_port_retargets_tracks() {
 
 #[test]
 fn plan_unnormalized_name_creates_normalized_port() {
-    // NFD 「드럼」과 공백이 겹친 이름: 정규화한 이름으로 만든다. 같은 정규화 이름의 둘째는 그 포트를 쓴다.
+    // NFD 「드럼」과 공백이 겹친 이름: 정규화한 이름으로 만든다. 정규화 이름이 같은 다른 이름은 그 포트로 바꾼다.
+    // 이미 정규화한 이름 그대로인 트랙은 바꿀 것이 없어 줄이 없다(리뷰 1 제안 4).
     let nfd = "\u{1103}\u{1173}\u{1105}\u{1165}\u{11B7}  1";
-    let p = project_on(&[named(nfd), named("\u{B4DC}\u{B7FC} 1")]);
+    let wide = "\u{B4DC}\u{B7FC}   1";
+    let p = project_on(&[named(nfd), named("\u{B4DC}\u{B7FC} 1"), named(wide)]);
     assert_eq!(
         port_mapping::plan(&p, &names(&["KeyScore Out"]), &[]),
         vec![
             line(nfd, Mapping::Create("\u{B4DC}\u{B7FC} 1".into()), 1),
-            line(
-                "\u{B4DC}\u{B7FC} 1",
-                Mapping::Use("\u{B4DC}\u{B7FC} 1".into()),
-                1
-            ),
+            line(wide, Mapping::Use("\u{B4DC}\u{B7FC} 1".into()), 1),
         ]
     );
 }
@@ -390,7 +388,9 @@ fn apply_recomputes_when_port_appeared_meanwhile(cx: &mut TestAppContext) {
     assert_eq!(own.iter().filter(|n| **n == missing).count(), 1, "{own:?}");
     assert_eq!(ports_of(cx, &view), vec![named(&missing)]);
     let said = messages(cx, &view).join("\n");
-    assert!(!said.contains("못했다"), "{said}");
+    // 다시 계산하면 없는 포트가 없다: 만들려다 실패하지 않고 그렇다고 알린다(리뷰 1 제안 5)
+    assert!(!said.contains("만들지 못한"), "{said}");
+    assert!(said.contains("없는 출력 포트가 없다"), "{said}");
 }
 
 #[gpui_kit::test]

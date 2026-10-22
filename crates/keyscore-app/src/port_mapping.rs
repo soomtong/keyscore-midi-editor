@@ -70,11 +70,13 @@ pub fn plan(project: &Project, own: &[String], destinations: &[String]) -> Vec<L
             });
         }
     }
-    // 앞 줄이 만들 포트를 뒤 줄이 본다(같은 정규화 이름의 둘째 줄, 16개 상한)
+    // 앞 줄이 만들 포트를 뒤 줄이 본다(같은 정규화 이름의 둘째 줄, 16개 상한). 앞 줄이 바로 그 이름을 만들면
+    // 이 줄의 트랙은 바꿀 것이 없어 줄을 뺀다(리뷰 1 제안 4)
     let mut created: Vec<String> = Vec::new();
-    for line in &mut lines {
+    lines.retain_mut(|line| {
         line.mapping = mapping_for(&line.saved, own, destinations, &mut created);
-    }
+        line.mapping != Mapping::Use(line.saved.clone())
+    });
     lines
 }
 
@@ -162,24 +164,16 @@ pub fn offer(view: &Entity<ProjectWindow>, cx: &mut App) {
     if lines.is_empty() {
         return;
     }
-    view.update(cx, |w, cx| w.ask_port_mapping(&lines, cx));
+    view.update(cx, |w, cx| w.ask_port_mapping(lines, cx));
 }
 
-/// 지금 상태로 다시 계산해 적용한다. 시트가 떠 있는 동안 포트가 생겼거나 다른 창이 먼저 만들었을 수 있다.
-fn apply(view: &Entity<ProjectWindow>, cx: &mut App) {
-    let Some(lines) = plan_for(cx, view.read(cx).document().read(cx).project()) else {
-        view.update(cx, |w, cx| w.say(NO_ENGINE, cx));
-        return;
-    };
-    if lines.is_empty() {
-        view.update(cx, |w, cx| w.say(NOTHING_MISSING, cx));
-        return;
-    }
+/// 사용자가 받아들인 줄을 적용한다. 흐름이 지금 상태로 다시 계산해 시트와 같음을 확인한 뒤 부른다.
+fn apply(view: &Entity<ProjectWindow>, lines: &[Line], cx: &mut App) {
     let mut created = 0;
     let mut failed: HashSet<String> = HashSet::new();
     let mut failures = Vec::new();
     let mut targets: Vec<(&str, OutputPort)> = Vec::new();
-    for line in &lines {
+    for line in lines {
         match &line.mapping {
             Mapping::Create(name) => match engine::add_named_virtual_port(cx, name) {
                 Ok(made) => {
@@ -211,6 +205,10 @@ fn apply(view: &Entity<ProjectWindow>, cx: &mut App) {
                 return None;
             };
             let (_, to) = targets.iter().find(|(saved, _)| saved == name)?;
+            // 같은 값을 다시 쓰는 편집은 넣지 않는다(바꾼 트랙 수에 세지 않게)
+            if to == t.port() {
+                return None;
+            }
             Some(Edit::SetTrackProp {
                 track: t.id(),
                 prop: TrackProp::Port(to.clone()),
@@ -237,6 +235,27 @@ fn apply(view: &Entity<ProjectWindow>, cx: &mut App) {
 
 const NO_ENGINE: &str = "MIDI 엔진이 없다: 가상 포트를 만들 수 없어 포트 매핑을 제안하지 않는다";
 const NOTHING_MISSING: &str = "없는 출력 포트가 없다";
+const BUSY: &str = "다른 대화상자가 떠 있어 포트 매핑 시트를 열지 않았다";
+
+/// 시트의 제목과 본문. `changed`면 시트가 떠 있는 동안 포트 상태가 바뀌어 다시 묻는 것이다.
+fn sheet_text(lines: &[Line], changed: bool, cx: &App) -> (String, String) {
+    let main = engine::virtual_port_names(cx)
+        .into_iter()
+        .next()
+        .unwrap_or_default();
+    let prefix = if changed {
+        "포트 상태가 바뀌어 제안을 다시 계산했다. "
+    } else {
+        ""
+    };
+    let message = format!("{prefix}이 Mac에 없는 출력 포트가 {}개 있다", lines.len());
+    let detail = lines
+        .iter()
+        .map(|l| describe(l, &main))
+        .collect::<Vec<_>>()
+        .join("\n");
+    (message, detail)
+}
 
 impl ProjectWindow {
     /// `midi::MapMissingPorts`: 시트를 다시 연다. 없는 포트가 없거나 엔진이 없으면 상태줄로 알린다.
@@ -249,35 +268,54 @@ impl ProjectWindow {
         match plan_for(cx, self.document().read(cx).project()) {
             None => self.say(NO_ENGINE, cx),
             Some(lines) if lines.is_empty() => self.say(NOTHING_MISSING, cx),
-            Some(lines) => self.ask_port_mapping(&lines, cx),
+            // 흐름은 창마다 하나다. 조용히 무시하지 않고 알린다(리뷰 1 제안 7)
+            Some(_) if self.file_flow => self.say(BUSY, cx),
+            Some(lines) => self.ask_port_mapping(lines, cx),
         }
     }
 
-    /// 시트로 묻고, 받아들이면 적용한다. 이미 흐름이 돌고 있으면 띄우지 않는다(창마다 흐름 하나).
-    fn ask_port_mapping(&mut self, lines: &[Line], cx: &mut Context<Self>) {
-        let main = engine::virtual_port_names(cx)
-            .into_iter()
-            .next()
-            .unwrap_or_default();
-        let message = format!("이 Mac에 없는 출력 포트가 {}개 있다", lines.len());
-        let detail = lines
-            .iter()
-            .map(|l| describe(l, &main))
-            .collect::<Vec<_>>()
-            .join("\n");
+    /// 시트로 묻고, 받아들이면 적용한다. 이미 흐름이 돌고 있으면 띄우지 않는다(창마다 흐름 하나). 받아들인 때
+    /// 지금 상태로 다시 계산해 시트에 보인 것과 다르면(그사이 포트가 생기거나 16개에 이름) 바뀐 제안으로 다시
+    /// 묻는다. 보이지 않은 변경을 넣지 않는다(리뷰 1 지적 2).
+    fn ask_port_mapping(&mut self, lines: Vec<Line>, cx: &mut Context<Self>) {
         self.run_file_flow(cx, async move |view, cx| {
-            let handle = cx.update(|cx| view.read(cx).window_handle());
-            let answer = crate::files::ask(
-                handle,
-                PromptLevel::Info,
-                &message,
-                Some(&detail),
-                &[PromptButton::ok(MAP), PromptButton::cancel(LEAVE)],
-                cx,
-            )
-            .await;
-            if answer == Some(0) {
-                cx.update(|cx| apply(view, cx));
+            let mut lines = lines;
+            let mut changed = false;
+            loop {
+                let (message, detail) = cx.update(|cx| sheet_text(&lines, changed, cx));
+                let handle = cx.update(|cx| view.read(cx).window_handle());
+                let answer = crate::files::ask(
+                    handle,
+                    PromptLevel::Info,
+                    &message,
+                    Some(&detail),
+                    &[PromptButton::ok(MAP), PromptButton::cancel(LEAVE)],
+                    cx,
+                )
+                .await;
+                if answer != Some(0) {
+                    return;
+                }
+                let fresh =
+                    cx.update(|cx| plan_for(cx, view.read(cx).document().read(cx).project()));
+                match fresh {
+                    None => {
+                        cx.update(|cx| view.update(cx, |w, cx| w.say(NO_ENGINE, cx)));
+                        return;
+                    }
+                    Some(fresh) if fresh.is_empty() => {
+                        cx.update(|cx| view.update(cx, |w, cx| w.say(NOTHING_MISSING, cx)));
+                        return;
+                    }
+                    Some(fresh) if fresh == lines => {
+                        cx.update(|cx| apply(view, &fresh, cx));
+                        return;
+                    }
+                    Some(fresh) => {
+                        lines = fresh;
+                        changed = true;
+                    }
+                }
             }
         });
     }
