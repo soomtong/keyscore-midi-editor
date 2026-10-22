@@ -40,8 +40,9 @@ pub struct TextImportSummary {
     pub notes: usize,
 }
 
-/// 읽은 텍스트를 문서에 undo 하나로 넣는다. `@track` 이름이 같은 트랙이 있고 그 트랙의 클립과 겹치지 않으면
-/// 그 트랙에, 아니면 새 트랙(겹치면 「이름 2」처럼 비어 있는 이름)에 둔다. 클립은 `at`에서 시작한다.
+/// 읽은 텍스트를 문서에 undo 하나로 넣는다. `@track` 이름이 같은 트랙이 있고, 블록의 채널(과 적었으면 프로그램·
+/// 뱅크)이 같고, 그 트랙의 클립과 겹치지 않으면 그 트랙에 넣는다. 아니면 새 트랙(「이름 2」처럼 비어 있는 이름)에
+/// 블록의 채널·프로그램·뱅크로 둔다. 클립은 `at`에서 시작한다.
 /// 헤더는 반영하지 않는다(결정 2 A).
 ///
 /// # Errors
@@ -70,11 +71,17 @@ pub fn import_text_into(
         summary.blocks += 1;
         summary.notes += source.notes().len();
         let end = at.get().saturating_add(length);
-        // 같은 트랙의 클립은 겹칠 수 없다(core 불변식). 겹치면 새 트랙에 둔다.
+        // 같은 트랙의 클립은 겹칠 수 없다(core 불변식). 겹치면 새 트랙에 둔다. 블록이 적은 채널·프로그램·뱅크가
+        // 그 트랙과 다르면 그 트랙에 넣지 않는다. 넣으면 블록의 음색 지정을 말없이 버린다(리뷰 1 지적 4).
         let target = project
             .tracks()
             .iter()
             .find(|t| t.name() == block.name())
+            .filter(|t| {
+                t.channel() == block.channel()
+                    && block.program().is_none_or(|p| t.program() == Some(p))
+                    && block.bank().is_none_or(|b| t.bank() == Some(b))
+            })
             .filter(|t| {
                 t.clips().all(|(_, c)| {
                     c.start().get().saturating_add(c.length()) <= at.get() || c.start().get() >= end
