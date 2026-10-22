@@ -441,7 +441,10 @@ fn import_text_into_same_name_track_keeps_block_channel() {
         .find(|t| t.clips().any(|(_, c)| c.start().get() == 7680))
         .unwrap();
     assert_eq!(
-        (placed.channel().get(), placed.program().map(keyscore_core::Program::get)),
+        (
+            placed.channel().get(),
+            placed.program().map(keyscore_core::Program::get)
+        ),
         (5, Some(40)),
         "블록의 ch5 prog40이 ch1 트랙에 들어가 바뀌었다"
     );
