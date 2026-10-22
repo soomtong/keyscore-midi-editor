@@ -359,3 +359,86 @@ fn closing_requesting_window_during_import_still_opens_result(cx: &mut TestAppCo
     assert_eq!(all.len(), 1);
     assert!(dirty(cx, &all[0]), "가져온 창이 아니다");
 }
+
+// ---------- 리뷰 1 부록 A(수정 확인) ----------
+
+/// 지적 1: 상위 형식 버전 원본(읽기 전용)에 내보내면 원본이 텍스트로 덮인다.
+#[gpui_kit::test]
+fn export_over_newer_format_original_keeps_it(cx: &mut TestAppContext) {
+    let dir = start(cx, "x-newer");
+    let path = dir.join("future.ksq");
+    std::fs::write(
+        &path,
+        r#"{"format_version": 7, "future": {"x": 1}, "tracks": []}"#,
+    )
+    .unwrap();
+    let before = std::fs::read(&path).unwrap();
+    let (handle, _view) = open_file(cx, &path);
+    run(cx, handle, file::ExportText);
+    answer_new_path(cx, path.clone());
+    if cx.has_pending_prompt() {
+        cx.simulate_prompt_answer("확인");
+        cx.run_until_parked();
+    }
+    assert_eq!(
+        std::fs::read(&path).unwrap(),
+        before,
+        "상위 버전 원본이 내보내기로 덮였다"
+    );
+}
+
+/// 지적 1: 다른 창이 연 `.ksq`에 내보내면 그 파일이 MIDI로 덮이고, 그 창은 깨끗한 채라 닫아도 묻지 않는다.
+#[gpui_kit::test]
+fn export_over_file_open_in_other_window_is_refused(cx: &mut TestAppContext) {
+    let dir = start(cx, "x-other");
+    let a = dir.join("a.ksq");
+    std::fs::write(&a, ksq::to_string(&sample())).unwrap();
+    let before = std::fs::read(&a).unwrap();
+    let (_ha, va) = open_file(cx, &a);
+    let (hb, _) = open(cx, Project::new());
+    run(cx, hb, file::ExportSmf);
+    answer_new_path(cx, a.clone());
+    if cx.has_pending_prompt() {
+        cx.simulate_prompt_answer("확인");
+        cx.run_until_parked();
+    }
+    let a_dirty = dirty(cx, &va);
+    assert!(
+        std::fs::read(&a).unwrap() == before || a_dirty,
+        "다른 창이 연 a.ksq를 MIDI로 덮었는데 그 창은 깨끗하다"
+    );
+}
+
+/// 지적 2: 가져와 저장 안 된 창(바뀜 켜짐)인데 편집하기 전에는 자동 저장본이 생기지 않는다.
+#[gpui_kit::test]
+fn imported_smf_window_is_autosaved(cx: &mut TestAppContext) {
+    start(cx, "x-autosave");
+    let (handle, _) = open(cx, Project::new());
+    run(cx, handle, file::ImportSmf);
+    answer_open(cx, sample_mid());
+    let imported = windows(cx).pop().unwrap();
+    assert!(dirty(cx, &imported));
+    cx.executor()
+        .advance_clock(AUTOSAVE_DELAY + Duration::from_secs(1));
+    cx.run_until_parked();
+    assert_eq!(autosaves(cx), 1, "가져와 저장 안 된 창의 자동 저장본이 없다");
+}
+
+/// 지적 4: 같은 이름 트랙의 채널·프로그램이 블록과 다르면 블록의 ch·prog가 소리 없이 사라진다.
+#[test]
+fn import_text_into_same_name_track_keeps_block_channel() {
+    let mut doc = ProjectDocument::new(sample()).unwrap(); // Lead ch1, 프로그램 없음
+    let parsed = keyscore_text::parse("@track Lead ch5 prog40\nc\n", Mode::Lenient).unwrap();
+    import_text_into(&mut doc, &parsed, Tick::new(7680)).unwrap();
+    let p = doc.project();
+    let placed = p
+        .tracks()
+        .iter()
+        .find(|t| t.clips().any(|(_, c)| c.start().get() == 7680))
+        .unwrap();
+    assert_eq!(
+        (placed.channel().get(), placed.program().map(|p| p.get())),
+        (5, Some(40)),
+        "블록의 ch5 prog40이 ch1 트랙에 들어가 바뀌었다"
+    );
+}
