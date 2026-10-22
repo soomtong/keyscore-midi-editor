@@ -11,7 +11,7 @@ use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 use gpui_kit::{
-    AppContext as _, AsyncApp, Context, Entity, PathPromptOptions, PromptButton, PromptLevel,
+    App, AppContext as _, AsyncApp, Context, Entity, PathPromptOptions, PromptButton, PromptLevel,
     Window,
 };
 use keyscore_core::{Clip, Edit, ModelError, Tick, Track, TrackColor};
@@ -223,6 +223,7 @@ async fn export_smf(view: &Entity<ProjectWindow>, cx: &mut AsyncApp) {
     };
     let name = file_name(&path);
     let result = cx.update(|cx| {
+        refuse_open_project_file(&path, cx)?;
         let (file, report) = smf_export(
             view.read(cx).document().read(cx).project(),
             SmfFormat::Parallel,
@@ -281,6 +282,7 @@ async fn export_text(view: &Entity<ProjectWindow>, cx: &mut AsyncApp) {
     };
     let name = file_name(&path);
     let result = cx.update(|cx| {
+        refuse_open_project_file(&path, cx)?;
         let (text, losses) = project_to_text(view.read(cx).document().read(cx).project())
             .map_err(|e| e.to_string())?;
         write_bytes_atomic(&path, text.as_bytes()).map_err(|e| e.to_string())?;
@@ -430,6 +432,16 @@ fn smf_error_text(error: &SmfError) -> String {
 }
 
 // ---------------------------------------------------------------- 도움 함수
+
+/// 내보내기는 열린 프로젝트 파일(이 창 것 포함)을 덮지 않는다. 덮으면 그 창은 바뀜이 꺼진 채라 닫을 때 묻지
+/// 않고 프로젝트를 잃고, 상위 형식 버전 원본도 바뀐다(리뷰 1 지적 1, 결정 2026-10-12-ksq-newer-version-save A).
+/// 다른 이름으로 저장의 같은 파일 규칙과 같다(경로·링크·하드 링크·옮긴 파일).
+fn refuse_open_project_file(path: &Path, cx: &App) -> Result<(), String> {
+    if files::is_open_anywhere(path, cx) {
+        return Err("열려 있는 프로젝트 파일에는 내보낼 수 없다. 다른 이름을 고른다".to_owned());
+    }
+    Ok(())
+}
 
 async fn pick_file(cx: &mut AsyncApp) -> Option<PathBuf> {
     let chosen = cx.update(|cx| {
