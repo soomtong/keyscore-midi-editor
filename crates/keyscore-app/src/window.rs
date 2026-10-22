@@ -647,6 +647,7 @@ impl ProjectWindow {
             .on_action(cx.listener(Self::track_set_default_velocity))
             .on_action(cx.listener(Self::track_set_lyric_lang))
             .on_action(cx.listener(Self::midi_send_test_note))
+            .on_action(cx.listener(Self::midi_map_missing_ports))
             .on_action(cx.listener(Self::track_next))
             .on_action(cx.listener(Self::track_prev))
             .on_action(cx.listener(Self::track_first))

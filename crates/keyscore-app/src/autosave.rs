@@ -586,6 +586,7 @@ fn recover(good: Vec<Recoverable>, host: &Entity<ProjectWindow>, cx: &mut App) {
         let _ = handle.update(cx, |_, window, cx| {
             view.read(cx).refresh_file_state(window, cx);
         });
+        crate::port_mapping::offer(&view, cx);
         remove_stale_temps(item.path.as_deref(), item.pid);
     }
     remove_dead_locks(&dir, &cx.global::<Session>().id.clone());

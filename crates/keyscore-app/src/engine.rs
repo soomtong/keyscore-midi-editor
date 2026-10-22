@@ -265,6 +265,29 @@ pub fn add_virtual_port(cx: &mut App) -> Result<String, PortEditError> {
     Ok(name)
 }
 
+/// 주어진 이름으로 추가 가상 포트를 만들고 설정에 저장한다(OUT-8 대체 매핑). 검사는 [`add_virtual_port`]와
+/// 같다: 이름 규칙, 보이는 목적지와 같은 모양 금지, 다른 가상 포트와 같은 모양 금지, 합쳐 16개. 고친 이름을
+/// 돌려준다.
+///
+/// # Errors
+///
+/// [`PortEditError`].
+pub fn add_named_virtual_port(cx: &mut App, name: &str) -> Result<String, PortEditError> {
+    if !cx.has_global::<Engine>() {
+        return Err(PortEditError::NoEngine);
+    }
+    let name = check_new_name(name)?;
+    let engine = cx.global_mut::<Engine>();
+    // 다른 가상 포트와의 같은 모양·16개 상한은 keyscore-midi가 거부한다
+    let port = engine.client.create_virtual_output(&name)?;
+    let name = port.name();
+    engine.extras.push(Arc::new(port));
+    let added = name.clone();
+    AppSettings::update(cx, |s| s.midi_output.virtual_ports.push(added));
+    ports_edited(cx, &name, true);
+    Ok(name)
+}
+
 /// 앱 가상 포트의 이름을 바꾸고 고친 새 이름을 돌려준다(엔드포인트는 그대로라 외부 신디 연결이 유지된다). 열린 창의 트랙과 메트로놈
 /// 포트도 새 이름으로 고친다(결정 2026-10-19-virtual-port-rename-tracks A, 창마다 undo 한 단위).
 ///

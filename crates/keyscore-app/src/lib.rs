@@ -20,6 +20,7 @@ pub mod keymap;
 pub mod mode;
 mod overlay;
 pub mod palette;
+pub mod port_mapping;
 pub mod ports;
 pub mod settings;
 mod settings_ports;

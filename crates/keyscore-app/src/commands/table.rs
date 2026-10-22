@@ -782,6 +782,14 @@ pub(super) const SPECS: &[CommandSpec] = &[
         "설정 > MIDI 출력",
         &[],
     ),
+    CommandSpec::menu(
+        "midi::MapMissingPorts",
+        "없는 포트 대체 매핑…",
+        MenuId::Transport,
+        4,
+        81,
+        &[],
+    ),
     CommandSpec::elsewhere(
         "midi::RemoveVirtualPort",
         "가상 포트 삭제",
