@@ -120,16 +120,17 @@ pub fn describe(line: &Line, main: &str) -> String {
             "「{saved}」: 가상 포트 이름으로 쓸 수 없어 트랙 {n}개를 기본 포트 「{main}」으로 바꾼다"
         ),
         Mapping::Main(MainReason::TooMany) => format!(
-            "「{saved}」: 가상 포트가 이미 {MAX_VIRTUAL_OUTPUTS}개라 트랙 {n}개를 기본 포트 「{main}」으로 바꾼다"
+            "「{saved}」: 가상 포트가 {MAX_VIRTUAL_OUTPUTS}개에 이르러 트랙 {n}개를 기본 포트 「{main}」으로 바꾼다"
         ),
     }
 }
 
-/// 제어 문자는 보이게 적는다. 다른 Mac의 장치 이름이 시트 글자를 깨뜨리지 않게 한다.
+/// 이름 규칙이 거부하는 문자(제어 문자, 양방향 제어, 폭 없는 문자)는 보이게 적는다. 다른 Mac의 장치 이름이
+/// 시트 글자를 뒤집거나 거부 이유를 숨기지 않게 한다(리뷰 1 지적 3).
 fn shown(name: &str) -> String {
     name.chars()
         .map(|c| {
-            if c.is_control() || matches!(c, '\u{2028}' | '\u{2029}') {
+            if keyscore_midi::is_rejected_name_char(c) {
                 c.escape_unicode().to_string()
             } else {
                 c.to_string()

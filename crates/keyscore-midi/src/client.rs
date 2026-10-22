@@ -52,7 +52,7 @@ pub(crate) fn normalized_name(name: &str) -> Result<String, MidiError> {
     let nfc = nfc.trim();
     let mut visible = false;
     for c in nfc.chars() {
-        if c.is_control() || matches!(c, '\u{2028}' | '\u{2029}') || rejected_ignorable(c) {
+        if is_rejected_name_char(c) {
             return Err(MidiError::InvalidName);
         }
         visible |= !(c.is_whitespace() || is_blank_looking(c) || allowed_ignorable(c));
@@ -62,6 +62,13 @@ pub(crate) fn normalized_name(name: &str) -> Result<String, MidiError> {
     } else {
         Err(MidiError::InvalidName)
     }
+}
+
+/// 가상 포트 이름 규칙이 거부하는 문자인가: 제어 문자, 줄 구분자, 보이지 않는 서식 문자(양방향 제어, 폭 없는
+/// 문자 등). 앱은 다른 Mac의 이름을 보일 때 이 문자를 이스케이프한다(S2-T7d 리뷰 1 지적 3).
+#[must_use]
+pub fn is_rejected_name_char(c: char) -> bool {
+    c.is_control() || matches!(c, '\u{2028}' | '\u{2029}') || rejected_ignorable(c)
 }
 
 /// 앱이 가상 포트 이름을 미리 검사할 때 쓴다. 만들기·이름 바꾸기와 같은 규칙으로 고친 이름을 돌려준다.
