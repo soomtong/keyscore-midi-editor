@@ -16,6 +16,7 @@ use std::path::PathBuf;
 use keyscore_core::ModelError;
 use keyscore_core::ksq::KsqError;
 use keyscore_text::ParseError;
+use keyscore_text::project::ConvertError;
 use thiserror::Error;
 
 pub use check::{CheckReport, check};
@@ -24,6 +25,26 @@ pub use convert::{
     text_to_project_with,
 };
 pub use fixtures::{fixtures, write_fixtures};
+
+impl From<ConvertError> for CliError {
+    fn from(e: ConvertError) -> Self {
+        match e {
+            ConvertError::Parse(e) => Self::Parse(e),
+            ConvertError::Model(e) => Self::Model(e),
+            ConvertError::ExportUnreadable(e) => Self::ExportUnreadable(e),
+            ConvertError::OutputTooLarge {
+                estimated,
+                limit,
+                detail,
+            } => Self::OutputTooLarge {
+                estimated,
+                limit,
+                detail,
+            },
+            ConvertError::OutputBeyondAnyLimit { detail } => Self::OutputBeyondAnyLimit { detail },
+        }
+    }
+}
 
 /// 도구의 오류. 파일을 다루는 오류는 사람이 어느 파일인지 알 수 있게 경로를 담는다.
 #[derive(Debug, Error)]
