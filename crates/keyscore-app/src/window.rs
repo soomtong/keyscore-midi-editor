@@ -658,6 +658,10 @@ impl ProjectWindow {
             .on_action(cx.listener(Self::file_save))
             .on_action(cx.listener(Self::file_save_as))
             .on_action(cx.listener(Self::window_close))
+            .on_action(cx.listener(Self::file_import_smf))
+            .on_action(cx.listener(Self::file_export_smf))
+            .on_action(cx.listener(Self::file_import_text))
+            .on_action(cx.listener(Self::file_export_text))
             // 맨 키를 피하려고 감싼 메뉴 항목(`commands::RunCommand`). 실행 함수로 실제 Action을 낸다.
             .on_action(cx.listener(|_, run: &RunCommand, window, cx| {
                 if let Ok(action) = cx.build_action(&run.name, run.args.clone()) {

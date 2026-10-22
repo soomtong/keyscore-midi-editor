@@ -19,7 +19,7 @@ use crate::OpenError;
 use crate::actions::file;
 use crate::actions::window::Close;
 use crate::app_state::AppSettings;
-use crate::document::{ReadOnly, UNTITLED};
+use crate::document::ReadOnly;
 use crate::window::{ProjectWindow, project_windows};
 
 /// 최근 파일 목록의 길이.
@@ -89,7 +89,7 @@ pub fn save_project(path: &Path, project: &Project) -> Result<(), FileError> {
 /// 있는 파일에 쓸 권한이 있는지 본다. 임시 파일 + rename 쓰기는 폴더 권한만 보므로 그대로 두면 0444 파일도
 /// 바뀐다(결정 1 A: 거부). 쓰기로 열기만 하고 내용·시각은 건드리지 않는다. 일반 파일만 연다(FIFO를 쓰기로
 /// 열면 멈춘다).
-fn check_writable(path: &Path) -> Result<(), FileError> {
+pub(crate) fn check_writable(path: &Path) -> Result<(), FileError> {
     match fs::metadata(path) {
         Ok(meta) if meta.is_file() => match fs::OpenOptions::new().write(true).open(path) {
             Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
@@ -301,7 +301,7 @@ impl ProjectWindow {
     }
 
     /// 이 창에서 흐름 하나를 돌린다. 이미 돌고 있으면 무시한다(시트를 겹치지 않는다).
-    fn run_file_flow(
+    pub(crate) fn run_file_flow(
         &mut self,
         cx: &mut Context<Self>,
         flow: impl AsyncFnOnce(&Entity<ProjectWindow>, &mut AsyncApp) + 'static,
@@ -402,9 +402,13 @@ async fn save_as(view: &Entity<ProjectWindow>, cx: &mut AsyncApp) -> bool {
         .as_deref()
         .and_then(Path::parent)
         .map_or_else(default_directory, Path::to_path_buf);
-    let suggested = current
-        .as_deref()
-        .map_or_else(|| format!("{UNTITLED}.ksq"), file_name);
+    let suggested = match current.as_deref() {
+        Some(path) => file_name(path),
+        None => format!(
+            "{}.ksq",
+            cx.update(|cx| view.read(cx).document().read(cx).suggested_stem())
+        ),
+    };
     let chosen = cx.update(|cx| cx.prompt_for_new_path(&directory, Some(&suggested)));
     let Ok(Ok(Some(path))) = chosen.await else {
         return false;
@@ -715,7 +719,7 @@ fn distinct_folder(path: &str, others: &[&String]) -> String {
 
 // ---------------------------------------------------------------- 도움 함수
 
-fn file_name(path: &Path) -> String {
+pub(crate) fn file_name(path: &Path) -> String {
     path.file_name().map_or_else(
         || path.display().to_string(),
         |n| n.to_string_lossy().into_owned(),
@@ -733,10 +737,45 @@ fn normalize_new(path: &Path) -> PathBuf {
     }
 }
 
-fn default_directory() -> PathBuf {
+pub(crate) fn default_directory() -> PathBuf {
     let home = std::env::var_os("HOME").map_or_else(|| PathBuf::from("."), PathBuf::from);
     let documents = home.join("Documents");
     if documents.is_dir() { documents } else { home }
+}
+
+/// 파일을 원자적으로 쓴다(내보내기). 있는 파일에 쓸 권한이 없으면 거부하고(결정 1 A), 같은 폴더의 임시 파일에
+/// 쓰고 fsync한 뒤 이름을 바꾼다. 원래 파일의 권한을 지킨다.
+///
+/// # Errors
+///
+/// [`FileError::PermissionDenied`] 또는 [`FileError::Write`].
+pub(crate) fn write_bytes_atomic(path: &Path, bytes: &[u8]) -> Result<(), FileError> {
+    use std::io::Write as _;
+    check_writable(path)?;
+    let dir = match path.parent() {
+        Some(d) if !d.as_os_str().is_empty() => d.to_path_buf(),
+        _ => PathBuf::from("."),
+    };
+    let temp = dir.join(format!(".{}.tmp-{}", file_name(path), std::process::id()));
+    let result = (|| {
+        let mut file = fs::File::create(&temp)?;
+        if let Ok(meta) = fs::metadata(path) {
+            file.set_permissions(meta.permissions())?;
+        }
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        fs::rename(&temp, path)
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temp);
+    }
+    result.map_err(|e| {
+        if e.kind() == io::ErrorKind::PermissionDenied {
+            FileError::PermissionDenied
+        } else {
+            FileError::Write(KsqError::Io(e))
+        }
+    })
 }
 
 /// 어느 창이 `path`의 파일을 열고 있는가(복구가 같은 파일 두 창을 피한다).
@@ -815,7 +854,7 @@ pub(crate) fn active_project_window(cx: &App) -> Option<Entity<ProjectWindow>> {
         .find(|w| w.read(cx).window_handle() == active)
 }
 
-fn refresh(view: &Entity<ProjectWindow>, cx: &mut App) {
+pub(crate) fn refresh(view: &Entity<ProjectWindow>, cx: &mut App) {
     let handle = view.read(cx).window_handle();
     let _ = handle.update(cx, |_, window, cx| {
         view.read(cx).refresh_file_state(window, cx);

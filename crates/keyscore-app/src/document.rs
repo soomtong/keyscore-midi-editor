@@ -36,6 +36,8 @@ pub struct ProjectDocument {
     revision: u64,
     /// 크래시 뒤 자동 저장본에서 되살렸고 아직 저장하지 않았다.
     recovered: bool,
+    /// 경로가 없을 때 다른 이름으로 저장이 제안할 이름(확장자 없음). 가져온 SMF의 파일 이름이다.
+    suggested: Option<String>,
 }
 
 impl ProjectDocument {
@@ -60,6 +62,7 @@ impl ProjectDocument {
             read_only: None,
             revision: 0,
             recovered: false,
+            suggested: None,
         })
     }
 
@@ -124,6 +127,23 @@ impl ProjectDocument {
     #[must_use]
     pub fn path(&self) -> Option<&Path> {
         self.path.as_deref()
+    }
+
+    /// 다른 이름으로 저장이 제안할 이름(확장자 없음): 파일 이름 줄기, 가져온 파일 이름, 아니면 「제목 없음」.
+    #[must_use]
+    pub fn suggested_stem(&self) -> String {
+        self.path
+            .as_deref()
+            .and_then(Path::file_stem)
+            .map(|s| s.to_string_lossy().into_owned())
+            .or_else(|| self.suggested.clone())
+            .unwrap_or_else(|| UNTITLED.to_owned())
+    }
+
+    /// 가져온 문서로 표시한다: 저장 안 된 새 문서이고, 다른 이름으로 저장이 `stem`을 제안한다.
+    pub(crate) fn mark_imported(&mut self, stem: String) {
+        self.dirty = true;
+        self.suggested = Some(stem);
     }
 
     /// 문서 내용의 판 번호.

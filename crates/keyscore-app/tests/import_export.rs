@@ -260,7 +260,7 @@ fn import_text_at_start_puts_overlapping_block_on_new_track(cx: &mut TestAppCont
     let path = write_text(
         &dir,
         "tune.txt",
-        "@track Lead\no4 l4 c d e f\n@track Bass\no2 l1 c\n",
+        "@track Lead ch1\no4 l4 c d e f\n@track Bass ch2\no2 l1 c\n",
     );
     run(cx, handle, file::ImportText);
     answer_open(cx, path);
@@ -289,7 +289,7 @@ fn import_text_at_start_puts_overlapping_block_on_new_track(cx: &mut TestAppCont
 fn import_text_into_uses_position_and_matches_track_names() {
     let mut doc = keyscore_app::document::ProjectDocument::new(sample()).unwrap();
     let parsed = keyscore_text::parse(
-        "@track Lead\no4 l4 c d e f\n@track Bass\no2 l1 c\n",
+        "@track Lead ch1\no4 l4 c d e f\n@track Bass ch2\no2 l1 c\n",
         keyscore_text::Mode::Lenient,
     )
     .unwrap();
@@ -317,7 +317,8 @@ fn import_text_into_uses_position_and_matches_track_names() {
 fn import_text_into_names_new_tracks_uniquely() {
     let mut doc = keyscore_app::document::ProjectDocument::new(sample()).unwrap();
     // 「Lead 2」가 이미 있으면 「Lead 3」이다.
-    let parsed = keyscore_text::parse("@track Lead\nc\n", keyscore_text::Mode::Lenient).unwrap();
+    let parsed =
+        keyscore_text::parse("@track Lead ch1\nc\n", keyscore_text::Mode::Lenient).unwrap();
     keyscore_app::import_export::import_text_into(&mut doc, &parsed, Tick::ZERO).unwrap();
     keyscore_app::import_export::import_text_into(&mut doc, &parsed, Tick::ZERO).unwrap();
     let names: Vec<String> = doc
@@ -333,7 +334,7 @@ fn import_text_into_names_new_tracks_uniquely() {
 fn import_text_header_is_reported_not_applied(cx: &mut TestAppContext) {
     let dir = start(cx, "text-header");
     let (handle, view) = open(cx, sample());
-    let path = write_text(&dir, "h.txt", "@tempo 90\n@track Pad\nc1\n");
+    let path = write_text(&dir, "h.txt", "@tempo 90\n@track Pad ch3\nc1\n");
     run(cx, handle, file::ImportText);
     answer_open(cx, path);
     let p = project_of(cx, &view);
@@ -350,7 +351,7 @@ fn import_text_header_is_reported_not_applied(cx: &mut TestAppContext) {
 fn import_text_syntax_error_shows_sheet_and_keeps_document(cx: &mut TestAppContext) {
     let dir = start(cx, "text-bad");
     let (handle, view) = open(cx, sample());
-    let path = write_text(&dir, "bad.txt", "@track Lead\nc d [e f\n");
+    let path = write_text(&dir, "bad.txt", "@track Lead ch1\nc d [e f\n");
     run(cx, handle, file::ImportText);
     answer_open(cx, path);
     let text = prompt_text(cx);
@@ -369,7 +370,14 @@ fn import_text_syntax_error_shows_sheet_and_keeps_document(cx: &mut TestAppConte
 #[gpui_kit::test]
 fn export_text_writes_file_and_summarizes_losses(cx: &mut TestAppContext) {
     let dir = start(cx, "text-export");
-    let (handle, view) = open(cx, sample());
+    // 벨로시티 40000은 텍스트 기본값(MIDI 1.0 100)이 아니라 잃는다.
+    let quiet = ksq::from_str(
+        r#"{"tracks": [{"name": "Lead", "channel": 1,
+            "clips": [{"start": 0, "length": 3840, "notes": [[0, 480, 60, 40000]]}]}]}"#,
+    )
+    .unwrap()
+    .0;
+    let (handle, view) = open(cx, quiet);
     run(cx, handle, file::ExportText);
     let path = dir.join("out.txt");
     answer_new_path(cx, path.clone());
@@ -383,7 +391,6 @@ fn export_text_writes_file_and_summarizes_losses(cx: &mut TestAppContext) {
             .any(|m| m.contains("내보냄") && m.contains("out.txt")),
         "{msgs:?}"
     );
-    // 표본의 벨로시티(51492)는 텍스트 기본값이 아니라 잃는다.
     assert!(msgs.iter().any(|m| m.contains("벨로시티")), "{msgs:?}");
     assert!(!dirty(cx, &view));
 }
