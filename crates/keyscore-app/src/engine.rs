@@ -59,6 +59,9 @@ pub(crate) struct Engine {
     scheduler: Scheduler,
     /// 추가 가상 포트(OUT-2). 트랙은 이름으로 가리킨다. 스냅샷이 쓰는 동안은 그 스냅샷도 쥔다.
     extras: Vec<Arc<VirtualOutput>>,
+    /// 추가 포트 가운데 대체 매핑(OUT-8)으로 만든 것의 이름(설정 `mapped_ports`와 같다). 같은 이름의
+    /// 목적지가 있으면 그 목적지가 이긴다(결정 `2026-10-22-out8-port-mapping-sheet.md` 3 A).
+    mapped: Vec<String>,
     /// 지웠지만 스냅샷이 아직 쥐고 있는 추가 포트. 스냅샷이 놓으면 버려 CoreMIDI 소스가 사라진다.
     retired: Vec<Arc<VirtualOutput>>,
     /// 스케줄러에 켜 둔 클럭 포트(이름, 번호). `None`이면 모른다(처음, 또는 지난 명령 묶음이 실패했다).
@@ -265,6 +268,106 @@ pub fn add_virtual_port(cx: &mut App) -> Result<String, PortEditError> {
     Ok(name)
 }
 
+/// 주어진 이름으로 추가 가상 포트를 만들고 설정에 저장한다(OUT-8 대체 매핑). 검사는 [`add_virtual_port`]와
+/// 같다: 이름 규칙, 보이는 목적지와 같은 모양 금지, 다른 가상 포트와 같은 모양 금지, 합쳐 16개. 고친 이름을
+/// 돌려준다.
+///
+/// # Errors
+///
+/// [`PortEditError`].
+pub fn add_named_virtual_port(cx: &mut App, name: &str) -> Result<String, PortEditError> {
+    if !cx.has_global::<Engine>() {
+        return Err(PortEditError::NoEngine);
+    }
+    let name = check_new_name(name)?;
+    let engine = cx.global_mut::<Engine>();
+    // 다른 가상 포트와의 같은 모양·16개 상한은 keyscore-midi가 거부한다
+    let port = engine.client.create_virtual_output(&name)?;
+    let name = port.name();
+    engine.extras.push(Arc::new(port));
+    let added = name.clone();
+    AppSettings::update(cx, |s| s.midi_output.virtual_ports.push(added));
+    ports_edited(cx, &name, true);
+    Ok(name)
+}
+
+/// 없는 포트의 대체 매핑(OUT-8)으로 가상 포트를 만들고 표시한다. 같은 이름의 장치가 나타나면 지운다.
+///
+/// # Errors
+///
+/// [`PortEditError`].
+pub(crate) fn add_mapped_virtual_port(cx: &mut App, name: &str) -> Result<String, PortEditError> {
+    let made = add_named_virtual_port(cx, name)?;
+    cx.global_mut::<Engine>().mapped.push(made.clone());
+    let marked = made.clone();
+    AppSettings::update(cx, |s| s.midi_output.mapped_ports.push(marked));
+    Ok(made)
+}
+
+/// 대체 매핑으로 만든 포트 가운데 이 목적지와 이름이 같은(보이는 모양, 결정 2026-10-15-port-name-visual-duplicates)
+/// 것이 있으면 지우고 알린다(포트 감시가 목적지가 나타날 때 부른다). 포트 이름이 장치 이름과 글자로 다르면(시트가
+/// 정규화한 이름) 열린 창의 트랙을 장치 이름으로 되돌린다(창마다 undo 한 단위, 가상 포트 이름 변경과 같은 방식,
+/// 리뷰 2 지적 2). 닫힌 파일은 열 때 시트가 장치로 바꾸자고 제안한다.
+pub(crate) fn release_mapped(cx: &mut App, destination: &str) {
+    if !cx.has_global::<Engine>() {
+        return;
+    }
+    let Some(mapped) = cx
+        .global::<Engine>()
+        .mapped
+        .iter()
+        .find(|m| keyscore_midi::same_port_name(m, destination))
+        .cloned()
+    else {
+        return;
+    };
+    // 장치가 없을 때 재생을 준비하며 남긴 「없음」 기억을 지운다. 지우지 않으면 재생 중 다시 준비가 돌아온
+    // 장치를 찾지 않는다
+    cx.global_mut::<Engine>().port_returned(destination);
+    // 재생 중인 창의 음색 기록에서 두 이름을 잊는다. 대체 포트에 보낸 뱅크·프로그램이 돌아온 장치에 보낸 것으로
+    // 남으면 다시 보내지 않는다(일반 재연결 `transport_port_returned`와 같다, 리뷰 2 지적 1)
+    if let Some(owner) = cx.global::<Engine>().owner() {
+        owner.update(cx, |w, _| {
+            w.transport_forget_setup(&mapped);
+            w.transport_forget_setup(destination);
+        });
+    }
+    if mapped != destination {
+        let device = OutputPort::Named(destination.to_owned());
+        for window in crate::window::project_windows(cx) {
+            window.update(cx, |w, cx| {
+                let edits: Vec<keyscore_core::Edit> = w
+                    .document()
+                    .read(cx)
+                    .project()
+                    .tracks()
+                    .iter()
+                    .filter(|t| matches!(t.port(), OutputPort::Named(n) if *n == mapped))
+                    .map(|t| keyscore_core::Edit::SetTrackProp {
+                        track: t.id(),
+                        prop: keyscore_core::TrackProp::Port(device.clone()),
+                    })
+                    .collect();
+                if !edits.is_empty() {
+                    w.edit_document(edits, cx);
+                }
+            });
+        }
+    }
+    match remove_virtual_port(cx, &mapped) {
+        Ok(()) => crate::window::say_everywhere(
+            cx,
+            &format!("장치 「{destination}」이 돌아와 대체로 만든 가상 포트 「{mapped}」을 지웠다"),
+        ),
+        Err(e) => crate::window::say_everywhere(
+            cx,
+            &format!(
+                "장치 「{destination}」이 돌아왔지만 대체 가상 포트 「{mapped}」을 지우지 못했다: {e}"
+            ),
+        ),
+    }
+}
+
 /// 앱 가상 포트의 이름을 바꾸고 고친 새 이름을 돌려준다(엔드포인트는 그대로라 외부 신디 연결이 유지된다). 열린 창의 트랙과 메트로놈
 /// 포트도 새 이름으로 고친다(결정 2026-10-19-virtual-port-rename-tracks A, 창마다 undo 한 단위).
 ///
@@ -293,7 +396,10 @@ pub fn rename_virtual_port(cx: &mut App, old: &str, new: &str) -> Result<String,
     }
     port.set_name(&new)?;
     let new = port.name();
+    // 이름을 바꾼 포트는 사용자의 포트다. 대체 매핑 표시를 지운다(같은 이름의 장치를 기다리지 않는다)
+    cx.global_mut::<Engine>().mapped.retain(|m| m != old);
     AppSettings::update(cx, |s| {
+        s.midi_output.mapped_ports.retain(|m| m != old);
         if is_main {
             s.midi_output.main_name = Some(new.clone());
         } else if let Some(slot) = s.midi_output.virtual_ports.iter_mut().find(|n| *n == old) {
@@ -361,7 +467,11 @@ pub fn remove_virtual_port(cx: &mut App, name: &str) -> Result<(), PortEditError
     };
     let port = engine.extras.remove(i);
     engine.retired.push(port);
-    AppSettings::update(cx, |s| s.midi_output.virtual_ports.retain(|n| n != name));
+    engine.mapped.retain(|m| m != name);
+    AppSettings::update(cx, |s| {
+        s.midi_output.virtual_ports.retain(|n| n != name);
+        s.midi_output.mapped_ports.retain(|n| n != name);
+    });
     let owner = cx.global::<Engine>().owner();
     if let Some(owner) = owner {
         // 재생 중: 그 포트 없이 다시 준비한다(트랙은 「포트 없음」으로 소리 내지 않는다)
@@ -550,11 +660,33 @@ pub fn install(cx: &mut App, options: &EngineOptions) -> Result<(), MidiError> {
             .any(|d| keyscore_midi::same_port_name(d.name(), name))
     };
     // 설정의 추가 가상 포트(OUT-2). 기본 포트의 대체 이름이 이것과 겹치지 않게 먼저 읽는다.
-    let wanted = if cx.has_global::<AppSettings>() {
-        AppSettings::get(cx).midi_output.virtual_ports.clone()
+    let (mut wanted, mut mapped) = if cx.has_global::<AppSettings>() {
+        let m = &AppSettings::get(cx).midi_output;
+        (m.virtual_ports.clone(), m.mapped_ports.clone())
     } else {
-        Vec::new()
+        (Vec::new(), Vec::new())
     };
+    // 대체 매핑으로 만든 포트의 장치가 이미 있으면 그 포트는 더 필요 없다. 만들지 않고 설정에서 뺀다(결정
+    // 2026-10-22-out8-port-mapping-sheet 3 A)
+    // 같은 이름은 보이는 모양으로 본다(시트가 정규화한 이름과 장치의 원래 이름, 리뷰 2 지적 2). 이 포트를 쓰던
+    // 닫힌 파일은 열 때 시트가 장치로 바꾸자고 제안한다
+    let returned: Vec<String> = mapped.iter().filter(|n| collides(n)).cloned().collect();
+    if !returned.is_empty() {
+        wanted.retain(|n| !returned.contains(n));
+        mapped.retain(|n| !returned.contains(n));
+        AppSettings::update(cx, |s| {
+            s.midi_output
+                .virtual_ports
+                .retain(|n| !returned.contains(n));
+            s.midi_output.mapped_ports.retain(|n| !returned.contains(n));
+        });
+        for name in &returned {
+            // 첫 창보다 먼저 돌아 받을 창이 없을 수 있다. 로그에도 남긴다(리뷰 2 제안 3)
+            let message = format!("장치 「{name}」이 있어 대체로 만든 가상 포트를 지웠다");
+            eprintln!("{message}");
+            crate::window::say_everywhere(cx, &message);
+        }
+    }
     let mut main_name = options.port_name.clone();
     if collides(&main_name) {
         // 대체 이름은 목적지와도, 설정의 추가 포트와도 겹치지 않는 첫 이름(「KeyScore Out」, 「KeyScore Out 2」…)
@@ -595,6 +727,9 @@ pub fn install(cx: &mut App, options: &EngineOptions) -> Result<(), MidiError> {
             }
         }
     }
+    // 만들지 못한 포트는 표시하지 않는다(설정에는 남아 다음 시작 때 다시 해 본다). 남기면 사용자가 자기 포트를 그
+    // 이름으로 바꿀 때 대체 표시가 붙는다(리뷰 2 제안 4)
+    mapped.retain(|n| extras.iter().any(|p| p.name() == *n));
     let empty = Snapshot::new(
         TempoMap::default(),
         vec![main.clone() as Arc<dyn MidiPort>],
@@ -607,6 +742,7 @@ pub fn install(cx: &mut App, options: &EngineOptions) -> Result<(), MidiError> {
         opened: HashMap::new(),
         scheduler,
         extras,
+        mapped,
         retired: Vec::new(),
         clock_state: None,
         last_test: None,
@@ -1064,8 +1200,23 @@ impl Engine {
         live: bool,
         available: &mut Option<Vec<PortInfo>>,
     ) -> Result<Arc<dyn MidiPort>, PortProblem> {
-        if let Some(own) = self.extras.iter().find(|p| p.name() == name) {
-            return Ok(own.clone());
+        if let Some(own) = self.extras.iter().find(|p| p.name() == name).cloned() {
+            // 대체 매핑으로 만든 포트는 같은 이름의 장치가 돌아왔으면 비킨다. 포트 감시가 곧 지운다(결정
+            // 2026-10-22-out8-port-mapping-sheet 3 A, 리뷰 1 지적 1)
+            // 장치 이름은 보이는 모양으로 같으면 된다(시트가 정규화한 이름, 리뷰 2 지적 2)
+            if self.mapped.iter().any(|m| m == name) {
+                let device = available
+                    .get_or_insert_with(destinations)
+                    .iter()
+                    .map(|d| d.name().to_owned())
+                    .find(|d| keyscore_midi::same_port_name(d, name));
+                if let Some(device) = device
+                    && let Ok(port) = self.open_named(&device, live, available)
+                {
+                    return Ok(port);
+                }
+            }
+            return Ok(own);
         }
         self.open_named(name, live, available)
     }

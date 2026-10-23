@@ -534,6 +534,12 @@ impl ProjectWindow {
         self.transport_document_changed(cx);
     }
 
+    /// 그 목적지의 지난 음색 기록을 잊는다. 다음 교체가 그 목적지의 뱅크·프로그램을 한 번 보낸다(대체 매핑 포트가
+    /// 비키고 장치가 돌아올 때).
+    pub(crate) fn transport_forget_setup(&mut self, name: &str) {
+        self.transport.setup.retain(|s| s.destination != name);
+    }
+
     /// 앱 가상 포트의 이름이 바뀌었다(같은 엔드포인트). 지금 재생의 음색 기록을 새 이름으로 옮긴다.
     pub(crate) fn transport_port_renamed(&mut self, old: &str, new: &str) {
         for setup in &mut self.transport.setup {

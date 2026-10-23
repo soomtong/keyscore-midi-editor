@@ -244,6 +244,7 @@
 | --- | --- | --- | --- | --- | --- | --- |
 | `midi::SelectOutputPort(port)` | 출력 포트 선택(트랜스포트 드롭다운) | port | - | - | - (트랜스포트 드롭다운, 팔레트 「포트 선택」) | OUT-3, 7.6 |
 | `midi::AddVirtualPort` | 가상 포트 추가(최대 16) | - | - | - | - (설정 > MIDI 출력) | OUT-2, 7.6 |
+| `midi::MapMissingPorts` | 없는 출력 포트의 대체 매핑 제안 시트(S2-T7d) | - | - | - | 트랜스포트 메뉴, 팔레트(파일을 열거나 복구할 때 자동) | OUT-8 |
 | `midi::RenameVirtualPort(name)` | 가상 포트 이름 변경 | name | - | - | - (설정 > MIDI 출력) | OUT-2, 7.6 |
 | `midi::SendTestNote` | 연결 테스트 노트 송신 | - | - | - | - (설정 > MIDI 출력, 인스펙터 「테스트」, 팔레트) | PRE-3, 7.6 |
 

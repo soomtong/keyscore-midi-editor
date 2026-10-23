@@ -135,6 +135,8 @@ pub fn open_path(
     });
     refresh(&view, cx);
     add_recent(&path, cx);
+    // 다른 Mac에서 만든 프로젝트면 없는 포트의 대체 매핑을 묻는다(OUT-8)
+    crate::port_mapping::offer(&view, cx);
     Ok((handle, view))
 }
 
