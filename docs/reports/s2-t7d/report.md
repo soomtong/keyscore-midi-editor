@@ -70,3 +70,21 @@ cargo test -p keyscore-app --test port_mapping: 16 passed; 0 failed
 - `apply`가 다시 계산할 때 이미 다른 창이 같은 정규화 이름의 포트를 만든 경우와, 만들기가 실패한 경우의 트랙 변경.
 - `open_path` 안에서 시트를 띄우므로 `open_paths`의 실패 시트 호스트 고르기·손대지 않은 원래 창 닫기와 겹치는지.
 - 복구 흐름(`recover`)은 호스트 창의 흐름 안에서 돈다. 복구한 창마다 시트가 따로 뜬다.
+
+## 리뷰 1 대응
+
+판정 「수정 후 재리뷰」(`review-1.md`). 지적 1은 사람에게 물어 결정 `2026-10-22-out8-port-mapping-sheet.md` 3 A(매핑으로 만든 포트는 같은 이름의 장치가 돌아오면 지운다)로 정했다.
+
+| 리뷰 항목 | 대응 |
+| --- | --- |
+| 지적 1 돌아온 장치를 가리는 가상 포트(OUT-3) | 494e5aa. 설정 `midi_output.mapped_ports`에 매핑으로 만든 포트를 표시한다. 포트 감시가 같은 이름의 목적지가 나타난 것을 보면 그 포트를 지우고(설정에서도) 알린다(`engine::release_mapped`, 「없음」 기억도 지운다). 감시가 돌기 전의 재생 준비는 `open_port`가 그 목적지를 먼저 연다. 시작할 때 이미 장치가 있으면 만들지 않고 설정에서 뺀다. 이름을 바꾸면 표시를 지운다. 시험 `returning_device_removes_mapped_port`, `returning_device_keeps_user_and_renamed_ports`, `startup_drops_mapped_port_whose_device_is_present`, `settings_keep_only_mapped_names_that_are_virtual_ports`, 리뷰 시험 `review1_mapped_port_does_not_shadow_returning_device` |
+| 지적 2 시트와 다른 적용 | 0f1eaad. 받아들일 때 다시 계산한 결과가 시트와 다르면 「포트 상태가 바뀌어 제안을 다시 계산했다」로 시트를 다시 띄운다. 같을 때만 적용하고, 모두 생겼으면 「없는 출력 포트가 없다」. 결정 문서의 구현 세부도 고쳤다. 리뷰 시험 `review1_stale_sheet_does_not_silently_fall_back_to_main` |
+| 지적 3 양방향·폭 없는 문자 | 08f3fe9. `keyscore_midi::is_rejected_name_char`(이름 규칙과 같은 목록)를 공개하고 `shown`이 쓴다. 리뷰 시험 `review1_sheet_line_escapes_bidi_and_invisible_characters` |
+| 제안 4 바꾸지 않는 「바꾼다」 | 0f1eaad. 앞 줄이 바로 그 이름을 만들면 그 줄을 뺀다. 적용은 같은 값을 다시 쓰는 편집을 넣지 않는다. 계획 시험 5의 기대를 고쳤다(정규화 이름이 같은 다른 이름은 여전히 `Use`). 리뷰 시험 `review1_already_normalized_second_name_is_not_a_change` |
+| 제안 5 시험 14가 다시 계산을 증명하지 않음 | 0f1eaad. 「만들지 못한」이 없고 「없는 출력 포트가 없다」가 있는지 본다 |
+| 제안 6 「이미 16개라」 | 08f3fe9. 「16개에 이르러」 |
+| 제안 7 흐름 중 명령이 조용함 | 0f1eaad. 「다른 대화상자가 떠 있어 포트 매핑 시트를 열지 않았다」 |
+
+지적 1의 새 시험은 수정과 함께 썼다(실패 확인은 리뷰 시험이 했다).
+
+리뷰 1 대응 뒤 게이트: fmt, clippy -D warnings, `cargo test --workspace`(바이너리 208개 모두 ok, 1820 passed, 0 failed), deny, `check-deps.sh` 통과.
