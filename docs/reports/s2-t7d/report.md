@@ -88,3 +88,14 @@ cargo test -p keyscore-app --test port_mapping: 16 passed; 0 failed
 지적 1의 새 시험은 수정과 함께 썼다(실패 확인은 리뷰 시험이 했다).
 
 리뷰 1 대응 뒤 게이트: fmt, clippy -D warnings, `cargo test --workspace`(바이너리 208개 모두 ok, 1820 passed, 0 failed), deny, `check-deps.sh` 통과.
+
+## 리뷰 2 대응
+
+판정 「수정 후 재리뷰」(`review-2.md`). 지적 1·2는 같은 함수(`engine::release_mapped`)를 고쳐 커밋 하나(88517ea)로 묶었다.
+
+| 리뷰 항목 | 대응 |
+| --- | --- |
+| 지적 1 재생 중 돌아온 장치에 프로그램이 안 감 | `release_mapped`가 재생 창의 음색 기록에서 대체 포트 이름과 장치 이름을 잊는다(`transport_forget_setup`). 다음 교체가 뱅크·프로그램을 한 번 보낸다. 리뷰 시험 `review2_returning_device_during_playback_gets_program` |
+| 지적 2 정규화한 이름 | 장치 판정을 보이는 모양(`same_port_name`)으로 한다(감시, `open_port`, 시작). 포트 이름과 장치 이름이 글자로 다르면 열린 창의 트랙을 장치 이름으로 되돌린다(창마다 undo 한 단위). 닫힌 파일은 열 때 시트가 `Use(장치)`를 제안한다. 결정 문서 3의 구현 세부에 적었다. 리뷰 시험 `review2_unnormalized_device_name_returns`, `review2_startup_unnormalized_device_keeps_stale_mapping` |
+| 제안 3 시작 알림이 닿지 않음 | `eprintln`으로도 남긴다. 첫 창보다 먼저 도는 문제는 기본 포트 대체 이름 알림(S2-T6d)과 같은 한계로 둔다 |
+| 제안 4 만들지 못한 포트의 표시 | 엔진 `mapped`는 실제로 만든 포트만 둔다. 장치가 있어 만들지 않은 대체 포트는 설정에서도 뺀다 |
