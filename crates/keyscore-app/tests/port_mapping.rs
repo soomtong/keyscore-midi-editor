@@ -512,7 +512,7 @@ fn returning_device_removes_mapped_port(cx: &mut TestAppContext) {
     assert_eq!(ports_of(cx, &view), vec![named(&device)]);
     let said = messages(cx, &view).join("\n");
     assert!(
-        said.contains("돌아와 대체로 만든 가상 포트를 지웠다"),
+        said.contains("돌아와 대체로 만든 가상 포트"),
         "{said}"
     );
 }
