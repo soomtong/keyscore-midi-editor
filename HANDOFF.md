@@ -1,4 +1,4 @@
-# HANDOFF: KeyScore S2 진행 중 — S2-T1~T6f·T7a·T7b·T7c 병합, S2-T7d 다음
+# HANDOFF: KeyScore S2 진행 중 — S2-T1~T6f·T7a~T7d 병합, S2-T7e 다음
 
 ## 목표
 
@@ -6,7 +6,7 @@
 
 ## 현재 브랜치
 
-`main` — S0 완료·서명(2026-10-15), S1-T1~T7과 계이름 텍스트 주석 `//` 변경 병합(테스트 818개 통과). S1 출구 서명(YoungTaek, 2026-10-16). S2-T1~T4·S2-T5a~T5d·S2-T6a~T6f 병합(테스트 1568개). S2-T6은 T6a(설정 창·키맵 편집기)·T6b(`?` 오버레이)·T6c(입력·메트로놈·AI 탭)·T6d(가상 포트)·T6e(포트별 클럭·테스트 노트·포트 상태)·T6f(이월 줄)로 나눴다. S2-T7은 T7a(저장·열기·닫기·최근 파일, 병합 72f2845, 테스트 1645 + 리뷰 r3 18)·T7b(자동 저장본·복구, 병합 4be705a, 테스트 1728 + 리뷰 r4 5)·T7c(가져오기·내보내기 메뉴, 병합 후 테스트 1795)·T7d(OUT-8 대체 매핑 제안 + 이월)로 나눴다(결정 `2026-10-21-s2-t7-save-policy-and-split.md`, `2026-10-22-s2-t7c-import-export.md`). 다음은 S2-T7d.
+`main` — S0 완료·서명(2026-10-15), S1-T1~T7과 계이름 텍스트 주석 `//` 변경 병합(테스트 818개 통과). S1 출구 서명(YoungTaek, 2026-10-16). S2-T1~T4·S2-T5a~T5d·S2-T6a~T6f 병합(테스트 1568개). S2-T6은 T6a(설정 창·키맵 편집기)·T6b(`?` 오버레이)·T6c(입력·메트로놈·AI 탭)·T6d(가상 포트)·T6e(포트별 클럭·테스트 노트·포트 상태)·T6f(이월 줄)로 나눴다. S2-T7은 T7a(저장·열기·닫기·최근 파일, 병합 72f2845, 테스트 1645 + 리뷰 r3 18)·T7b(자동 저장본·복구, 병합 4be705a, 테스트 1728 + 리뷰 r4 5)·T7c(가져오기·내보내기 메뉴, 병합 후 테스트 1795)·T7d(OUT-8 대체 매핑 제안, 병합 87deb10, 테스트 1824 + 리뷰 r3 3)·T7e(S2-T7b 리뷰 4·S2-T7c 리뷰 2·S2-T7d 리뷰 3 이월)로 나눴다(결정 `2026-10-21-s2-t7-save-policy-and-split.md`, `2026-10-22-s2-t7c-import-export.md`, `2026-10-22-out8-port-mapping-sheet.md`). 다음은 S2-T7e.
 
 ## 완료된 작업
 
@@ -20,6 +20,7 @@
 - [x] S0-T5 계이름 텍스트 파서·내보내기(리뷰 9회, 결정 `2026-10-13-ktext-export-voice-budget.md`와 개정). 엄격 모드 왕복의 알려진 예외와 출력 크기 상한(선형, 256배)은 `docs/decisions/2026-10-12-ktext-implementation-details.md`
 - [x] S0-T8 `ksq-cli`(리뷰 11회, 결정 `2026-10-14-ksq-cli-output-path-scope.md`: `-o`는 일반 파일만). 픽스처 8곡 `assets/fixtures/`, 원본 텍스트 `tools/ksq-cli/fixtures-src/`
 - [x] S0 출구 보고서 `docs/reports/stage-0-exit.md`(자동 게이트 통과, 사람 항목 대기)
+- [x] S2-T7d OUT-8 없는 출력 포트의 대체 매핑 제안(리뷰 3회, 3회차 「병합 가능」, 병합 87deb10). 결정 `2026-10-22-out8-port-mapping-sheet.md`(사람: 1 A 열 때·복구할 때 시트, 2 A 같은 이름의 앱 가상 포트, 3 A 같은 이름의 장치가 돌아오면 그 대체 포트를 지움). `src/port_mapping.rs`: `plan`(트랙의 이름 포트 중 앱 포트·목적지와 정확히 같지 않은 것마다 줄, `Use`(보이는 모양이 같은 기존 포트)·`Create`(정규화 이름)·`Main`(이름 규칙 위반·16개), 앞 줄이 바로 그 이름을 만들면 줄 없음), `describe`(거부 문자는 `keyscore_midi::is_rejected_name_char`로 이스케이프), `offer`(`files::open_path` 새 창·`autosave::recover`가 부름, `run_file_flow`), 받아들이면 다시 계산해 다르면 다시 묻고 같을 때만 적용(트랙 변경은 undo 한 단위). 새 Action `midi::MapMissingPorts`(트랜스포트 메뉴, 297개). 엔진 `add_named_virtual_port`·`add_mapped_virtual_port`·`release_mapped`, 설정 `midi_output.mapped_ports`, 포트 감시가 같은 모양의 목적지가 나타나면 대체 포트를 지우고 열린 창의 트랙을 장치 이름으로 되돌림(재생 중이면 음색 기록을 잊어 프로그램을 다시 보냄), `open_port`는 대체 포트보다 장치를 먼저, 시작 때 장치가 있으면 설정에서 뺌, 이름을 바꾸면 표시를 지움
 - [x] S2-T7c SMF·계이름 텍스트 가져오기·내보내기(리뷰 2회, 2회차 「병합 가능」). 결정 `2026-10-22-s2-t7c-import-export.md`: SMF 가져오기는 새 창(백그라운드, 빈 창은 바꿈, 다른 이름으로 저장이 파일 이름 제안), 텍스트 가져오기는 지금 문서의 재생 위치에 undo 하나(같은 이름 + 같은 채널·적은 프로그램·뱅크 + 겹치지 않으면 그 트랙, 아니면 「이름 n」 새 트랙, 헤더 무시), 손실은 상태줄 요약. `ksq-cli`의 텍스트↔프로젝트 변환을 `keyscore_text::project`로 옮김(`ConvertError`, `keyscore-text`에 serde_json 허용). `keyscore_midi::{smf_import, smf_export}`와 `ImportReport`·`ExportReport`(버린 가사·레인·추가 프로그램·SysEx·메타 / 숨김 꼬리·피치 오프셋·7비트 반올림·겹침·빈 트랙). `src/import_export.rs`, `files::write_bytes_atomic`, 내보내기는 열린 프로젝트 파일이면 거부, 텍스트 `Loss::Mismatch`면 쓰지 않음, `TooLong` 문구(상한과 120 BPM 시간)
 - [x] S2-T7b 자동 저장본과 크래시 후 복구(리뷰 3회 + 결정 `2026-10-22-s2-t7b-review-limit.md` A의 좁은 확인 1회, 병합 4be705a). `src/autosave.rs`: 설정 파일 옆 `autosave/`에 창마다 `<키>.ksq`+`<키>.json`(키는 창마다 고유 pid-나노초-순번, 원래 경로·읽기 전용·세션·pid는 메타). 첫 변경부터 30 s 타이머(계속 고쳐도 30 s 안), 직렬화는 메인·쓰기는 백그라운드, 창마다 `Slot`(세대·바닥)으로 쓰기·지우기 차례(세대별 임시 파일, 잠금 안에서 세대 확인 후 메타→내용 rename), 실패는 한 번 알리고 30 s 뒤 재시도, 저장·닫기에 지움(`closed` 뒤에는 쓰지 않음). 세션: `session-<id>.lock`을 `File::try_lock`으로 쥠, 잠금 파일이 없거나 잡히면 끝난 세션. `offer_recovery`(run이 첫 창 뒤): [복구]는 원래 경로·읽기 전용 그대로 바뀜·「(복구됨)」 창, 원래 파일은 읽지 않음, 같은 파일 창이 있으면 경로 없이, 내용 파일을 잠가(`claim`) 다른 실행이 못 가져감. [버리기]는 지움. 둘 다 끝난 세션 pid의 1분 넘은 임시 파일·세대별 임시 파일·1분 넘은 끝난 세션 잠금 파일 정리, 지우기 전에 `still_dead` 재확인. 종료 훅 `flush_all`. 문서 `revision`·`is_recovered`. T7a 이월: 기억한 `FileId`는 문서 경로 파일이 없을 때만, `remove_recent` 하드 링크, 최근 목록 표시 캐시(`RecentCache`)
 - [x] S2-T7a 새로 만들기·열기·저장·닫기·끝내기·최근 파일(리뷰 3회, 3회차 「병합 가능」, 병합 72f2845). `src/files.rs`: `save_project`(있는 일반 파일은 쓰기로 열어 권한 확인 → 0444 거부, `.ksqz`는 gzip, `ksq::write_file`), 저장 흐름(상위 버전 읽기 전용·권한 없음 → 시트 [다른 이름으로 저장]/[취소]), 다른 이름으로 저장(같은 파일을 연 다른 창이면 거부, 읽기 전용 원본 위면 거부), 열기(여러 파일, 같은 파일이면 그 창, 손대지 않은 새 창은 바꿈, 실패는 흐름이 없는 창에 시트 하나), 닫기 `request_close`(닫기 단추 `on_window_should_close`와 `window::Close` 공통, [저장]/[취소]/[저장 안 함], 닫을 때 재생 멈춤), 끝내기 `confirm_close_all`(바뀐 창이 남지 않을 때까지 반복, `Quit`은 직전 재확인), 창마다 흐름 하나(`ProjectWindow::file_flow`), 같은 파일 판정 `same_file`·`is_document_file`(정규 경로, 문서가 열거나 저장한 때의 `FileId` 장치·inode). 최근 파일: 설정 `recent_files`(10, 정규 경로), 메뉴 하위 항목·팔레트 줄(`recent_labels`, 같은 이름은 구별될 때까지 위 폴더), 목록이 비면 팔레트에 실행 불가 줄(UI-11). core `ksq::Warning::newer_format_version`. 문서 `path`·`read_only`·`display_name`·`is_pristine`. 저장 중 kill 게이트 `tests/save_kill.rs`(자기 실행 파일을 자식으로 띄워 20회 SIGKILL)
@@ -64,6 +65,8 @@
 - 커널 경로 해석(링크, `/dev/fd`, `..`, 끝 `/`)을 도구가 흉내 내기(S0-T8 리뷰 2–8): 매 회차 새 구멍이 나왔다. 범위를 줄여(`-o`는 일반 파일만) 해결했다. 경계가 계속 나오면 일찍 범위 재정의를 묻는다.
 - 유니코드 이름 규칙처럼 끝없는 모서리 영역은 확인 리뷰에 판정 기준(회귀·결정 위반·결함만 「수정」)을 명시해 좁힌다(S1-T1 리뷰 7).
 - 확인 리뷰에서 같은 갈래 지적이 두 번 이상 나오면 패턴을 하나씩 막지 말고 원인을 고친다.
+- 전체 시험 출력을 `sort | uniq -c | head`로 줄이면 실패 줄이 잘릴 수 있다(S2-T7d). 로그 파일에 남기고 `rg`로 FAILED·panicked를 찾는다. 이 기계에서 `cargo test --workspace`는 바이너리마다 시작이 느려 1시간 반쯤 걸린다.
+- 게이트 뒤에 `sd`로 시험을 고치고 fmt 없이 커밋하면 fmt 게이트가 깨진다(S2-T7d 리뷰 3). 손으로 고친 뒤에는 `cargo fmt --all -- --check`를 다시 돌린다.
 - 서브 에이전트가 같은 작업 트리에서 일하는 동안 `git commit -a`를 쓰면 그쪽 미완성 변경이 섞인다(S2-T7c). 늘 경로를 지정해 커밋한다.
 - `sd -F`로 여러 줄 문자열을 치환하면 조용히 아무것도 바꾸지 않는다(S2-T7b). 여러 줄 편집은 파이썬(`assert old in s`)으로 한다.
 - 자동 저장본 키를 원래 경로 해시로 만들기(S2-T7b 리뷰 1): 같은 파일을 연 다른 창·다른 실행이 서로의 저장본을 덮거나 지웠다. 키는 창마다 고유하게, 경로는 메타에만.
@@ -115,7 +118,10 @@ REQ 문구: 사람이 에이전트에게 수정을 허락한 범위(결정 문�
 
 ## 다음 에이전트에게
 
-1. S2-T7d를 시작한다. 범위(결정 `2026-10-22-s2-t7c-import-export.md` 4): OUT-8(프로젝트에 저장된 포트 이름이 없는 Mac에서 열 때 가상 포트로 대체 매핑을 제안. S2-T6d 한계: 닫힌 파일의 옛 가상 포트 이름, S1-T2 `suggest_mapping`의 `Virtual` 제안이 겹치거나 16개를 넘을 수 있음), 단계 파일 S2-T7 절의 이월 줄(S2-T7b 리뷰 4: 내용 없는 메타·`discard`의 `claimed`·`recover` 잠금 틈·잠금 파일 정리 기회·`init` 재시도, S2-T7c 리뷰 2: 겹침 셈·같은 틱 템포·사라지는 트랙 이름·같은 이름 트랙 여럿). REQ에 없는 결정(대체 매핑 제안의 UI)은 사람에게 묻는다. 그 뒤 S2 출구: 자동 게이트(모든 Action에 UI, UI-11 검사)와 수동 확인 목록(키보드만으로 새 프로젝트→트랙→포트→재생→저장→종료, 크래시 뒤 복구 시트, SMF·텍스트 가져오기·내보내기, MIDI 서버 재시작 감지·추가 포트 재등록, 팔레트 첫 Esc A13, 메뉴 키 등가물, IME, `keyscore-text` 시간 측정 테스트 가끔 실패)을 `docs/reports/stage-2-exit.md`에 쓰고 사람 서명을 받는다.
+1. S2-T7e를 시작한다. 범위는 단계 파일 S2-T7 절의 이월 줄이다. S2-T7b 리뷰 4: 내용 없는 메타, `discard`의 `claimed`, `recover` 잠금 틈, 잠금 파일 정리 기회, `init` 재시도. S2-T7c 리뷰 2: 겹침 셈, 같은 틱 템포, 사라지는 트랙 이름, 같은 이름 트랙 여럿. S2-T7d 리뷰 3: 메트로놈·클럭 설정의 대체 포트 이름, 같은 모양 장치 여럿의 고르기 기준, 설정 `mapped_ports`의 남은 이름. 그 뒤 S2 출구를 진행한다.
+   - 자동 게이트: 모든 Action에 UI가 있는지, UI-11 검사.
+   - 수동 확인 목록: 키보드만으로 새 프로젝트→트랙→포트→재생→저장→종료, 크래시 뒤 복구 시트, SMF·텍스트 가져오기·내보내기, 다른 Mac 파일의 포트 매핑 시트와 장치 복귀, MIDI 서버 재시작 감지·추가 포트 재등록, 팔레트 첫 Esc A13, 메뉴 키 등가물, IME, `keyscore-text` 시간 측정 테스트의 가끔 실패.
+   - 위 결과를 `docs/reports/stage-2-exit.md`에 쓰고 사람 서명을 받는다.
 2. Task 루프: 브랜치 `s2/t<번호>-<slug>` → `docs/reports/s2-t<번호>/plan.md` → 테스트 먼저(뼈대 `todo!()`로 실패 확인) → 구현 → 게이트 전부(커밋 전에) → `report.md` → 새 에이전트로 적대적 리뷰(`general-purpose`, 구현 맥락 없이, 양식 `plan/templates/adversarial-review.md`, 산출물만 남기고 커밋 금지, 기존 `.proptest-regressions` 삭제 금지) → 지적마다 커밋 하나 → 재리뷰(최대 3회) → `git merge --no-ff`.
 3. 자동 게이트: `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`, `cargo deny check`, `scripts/check-deps.sh`, `scripts/check-deps.test.sh`, `scripts/bench-check.test.sh`. `core`·`text`에 외부 의존을 더하면 `scripts/check-deps.sh`의 허용 목록도 고친다.
 4. REQ에 없는 결정은 임의로 정하지 말고 사람에게 묻거나 `docs/decisions/`에 결정 요청을 쓴다. 사람과의 대화는 한국어로 하고, 문서에 `**`를 쓰지 않는다.
