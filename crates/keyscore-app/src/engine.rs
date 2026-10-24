@@ -273,7 +273,10 @@ pub fn add_virtual_port(cx: &mut App) -> Result<String, PortEditError> {
 fn remember_user_port(cx: &mut App, name: &str) {
     let added = name.to_owned();
     AppSettings::update(cx, |s| {
-        s.midi_output.mapped_ports.retain(|m| *m != added);
+        // 보이는 모양으로 비교한다. 결합자만 다른 이름의 표시가 남으면 시작 때 거짓 알림이 난다(리뷰 1 제안 4)
+        s.midi_output
+            .mapped_ports
+            .retain(|m| !keyscore_midi::same_port_name(m, &added));
         s.midi_output.virtual_ports.push(added);
     });
 }
@@ -418,7 +421,9 @@ pub fn rename_virtual_port(cx: &mut App, old: &str, new: &str) -> Result<String,
     cx.global_mut::<Engine>().mapped.retain(|m| m != old);
     AppSettings::update(cx, |s| {
         // 새 이름에 남아 있던 표시(시작 때 만들지 못한 대체 포트)도 지운다(S2-T7d 리뷰 3 제안 4)
-        s.midi_output.mapped_ports.retain(|m| m != old && *m != new);
+        s.midi_output
+            .mapped_ports
+            .retain(|m| m != old && !keyscore_midi::same_port_name(m, &new));
         if is_main {
             s.midi_output.main_name = Some(new.clone());
         } else if let Some(slot) = s.midi_output.virtual_ports.iter_mut().find(|n| *n == old) {
