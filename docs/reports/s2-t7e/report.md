@@ -34,6 +34,7 @@ C. `crates/keyscore-app/src/engine.rs`(S2-T7d 리뷰 3)
 
 ~~~
 cargo test --workspace: 테스트 바이너리 212개 모두 ok, 1846 passed, 0 failed, 2 ignored(기존)
+리뷰 1·2 대응 뒤(리뷰 시험 포함): 215개 모두 ok, 1876 passed, 0 failed, 2 ignored
 cargo test -p keyscore-midi --test smf_report: 15 passed
 cargo test -p keyscore-app --test t7e_autosave: 6 passed
 cargo test -p keyscore-app --test t7e_port_mapping: 4 passed(자식 프로세스)
@@ -71,7 +72,7 @@ cargo test -p keyscore-app --test review_s2_t7b_r4: 5 passed(기대값 하나 �
 
 - [x] fmt
 - [x] clippy -D warnings
-- [x] test(`cargo test --workspace` 1846 passed, 0 failed, 2 ignored)
+- [x] test(`cargo test --workspace` 최종 1876 passed, 0 failed, 2 ignored. 리뷰어가 CoreMIDI 시험을 함께 돌리던 2회차 실행에서는 재생 시간 측정 시험 `pause_position_does_not_drift_with_many_live_edits`가 한 번 실패했고 혼자·경합 없는 3회차에서는 통과했다)
 - [x] deny
 - [x] `scripts/check-deps.sh`, `check-deps.test.sh`(16), `bench-check.test.sh`(8)
 
