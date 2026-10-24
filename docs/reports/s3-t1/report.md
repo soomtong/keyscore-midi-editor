@@ -97,6 +97,8 @@ python3 -I scripts/bench-check.py: pianoroll/scene_10k_notes -1.8%. ksq/read_100
 
 리뷰 시험 `review_s3_t1_r2.rs` 10개 통과.
 
+최종 게이트(리뷰 2 제안 반영 뒤, 2026-10-25): fmt 통과, clippy 경고 0, `cargo deny check` ok, `cargo test --workspace --no-fail-fast` 1918 passed, 0 failed, 2 ignored(지터 시험도 이번에는 통과), release 프레임 시험 중앙값 1.52 ms·최대 1.88 ms.
+
 ## 리뷰어에게
 
 - `scene.rs`의 `build_notes`: `partition_point` 술어는 「시작 + 클립 최대 길이 ≤ 왼쪽 끝」이다. 캐시가 낡으면(새 노트가 더 길어졌는데 `revision`이 같을 때) 긴 노트가 빠질 수 있다. 문서 편집은 모두 `revision`을 올리므로 괜찮다고 보지만, 편집 경로가 아닌 곳에서 프로젝트를 바꾸는 길이 있는지 봐 달라.
