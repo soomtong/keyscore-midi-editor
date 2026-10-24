@@ -274,9 +274,11 @@ fn review_r4_discard_of_claimed_autosave_is_rewritten_by_holder(cx: &mut TestApp
     let after_discard = autosaves(&auto).len();
     advance(cx, AUTOSAVE_DELAY + Duration::from_secs(1));
     let saved = autosaves(&auto);
+    // S2-T7e(리뷰 4 지적 2): [버리기]는 복구하며 잠근 저장본을 지우지 않는다. 이 시험은 그 전의 동작(지운 뒤 A가
+    // 다시 쓴다)을 적었으므로 기대값을 바꿨다. 데이터 손실이 없다는 끝은 같다
     assert_eq!(
-        after_discard, 0,
-        "B의 [버리기]가 잠긴 저장본을 지우지 않았다(동작이 바뀜)"
+        after_discard, 1,
+        "B의 [버리기]가 A가 잠근 저장본을 지웠다(S2-T7e 전의 동작)"
     );
     assert_eq!(saved.len(), 1, "{saved:?}");
     assert_ne!(meta_of(&saved[0])["session"], "dead-k");
