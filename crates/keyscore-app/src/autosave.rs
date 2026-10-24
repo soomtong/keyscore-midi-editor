@@ -580,11 +580,34 @@ fn remove_dead_locks(dir: &Path, own: &str) {
             let _ = fs::remove_file(path);
         }
     }
+    // 첫 쓰기의 rename 전에 끝난 세션은 세대별 임시 파일(`<키>.ksq.tmp-N`, `<키>.json.tmp-N`)만 남긴다. 그 키는
+    // 메타가 없어 복구·버리기 정리에 닿지 않는다. 메타 없는 키의 오래된 임시 파일을 지운다(리뷰 1 제안 1). 살아
+    // 있는 창의 첫 쓰기도 메타가 없지만 임시 파일이 1분을 넘기지 않는다
+    for path in &names {
+        let Some(name) = path.file_name().map(|n| n.to_string_lossy().into_owned()) else {
+            continue;
+        };
+        let Some((key, _)) = name
+            .split_once(".ksq.tmp-")
+            .or_else(|| name.split_once(".json.tmp-"))
+        else {
+            continue;
+        };
+        let old = fs::metadata(path)
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| t.elapsed().ok())
+            .is_some_and(|age| age >= STALE_TEMP_AGE);
+        if old && !dir.join(format!("{key}.json")).exists() {
+            let _ = fs::remove_file(path);
+        }
+    }
 }
 
 fn recover(good: Vec<Recoverable>, host: &Entity<ProjectWindow>, cx: &mut App) {
     let dir = autosave_dir(cx);
     let mut restored = false;
+    let mut taken = 0usize;
     for item in good {
         // 시트가 떠 있는 동안 다른 실행이 가져갔으면 건드리지 않는다. 창을 열기 전에 내용 파일을 잠가, 같은
         // 저장본을 받은 다른 실행이 같은 순간 [복구]해도 한쪽만 연다(리뷰 4 지적 3).
@@ -593,6 +616,7 @@ fn recover(good: Vec<Recoverable>, host: &Entity<ProjectWindow>, cx: &mut App) {
             continue;
         }
         let Some(claim) = claim(&content) else {
+            taken += 1;
             continue;
         };
         // 같은 파일을 이미 연 창이 있으면 경로 없이 연다(같은 파일 두 창 금지).
@@ -624,6 +648,13 @@ fn recover(good: Vec<Recoverable>, host: &Entity<ProjectWindow>, cx: &mut App) {
         remove_stale_temps(item.path.as_deref(), item.pid);
     }
     remove_dead_locks(&dir, &cx.global::<Session>().id.clone());
+    if taken > 0 {
+        // 시트에 이름이 떴는데 창이 열리지 않는 이유를 알린다(리뷰 1 제안 6). 그 실행이 창을 열었으니 손실은 없다
+        crate::window::say_everywhere(
+            cx,
+            &format!("다른 KeyScore 실행이 먼저 복구한 프로젝트 {taken}개는 여기서 열지 않았다"),
+        );
+    }
     if restored && host.read(cx).document().read(cx).is_pristine() {
         crate::files::close_now_sync(host, cx);
     }

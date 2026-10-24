@@ -319,3 +319,34 @@ fn startup_without_recoverables_removes_old_dead_locks(cx: &mut TestAppContext) 
     // 이 실행의 잠금 파일은 그대로다
     assert_eq!(locks(&auto).len(), 2, "{left:?}");
 }
+
+/// 리뷰 1 제안 1: 첫 쓰기의 rename 전에 끝난 세션은 세대별 임시 파일만 남긴다. 시작 정리가 그 세션의 잠금 파일과
+/// 함께 지운다. 메타가 있는 키의 임시 파일과 막 생긴 임시 파일은 둔다.
+#[gpui_kit::test]
+fn generation_temps_of_session_dead_before_first_rename_are_removed(cx: &mut TestAppContext) {
+    start(cx, "temps-before-rename");
+    let auto = autosave_dir(cx);
+    std::fs::create_dir_all(&auto).unwrap();
+    for n in ["gone.ksq.tmp-1", "gone.json.tmp-1", "fresh.ksq.tmp-3"] {
+        std::fs::write(auto.join(n), "x").unwrap();
+    }
+    for n in ["gone.ksq.tmp-1", "gone.json.tmp-1"] {
+        age(&auto.join(n), Duration::from_mins(10));
+    }
+    let lock = old_dead_lock(&auto, "dead-gone");
+    // 메타가 있는 키(살아 있는 세션의 저장본)의 오래된 임시 파일은 둔다
+    plant(&auto, "kept", &edited("Kept"), "dead-kept-but-has-meta");
+    std::fs::write(auto.join("kept.ksq.tmp-7"), "x").unwrap();
+    age(&auto.join("kept.ksq.tmp-7"), Duration::from_mins(10));
+    launch_with_recovery(cx);
+    if cx.has_pending_prompt() {
+        answer(cx, "버리기");
+    }
+    let left = names(&auto);
+    assert!(!lock.exists(), "{left:?}");
+    assert!(
+        !left.iter().any(|n| n.starts_with("gone.")),
+        "끝난 세션의 세대별 임시 파일이 남았다: {left:?}"
+    );
+    assert!(left.contains(&"fresh.ksq.tmp-3".to_owned()), "{left:?}");
+}
