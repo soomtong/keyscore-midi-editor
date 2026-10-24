@@ -22,7 +22,10 @@
 ~~~
 cargo test -p keyscore-app --test pianoroll: 12 passed
 cargo bench -p keyscore-app --bench pianoroll: pianoroll/scene_10k_notes 평균 29.7 µs(기준값 29654.427 ns)
-cargo test --workspace --no-fail-fast: (아래 「자동 게이트」)
+cargo test --workspace --no-fail-fast: 1887 passed, 1 failed, 2 ignored(1시간판 측정용). 실패 1은 기존 지터 시험
+  review_s2_t5a_r2::pause_position_does_not_drift_with_many_live_edits(S2 출구 실행에서도 같은 실패, 단독 재실행 13 passed)
+python3 -I scripts/bench-check.py: pianoroll/scene_10k_notes -1.8%. ksq/read_100k_notes가 +10.3%로 한 번 실패했으나
+  core는 손대지 않았고 단독 재실행은 14.53 ms(기준 15.50 ms, -6%)라 전체 시험 직후의 기계 소음으로 본다
 ~~~
 
 | 계획의 테스트 # | 실제 테스트 이름 | 상태 |
@@ -47,10 +50,10 @@ cargo test --workspace --no-fail-fast: (아래 「자동 게이트」)
 
 - [x] fmt
 - [x] clippy -D warnings(워크스페이스, 모든 타깃)
-- [ ] test: (전체 실행 결과를 적는다)
+- [x] test: 1887 passed, 1 failed(기존 지터 시험, 단독 통과), 2 ignored
 - [x] deny: advisories·bans·licenses·sources ok
 - [x] `scripts/check-deps.sh`: ok
-- [ ] 단계별 추가 게이트: criterion 기준값 커밋(`pianoroll/scene_10k_notes`), `scripts/bench-check.py`(아래)
+- [x] 단계별 추가 게이트: criterion 기준값 커밋(`pianoroll/scene_10k_notes` 29654 ns), `scripts/bench-check.py`는 새 벤치 -1.8%(core `ksq/read`의 +10.3%는 단독 재실행 -6%, 소음). UI 시험 7(커서 이동 키가 뷰포트를 따라 스크롤) 통과
 
 ## 알려진 한계
 
