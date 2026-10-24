@@ -89,7 +89,7 @@ cargo test -p keyscore-app --test review_s2_t7b_r4: 5 passed(기대값 하나 �
 ## 리뷰어에게
 
 - `changed_by_pairing`의 전제(틱 순 시작 ↔ 틱 순 끝 짝)가 `split_track`의 FIFO와 같다는 논증: k번째 Off(틱 순)는 그때까지 켜진 가장 오래된 On을 끈다. 모든 노트의 시작 < 끝이고 같은 틱에서는 Off가 On보다 앞서므로 k번째 Off 전에 적어도 k개의 On이 켜져 있어 짝 없는 Off가 없다. 따라서 k번째 Off는 k번째 On을 끈다. 이 전제가 깨지는 입력(길이 0 노트)은 모델이 막는다.
-- `remove_dead_locks`가 이제 시작 때마다 돈다. 살아 있는 세션 판정이 잠금 파일을 잠깐 잠그는 것은 전과 같고, `init`의 재시도가 그 경우를 받는다.
+- `remove_dead_locks`가 이제 시작 때마다 돈다. 살아 있는 세션 판정이 잠금 파일을 잠깐 잠그는 것은 전과 같다(1분이 안 된 잠금 파일은 잠그지 않으므로 막 뜬 실행의 `init`과 겹치지 않는다).
 - `recover`에서 잠금을 창보다 먼저 잡으므로 `open_project_window`가 실패하면 `claim`이 함수 끝에서 놓인다(그 저장본은 다음 실행의 복구 대상으로 남는다). 의도한 동작이다.
 - C3 시험은 `kMIDIPropertyUniqueID`를 가상 목적지에 직접 정한다. CoreMIDI가 거부하면 시험이 그 자리에서 실패하게 두었다(조용히 지나가지 않는다).
 
@@ -105,3 +105,14 @@ cargo test -p keyscore-app --test review_s2_t7b_r4: 5 passed(기대값 하나 �
 | 4: 표시 지우기가 정확한 이름 비교 | 받아들임. `remember_user_port`·`rename_virtual_port`가 `same_port_name`으로 지운다 |
 | 5: `virtual_ports`에 같은 이름 둘 | 범위 밖. 「알려진 한계」와 단계 파일 이월 줄 |
 | 6: 잠그지 못해 건너뛴 저장본 알림 없음 | 받아들임. `recover`가 건너뛴 수를 모든 창에 알린다 |
+
+## 리뷰 2 대응
+
+판정 「병합 가능」(`review-2.md`, 리뷰 1 대응의 좁은 확인), 제안 2건.
+
+| 제안 | 대응 |
+| --- | --- |
+| 1: 다른 실행이 먼저 복구해 다시 쓴 저장본(`still_dead` 거짓)도 알림 없이 건너뛴다 | 받아들임. 그 경로도 건너뛴 수에 넣는다. 시험 `recover_reports_autosaves_already_taken_by_another_run`(부록 A) |
+| 2: 「리뷰어에게」의 `init` 재시도 설명이 「알려진 한계」와 어긋남 | 고쳤다 |
+
+이월(리뷰 2): 살아 있는 창의 첫 쓰기가 1분 넘게 멈추면 다른 실행의 시작 정리가 그 임시 파일을 지워 쓰기가 실패하고 30 s 뒤 다시 쓴다. 손실 없음. `STALE_TEMP_AGE`를 쓰는 다른 정리와 같은 성질이라 따로 처리하지 않는다.
