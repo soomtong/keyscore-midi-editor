@@ -1,4 +1,4 @@
-# HANDOFF: KeyScore S2 진행 중 — S2-T1~T7e 병합, S2 출구 다음
+# HANDOFF: KeyScore S2 출구 진행 중 — 보고서 작성, 사람 서명 대기
 
 ## 목표
 
@@ -6,11 +6,12 @@
 
 ## 현재 브랜치
 
-`main` — S0 완료·서명(2026-10-15), S1-T1~T7과 계이름 텍스트 주석 `//` 변경 병합(테스트 818개 통과). S1 출구 서명(YoungTaek, 2026-10-16). S2-T1~T4·S2-T5a~T5d·S2-T6a~T6f 병합(테스트 1568개). S2-T6은 T6a(설정 창·키맵 편집기)·T6b(`?` 오버레이)·T6c(입력·메트로놈·AI 탭)·T6d(가상 포트)·T6e(포트별 클럭·테스트 노트·포트 상태)·T6f(이월 줄)로 나눴다. S2-T7은 T7a(저장·열기·닫기·최근 파일, 병합 72f2845, 테스트 1645 + 리뷰 r3 18)·T7b(자동 저장본·복구, 병합 4be705a, 테스트 1728 + 리뷰 r4 5)·T7c(가져오기·내보내기 메뉴, 병합 후 테스트 1795)·T7d(OUT-8 대체 매핑 제안, 병합 87deb10, 테스트 1824 + 리뷰 r3 3)·T7e(S2-T7b 리뷰 4·S2-T7c 리뷰 2·S2-T7d 리뷰 3 이월, 병합 96aa5aa, 테스트 1876 + 리뷰 r1 20·r2 8)로 나눴다(결정 `2026-10-21-s2-t7-save-policy-and-split.md`, `2026-10-22-s2-t7c-import-export.md`, `2026-10-22-out8-port-mapping-sheet.md`). 다음은 S2 출구.
+`main` — S0 완료·서명(2026-10-15), S1-T1~T7과 계이름 텍스트 주석 `//` 변경 병합(테스트 818개 통과). S1 출구 서명(YoungTaek, 2026-10-16). S2-T1~T4·S2-T5a~T5d·S2-T6a~T6f 병합(테스트 1568개). S2-T6은 T6a(설정 창·키맵 편집기)·T6b(`?` 오버레이)·T6c(입력·메트로놈·AI 탭)·T6d(가상 포트)·T6e(포트별 클럭·테스트 노트·포트 상태)·T6f(이월 줄)로 나눴다. S2-T7은 T7a(저장·열기·닫기·최근 파일, 병합 72f2845, 테스트 1645 + 리뷰 r3 18)·T7b(자동 저장본·복구, 병합 4be705a, 테스트 1728 + 리뷰 r4 5)·T7c(가져오기·내보내기 메뉴, 병합 후 테스트 1795)·T7d(OUT-8 대체 매핑 제안, 병합 87deb10, 테스트 1824 + 리뷰 r3 3)·T7e(S2-T7b 리뷰 4·S2-T7c 리뷰 2·S2-T7d 리뷰 3 이월, 병합 96aa5aa, 테스트 1876 + 리뷰 r1 20·r2 8)로 나눴다(결정 `2026-10-21-s2-t7-save-policy-and-split.md`, `2026-10-22-s2-t7c-import-export.md`, `2026-10-22-out8-port-mapping-sheet.md`). S2 출구 보고서 `docs/reports/stage-2-exit.md`를 2026-10-24에 썼다(자동 게이트 통과, UI-11 시험 확인, 이월 31줄 대조). 사람의 수동 확인·서명 대기.
 
 ## 완료된 작업
 
 - [x] 저장소 구조: 계획은 `plan/`, REQ 원문은 `docs/REQ.md`
+- [x] S2 출구 보고서 `docs/reports/stage-2-exit.md`(2026-10-24). 빠른 게이트·UI-11 통과. 이월 31줄 가운데 남은 것은 FAT32 inode 재사용(S8-T3), 가져오기 진행률(S6-T3), [복구]·[버리기] 경합 틈·`virtual_ports` 같은 이름 둘(S8-T3)로 단계 파일에 옮겼다. 수동 확인 항목은 보고서 「사람이 확인할 항목」
 - [x] S2-T7e 세 리뷰의 이월 줄 정리(리뷰 2회, 둘 다 「병합 가능」, 병합 96aa5aa). `autosave.rs`: `remove_dead_locks`가 끝난 세션의 내용 없는 메타와 메타 없는 키의 1분 넘은 세대별 임시 파일을 지우고 시작 때(`offer_recovery`, 복구 대상 없어도) 돈다, `recover`는 `claim`(열기+잠금 한 번)을 창보다 먼저 잡고 실패하면 건너뛰며 건너뛴 수(`still_dead` 거짓 포함)를 모든 창에 알림, `discard`는 `claimed`면 건너뜀(리뷰 4 시험 기대값 1로 변경), `init`은 `try_lock` 3회(닿는 경로는 지금 없음). `smf/report.rs`: `overlapping_notes`는 (SMF 트랙, 채널, 음높이)마다 틱 순 시작↔틱 순 끝 짝에 없는 노트 수(Type 0은 같은 채널 트랙 섞임), `dropped_same_tick`(같은 재배율 틱의 다른 값 템포·박자표), `yields_song_track`(곡 트랙이 안 되는 Type 1 트랙의 이름은 손실), `Rescale::for_ppq`. `import_text_into`: 같은 이름 트랙 여럿이면 조건에 맞는 첫 트랙. `engine.rs`: `visual_match`(보이는 모양 같은 목적지 중 고유 ID 최소, `open_port`·`release_mapped`), `follow_device_in_settings`(메트로놈·클럭 설정이 대체 포트면 장치 이름으로, `release_mapped`·`install`), `remember_user_port`·`rename_virtual_port`가 새 이름의 `mapped_ports` 표시를 `same_port_name`으로 지움. 이월(S2 출구 전 판단): [복구]·[버리기] 다른 실행 경합의 좁은 틈, `rename_virtual_port`로 설정 `virtual_ports`에 남은 이름으로 바꾸면 같은 이름 둘
 - [x] 스파이크 SP-1~6 (`docs/spikes/`): S5-T2 분기 B, S3-T1 분기 A(`paint_layer` 조건), S1-T1 분기 B(`coremidi-sys`), S8-T1 안내만, SP-5 문법 결정 요청, SP-6 상한 2 s 유지
 - [x] S0-T1 워크스페이스·CI (`scripts/check-deps.sh` + `.test.sh`, `deny.toml`, `.github/workflows/ci.yml`)
@@ -121,11 +122,9 @@ REQ 문구: 사람이 에이전트에게 수정을 허락한 범위(결정 문�
 
 ## 다음 에이전트에게
 
-1. S2 출구를 진행한다. 먼저 단계 파일 S2 절의 남은 이월 줄을 훑어 출구 전에 처리할 것(T7a 이월: FAT32 inode 재사용·`.bak`·최근 목록의 파일 시스템 호출, S1-T6 이월: 가사 붙이기 비용의 백그라운드 처리, S2-T7e 이월: [복구]·[버리기] 경합 틈·`virtual_ports` 같은 이름 둘)을 사람에게 묻거나 S3 이후로 넘긴다고 출구 보고서에 적는다.
-   - 자동 게이트: 모든 Action에 UI가 있는지, UI-11 검사.
-   - 수동 확인 목록: 키보드만으로 새 프로젝트→트랙→포트→재생→저장→종료, 크래시 뒤 복구 시트, SMF·텍스트 가져오기·내보내기, 다른 Mac 파일의 포트 매핑 시트와 장치 복귀, MIDI 서버 재시작 감지·추가 포트 재등록, 팔레트 첫 Esc A13, 메뉴 키 등가물, IME, `keyscore-text` 시간 측정 테스트의 가끔 실패.
-   - 위 결과를 `docs/reports/stage-2-exit.md`에 쓰고 사람 서명을 받는다.
-2. Task 루프: 브랜치 `s2/t<번호>-<slug>` → `docs/reports/s2-t<번호>/plan.md` → 테스트 먼저(뼈대 `todo!()`로 실패 확인) → 구현 → 게이트 전부(커밋 전에) → `report.md` → 새 에이전트로 적대적 리뷰(`general-purpose`, 구현 맥락 없이, 양식 `plan/templates/adversarial-review.md`, 산출물만 남기고 커밋 금지, 기존 `.proptest-regressions` 삭제 금지) → 지적마다 커밋 하나 → 재리뷰(최대 3회) → `git merge --no-ff`.
-3. 자동 게이트: `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`, `cargo deny check`, `scripts/check-deps.sh`, `scripts/check-deps.test.sh`, `scripts/bench-check.test.sh`. `core`·`text`에 외부 의존을 더하면 `scripts/check-deps.sh`의 허용 목록도 고친다.
-4. REQ에 없는 결정은 임의로 정하지 말고 사람에게 묻거나 `docs/decisions/`에 결정 요청을 쓴다. 사람과의 대화는 한국어로 하고, 문서에 `**`를 쓰지 않는다.
-5. 긴 MIDI 측정 중에는 다른 루프백 테스트를 돌리지 않는다(수치가 흔들린다). 그동안 다른 crate 작업은 `CARGO_TARGET_DIR=target/alt`로 빌드 잠금을 피한다.
+1. S2 출구: `docs/reports/stage-2-exit.md`의 「사람이 확인할 항목」을 사람이 확인하고 서명해야 S3을 시작한다. 사람이 수동 확인에서 결함을 찾으면 S2 Task 브랜치(`s2/t8-<slug>` 등)로 고친 뒤 보고서를 갱신한다. 서명 뒤 `plan/stages/12-S2-app-shell.md` 출구 게이트의 수동 항목을 `[x]`로 바꾼다.
+2. S3 시작 전: `docs/decisions/2026-10-17-keymap-conflicts.md` A1–A12·B24·B25 결정을 사람에게 받는다(S3 피아노롤 키 전). `plan/stages/13-S3-step-and-pianoroll.md`의 이월 줄을 읽고 S3-T1부터 Task 루프.
+3. Task 루프: 브랜치 `s2/t<번호>-<slug>` → `docs/reports/s2-t<번호>/plan.md` → 테스트 먼저(뼈대 `todo!()`로 실패 확인) → 구현 → 게이트 전부(커밋 전에) → `report.md` → 새 에이전트로 적대적 리뷰(`general-purpose`, 구현 맥락 없이, 양식 `plan/templates/adversarial-review.md`, 산출물만 남기고 커밋 금지, 기존 `.proptest-regressions` 삭제 금지) → 지적마다 커밋 하나 → 재리뷰(최대 3회) → `git merge --no-ff`.
+4. 자동 게이트: `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`, `cargo deny check`, `scripts/check-deps.sh`, `scripts/check-deps.test.sh`, `scripts/bench-check.test.sh`. `core`·`text`에 외부 의존을 더하면 `scripts/check-deps.sh`의 허용 목록도 고친다.
+5. REQ에 없는 결정은 임의로 정하지 말고 사람에게 묻거나 `docs/decisions/`에 결정 요청을 쓴다. 사람과의 대화는 한국어로 하고, 문서에 `**`를 쓰지 않는다.
+6. 긴 MIDI 측정 중에는 다른 루프백 테스트를 돌리지 않는다(수치가 흔들린다). 그동안 다른 crate 작업은 `CARGO_TARGET_DIR=target/alt`로 빌드 잠금을 피한다.
