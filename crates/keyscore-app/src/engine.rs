@@ -262,10 +262,20 @@ pub fn add_virtual_port(cx: &mut App) -> Result<String, PortEditError> {
     let port = engine.client.create_virtual_output(&name)?;
     let name = port.name();
     engine.extras.push(Arc::new(port));
-    let added = name.clone();
-    AppSettings::update(cx, |s| s.midi_output.virtual_ports.push(added));
+    remember_user_port(cx, &name);
     ports_edited(cx, &name, true);
     Ok(name)
+}
+
+/// 만든 추가 가상 포트를 설정에 적는다. 그 이름에 남아 있던 대체 매핑 표시는 지운다. 시작 때 만들지 못한 대체
+/// 포트 이름이 설정에 남은 채 사용자가 그 이름으로 포트를 만들면 다음 시작에 대체 포트로 표시되기 때문이다
+/// (S2-T7d 리뷰 3 제안 4). 대체 매핑으로 만드는 쪽은 이 뒤에 표시를 더한다.
+fn remember_user_port(cx: &mut App, name: &str) {
+    let added = name.to_owned();
+    AppSettings::update(cx, |s| {
+        s.midi_output.mapped_ports.retain(|m| *m != added);
+        s.midi_output.virtual_ports.push(added);
+    });
 }
 
 /// 주어진 이름으로 추가 가상 포트를 만들고 설정에 저장한다(OUT-8 대체 매핑). 검사는 [`add_virtual_port`]와
@@ -285,8 +295,7 @@ pub fn add_named_virtual_port(cx: &mut App, name: &str) -> Result<String, PortEd
     let port = engine.client.create_virtual_output(&name)?;
     let name = port.name();
     engine.extras.push(Arc::new(port));
-    let added = name.clone();
-    AppSettings::update(cx, |s| s.midi_output.virtual_ports.push(added));
+    remember_user_port(cx, &name);
     ports_edited(cx, &name, true);
     Ok(name)
 }
@@ -321,6 +330,12 @@ pub(crate) fn release_mapped(cx: &mut App, destination: &str) {
     else {
         return;
     };
+    // 보이는 모양이 같은 장치가 여럿이면 고유 ID가 가장 작은 것으로 되돌린다. 재생 준비(`open_port`)와 정확히
+    // 같은 이름의 재연결(`best_match`)이 같은 장치를 고른다(S2-T7d 리뷰 3 제안 2). 나타남 이벤트의 이름은 그
+    // 가운데 하나다
+    let destination = visual_match(&destinations(), &mapped)
+        .map_or_else(|| destination.to_owned(), |d| d.name().to_owned());
+    let destination = destination.as_str();
     // 장치가 없을 때 재생을 준비하며 남긴 「없음」 기억을 지운다. 지우지 않으면 재생 중 다시 준비가 돌아온
     // 장치를 찾지 않는다
     cx.global_mut::<Engine>().port_returned(destination);
@@ -353,6 +368,9 @@ pub(crate) fn release_mapped(cx: &mut App, destination: &str) {
                 }
             });
         }
+        // 메트로놈·클럭 포트(설정)도 트랙처럼 장치 이름을 따른다(S2-T7d 리뷰 3 제안 1). 지우기가 재생 창을 다시
+        // 준비하므로 여기서 따로 반영하지 않는다
+        follow_device_in_settings(cx, &mapped, destination);
     }
     match remove_virtual_port(cx, &mapped) {
         Ok(()) => crate::window::say_everywhere(
@@ -399,7 +417,8 @@ pub fn rename_virtual_port(cx: &mut App, old: &str, new: &str) -> Result<String,
     // 이름을 바꾼 포트는 사용자의 포트다. 대체 매핑 표시를 지운다(같은 이름의 장치를 기다리지 않는다)
     cx.global_mut::<Engine>().mapped.retain(|m| m != old);
     AppSettings::update(cx, |s| {
-        s.midi_output.mapped_ports.retain(|m| m != old);
+        // 새 이름에 남아 있던 표시(시작 때 만들지 못한 대체 포트)도 지운다(S2-T7d 리뷰 3 제안 4)
+        s.midi_output.mapped_ports.retain(|m| m != old && *m != new);
         if is_main {
             s.midi_output.main_name = Some(new.clone());
         } else if let Some(slot) = s.midi_output.virtual_ports.iter_mut().find(|n| *n == old) {
@@ -685,6 +704,10 @@ pub fn install(cx: &mut App, options: &EngineOptions) -> Result<(), MidiError> {
             let message = format!("장치 「{name}」이 있어 대체로 만든 가상 포트를 지웠다");
             eprintln!("{message}");
             crate::window::say_everywhere(cx, &message);
+            // 메트로놈·클럭 설정이 그 포트를 가리키면 장치 이름으로(S2-T7d 리뷰 3 제안 1, `release_mapped`와 같다)
+            if let Some(device) = visual_match(&present, name).map(|d| d.name().to_owned()) {
+                follow_device_in_settings(cx, name, &device);
+            }
         }
     }
     let mut main_name = options.port_name.clone();
@@ -1205,11 +1228,8 @@ impl Engine {
             // 2026-10-22-out8-port-mapping-sheet 3 A, 리뷰 1 지적 1)
             // 장치 이름은 보이는 모양으로 같으면 된다(시트가 정규화한 이름, 리뷰 2 지적 2)
             if self.mapped.iter().any(|m| m == name) {
-                let device = available
-                    .get_or_insert_with(destinations)
-                    .iter()
-                    .map(|d| d.name().to_owned())
-                    .find(|d| keyscore_midi::same_port_name(d, name));
+                let device = visual_match(available.get_or_insert_with(destinations), name)
+                    .map(|d| d.name().to_owned());
                 if let Some(device) = device
                     && let Ok(port) = self.open_named(&device, live, available)
                 {
@@ -1267,6 +1287,34 @@ fn best_match<'a>(list: &'a [PortInfo], name: &str) -> Option<&'a PortInfo> {
     list.iter()
         .filter(|p| p.name() == name)
         .min_by_key(|p| p.unique_id())
+}
+
+/// 그 이름과 보이는 모양이 같은(결정 2026-10-15-port-name-visual-duplicates) 목적지 가운데 고유 ID가 가장 작은
+/// 것. 정확히 같은 이름의 [`best_match`]와 같은 기준이라, 대체 매핑 포트가 비킬 장치(`open_port`)와 해제 때
+/// 트랙을 되돌릴 장치(`release_mapped`)가 같다(S2-T7d 리뷰 3 제안 2).
+fn visual_match<'a>(list: &'a [PortInfo], name: &str) -> Option<&'a PortInfo> {
+    list.iter()
+        .filter(|p| keyscore_midi::same_port_name(p.name(), name))
+        .min_by_key(|p| p.unique_id())
+}
+
+/// 메트로놈 포트·클럭 포트 설정이 대체 매핑 포트 `mapped`를 가리키면 돌아온 장치 `device`로 고친다
+/// (`rename_virtual_port`의 설정 처리와 같다, S2-T7d 리뷰 3 제안 1). 이름이 같으면 할 일이 없다.
+fn follow_device_in_settings(cx: &mut App, mapped: &str, device: &str) {
+    if mapped == device || !cx.has_global::<AppSettings>() {
+        return;
+    }
+    let was = OutputPort::Named(mapped.to_owned());
+    let now = OutputPort::Named(device.to_owned());
+    AppSettings::update(cx, |s| {
+        if s.metronome.port == was {
+            s.metronome.port = now.clone();
+        }
+        if s.midi_output.clock.contains(&was) {
+            s.midi_output.clock.retain(|p| *p != was && *p != now);
+            s.midi_output.clock.push(now);
+        }
+    });
 }
 
 /// (목적지, 채널) 한 묶음의 실효 음색을 모으는 칸.
