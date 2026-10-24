@@ -350,3 +350,35 @@ fn generation_temps_of_session_dead_before_first_rename_are_removed(cx: &mut Tes
     );
     assert!(left.contains(&"fresh.ksq.tmp-3".to_owned()), "{left:?}");
 }
+
+fn messages(cx: &mut TestAppContext, view: &Entity<ProjectWindow>) -> Vec<String> {
+    cx.read(|cx| {
+        view.read(cx)
+            .messages()
+            .iter()
+            .map(ToString::to_string)
+            .collect()
+    })
+}
+
+/// 리뷰 2 제안 1: 두 실행이 같은 시트를 받고 A가 먼저 [복구]해 이 세션 것으로 다시 썼다. B의 [복구]는 건너뛰면서
+/// 시트에 이름이 떴던 프로젝트가 열리지 않은 이유를 알린다.
+#[gpui_kit::test]
+fn recover_reports_autosaves_already_taken_by_another_run(cx: &mut TestAppContext) {
+    let dir = start(cx, "notify-taken");
+    let auto = autosave_dir(cx);
+    plant_dead(&auto, "k", &edited("K"));
+    launch_with_recovery(cx);
+    let mut b = cx.new_app();
+    b.update(|cx| init(cx, dir.join("settings.json")));
+    launch_with_recovery(&mut b);
+    answer(cx, "복구");
+    answer(&mut b, "복구");
+    let b_windows = windows(&mut b);
+    assert_eq!(b_windows.len(), 1, "B가 이미 복구된 저장본으로 창을 열었다");
+    let said = messages(&mut b, &b_windows[0]);
+    assert!(
+        said.iter().any(|m| m.contains("열지 않았다")),
+        "이미 다른 실행이 복구한 저장본을 건너뛰고 알리지 않았다: {said:?}"
+    );
+}

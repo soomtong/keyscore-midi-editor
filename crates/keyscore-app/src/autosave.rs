@@ -612,7 +612,10 @@ fn recover(good: Vec<Recoverable>, host: &Entity<ProjectWindow>, cx: &mut App) {
         // 시트가 떠 있는 동안 다른 실행이 가져갔으면 건드리지 않는다. 창을 열기 전에 내용 파일을 잠가, 같은
         // 저장본을 받은 다른 실행이 같은 순간 [복구]해도 한쪽만 연다(리뷰 4 지적 3).
         let content = dir.join(format!("{}.ksq", item.key));
+        // 다른 실행이 이미 다시 썼거나(세션이 바뀜) 잠근 저장본은 그 실행의 것이다. 시트에 이름이 떴던 프로젝트가
+        // 열리지 않는 이유를 아래에서 알린다(리뷰 2 제안 1)
         if !still_dead(&dir, &item) {
+            taken += 1;
             continue;
         }
         let Some(claim) = claim(&content) else {
