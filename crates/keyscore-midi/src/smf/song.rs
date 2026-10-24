@@ -224,7 +224,7 @@ impl Song {
     ///
     /// 재배율한 곡이 [`MAX_SONG_TICKS`]보다 길면 [`SmfError::TooLong`].
     pub fn from_smf(file: &SmfFile) -> Result<Song, SmfError> {
-        let scale = Rescale(u128::from(file.ppq().max(1)));
+        let scale = Rescale::for_ppq(file.ppq());
         // 끝 틱은 트랙의 모든 이벤트 이상이다. 재배율한 끝이 상한 안이면 모든 틱이 상한 안이다.
         if let Some(tick) = file
             .tracks()
@@ -505,10 +505,15 @@ impl Song {
 
 /// 원본 PPQ → 960. 반올림한 정수 산술(SEQ-6).
 #[derive(Clone, Copy)]
-struct Rescale(u128);
+pub(super) struct Rescale(u128);
 
 impl Rescale {
-    fn tick(self, t: u64) -> u64 {
+    /// 파일의 PPQ에서 960으로 재배율한다(보고가 같은 재배율로 같은 틱을 판정한다).
+    pub(super) fn for_ppq(ppq: u16) -> Rescale {
+        Rescale(u128::from(ppq.max(1)))
+    }
+
+    pub(super) fn tick(self, t: u64) -> u64 {
         let scaled = (u128::from(t) * 960 + self.0 / 2) / self.0;
         u64::try_from(scaled).unwrap_or(u64::MAX)
     }
