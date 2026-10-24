@@ -649,6 +649,50 @@ fn element_paints_every_visible_note_once(cx: &mut TestAppContext) {
     assert_eq!(painted, expected);
 }
 
+// ---------- 11b. 노트 10,000개 프레임 시간(단계 게이트의 paint 측정) ----------
+
+/// 헤드리스 창에서 노트 10,000개가 모두 보이는 배율로 프레임(레이아웃·prepaint·paint)을 그린다. release에서만
+/// 16.7 ms 상한을 단언하고 debug에서는 수치만 찍는다(최적화 없는 빌드는 몇 배 느리다). GPU 쪽 비용은 SP-2가
+/// 쟀다(리뷰 1 지적 3).
+#[gpui_kit::test]
+fn frame_with_10k_notes_fits_60fps_budget_in_release(cx: &mut TestAppContext) {
+    start(cx, "frame-10k");
+    let mut track = Track::new("T", Channel::new(1).unwrap(), TrackColor::new(0).unwrap());
+    let span = 32 * BAR;
+    let mut notes = Vec::new();
+    let mut s: u64 = 0x9E37_79B9_7F4A_7C15;
+    for i in 0..10_000u64 {
+        s ^= s << 13;
+        s ^= s >> 7;
+        s ^= s << 17;
+        let start = (i * span / 10_000) / 240 * 240;
+        notes.push(note(start, 240 * (1 + (s % 4) as u32), 24 + (s % 72) as u8));
+    }
+    track.insert_clip(clip(0, span + BAR, &notes)).unwrap();
+    let mut project = Project::new();
+    project.push_track(track).unwrap();
+    let (handle, view) = open(cx, project);
+    press(cx, handle, "enter");
+    // 하한 배율로 전부 보이게
+    cx.read(|cx| view.read(cx).piano_roll().zoom(1e-6));
+    render(cx, handle);
+    let painted = cx.read(|cx| view.read(cx).piano_roll().painted_notes());
+    assert!(painted >= 9_000, "거의 모든 노트가 보인다: {painted}");
+    let mut samples = Vec::new();
+    for _ in 0..20 {
+        let t0 = std::time::Instant::now();
+        render(cx, handle);
+        samples.push(t0.elapsed().as_secs_f64() * 1e3);
+    }
+    samples.sort_by(f64::total_cmp);
+    let median = samples[samples.len() / 2];
+    let max = samples[samples.len() - 1];
+    println!("frame_10k_notes: median {median:.2} ms, max {max:.2} ms, painted {painted}");
+    if !cfg!(debug_assertions) {
+        assert!(median < 16.7, "release 프레임 중앙값 {median:.2} ms");
+    }
+}
+
 // ---------- 12. 클릭 자리 → 칸 ----------
 
 #[test]
