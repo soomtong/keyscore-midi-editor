@@ -176,6 +176,9 @@ impl Selection {
 
 /// 클립마다 가장 긴 노트 길이. 보이는 노트의 왼쪽 경계를 이진 탐색할 때 쓴다. 문서 `revision`과 트랙이
 /// 같으면 다시 세지 않는다.
+///
+/// 계약: 문서는 `apply`·`undo`·`redo`로만 바뀌고 그때마다 `revision`이 오른다. `revision`을 올리지 않고
+/// 프로젝트를 바꾸는 API를 `ProjectDocument`에 더하면 이 캐시가 낡아 긴 노트가 화면에서 빠진다(리뷰 1 제안 5).
 #[derive(Debug, Default)]
 pub struct MaxLenCache {
     key: Option<(u64, TrackId)>,
@@ -439,12 +442,16 @@ impl PianoRollState {
         self.inner.borrow_mut().ensure_cursor_visible();
     }
 
-    /// 커서 칸의 왼쪽 x를 유지하며 배율을 `factor`배 한다(상한·하한 안).
+    /// 커서 칸의 왼쪽 x를 유지하며 배율을 `factor`배 한다(상한·하한 안). 크기를 모르면 배율만 바꾼다.
     pub fn zoom(&self, factor: f64) {
         let mut inner = self.inner.borrow_mut();
         let old = inner.px_per_tick;
         let new = (old * factor).clamp(MIN_PX_PER_TICK, MAX_PX_PER_TICK);
         if (new - old).abs() < f64::EPSILON {
+            return;
+        }
+        if inner.width <= 0.0 || inner.height <= 0.0 {
+            inner.px_per_tick = new;
             return;
         }
         let tick = tick_f(inner.cursor.tick.get());

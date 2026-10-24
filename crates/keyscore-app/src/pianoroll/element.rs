@@ -186,9 +186,8 @@ impl Element for PianoRollElement {
             let inner = state.inner().borrow();
             let scene = &inner.scene;
             window.with_content_mask(Some(ContentMask { bounds }), |window| {
-                window.paint_layer(bounds, |window| self.paint_scene(scene, bounds, window));
-            });
-            scene.notes.len()
+                window.paint_layer(bounds, |window| self.paint_scene(scene, bounds, window))
+            })
         };
         state.inner().borrow_mut().painted = painted;
         if self.animating {
@@ -199,10 +198,17 @@ impl Element for PianoRollElement {
 }
 
 impl PianoRollElement {
-    /// 레이어 안에서 장면을 그린다. 그리는 순서가 곧 겹침 순서다(같은 레이어 안은 삽입 순).
-    fn paint_scene(&self, scene: &scene::Scene, bounds: Bounds<Pixels>, window: &mut Window) {
+    /// 레이어 안에서 장면을 그린다. 그리는 순서가 곧 겹침 순서다(같은 레이어 안은 삽입 순). 실제로 그린
+    /// 노트 수를 돌려준다(리뷰 1 제안 1: 장면의 노트 수와 따로 센다).
+    fn paint_scene(
+        &self,
+        scene: &scene::Scene,
+        bounds: Bounds<Pixels>,
+        window: &mut Window,
+    ) -> usize {
         let palette = self.palette;
         let origin = bounds.origin;
+        let mut painted = 0;
         {
             {
                 {
@@ -250,6 +256,7 @@ impl PianoRollElement {
                             border,
                             BorderStyle::Solid,
                         ));
+                        painted += 1;
                     }
                     if let Some(cursor) = scene.cursor {
                         window.paint_quad(quad(
@@ -273,6 +280,7 @@ impl PianoRollElement {
                 }
             }
         }
+        painted
     }
 
     /// 클릭: 그 칸으로 커서. 휠: 스크롤(Shift+휠은 가로).

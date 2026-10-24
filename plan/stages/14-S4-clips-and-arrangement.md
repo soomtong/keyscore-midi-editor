@@ -11,6 +11,7 @@
 
 - 범위: 트랙×시간 격자, 클립 블록(이름·색·첫 소절 가사 흐리게), 커서(트랙, 틱), 선택, 재생 헤드, 줌·스크롤, `v` 전환·`Enter` 진입·`Esc` 복귀.
 - 테스트 게이트: 벤치(트랙 64 × 클립 200). UI 테스트 — `v`/`Enter`/`Esc` 전이.
+- 이월(S3-T1 리뷰 1 제안 7): `view::ZoomIn/ZoomOut/ZoomReset/CenterCursor` 처리기는 뷰와 무관하게 창에 걸려 있어 배치 뷰에서도 숨은 피아노롤을 줌한다. 배치 뷰가 자기 줌을 가지면 현재 뷰에 따라 나눈다(`pianoroll_window.rs`의 `piano_roll_handlers`).
 
 ### S4-T2 클립 조작 키
 
