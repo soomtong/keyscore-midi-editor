@@ -1,4 +1,4 @@
-# HANDOFF: KeyScore S2 완료·서명, S3 시작 전
+# HANDOFF: KeyScore S3 진행 중 — S3-T1 병합, S3-T2 다음
 
 ## 목표
 
@@ -6,11 +6,12 @@
 
 ## 현재 브랜치
 
-`main` — S0 완료·서명(2026-10-15), S1-T1~T7과 계이름 텍스트 주석 `//` 변경 병합(테스트 818개 통과). S1 출구 서명(YoungTaek, 2026-10-16). S2-T1~T4·S2-T5a~T5d·S2-T6a~T6f 병합(테스트 1568개). S2-T6은 T6a(설정 창·키맵 편집기)·T6b(`?` 오버레이)·T6c(입력·메트로놈·AI 탭)·T6d(가상 포트)·T6e(포트별 클럭·테스트 노트·포트 상태)·T6f(이월 줄)로 나눴다. S2-T7은 T7a(저장·열기·닫기·최근 파일, 병합 72f2845, 테스트 1645 + 리뷰 r3 18)·T7b(자동 저장본·복구, 병합 4be705a, 테스트 1728 + 리뷰 r4 5)·T7c(가져오기·내보내기 메뉴, 병합 후 테스트 1795)·T7d(OUT-8 대체 매핑 제안, 병합 87deb10, 테스트 1824 + 리뷰 r3 3)·T7e(S2-T7b 리뷰 4·S2-T7c 리뷰 2·S2-T7d 리뷰 3 이월, 병합 96aa5aa, 테스트 1876 + 리뷰 r1 20·r2 8)로 나눴다(결정 `2026-10-21-s2-t7-save-policy-and-split.md`, `2026-10-22-s2-t7c-import-export.md`, `2026-10-22-out8-port-mapping-sheet.md`). S2 출구 보고서 `docs/reports/stage-2-exit.md`를 2026-10-24에 썼다(자동 게이트 통과, UI-11 시험 확인, 이월 31줄 대조). S2 출구 서명(YoungTaek, 2026-10-24, 키보드 한 바퀴 확인. 나머지 수동 항목은 추후 점검). 다음은 S3.
+`main` — S0 완료·서명(2026-10-15), S1-T1~T7과 계이름 텍스트 주석 `//` 변경 병합(테스트 818개 통과). S1 출구 서명(YoungTaek, 2026-10-16). S2-T1~T4·S2-T5a~T5d·S2-T6a~T6f 병합(테스트 1568개). S2-T6은 T6a(설정 창·키맵 편집기)·T6b(`?` 오버레이)·T6c(입력·메트로놈·AI 탭)·T6d(가상 포트)·T6e(포트별 클럭·테스트 노트·포트 상태)·T6f(이월 줄)로 나눴다. S2-T7은 T7a(저장·열기·닫기·최근 파일, 병합 72f2845, 테스트 1645 + 리뷰 r3 18)·T7b(자동 저장본·복구, 병합 4be705a, 테스트 1728 + 리뷰 r4 5)·T7c(가져오기·내보내기 메뉴, 병합 후 테스트 1795)·T7d(OUT-8 대체 매핑 제안, 병합 87deb10, 테스트 1824 + 리뷰 r3 3)·T7e(S2-T7b 리뷰 4·S2-T7c 리뷰 2·S2-T7d 리뷰 3 이월, 병합 96aa5aa, 테스트 1876 + 리뷰 r1 20·r2 8)로 나눴다(결정 `2026-10-21-s2-t7-save-policy-and-split.md`, `2026-10-22-s2-t7c-import-export.md`, `2026-10-22-out8-port-mapping-sheet.md`). S2 출구 보고서 `docs/reports/stage-2-exit.md`를 2026-10-24에 썼다(자동 게이트 통과, UI-11 시험 확인, 이월 31줄 대조). S2 출구 서명(YoungTaek, 2026-10-24, 키보드 한 바퀴 확인. 나머지 수동 항목은 추후 점검). S3-T1 피아노롤 Element 병합(d6ccc7c, 리뷰 2회, 전체 시험 1918). 다음은 S3-T2.
 
 ## 완료된 작업
 
 - [x] 저장소 구조: 계획은 `plan/`, REQ 원문은 `docs/REQ.md`
+- [x] S3-T1 피아노롤 Element(리뷰 2회: 1회차 「수정 후 재리뷰」 지적 3·제안 7, 2회차 「병합 가능」 제안 3, 병합 d6ccc7c). `src/pianoroll/{mod.rs,scene.rs,element.rs}` + `src/pianoroll_window.rs`. 순수 장면 계산 `scene::build`(행 명암·마디/박 선·노트·커서·재생 헤드, 클립별 최대 노트 길이 캐시 `MaxLenCache`로 `partition_point`), `PianoRollElement`는 `paint_layer` 하나 안에서 `paint_quad`만(SP-2 분기 A), 클릭은 커서, 휠은 스크롤(`should_handle_scroll`). 창 상태 `PianoRollState`(`Rc<RefCell>`): 커서(틱·음높이), 뷰포트(첫 틱, px/틱 0.1 기본, 첫 행, 행 높이 12), 한 스텝 960 고정(S3-T4가 묶음), 빈 `Selection`(S3-T2). 커서 키(스텝·반음·마디·옥타브)와 줌(`cmd-=`/`cmd--`/`cmd-0`, vim `z z`)은 뷰포트가 따라감. 들어갈 때 커서가 클립 밖이면 첫 클립 시작, 안 보이면 가운데(크기 모르면 `Follow` 보류). 벤치 `pianoroll/scene_10k_notes` 29.7 µs, release 프레임 시험 중앙값 1.5 ms. 이월: S3-T2 `Ctrl+h` 읽기, S3-T6 주 뷰 가장자리 4 px, S4-T1 뷰별 줌
 - [x] S2 출구 보고서 `docs/reports/stage-2-exit.md`(2026-10-24). 빠른 게이트·UI-11 통과. 이월 31줄 가운데 남은 것은 FAT32 inode 재사용(S8-T3), 가져오기 진행률(S6-T3), [복구]·[버리기] 경합 틈·`virtual_ports` 같은 이름 둘(S8-T3)로 단계 파일에 옮겼다. 수동 확인 항목은 보고서 「사람이 확인할 항목」
 - [x] S2-T7e 세 리뷰의 이월 줄 정리(리뷰 2회, 둘 다 「병합 가능」, 병합 96aa5aa). `autosave.rs`: `remove_dead_locks`가 끝난 세션의 내용 없는 메타와 메타 없는 키의 1분 넘은 세대별 임시 파일을 지우고 시작 때(`offer_recovery`, 복구 대상 없어도) 돈다, `recover`는 `claim`(열기+잠금 한 번)을 창보다 먼저 잡고 실패하면 건너뛰며 건너뛴 수(`still_dead` 거짓 포함)를 모든 창에 알림, `discard`는 `claimed`면 건너뜀(리뷰 4 시험 기대값 1로 변경), `init`은 `try_lock` 3회(닿는 경로는 지금 없음). `smf/report.rs`: `overlapping_notes`는 (SMF 트랙, 채널, 음높이)마다 틱 순 시작↔틱 순 끝 짝에 없는 노트 수(Type 0은 같은 채널 트랙 섞임), `dropped_same_tick`(같은 재배율 틱의 다른 값 템포·박자표), `yields_song_track`(곡 트랙이 안 되는 Type 1 트랙의 이름은 손실), `Rescale::for_ppq`. `import_text_into`: 같은 이름 트랙 여럿이면 조건에 맞는 첫 트랙. `engine.rs`: `visual_match`(보이는 모양 같은 목적지 중 고유 ID 최소, `open_port`·`release_mapped`), `follow_device_in_settings`(메트로놈·클럭 설정이 대체 포트면 장치 이름으로, `release_mapped`·`install`), `remember_user_port`·`rename_virtual_port`가 새 이름의 `mapped_ports` 표시를 `same_port_name`으로 지움. 이월(S2 출구 전 판단): [복구]·[버리기] 다른 실행 경합의 좁은 틈, `rename_virtual_port`로 설정 `virtual_ports`에 남은 이름으로 바꾸면 같은 이름 둘
 - [x] 스파이크 SP-1~6 (`docs/spikes/`): S5-T2 분기 B, S3-T1 분기 A(`paint_layer` 조건), S1-T1 분기 B(`coremidi-sys`), S8-T1 안내만, SP-5 문법 결정 요청, SP-6 상한 2 s 유지
@@ -69,6 +70,7 @@
 - 확인 리뷰에서 같은 갈래 지적이 두 번 이상 나오면 패턴을 하나씩 막지 말고 원인을 고친다.
 - 전체 시험 출력을 `sort | uniq -c | head`로 줄이면 실패 줄이 잘릴 수 있다(S2-T7d). 로그 파일에 남기고 `rg`로 FAILED·panicked를 찾는다. 이 기계에서 `cargo test --workspace`는 바이너리마다 시작이 느려 1시간 반쯤 걸린다.
 - 게이트 뒤에 `sd`로 시험을 고치고 fmt 없이 커밋하면 fmt 게이트가 깨진다(S2-T7d 리뷰 3). 손으로 고친 뒤에는 `cargo fmt --all -- --check`를 다시 돌린다.
+- 에이전트가 `osascript` 키 입력으로 앱 화면을 찍으려 하면 키가 사용자의 다른 창으로 들어간다(S3-T1). 실제 창 확인은 사람 몫으로 두고 헤드리스 시험·release 프레임 시험으로 대신한다.
 - 리뷰어 서브 에이전트가 CoreMIDI 시험을 돌리는 동안 전체 시험을 돌리면 재생 시간 측정 시험(`review_s2_t5a_r2::pause_position_does_not_drift_with_many_live_edits`)이 지터로 실패한다(S2-T7e). 전체 시험은 리뷰어가 끝난 뒤 `--no-fail-fast`로 돌린다. `cargo test --workspace`는 첫 실패 바이너리에서 멈추므로 `--no-fail-fast`가 없으면 나머지가 돌지 않는다.
 - 보이는 모양이 같은 장치 둘의 시험은 CoreMIDI가 고유 ID를 임의로 주어 우연히 통과한다(S2-T7e C3). `kMIDIPropertyUniqueID`를 직접 정해 먼저 나타나는 장치에 큰 ID를 준다.
 - 서브 에이전트가 같은 작업 트리에서 일하는 동안 `git commit -a`를 쓰면 그쪽 미완성 변경이 섞인다(S2-T7c). 늘 경로를 지정해 커밋한다.
@@ -109,6 +111,7 @@ REQ 문구: 사람이 에이전트에게 수정을 허락한 범위(결정 문�
 - `crates/keyscore-app/src/{commands/,dispatch.rs,command_palette.rs}` — 명령 표·메뉴·팔레트·실행 함수
 - `crates/keyscore-app/src/{engine.rs,transport.rs}` — MIDI 엔진과 창 트랜스포트
 - `crates/keyscore-app/src/files.rs` — 열기·저장·닫기·끝내기 흐름, 최근 파일
+- `crates/keyscore-app/src/pianoroll/` — 피아노롤 상태·장면·Element, `src/pianoroll_window.rs` — 창 쪽 처리기
 - `crates/keyscore-app/src/autosave.rs` — 자동 저장본, 세션 잠금, 복구
 - `crates/keyscore-app/src/import_export.rs` — SMF·텍스트 가져오기·내보내기, `crates/keyscore-text/src/project.rs` — 텍스트↔프로젝트 변환, `crates/keyscore-midi/src/smf/report.rs` — SMF 보고
 - `crates/keyscore-midi/src/scheduler.rs` — 스케줄러(`Scheduler` 공개 API, 실시간 상태 `Rt`)
@@ -123,7 +126,7 @@ REQ 문구: 사람이 에이전트에게 수정을 허락한 범위(결정 문�
 ## 다음 에이전트에게
 
 1. S2 출구는 서명됐다. 보고서 「사람이 확인할 항목」 가운데 「추후 점검」 항목(메뉴 키 등가물, 팔레트 첫 Esc, 크래시 복구, 가져오기·내보내기, 포트 매핑 시트, 핫플러그·서버 재시작, IME, 타이밍 시험)은 사람이 나중에 보며 S3을 막지 않는다. 사람이 결함을 알리면 Task 브랜치로 고친다.
-2. S3 시작: `plan/stages/13-S3-step-and-pianoroll.md`의 Task와 이월 줄(키맵 결정 반영 포함)을 읽고 S3-T1 피아노롤 Element부터 Task 루프. S3-T1은 SP-2 분기 A(GPUI 프리미티브, `paint_layer` 조건)다.
+2. S3-T2 커서·선택·수식키 체계: `plan/stages/13-S3-step-and-pianoroll.md`의 S3-T2 절과 이월 줄(키맵 결정 A2·A8·A10·A11·A12 반영, `Ctrl+h` 읽기 고정, `operator::Cancel`, 곡 끝 동작)을 읽고 Task 루프. 선택은 `pianoroll::Selection`(지금 빈 BTreeSet<Note>)에 채우고 `Normal > PianoRoll > Selection` 컨텍스트는 `ModeEvent::Select/ClearSelection`으로 든다. 미리듣기(PRE-1)는 `Transport`의 테스트 노트 경로(`send_port_test_note`)를 참고한다.
 3. Task 루프: 브랜치 `s2/t<번호>-<slug>` → `docs/reports/s2-t<번호>/plan.md` → 테스트 먼저(뼈대 `todo!()`로 실패 확인) → 구현 → 게이트 전부(커밋 전에) → `report.md` → 새 에이전트로 적대적 리뷰(`general-purpose`, 구현 맥락 없이, 양식 `plan/templates/adversarial-review.md`, 산출물만 남기고 커밋 금지, 기존 `.proptest-regressions` 삭제 금지) → 지적마다 커밋 하나 → 재리뷰(최대 3회) → `git merge --no-ff`.
 4. 자동 게이트: `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`, `cargo deny check`, `scripts/check-deps.sh`, `scripts/check-deps.test.sh`, `scripts/bench-check.test.sh`. `core`·`text`에 외부 의존을 더하면 `scripts/check-deps.sh`의 허용 목록도 고친다.
 5. REQ에 없는 결정은 임의로 정하지 말고 사람에게 묻거나 `docs/decisions/`에 결정 요청을 쓴다. 사람과의 대화는 한국어로 하고, 문서에 `**`를 쓰지 않는다.
