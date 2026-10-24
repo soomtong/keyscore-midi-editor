@@ -299,8 +299,11 @@ impl PianoRollElement {
                 }
             });
         }
+        // `is_hovered`는 마지막 입력이 키보드면 거짓이고 휠은 입력 종류를 바꾸지 않는다. 키를 친 뒤 포인터를
+        // 움직이지 않고 굴리는 흔한 순서가 모두 무시되므로 GPUI `Div`처럼 `should_handle_scroll`을 쓴다
+        // (리뷰 1 지적 2).
         window.on_mouse_event(move |event: &ScrollWheelEvent, phase, window, _| {
-            if phase != DispatchPhase::Bubble || !wheel_hit.is_hovered(window) {
+            if phase != DispatchPhase::Bubble || !wheel_hit.should_handle_scroll(window) {
                 return;
             }
             let (dx, dy) = match event.delta {
