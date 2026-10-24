@@ -1,4 +1,4 @@
-# HANDOFF: KeyScore S2 진행 중 — S2-T1~T6f·T7a~T7d 병합, S2-T7e 다음
+# HANDOFF: KeyScore S2 진행 중 — S2-T1~T7e 병합, S2 출구 다음
 
 ## 목표
 
@@ -6,11 +6,12 @@
 
 ## 현재 브랜치
 
-`main` — S0 완료·서명(2026-10-15), S1-T1~T7과 계이름 텍스트 주석 `//` 변경 병합(테스트 818개 통과). S1 출구 서명(YoungTaek, 2026-10-16). S2-T1~T4·S2-T5a~T5d·S2-T6a~T6f 병합(테스트 1568개). S2-T6은 T6a(설정 창·키맵 편집기)·T6b(`?` 오버레이)·T6c(입력·메트로놈·AI 탭)·T6d(가상 포트)·T6e(포트별 클럭·테스트 노트·포트 상태)·T6f(이월 줄)로 나눴다. S2-T7은 T7a(저장·열기·닫기·최근 파일, 병합 72f2845, 테스트 1645 + 리뷰 r3 18)·T7b(자동 저장본·복구, 병합 4be705a, 테스트 1728 + 리뷰 r4 5)·T7c(가져오기·내보내기 메뉴, 병합 후 테스트 1795)·T7d(OUT-8 대체 매핑 제안, 병합 87deb10, 테스트 1824 + 리뷰 r3 3)·T7e(S2-T7b 리뷰 4·S2-T7c 리뷰 2·S2-T7d 리뷰 3 이월)로 나눴다(결정 `2026-10-21-s2-t7-save-policy-and-split.md`, `2026-10-22-s2-t7c-import-export.md`, `2026-10-22-out8-port-mapping-sheet.md`). 다음은 S2-T7e.
+`main` — S0 완료·서명(2026-10-15), S1-T1~T7과 계이름 텍스트 주석 `//` 변경 병합(테스트 818개 통과). S1 출구 서명(YoungTaek, 2026-10-16). S2-T1~T4·S2-T5a~T5d·S2-T6a~T6f 병합(테스트 1568개). S2-T6은 T6a(설정 창·키맵 편집기)·T6b(`?` 오버레이)·T6c(입력·메트로놈·AI 탭)·T6d(가상 포트)·T6e(포트별 클럭·테스트 노트·포트 상태)·T6f(이월 줄)로 나눴다. S2-T7은 T7a(저장·열기·닫기·최근 파일, 병합 72f2845, 테스트 1645 + 리뷰 r3 18)·T7b(자동 저장본·복구, 병합 4be705a, 테스트 1728 + 리뷰 r4 5)·T7c(가져오기·내보내기 메뉴, 병합 후 테스트 1795)·T7d(OUT-8 대체 매핑 제안, 병합 87deb10, 테스트 1824 + 리뷰 r3 3)·T7e(S2-T7b 리뷰 4·S2-T7c 리뷰 2·S2-T7d 리뷰 3 이월, 병합 96aa5aa, 테스트 1876 + 리뷰 r1 20·r2 8)로 나눴다(결정 `2026-10-21-s2-t7-save-policy-and-split.md`, `2026-10-22-s2-t7c-import-export.md`, `2026-10-22-out8-port-mapping-sheet.md`). 다음은 S2 출구.
 
 ## 완료된 작업
 
 - [x] 저장소 구조: 계획은 `plan/`, REQ 원문은 `docs/REQ.md`
+- [x] S2-T7e 세 리뷰의 이월 줄 정리(리뷰 2회, 둘 다 「병합 가능」, 병합 96aa5aa). `autosave.rs`: `remove_dead_locks`가 끝난 세션의 내용 없는 메타와 메타 없는 키의 1분 넘은 세대별 임시 파일을 지우고 시작 때(`offer_recovery`, 복구 대상 없어도) 돈다, `recover`는 `claim`(열기+잠금 한 번)을 창보다 먼저 잡고 실패하면 건너뛰며 건너뛴 수(`still_dead` 거짓 포함)를 모든 창에 알림, `discard`는 `claimed`면 건너뜀(리뷰 4 시험 기대값 1로 변경), `init`은 `try_lock` 3회(닿는 경로는 지금 없음). `smf/report.rs`: `overlapping_notes`는 (SMF 트랙, 채널, 음높이)마다 틱 순 시작↔틱 순 끝 짝에 없는 노트 수(Type 0은 같은 채널 트랙 섞임), `dropped_same_tick`(같은 재배율 틱의 다른 값 템포·박자표), `yields_song_track`(곡 트랙이 안 되는 Type 1 트랙의 이름은 손실), `Rescale::for_ppq`. `import_text_into`: 같은 이름 트랙 여럿이면 조건에 맞는 첫 트랙. `engine.rs`: `visual_match`(보이는 모양 같은 목적지 중 고유 ID 최소, `open_port`·`release_mapped`), `follow_device_in_settings`(메트로놈·클럭 설정이 대체 포트면 장치 이름으로, `release_mapped`·`install`), `remember_user_port`·`rename_virtual_port`가 새 이름의 `mapped_ports` 표시를 `same_port_name`으로 지움. 이월(S2 출구 전 판단): [복구]·[버리기] 다른 실행 경합의 좁은 틈, `rename_virtual_port`로 설정 `virtual_ports`에 남은 이름으로 바꾸면 같은 이름 둘
 - [x] 스파이크 SP-1~6 (`docs/spikes/`): S5-T2 분기 B, S3-T1 분기 A(`paint_layer` 조건), S1-T1 분기 B(`coremidi-sys`), S8-T1 안내만, SP-5 문법 결정 요청, SP-6 상한 2 s 유지
 - [x] S0-T1 워크스페이스·CI (`scripts/check-deps.sh` + `.test.sh`, `deny.toml`, `.github/workflows/ci.yml`)
 - [x] S0-T2 모델 타입 (Track/Clip/Note, 불변식, 숨김 꼬리)
@@ -67,6 +68,8 @@
 - 확인 리뷰에서 같은 갈래 지적이 두 번 이상 나오면 패턴을 하나씩 막지 말고 원인을 고친다.
 - 전체 시험 출력을 `sort | uniq -c | head`로 줄이면 실패 줄이 잘릴 수 있다(S2-T7d). 로그 파일에 남기고 `rg`로 FAILED·panicked를 찾는다. 이 기계에서 `cargo test --workspace`는 바이너리마다 시작이 느려 1시간 반쯤 걸린다.
 - 게이트 뒤에 `sd`로 시험을 고치고 fmt 없이 커밋하면 fmt 게이트가 깨진다(S2-T7d 리뷰 3). 손으로 고친 뒤에는 `cargo fmt --all -- --check`를 다시 돌린다.
+- 리뷰어 서브 에이전트가 CoreMIDI 시험을 돌리는 동안 전체 시험을 돌리면 재생 시간 측정 시험(`review_s2_t5a_r2::pause_position_does_not_drift_with_many_live_edits`)이 지터로 실패한다(S2-T7e). 전체 시험은 리뷰어가 끝난 뒤 `--no-fail-fast`로 돌린다. `cargo test --workspace`는 첫 실패 바이너리에서 멈추므로 `--no-fail-fast`가 없으면 나머지가 돌지 않는다.
+- 보이는 모양이 같은 장치 둘의 시험은 CoreMIDI가 고유 ID를 임의로 주어 우연히 통과한다(S2-T7e C3). `kMIDIPropertyUniqueID`를 직접 정해 먼저 나타나는 장치에 큰 ID를 준다.
 - 서브 에이전트가 같은 작업 트리에서 일하는 동안 `git commit -a`를 쓰면 그쪽 미완성 변경이 섞인다(S2-T7c). 늘 경로를 지정해 커밋한다.
 - `sd -F`로 여러 줄 문자열을 치환하면 조용히 아무것도 바꾸지 않는다(S2-T7b). 여러 줄 편집은 파이썬(`assert old in s`)으로 한다.
 - 자동 저장본 키를 원래 경로 해시로 만들기(S2-T7b 리뷰 1): 같은 파일을 연 다른 창·다른 실행이 서로의 저장본을 덮거나 지웠다. 키는 창마다 고유하게, 경로는 메타에만.
@@ -118,7 +121,7 @@ REQ 문구: 사람이 에이전트에게 수정을 허락한 범위(결정 문�
 
 ## 다음 에이전트에게
 
-1. S2-T7e를 시작한다. 범위는 단계 파일 S2-T7 절의 이월 줄이다. S2-T7b 리뷰 4: 내용 없는 메타, `discard`의 `claimed`, `recover` 잠금 틈, 잠금 파일 정리 기회, `init` 재시도. S2-T7c 리뷰 2: 겹침 셈, 같은 틱 템포, 사라지는 트랙 이름, 같은 이름 트랙 여럿. S2-T7d 리뷰 3: 메트로놈·클럭 설정의 대체 포트 이름, 같은 모양 장치 여럿의 고르기 기준, 설정 `mapped_ports`의 남은 이름. 그 뒤 S2 출구를 진행한다.
+1. S2 출구를 진행한다. 먼저 단계 파일 S2 절의 남은 이월 줄을 훑어 출구 전에 처리할 것(T7a 이월: FAT32 inode 재사용·`.bak`·최근 목록의 파일 시스템 호출, S1-T6 이월: 가사 붙이기 비용의 백그라운드 처리, S2-T7e 이월: [복구]·[버리기] 경합 틈·`virtual_ports` 같은 이름 둘)을 사람에게 묻거나 S3 이후로 넘긴다고 출구 보고서에 적는다.
    - 자동 게이트: 모든 Action에 UI가 있는지, UI-11 검사.
    - 수동 확인 목록: 키보드만으로 새 프로젝트→트랙→포트→재생→저장→종료, 크래시 뒤 복구 시트, SMF·텍스트 가져오기·내보내기, 다른 Mac 파일의 포트 매핑 시트와 장치 복귀, MIDI 서버 재시작 감지·추가 포트 재등록, 팔레트 첫 Esc A13, 메뉴 키 등가물, IME, `keyscore-text` 시간 측정 테스트의 가끔 실패.
    - 위 결과를 `docs/reports/stage-2-exit.md`에 쓰고 사람 서명을 받는다.
