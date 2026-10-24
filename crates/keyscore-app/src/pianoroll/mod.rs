@@ -237,8 +237,17 @@ pub(crate) struct Inner {
     pub(crate) scene: scene::Scene,
     /// 마지막 `paint`가 그린 노트 수(시험용).
     pub(crate) painted: usize,
-    /// 크기를 알기 전에 「커서를 보이게」 요청이 왔다. 처음 크기를 알 때 적용한다(리뷰 1 지적 1).
-    pending_follow: bool,
+    /// 크기를 알기 전에 온 뷰포트 요청. 처음 크기를 알 때 적용한다(리뷰 1 지적 1).
+    pending: Option<Follow>,
+}
+
+/// 크기를 알기 전에 미뤄 둔 뷰포트 요청.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Follow {
+    /// 커서 칸이 보이게만(키 이동).
+    Visible,
+    /// 커서 칸을 가운데로(피아노롤 진입, 리뷰 2 제안 1).
+    Center,
 }
 
 impl Inner {
@@ -253,13 +262,25 @@ impl Inner {
         }
     }
 
+    /// 커서 칸이 뷰포트 안에 있는가(칸이 뷰포트보다 넓으면 왼쪽 끝이 보이면 된다).
+    fn cursor_visible(&self) -> bool {
+        let vp = self.viewport();
+        let tick = tick_f(self.cursor.tick.get());
+        let step = tick_f(self.step_ticks);
+        let row = Viewport::row_of(self.cursor.pitch);
+        tick >= vp.first_tick
+            && (tick + step <= vp.last_tick() || tick <= vp.first_tick)
+            && row >= self.first_row
+            && row + 1.0 <= self.first_row + vp.rows_visible()
+    }
+
     /// 크기를 알기 전이면 처음 크기를 알 때로 미룬다(피아노롤에 처음 들어가는 프레임).
     fn ensure_cursor_visible(&mut self) {
         if self.width <= 0.0 || self.height <= 0.0 {
-            self.pending_follow = true;
+            self.pending = Some(Follow::Visible);
             return;
         }
-        self.pending_follow = false;
+        self.pending = None;
         let vp = self.viewport();
         let tick = tick_f(self.cursor.tick.get());
         let step = tick_f(self.step_ticks);
@@ -292,11 +313,27 @@ impl Inner {
         self.height = height;
         if first && width > 0.0 && height > 0.0 {
             self.center_rows();
-            if self.pending_follow {
-                self.ensure_cursor_visible();
+            match self.pending.take() {
+                Some(Follow::Visible) => self.ensure_cursor_visible(),
+                Some(Follow::Center) => self.center_cursor(),
+                None => {}
             }
         }
         self.clamp_rows();
+    }
+
+    /// 커서 칸을 가운데로. 칸이 뷰포트보다 넓으면 왼쪽 끝을 맞춘다.
+    fn center_cursor(&mut self) {
+        if self.width <= 0.0 || self.height <= 0.0 {
+            self.pending = Some(Follow::Center);
+            return;
+        }
+        self.pending = None;
+        let tick = tick_f(self.cursor.tick.get());
+        let half = f64::from(self.width) / self.px_per_tick / 2.0;
+        self.first_tick = (tick + tick_f(self.step_ticks) / 2.0 - half).max(0.0);
+        self.center_rows();
+        self.ensure_cursor_visible();
     }
 
     fn center_rows(&mut self) {
@@ -339,7 +376,7 @@ impl PianoRollState {
                 cache: MaxLenCache::default(),
                 scene: scene::Scene::default(),
                 painted: 0,
-                pending_follow: false,
+                pending: None,
             })),
         }
     }
@@ -467,16 +504,19 @@ impl PianoRollState {
         inner.ensure_cursor_visible();
     }
 
-    /// 커서 칸을 뷰포트 가운데로.
+    /// 커서 칸을 뷰포트 가운데로. 크기를 모르면 처음 크기를 알 때 한다.
     pub fn center_cursor(&self) {
+        self.inner.borrow_mut().center_cursor();
+    }
+
+    /// 피아노롤에 들어갈 때: 커서가 보이면 스크롤 자리를 지키고, 안 보이면 커서를 가운데로(리뷰 2 제안 1·2).
+    pub fn reveal_cursor_on_entry(&self) {
         let mut inner = self.inner.borrow_mut();
         if inner.width <= 0.0 || inner.height <= 0.0 {
-            return;
+            inner.pending = Some(Follow::Center);
+        } else if !inner.cursor_visible() {
+            inner.center_cursor();
         }
-        let tick = tick_f(inner.cursor.tick.get());
-        let half = f64::from(inner.width) / inner.px_per_tick / 2.0;
-        inner.first_tick = (tick + tick_f(inner.step_ticks) / 2.0 - half).max(0.0);
-        inner.center_rows();
     }
 
     /// 픽셀만큼 스크롤(양수 = 오른쪽·아래). 왼쪽 끝은 0틱, 위아래는 행 범위 안.

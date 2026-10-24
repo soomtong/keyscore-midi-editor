@@ -87,6 +87,16 @@ python3 -I scripts/bench-check.py: pianoroll/scene_10k_notes -1.8%. ksq/read_100
 
 리뷰 시험 `crates/keyscore-app/tests/review_s3_t1.rs` 19개 모두 통과(수정 전 3개 실패).
 
+## 리뷰 2 대응(`docs/reports/s3-t1/review-2.md`, 판정 「병합 가능」, 제안 3)
+
+| 제안 | 대응 |
+| --- | --- |
+| 1 진입 때 커서가 오른쪽 끝에 붙음 | 수락. 들어갈 때 커서가 안 보이면 `center_cursor`(칸이 뷰포트보다 넓으면 왼쪽 끝 맞춤). 크기를 모르면 `Follow::Center`로 미룬다 |
+| 2 돌아올 때 규칙 고정 | 수락. 「보이면 스크롤 유지, 안 보이면 가운데」를 `reveal_cursor_on_entry`로 두고 계획 「끝의 정의」 2에 적었다. 리뷰 2 시험 `returning_from_arrangement_*` 둘 다 그대로 통과 |
+| 3 release 프레임 시험 운용 | 수락. 최대값도 단언한다. S3 출구 자동 게이트에 release 실행 명령을 적었다 |
+
+리뷰 시험 `review_s3_t1_r2.rs` 10개 통과.
+
 ## 리뷰어에게
 
 - `scene.rs`의 `build_notes`: `partition_point` 술어는 「시작 + 클립 최대 길이 ≤ 왼쪽 끝」이다. 캐시가 낡으면(새 노트가 더 길어졌는데 `revision`이 같을 때) 긴 노트가 빠질 수 있다. 문서 편집은 모두 `revision`을 올리므로 괜찮다고 보지만, 편집 경로가 아닌 곳에서 프로젝트를 바꾸는 길이 있는지 봐 달라.

@@ -519,7 +519,8 @@ fn zoom_keys_scale_and_keep_cursor_visible(cx: &mut TestAppContext) {
     let max = vp(cx, &view);
     assert_eq!(max.px_per_tick, MAX_PX_PER_TICK, "상한에서 멈춘다");
     assert!(cursor_visible(&max, c, QUARTER), "{max:?}");
-    // 가운데로
+    // 가운데로(칸이 뷰포트에 들어가는 기본 배율에서. 칸이 더 넓은 상한 줌에서는 왼쪽 끝을 맞춘다)
+    press(cx, handle, "cmd-0");
     cx.read(|cx| view.read(cx).piano_roll().scroll_by(5000.0, 300.0));
     cx.update_window(handle, |_, window, cx| {
         window.dispatch_action(Box::new(keyscore_app::actions::view::CenterCursor), cx);
@@ -690,6 +691,7 @@ fn frame_with_10k_notes_fits_60fps_budget_in_release(cx: &mut TestAppContext) {
     println!("frame_10k_notes: median {median:.2} ms, max {max:.2} ms, painted {painted}");
     if !cfg!(debug_assertions) {
         assert!(median < 16.7, "release 프레임 중앙값 {median:.2} ms");
+        assert!(max < 16.7, "release 프레임 최대 {max:.2} ms(지터 회귀)");
     }
 }
 
