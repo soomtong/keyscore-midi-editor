@@ -138,11 +138,14 @@ pub(crate) fn init(cx: &mut App) {
     let lock = fs::create_dir_all(&dir).ok().and_then(|()| {
         let path = dir.join(format!("session-{id}.lock"));
         // 만들고 잠그는 사이에 다른 실행이 그 파일을 지웠으면(끝난 세션의 잠금으로 오인) 다시 만든다. 잠근 파일이
-        // 경로의 파일과 같은지 확인한다.
-        for _ in 0..3 {
+        // 경로의 파일과 같은지 확인한다. 다른 실행이 끝난 세션 판정(`session_alive`)으로 잠깐 잠갔으면 잠그기가
+        // 실패한다. 그 잠금은 곧 풀리므로 조금 기다려 다시 시도한다(S2-T7b 리뷰 4 이월).
+        for attempt in 0..3 {
+            if attempt > 0 {
+                std::thread::sleep(Duration::from_millis(20));
+            }
             let file = fs::File::create(&path).ok()?;
-            file.try_lock().ok()?;
-            if same_inode(&file, &path) {
+            if file.try_lock().is_ok() && same_inode(&file, &path) {
                 return Some((path, file));
             }
         }
@@ -178,6 +181,10 @@ pub fn find_recoverable(cx: &App) -> Vec<Recoverable> {
 pub fn offer_recovery(cx: &mut App) {
     let Scan { good, corrupt } = scan(cx);
     if good.is_empty() {
+        // 복구 대상이 없어도 끝난 세션의 찌꺼기(바뀐 창 없이 끝난 세션의 잠금 파일, 두 rename 사이에 끝난 세션의
+        // 내용 없는 메타)를 지운다. [복구]·[버리기] 때만 정리하면 시트가 뜨지 않는 세션의 것이 쌓인다(S2-T7b
+        // 리뷰 4 이월).
+        remove_dead_locks(&autosave_dir(cx), &cx.global::<Session>().id.clone());
         return;
     }
     let host = crate::files::active_project_window(cx)
@@ -508,19 +515,44 @@ fn claimed(content: &Path) -> bool {
     fs::File::open(content).is_ok_and(|f| f.try_lock().is_err())
 }
 
-/// 저장본이 하나도 남지 않은 끝난 세션의 잠금 파일을 지운다(크래시마다 쌓이지 않게, 리뷰 2 제안 3).
+/// 내용 파일을 복구 잠금으로 잠근다. 파일이 없거나 다른 쪽이 먼저 잠갔으면 없음. 검사와 잠금이 한 번이라 두
+/// 실행이 같은 저장본을 동시에 복구하지 않는다(S2-T7b 리뷰 4 지적 3).
+fn claim(content: &Path) -> Option<fs::File> {
+    let file = fs::File::open(content).ok()?;
+    file.try_lock().ok()?;
+    Some(file)
+}
+
+/// 끝난 세션의 찌꺼기를 지운다: 내용 파일이 없는 메타(첫 쓰기의 메타 rename 뒤 내용 rename 전에 끝난 세션, 리뷰
+/// 4 지적 1)와 저장본이 하나도 남지 않은 끝난 세션의 잠금 파일(크래시마다 쌓이지 않게, 리뷰 2 제안 3).
 fn remove_dead_locks(dir: &Path, own: &str) {
     let Ok(entries) = fs::read_dir(dir) else {
         return;
     };
     let names: Vec<PathBuf> = entries.filter_map(Result::ok).map(|e| e.path()).collect();
-    let sessions_in_use: Vec<String> = names
+    let session_of = |meta: &Path| {
+        fs::read_to_string(meta)
+            .ok()
+            .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+            .and_then(|m| m["session"].as_str().map(str::to_owned))
+    };
+    let mut sessions_in_use: Vec<String> = Vec::new();
+    for meta in names
         .iter()
         .filter(|p| p.extension().is_some_and(|x| x == "json"))
-        .filter_map(|p| fs::read_to_string(p).ok())
-        .filter_map(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
-        .filter_map(|m| m["session"].as_str().map(str::to_owned))
-        .collect();
+    {
+        let Some(session) = session_of(meta) else {
+            continue;
+        };
+        // 내용 없는 메타는 살아 있는 세션(두 rename 사이)의 것만 둔다. 끝난 세션의 것은 복구 대상도 아니면서 그
+        // 세션을 「쓰는 중」으로 붙잡아 잠금 파일까지 남긴다.
+        let orphan = !meta.with_extension("ksq").exists();
+        if orphan && session != own && !session_alive(dir, &session) {
+            let _ = fs::remove_file(meta);
+            continue;
+        }
+        sessions_in_use.push(session);
+    }
     for path in &names {
         let Some(session) = path
             .file_name()
@@ -548,17 +580,48 @@ fn remove_dead_locks(dir: &Path, own: &str) {
             let _ = fs::remove_file(path);
         }
     }
+    // 첫 쓰기의 rename 전에 끝난 세션은 세대별 임시 파일(`<키>.ksq.tmp-N`, `<키>.json.tmp-N`)만 남긴다. 그 키는
+    // 메타가 없어 복구·버리기 정리에 닿지 않는다. 메타 없는 키의 오래된 임시 파일을 지운다(리뷰 1 제안 1). 살아
+    // 있는 창의 첫 쓰기도 메타가 없지만 임시 파일이 1분을 넘기지 않는다
+    for path in &names {
+        let Some(name) = path.file_name().map(|n| n.to_string_lossy().into_owned()) else {
+            continue;
+        };
+        let Some((key, _)) = name
+            .split_once(".ksq.tmp-")
+            .or_else(|| name.split_once(".json.tmp-"))
+        else {
+            continue;
+        };
+        let old = fs::metadata(path)
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| t.elapsed().ok())
+            .is_some_and(|age| age >= STALE_TEMP_AGE);
+        if old && !dir.join(format!("{key}.json")).exists() {
+            let _ = fs::remove_file(path);
+        }
+    }
 }
 
 fn recover(good: Vec<Recoverable>, host: &Entity<ProjectWindow>, cx: &mut App) {
     let dir = autosave_dir(cx);
     let mut restored = false;
+    let mut taken = 0usize;
     for item in good {
-        // 시트가 떠 있는 동안 다른 실행이 가져갔으면 건드리지 않는다.
+        // 시트가 떠 있는 동안 다른 실행이 가져갔으면 건드리지 않는다. 창을 열기 전에 내용 파일을 잠가, 같은
+        // 저장본을 받은 다른 실행이 같은 순간 [복구]해도 한쪽만 연다(리뷰 4 지적 3).
         let content = dir.join(format!("{}.ksq", item.key));
-        if !still_dead(&dir, &item) || claimed(&content) {
+        // 다른 실행이 이미 다시 썼거나(세션이 바뀜) 잠근 저장본은 그 실행의 것이다. 시트에 이름이 떴던 프로젝트가
+        // 열리지 않는 이유를 아래에서 알린다(리뷰 2 제안 1)
+        if !still_dead(&dir, &item) {
+            taken += 1;
             continue;
         }
+        let Some(claim) = claim(&content) else {
+            taken += 1;
+            continue;
+        };
         // 같은 파일을 이미 연 창이 있으면 경로 없이 연다(같은 파일 두 창 금지).
         let path = item
             .path
@@ -575,9 +638,7 @@ fn recover(good: Vec<Recoverable>, host: &Entity<ProjectWindow>, cx: &mut App) {
             // 쓰기가 실패해도 다른 실행이 가져가지 않게 한다.
             w.autosave.key.clone_from(&item.key);
             remove_generation_temps(&dir, &item.key);
-            w.autosave.claim = fs::File::open(dir.join(format!("{}.ksq", item.key)))
-                .ok()
-                .filter(|f| f.try_lock().is_ok());
+            w.autosave.claim = Some(claim);
             if let Some(job) = w.prepare_autosave(cx) {
                 let result = job.write();
                 w.finish_autosave(&job, result, cx);
@@ -590,6 +651,13 @@ fn recover(good: Vec<Recoverable>, host: &Entity<ProjectWindow>, cx: &mut App) {
         remove_stale_temps(item.path.as_deref(), item.pid);
     }
     remove_dead_locks(&dir, &cx.global::<Session>().id.clone());
+    if taken > 0 {
+        // 시트에 이름이 떴는데 창이 열리지 않는 이유를 알린다(리뷰 1 제안 6). 그 실행이 창을 열었으니 손실은 없다
+        crate::window::say_everywhere(
+            cx,
+            &format!("다른 KeyScore 실행이 먼저 복구한 프로젝트 {taken}개는 여기서 열지 않았다"),
+        );
+    }
     if restored && host.read(cx).document().read(cx).is_pristine() {
         crate::files::close_now_sync(host, cx);
     }
@@ -598,8 +666,9 @@ fn recover(good: Vec<Recoverable>, host: &Entity<ProjectWindow>, cx: &mut App) {
 fn discard(good: &[Recoverable], cx: &mut App) {
     let dir = autosave_dir(cx);
     for item in good {
-        // 시트를 띄운 뒤 다른 실행이 가져간 저장본은 지우지 않는다(리뷰 1 지적 3).
-        if !still_dead(&dir, item) {
+        // 시트를 띄운 뒤 다른 실행이 가져간 저장본은 지우지 않는다(리뷰 1 지적 3). 복구하며 잠근 저장본도 그
+        // 실행의 것이다(리뷰 4 지적 2).
+        if !still_dead(&dir, item) || claimed(&dir.join(format!("{}.ksq", item.key))) {
             continue;
         }
         remove_files(&dir, &item.key);

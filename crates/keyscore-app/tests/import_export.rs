@@ -462,3 +462,42 @@ fn menu_and_palette_run_import_export(cx: &mut TestAppContext) {
         "팔레트 실행이 가져오기를 시작하지 않았다"
     );
 }
+
+/// S2-T7e(S2-T7c 리뷰 2 부록 A): 이름이 같은 트랙이 둘(ch1, ch5)이면 ch5 블록은 조건에 맞는 둘째 트랙에
+/// 들어간다. 첫 트랙만 보고 새 트랙을 만들지 않는다.
+#[test]
+fn block_goes_to_matching_track_among_same_names() {
+    let base = ksq::from_str(
+        r#"{"tracks": [
+            {"name": "Lead", "channel": 1, "clips": []},
+            {"name": "Lead", "channel": 5, "clips": []}]}"#,
+    )
+    .unwrap()
+    .0;
+    let mut doc = keyscore_app::document::ProjectDocument::new(base).unwrap();
+    let parsed =
+        keyscore_text::parse("@track Lead ch5\nc\n", keyscore_text::Mode::Lenient).unwrap();
+    let s = keyscore_app::import_export::import_text_into(&mut doc, &parsed, Tick::ZERO).unwrap();
+    let placed: Vec<(String, u8, usize)> = doc
+        .project()
+        .tracks()
+        .iter()
+        .map(|t| (t.name().to_owned(), t.channel().get(), t.clips().count()))
+        .collect();
+    assert_eq!(s.new_tracks, 0, "{placed:?}");
+    assert_eq!(placed[1], ("Lead".to_owned(), 5, 1), "{placed:?}");
+    // 첫 트랙은 채널이 맞지만 겹치고, 둘째는 비어 있으면 둘째에 넣는다
+    let base = ksq::from_str(
+        r#"{"tracks": [
+            {"name": "Lead", "channel": 1, "clips": [{"start": 0, "length": 3840, "notes": []}]},
+            {"name": "Lead", "channel": 1, "clips": []}]}"#,
+    )
+    .unwrap()
+    .0;
+    let mut doc = keyscore_app::document::ProjectDocument::new(base).unwrap();
+    let parsed =
+        keyscore_text::parse("@track Lead ch1\nc\n", keyscore_text::Mode::Lenient).unwrap();
+    let s = keyscore_app::import_export::import_text_into(&mut doc, &parsed, Tick::ZERO).unwrap();
+    assert_eq!(s.new_tracks, 0);
+    assert_eq!(doc.project().tracks()[1].clips().count(), 1);
+}

@@ -72,21 +72,17 @@ pub fn import_text_into(
         summary.notes += source.notes().len();
         let end = at.get().saturating_add(length);
         // 같은 트랙의 클립은 겹칠 수 없다(core 불변식). 겹치면 새 트랙에 둔다. 블록이 적은 채널·프로그램·뱅크가
-        // 그 트랙과 다르면 그 트랙에 넣지 않는다. 넣으면 블록의 음색 지정을 말없이 버린다(리뷰 1 지적 4).
-        let target = project
-            .tracks()
-            .iter()
-            .find(|t| t.name() == block.name())
-            .filter(|t| {
-                t.channel() == block.channel()
-                    && block.program().is_none_or(|p| t.program() == Some(p))
-                    && block.bank().is_none_or(|b| t.bank() == Some(b))
-            })
-            .filter(|t| {
-                t.clips().all(|(_, c)| {
+        // 그 트랙과 다르면 그 트랙에 넣지 않는다. 넣으면 블록의 음색 지정을 말없이 버린다(리뷰 1 지적 4). 같은
+        // 이름의 트랙이 여럿이면 조건에 맞는 첫 트랙이다(리뷰 2 제안 3).
+        let target = project.tracks().iter().find(|t| {
+            t.name() == block.name()
+                && t.channel() == block.channel()
+                && block.program().is_none_or(|p| t.program() == Some(p))
+                && block.bank().is_none_or(|b| t.bank() == Some(b))
+                && t.clips().all(|(_, c)| {
                     c.start().get().saturating_add(c.length()) <= at.get() || c.start().get() >= end
                 })
-            });
+        });
         let track_id = if let Some(track) = target {
             track.id()
         } else {

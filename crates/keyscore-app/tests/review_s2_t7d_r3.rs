@@ -336,12 +336,10 @@ fn review3_metronome_and_clock_on_mapped_port_follow_device(cx: &mut TestAppCont
         ports_of(cx, &view)
     );
     assert_eq!(ports_of(cx, &view), vec![named(&saved)]);
-    // 관찰만 한다(리뷰 3 제안 1, 비차단 이월 후보). 지금은 둘 다 지운 대체 포트 이름에 남는다. 고치면 아래를
-    // `met != named(&normal) && !clock.contains(&named(&normal))` 단언으로 바꾼다
-    eprintln!(
-        "metronome left on removed port: {}, clock left on removed port: {}",
-        met == named(&normal),
-        clock.contains(&named(&normal))
+    // S2-T7e가 고쳤다(리뷰 3 제안 1): 두 설정도 장치 이름을 따른다
+    assert!(
+        met != named(&normal) && !clock.contains(&named(&normal)),
+        "메트로놈·클럭 설정이 지운 대체 포트 이름에 남았다"
     );
 }
 
