@@ -22,6 +22,7 @@
 ~~~
 cargo test -p keyscore-app --test pianoroll: 12 passed
 cargo bench -p keyscore-app --bench pianoroll: pianoroll/scene_10k_notes 평균 29.7 µs(기준값 29654.427 ns)
+cargo test -p keyscore-app --release --test pianoroll frame_with_10k: 프레임 중앙값 1.53 ms, 최대 1.85 ms(노트 9,874개)
 cargo test --workspace --no-fail-fast: 1887 passed, 1 failed, 2 ignored(1시간판 측정용). 실패 1은 기존 지터 시험
   review_s2_t5a_r2::pause_position_does_not_drift_with_many_live_edits(S2 출구 실행에서도 같은 실패, 단독 재실행 13 passed)
 python3 -I scripts/bench-check.py: pianoroll/scene_10k_notes -1.8%. ksq/read_100k_notes가 +10.3%로 한 번 실패했으나
@@ -43,6 +44,7 @@ python3 -I scripts/bench-check.py: pianoroll/scene_10k_notes -1.8%. ksq/read_100
 | 11 | `element_paints_every_visible_note_once` | 통과(뼈대에서 실패. 기본 뷰포트에는 클립 A의 노트 3개가 보여 기대값을 「3개 이상」으로 고쳤다) |
 | 12 | `cell_at_maps_click_point_to_cursor` | 통과(뼈대에서 실패) |
 | 13 | `pianoroll/scene_10k_notes` | 29.7 µs, 60 fps 예산(16.7 ms)의 0.2% |
+| 13b(리뷰 1 지적 3) | `frame_with_10k_notes_fits_60fps_budget_in_release` | release 중앙값 1.53 ms(예산의 9%), debug는 출력만 |
 
 계획에 있었지만 쓰지 않은 테스트와 이유: 없음. 다만 시험 10의 「재생 중이면 매 프레임 다시 그림」은 프레임 수를 세지 못해(헤드리스에서 `request_animation_frame`을 관찰할 길이 없다) 재생 중 `piano_roll_playhead()`가 0보다 큰 틱을 돌려주는 것까지만 본다.
 
@@ -64,6 +66,26 @@ python3 -I scripts/bench-check.py: pianoroll/scene_10k_notes -1.8%. ksq/read_100
 - 세로 스크롤은 행 범위 안(0–128)으로만 잠근다. 가로 스크롤은 0틱 왼쪽으로 가지 않고 오른쪽은 한계가 없다(곡 끝 동작은 S3-T2 이월 줄과 함께 정한다).
 - 마우스 러버밴드·드래그·우클릭 메뉴(vim 마크)는 S3-T6, 노트 위 글자는 S6다.
 - 실제 창에서 그림을 눈으로 확인하지 못했다(에이전트의 키 입력 자동화가 다른 창으로 들어가 중단). 사람이 `cargo run -p keyscore-app --release`로 픽스처를 열고 `enter`로 피아노롤에 들어가 노트·격자·커서·재생 헤드를 본다.
+
+## 리뷰 1 대응(`docs/reports/s3-t1/review-1.md`, 판정 「수정 후 재리뷰」)
+
+| 지적 | 대응 | 커밋 |
+| --- | --- | --- |
+| 1 먼 클립으로 들어갈 때 뷰포트가 따라가지 않음 | `ensure_cursor_visible`이 크기를 모르면 `pending_follow`를 켜고, 처음 크기를 알 때(`set_size`) 적용한다. `entered_piano_roll`은 옮기지 않았어도 늘 `ensure_cursor_visible`을 부른다. 리뷰 시험 `entering_piano_roll_from_far_clip_scrolls_viewport_to_cursor`·`toggling_view_into_far_clip_scrolls_viewport_to_cursor` 통과 | `Follow the cursor on the first piano roll layout` |
+| 2 키 입력 뒤 휠 무시 | 휠 처리기의 hover 판정을 `Hitbox::should_handle_scroll`로(GPUI `Div`와 같음). 리뷰 시험 `wheel_after_keyboard_input_without_pointer_move_scrolls` 통과 | `Handle piano roll wheel after keyboard input` |
+| 3 paint 벤치가 장면 계산만 잼 | (a)+(b): 헤드리스 release 시험 `frame_with_10k_notes_fits_60fps_budget_in_release`가 노트 10,000개 프레임(레이아웃·prepaint·paint) 중앙값 16.7 ms 안을 단언한다(debug는 수치만 출력). 단계 파일 S3-T1에 게이트 읽기(criterion은 장면 계산, 프레임은 release 시험, GPU는 SP-2)를 적고 S3 출구에 실제 창 수동 항목을 더했다. release 측정값: 중앙값 1.53 ms, 최대 1.85 ms(그린 노트 9,874개, 20프레임). debug는 중앙값 18.4 ms라 단언하지 않는다. SP-2의 paint p95 약 2 ms와 맞는다 | `Measure the 10k-note piano roll frame in a release test` |
+
+| 제안 | 대응 |
+| --- | --- |
+| 1 `painted`가 동어반복 | 수락. `paint_scene`이 노트 루프에서 세어 돌려준다 |
+| 2 불변식 문구 | 수락. 계획의 불변식을 「노트 수에 비례하는 할당·정렬 없음」으로 고쳤다 |
+| 3 `Ctrl+h` 읽기 | 수락(이월). S3-T2 이월 줄에 읽기를 고정하고 다른 읽기는 결정 요청으로 |
+| 4 주 뷰 가장자리 4 px 띠 | 수락(이월). S3-T6 이월 줄 |
+| 5 `MaxLenCache` 계약 주석 | 수락. 문서 주석에 적었다 |
+| 6 크기 모를 때 `zoom` | 수락. 배율만 바꾼다 |
+| 7 배치 뷰에서도 줌 | 수락(이월). S4-T1 이월 줄 |
+
+리뷰 시험 `crates/keyscore-app/tests/review_s3_t1.rs` 19개 모두 통과(수정 전 3개 실패).
 
 ## 리뷰어에게
 
