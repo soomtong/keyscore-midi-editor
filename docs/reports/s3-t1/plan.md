@@ -29,6 +29,7 @@
 pub struct Cursor { pub tick: Tick, pub pitch: Pitch }           // 트랙 기준 틱
 pub struct Viewport { pub first_tick: f64, pub px_per_tick: f64, pub width: f32,
                       pub first_row: f32, pub row_height: f32, pub height: f32 }
+impl Viewport { pub fn cell_at(&self, x: f32, y: f32) -> Option<Cursor>; /* 클릭 → 칸 */ }
 pub struct PianoRollState { /* cursor, viewport, step_ticks, selection, caches */ }
 impl PianoRollState {
     pub fn cursor(&self) -> Cursor;
@@ -38,7 +39,6 @@ impl PianoRollState {
     pub fn zoom(&mut self, factor: f64); pub fn zoom_reset(&mut self); pub fn center_cursor(&mut self);
     pub fn scroll_by(&mut self, dx_px: f32, dy_px: f32);
     pub fn ensure_cursor_visible(&mut self);
-    pub fn cell_at(&self, local: Point<Pixels>) -> Option<Cursor>;   // 클릭 → 칸
 }
 pub struct Selection { /* BTreeSet<Note>, 현재 클립 기준 */ }
 
