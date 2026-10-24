@@ -234,6 +234,8 @@ pub(crate) struct Inner {
     pub(crate) scene: scene::Scene,
     /// 마지막 `paint`가 그린 노트 수(시험용).
     pub(crate) painted: usize,
+    /// 크기를 알기 전에 「커서를 보이게」 요청이 왔다. 처음 크기를 알 때 적용한다(리뷰 1 지적 1).
+    pending_follow: bool,
 }
 
 impl Inner {
@@ -248,11 +250,13 @@ impl Inner {
         }
     }
 
-    /// 크기를 알기 전에는 아무것도 하지 않는다.
+    /// 크기를 알기 전이면 처음 크기를 알 때로 미룬다(피아노롤에 처음 들어가는 프레임).
     fn ensure_cursor_visible(&mut self) {
         if self.width <= 0.0 || self.height <= 0.0 {
+            self.pending_follow = true;
             return;
         }
+        self.pending_follow = false;
         let vp = self.viewport();
         let tick = tick_f(self.cursor.tick.get());
         let step = tick_f(self.step_ticks);
@@ -285,6 +289,9 @@ impl Inner {
         self.height = height;
         if first && width > 0.0 && height > 0.0 {
             self.center_rows();
+            if self.pending_follow {
+                self.ensure_cursor_visible();
+            }
         }
         self.clamp_rows();
     }
@@ -329,6 +336,7 @@ impl PianoRollState {
                 cache: MaxLenCache::default(),
                 scene: scene::Scene::default(),
                 painted: 0,
+                pending_follow: false,
             })),
         }
     }

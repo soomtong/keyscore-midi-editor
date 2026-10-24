@@ -110,9 +110,10 @@ impl ProjectWindow {
     pub(crate) fn entered_piano_roll(&mut self, cx: &mut Context<Self>) {
         let doc = self.document.read(cx);
         let track = self.current_track().and_then(|id| doc.project().track(id));
-        if self.pianoroll.place_cursor_in_clip(track) {
-            self.pianoroll.ensure_cursor_visible();
-        }
+        // 옮기지 않았어도 커서가 뷰포트 밖일 수 있다(배치 뷰에 있는 동안 바뀐 경우). 크기를 아직 모르면
+        // 첫 그리기에서 적용된다.
+        let _ = self.pianoroll.place_cursor_in_clip(track);
+        self.pianoroll.ensure_cursor_visible();
     }
 
     pub(crate) fn cursor_left(&mut self, _: &cursor::Left, _: &mut Window, cx: &mut Context<Self>) {
