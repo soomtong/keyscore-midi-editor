@@ -22,6 +22,8 @@
 
 - 이월(S2-T3, 결정 `docs/decisions/2026-10-17-keymap-conflicts.md` A13): vim `Normal > Operator`의 `escape` → `operator::Cancel`(신규, 오퍼레이터 대기·카운트 비움). 멀티키 시퀀스 대기 중(`g` 뒤)의 `Esc`는 시퀀스만 취소하고 다른 바인딩(선택 해제 등)을 실행하지 않는지 확인한다(GPUI 기본은 대기를 풀고 Esc를 디스패치한다).
 
+- 이월(결정 `docs/decisions/2026-10-17-keymap-conflicts.md`, 2026-10-24 모두 권고안): S3-T2는 A2(`g a` 뷰 전환), A8(vim 피아노롤 `enter`=`note::Audition`, 배치 뷰 `enter`=`clip::Open` 상속), A10(`g b` 마디 선택, `g shift-b` 클립 선택), A11(`;` `,` 탐색 반복), A12(팔레트 `:` 접두 ex 명령 파서, `:w` `:q` `:e` `:new` `:set`)의 키를 `vim.json`에 채우고 `// 결정 대기` 주석을 지운다. S3-T3는 A1(`J`=`edit::Join`, `K`=`note::ShowInfo`), A9(vim 길이 `g 1`…`g 7`, `g 0`), B25(기호·숫자 모두 입력되는 글자 그대로, `shift-N` 바인딩 삭제)를 채운다. S3-T4는 B25의 Step 길이 코드 표기(`!` `@` … 점음표)를 같은 규칙으로 맞춘다. REQ 5.8·5.8.1·KM-7 문구는 같은 Task에서 고친다(결정 문서 「후속」).
+
 - 이월(S2-T4, 결정 `docs/decisions/2026-10-17-vim-marks-visible-ui.md` a): 피아노롤·배치 뷰의 우클릭 메뉴에 「마크 설정 ▸ a–z」「마크로 이동 ▸ a–z」(`cursor::SetMark`, `cursor::JumpMark`)를 둔다(UI-11).
 
 - 이월(S2-T5a 리뷰 1 제안 4): 재생은 곡 끝에서 스스로 멈추지 않는다(상태가 계속 재생 중). 커서·루프 구간과 함께 곡 끝 동작(멈춤 또는 계속)을 정한다. 일시정지 자리는 앱이 계산한 근삿값이라 루프 구간이 생기면 스케줄러에 위치 조회를 더할지도 이때 정한다.

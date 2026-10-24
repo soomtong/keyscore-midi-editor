@@ -87,7 +87,7 @@
 
 - [ ] 원격 CI 첫 실행과 CI 러너 벤치 기준값: remote가 생기면(사람이 건너뜀)
 - [ ] 후속: `crates/keyscore-midi/tests/scheduler.rs`의 20초 지터 측정이 같은 바이너리의 루프백 테스트와 겹치면 가끔 0.5 ms를 넘는다. 타이밍 측정 테스트를 서로 직렬로 묶는다.
-- [ ] 결정 대기: `2026-10-17-keymap-conflicts.md`의 A1–A12·B24·B25(S3–S6 전). A13은 결정됨
+- [x] `2026-10-17-keymap-conflicts.md` A1–A12·B24·B25 모두 권고안으로 결정(YoungTaek, 2026-10-24). 반영은 S3·S5·S6·S7 단계 파일의 이월 줄(프리셋 자리 채우기 + REQ 문구)
 - [x] REQ 9.2 문구(시각 대기 예외) 반영, 옛 `#` 주석은 레거시 지원 모드(`ParseOptions::legacy_hash_comments`, `txt2ksq --legacy`)
 - 개발 단계 REQ 문구 수정은 사람이 모두 승인(2026-10-17, `MEMORY.md`). 결정을 REQ에 옮길 때 묻지 않고 커밋 본문에 근거를 적는다
 - [ ] 사람의 수동 확인 대기: Surge XT 수신(SP-3), 실제 키보드·IME(SP-1), 120 Hz 디스플레이(SP-2)
@@ -123,7 +123,7 @@ REQ 문구: 사람이 에이전트에게 수정을 허락한 범위(결정 문�
 ## 다음 에이전트에게
 
 1. S2 출구는 서명됐다. 보고서 「사람이 확인할 항목」 가운데 「추후 점검」 항목(메뉴 키 등가물, 팔레트 첫 Esc, 크래시 복구, 가져오기·내보내기, 포트 매핑 시트, 핫플러그·서버 재시작, IME, 타이밍 시험)은 사람이 나중에 보며 S3을 막지 않는다. 사람이 결함을 알리면 Task 브랜치로 고친다.
-2. S3 시작 전: `docs/decisions/2026-10-17-keymap-conflicts.md` A1–A12·B24·B25 결정을 사람에게 받는다(S3 피아노롤 키 전). `plan/stages/13-S3-step-and-pianoroll.md`의 이월 줄을 읽고 S3-T1부터 Task 루프.
+2. S3 시작: `plan/stages/13-S3-step-and-pianoroll.md`의 Task와 이월 줄(키맵 결정 반영 포함)을 읽고 S3-T1 피아노롤 Element부터 Task 루프. S3-T1은 SP-2 분기 A(GPUI 프리미티브, `paint_layer` 조건)다.
 3. Task 루프: 브랜치 `s2/t<번호>-<slug>` → `docs/reports/s2-t<번호>/plan.md` → 테스트 먼저(뼈대 `todo!()`로 실패 확인) → 구현 → 게이트 전부(커밋 전에) → `report.md` → 새 에이전트로 적대적 리뷰(`general-purpose`, 구현 맥락 없이, 양식 `plan/templates/adversarial-review.md`, 산출물만 남기고 커밋 금지, 기존 `.proptest-regressions` 삭제 금지) → 지적마다 커밋 하나 → 재리뷰(최대 3회) → `git merge --no-ff`.
 4. 자동 게이트: `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`, `cargo deny check`, `scripts/check-deps.sh`, `scripts/check-deps.test.sh`, `scripts/bench-check.test.sh`. `core`·`text`에 외부 의존을 더하면 `scripts/check-deps.sh`의 허용 목록도 고친다.
 5. REQ에 없는 결정은 임의로 정하지 말고 사람에게 묻거나 `docs/decisions/`에 결정 요청을 쓴다. 사람과의 대화는 한국어로 하고, 문서에 `**`를 쓰지 않는다.

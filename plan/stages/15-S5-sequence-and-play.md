@@ -26,6 +26,7 @@
 - 리뷰 초점: 녹음 중 모델 변경이 스케줄러 스냅샷과 충돌하지 않는가(재생 중 편집 TRN-3 경로).
 
 - 이월(S2-T3, 결정 `docs/decisions/2026-10-17-keymap-conflicts.md` A13): Sequence의 `Esc`(`mode::Normal`)는 녹음을 멈추고 테이크를 남긴다(자동 퀀타이즈 적용, REQ 5.2). 카운트인 중이면 그냥 Normal. Play의 `Esc`는 눌린 노트의 Note Off를 보낸 뒤 Normal로 간다.
+- 이월(결정 `docs/decisions/2026-10-17-keymap-conflicts.md`, 2026-10-24): A4 루프 녹음이 켜져 있으면 `Sequence > Loop`의 `tab`/`shift-tab`(테이크 확정·버리기)이 미리 적기의 건너뛰기·되감기보다 이긴다(컨텍스트 깊이). `default.json`의 A4 자리 둘을 채우고 REQ 5.11에 우선순위 문장을 넣는다. B24 Play의 서스테인은 수식키 변경 이벤트로 `play::Sustain`을 켜고 끄며 키맵에 두지 않는다. 키맵 편집기에는 「고정 키」로 보인다.
 
 ### S5-T4 Play 모드
 
