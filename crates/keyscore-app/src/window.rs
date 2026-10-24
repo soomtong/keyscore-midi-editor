@@ -91,6 +91,8 @@ pub struct ProjectWindow {
     pub(crate) file_flow: bool,
     /// 자동 저장본 상태(S2-T7b).
     pub(crate) autosave: crate::autosave::WindowAutosave,
+    /// 피아노롤 커서·뷰포트·선택(S3-T1).
+    pub(crate) pianoroll: crate::pianoroll::PianoRollState,
 }
 
 impl ProjectWindow {
@@ -166,6 +168,7 @@ impl ProjectWindow {
             handle: window.window_handle(),
             file_flow: false,
             autosave: crate::autosave::WindowAutosave::new(),
+            pianoroll: crate::pianoroll::PianoRollState::new(),
         };
         this.refresh_fields(window, cx);
         this.refresh_file_state(window, cx);
@@ -250,7 +253,12 @@ impl ProjectWindow {
     ) {
         let next = self.mode.apply(event);
         if next != self.mode {
+            let entered_piano_roll =
+                next.view() == View::PianoRoll && self.mode.view() != View::PianoRoll;
             self.mode = next;
+            if entered_piano_roll {
+                self.entered_piano_roll(cx);
+            }
             // 입력란에서 전역 키(`ctrl-tab`)로 모드가 바뀌면 문서로 포커스를 옮긴다. 그대로 두면 상태줄은
             // 새 모드인데 키는 입력란 글자가 된다(리뷰 2 제안 1).
             if self.field_focused(window, cx) {
@@ -259,6 +267,18 @@ impl ProjectWindow {
             }
             cx.notify();
         }
+    }
+
+    /// 피아노롤 상태(S3-T1).
+    #[must_use]
+    pub fn piano_roll(&self) -> &crate::pianoroll::PianoRollState {
+        &self.pianoroll
+    }
+
+    /// 피아노롤의 가로·세로 뷰포트. 인스펙터·레인이 같은 가로축을 그릴 때 읽는다(가로 동기 훅).
+    #[must_use]
+    pub fn piano_roll_viewport(&self) -> crate::pianoroll::Viewport {
+        self.pianoroll.viewport()
     }
 
     /// 현재 트랙(S2-T5b). 트랙이 없으면 `None`.
@@ -621,6 +641,7 @@ impl ProjectWindow {
         let e = Self::on_mode::<ai::Accept>(e, LeaveAi, cx);
         let e = Self::on_mode::<ai::Dismiss>(e, LeaveAi, cx);
         let e = Self::on_mode::<ai::DismissGhost>(e, DismissGhost, cx);
+        let e = Self::piano_roll_handlers(e, cx);
         e.on_action(cx.listener(Self::show_mode_menu))
             .on_action(cx.listener(Self::transport_play))
             .on_action(cx.listener(Self::transport_play_from_cursor))
@@ -976,10 +997,6 @@ impl Render for ProjectWindow {
             self.baseline = Some((track_w, inspector_w));
         }
         let range = px(*PANEL_SIZE_RANGE.start())..px(*PANEL_SIZE_RANGE.end());
-        let main_label = match self.mode.view() {
-            View::Arrangement => "배치 뷰",
-            View::PianoRoll => "피아노롤",
-        };
         let transport_bar = self.render_transport_bar(window, cx).into_any_element();
         let track_list = self.render_track_list(cx).into_any_element();
         let inspector = self.render_inspector(window, cx).into_any_element();
@@ -988,8 +1005,11 @@ impl Render for ProjectWindow {
         // 시작하므로 모드 키는 그대로이고, 겹 바깥의 트랜스포트 바·인스펙터 입력란에 친 `space`·글자·숫자는
         // 모드 바인딩(재생 토글, vim 카운트)으로 빠지지 않는다(S2-T5b 리뷰 1 지적 1). 팔레트·팝업과 같은
         // 이유다.
-        let main_view =
-            self.wrap_in_contexts(Self::region("main-view", main_label, cx).into_any_element());
+        let main_view = match self.mode.view() {
+            View::Arrangement => Self::region("main-view", "배치 뷰", cx).into_any_element(),
+            View::PianoRoll => self.render_piano_roll(window, cx).into_any_element(),
+        };
+        let main_view = self.wrap_in_contexts(main_view);
         let top = div()
             .id("top")
             .on_any_mouse_down(Self::focus_document_on_press(cx))

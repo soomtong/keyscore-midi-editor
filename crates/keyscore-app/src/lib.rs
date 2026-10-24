@@ -20,6 +20,8 @@ pub mod keymap;
 pub mod mode;
 mod overlay;
 pub mod palette;
+pub mod pianoroll;
+mod pianoroll_window;
 pub mod port_mapping;
 pub mod ports;
 pub mod settings;

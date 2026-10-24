@@ -24,3 +24,8 @@ schemars = "1"
 gpui-kit = { workspace = true, features = ["test-support"] }
 coremidi.workspace = true
 insta.workspace = true
+criterion.workspace = true
+
+[[bench]]
+name = "pianoroll"
+harness = false
