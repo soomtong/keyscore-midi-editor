@@ -235,8 +235,8 @@ pub fn insert_notes(
 }
 
 /// 틈에 노트를 넣을 새 클립 편집(`InsertClip`, REQ 5.10 「클립 밖 입력은 마디 단위로 새 클립」). 노트 시작은 절대
-/// 틱이다. 클립 시작은 `at`이 든 마디의 시작, 끝은 마지막 노트 끝을 품는 마디의 끝이다. 같은 트랙의 다른 클립과
-/// 겹치면 거부한다.
+/// 틱이다. 클립 시작은 `at`이 든 마디의 시작(앞 클립이 그 마디 안 `at` 앞에서 끝나면 그 끝), 끝은 마지막 노트 끝을
+/// 품는 마디의 끝(다음 클립이 그 앞에서 시작하면 그 시작)이다. 노트가 다른 클립과 겹치면 거부한다.
 ///
 /// # Errors
 ///
@@ -254,11 +254,18 @@ pub fn clip_for_notes(
         return Err(ModelError::NoteNotFound);
     }
     let meter = project.meter_map();
-    let start = meter
+    let bar_start = meter
         .bar_start(meter.position(at).bar())
         .unwrap_or(Tick::ZERO)
         .get();
-    let mut clip = Clip::new(Tick::new(start), 1)?;
+    // 앞 클립이 그 마디 안에서 끝나면(SMF 가져오기·줄이기가 만든 마디 중간 끝) 그 끝에서 시작한다(S3-T3a 리뷰 1
+    // 지적 2). 마디 시작으로 잡으면 틈인데도 앞 클립과 겹쳐 거부된다.
+    let start = t
+        .clips()
+        .map(|(_, o)| o.end())
+        .filter(|&e| e > bar_start && e <= at.get())
+        .max()
+        .unwrap_or(bar_start);
     let mut end = start;
     let mut relative = Vec::with_capacity(notes.len());
     for n in notes {
@@ -270,15 +277,25 @@ pub fn clip_for_notes(
         end = end.max(n.end());
         relative.push(n.with_start(Tick::new(rel))?);
     }
-    // 길이 1인 임시 클립 기준으로 끝을 마디 경계까지 올린다(`bar_aligned_length`와 같은 규칙).
-    let length = bar_aligned_length(project, &clip, (end - start).max(1))?;
-    let stop = start.checked_add(length).ok_or(ModelError::TickOverflow)?;
+    // 끝은 마지막 노트 끝을 품는 마디의 끝. 다음 클립이 그 사이(노트 끝 뒤)에서 시작하면 그 시작까지만 늘린다.
+    // 노트가 다음 클립에 닿으면 거부한다.
+    let probe = Clip::new(Tick::new(start), 1)?;
+    let bar_stop = start
+        .checked_add(bar_aligned_length(project, &probe, (end - start).max(1))?)
+        .ok_or(ModelError::TickOverflow)?;
+    let stop = t
+        .clips()
+        .map(|(_, o)| o.start().get())
+        .filter(|&s| s >= end && s < bar_stop)
+        .min()
+        .unwrap_or(bar_stop);
     if t.clips()
         .any(|(_, o)| o.start().get() < stop && start < o.end())
     {
         return Err(ModelError::ClipOverlap { start, end: stop });
     }
-    clip = Clip::new(Tick::new(start), length)?;
+    let length = stop - start;
+    let mut clip = Clip::new(Tick::new(start), length)?;
     for n in relative {
         clip.insert_note(n)?;
     }

@@ -175,3 +175,47 @@ proptest! {
         }
     }
 }
+
+#[test]
+fn clip_for_notes_starts_after_prev_clip_and_stops_before_next_in_same_bar() {
+    // 앞 클립 [0, 1마디 + 2박), 다음 클립 [2마디 + 3박, …): 1마디 + 3박에 노트 하나(1박)
+    let (d, t, _) = doc(&[(0, BAR + 1920), (2 * BAR + 2880, BAR)], None);
+    let edit = clip_for_notes(
+        d.project(),
+        t,
+        &[note(BAR + 2880, 960, 60)],
+        Tick::new(BAR + 2880),
+    )
+    .unwrap();
+    let Edit::InsertClip { clip, .. } = &edit else {
+        panic!("{edit:?}");
+    };
+    // 시작은 앞 클립 끝, 끝은 마디 끝(2마디)
+    assert_eq!(
+        (clip.start().get(), clip.length()),
+        (BAR + 1920, BAR - 1920)
+    );
+    assert_eq!(clip.notes()[0].start().get(), 960);
+    // 2마디 + 1박의 노트: 끝은 마디 끝(3마디)이 아니라 다음 클립 시작
+    let edit = clip_for_notes(
+        d.project(),
+        t,
+        &[note(2 * BAR + 960, 960, 60)],
+        Tick::new(2 * BAR + 960),
+    )
+    .unwrap();
+    let Edit::InsertClip { clip, .. } = &edit else {
+        panic!("{edit:?}");
+    };
+    assert_eq!((clip.start().get(), clip.end()), (2 * BAR, 2 * BAR + 2880));
+    // 노트가 다음 클립에 닿으면 거부
+    assert!(matches!(
+        clip_for_notes(
+            d.project(),
+            t,
+            &[note(2 * BAR + 960, 2000, 60)],
+            Tick::new(2 * BAR + 960)
+        ),
+        Err(ModelError::ClipOverlap { .. })
+    ));
+}
