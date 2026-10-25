@@ -10,7 +10,7 @@
 
 피아노롤(`Normal > PianoRoll`)에서 REQ 5.7 표의 모든 칸이 키 하나로 동작하고, 선택이 모델 안의 실제 노트 집합이 되며, 커서가 노트 위로 가면 그 트랙의 포트·채널로 미리듣기가 나간다. 구체적으로:
 
-1. 선택(`pianoroll::Selection`): (트랙, 클립, 노트 집합, 기준 칸)을 가진다. 노트는 그 클립의 실제 `Note` 값이다.
+1. 선택(`pianoroll::Selection`): (트랙, 클립, 노트 집합)을 가진다. 노트는 그 클립의 실제 `Note` 값이다. `Shift+이동`의 기준 칸은 선택이 비어도 남아야 해서(빈 칸을 지나 노트까지 넓히기) `PianoRollState::anchor`가 따로 든다(구현 중 변경).
    - `Shift+이동`(`select::ExtendLeft/Right/Up/Down`, `ExtendBarBack/Forward`, `ExtendOctaveDown/Up`): 커서를 수식키 없는 이동과 같은 규칙으로 옮기고(`ExtendBarBack`은 `Ctrl+h`와 같은 읽기: 마디 중간이면 그 마디 시작, 시작이면 앞 마디 시작. S3-T1 리뷰 1 제안 3을 여기서 고정한다), 기준 칸 ↔ 새 커서 칸이 만드는 직사각형(시간은 두 칸을 포함하는 `[min, max + 한 스텝)`, 음높이는 두 칸을 포함하는 범위)에 걸치는 현재 클립의 노트를 선택으로 삼는다. 「걸친다」는 노트 구간 `[start, end)`가 시간 범위와 겹치고 음높이가 범위 안인 것이다(7.4 러버밴드와 같은 기준). 기준 칸이 없으면(선택이 비었거나 `b`·`Shift+b`·`Cmd+A`로 만든 선택) 옮기기 전 커서 칸이 기준이 된다.
    - `b` `select::Bar`: 현재 클립에서 커서가 든 마디 `[마디 시작, 다음 마디 시작)`에 걸치는 노트. `Shift+b` `select::Clip`: 현재 클립의 모든 노트. `Cmd+A` `select::All`: 피아노롤에서는 `Clip`과 같다(배치 뷰의 클립 전체 선택은 S4). 셋 다 기준 칸을 지운다.
    - `Esc` `select::Clear`: 선택을 비운다. 선택이 비면 모드 FSM에 `ClearSelection`, 생기면 `Select`를 넣어 `Normal > PianoRoll > Selection` 컨텍스트가 실제 선택과 같이 움직인다. 뷰를 바꾸면(FSM이 선택을 비움) 실제 선택도 비운다.
@@ -40,6 +40,8 @@
 /// 고른 노트마다 `f`가 준 노트로 바꾸는 편집 묶음(클립마다 `ReplaceNotes` 하나). 클립 늘리기·거부 규칙은 quantize 등과 같다.
 pub fn map_notes(project: &Project, notes: &[NoteRef],
                  f: impl FnMut(&NoteRef, &Clip, &Note) -> Result<Note, ModelError>) -> Result<Vec<Edit>, ModelError>;
+// crates/keyscore-core/src/note.rs: 앱이 노트 변형을 만들 수 있게 공개(규칙 변경 없음, 각각 자기 검사를 한다)
+impl Note { pub fn with_start(&self, Tick) -> Result<Note>; pub fn with_pitch(&self, Pitch) -> Result<Note>; pub fn with_length(&self, u32) -> Result<Note>; }
 
 // crates/keyscore-app/src/document.rs
 impl ProjectDocument {
@@ -48,18 +50,20 @@ impl ProjectDocument {
 }
 
 // crates/keyscore-app/src/pianoroll/mod.rs
-pub struct Selection { track: Option<TrackId>, clip: Option<ClipId>, notes: BTreeSet<Note>, anchor: Option<Cursor> }
+pub struct Selection { track: Option<TrackId>, clip: Option<ClipId>, notes: BTreeSet<Note> }
 impl Selection {
     pub fn is_empty(&self) -> bool; pub fn len(&self) -> usize;
-    pub fn clip(&self) -> Option<ClipId>; pub fn track(&self) -> Option<TrackId>; pub fn anchor(&self) -> Option<Cursor>;
+    pub fn clip(&self) -> Option<ClipId>; pub fn track(&self) -> Option<TrackId>;
     pub fn contains(&self, clip: ClipId, note: &Note) -> bool; pub fn notes(&self) -> impl Iterator<Item = &Note>;
-    pub fn set(&mut self, track: TrackId, clip: ClipId, notes: BTreeSet<Note>, anchor: Option<Cursor>);
+    pub fn set(&mut self, track: TrackId, clip: ClipId, notes: BTreeSet<Note>);   // 비면 clear
     pub fn clear(&mut self);
     pub fn retain_existing(&mut self, clip: Option<&Clip>) -> bool; // 클립에 없는 노트를 뺀다. 바뀌었으면 참
 }
 pub struct Mark { pub track: TrackId, pub cursor: Cursor }
+pub enum FindDirection { Forward, Backward }
 impl PianoRollState {
     pub fn selection(&self) -> Selection; pub fn set_selection(&self, s: Selection);
+    pub fn anchor(&self) -> Option<Cursor>; pub fn set_anchor(&self, Option<Cursor>);   // Shift+이동 기준 칸
     pub fn set_mark(&self, name: char, mark: Mark); pub fn mark(&self, name: char) -> Option<Mark>;
     pub fn last_find(&self) -> Option<FindDirection>; pub fn set_last_find(&self, d: FindDirection);
 }
@@ -76,7 +80,8 @@ pub fn clip_last_step(clip: &Clip, step: u64) -> Tick;
 // crates/keyscore-app/src/pianoroll/ops.rs (순수 → Edit)
 pub enum NoteOp { NudgeEarlier, NudgeLater, NudgeBarEarlier, NudgeBarLater, TransposeUp, TransposeDown,
                   OctaveUp, OctaveDown, Lengthen, Shorten }
-impl NoteOp { pub fn coalesce_key(self) -> u64; pub fn label(self) -> &'static str; }
+impl NoteOp { pub const ALL: [NoteOp; 10]; pub fn coalesce_key(self) -> u64; pub fn label(self) -> &'static str;
+              pub fn moves_time(self) -> bool; pub fn moves_pitch(self) -> bool; }
 pub struct Planned { pub edits: Vec<Edit>, pub moved: Vec<(Note, Note)> }
 pub fn plan_note_op(project: &Project, track: TrackId, clip: ClipId, notes: &[Note], op: NoteOp,
                     step: u64) -> Result<Option<Planned>, OpError>;   // Ok(None) = 바뀌는 노트 없음
@@ -84,7 +89,11 @@ pub fn plan_note_op(project: &Project, track: TrackId, clip: ClipId, notes: &[No
 // crates/keyscore-app/src/commands/ex.rs (순수)
 pub enum ExCommand { Write(Option<String>), Quit, Edit(Option<String>), New, Set(Option<SettingsSection>) }
 pub fn parse(query: &str) -> Result<ExCommand, ExError>;   // ":w name" 등. 접두 ':' 포함 문자열
+pub fn is_command_line(query: &str) -> bool;               // 앞 공백 뒤 ':'
 impl ExCommand { pub fn label(&self) -> String; }           // 팔레트 줄에 보이는 설명
+// command_palette: PaletteEvent::Ex(ExCommand), CommandPalette::set_query_text(text, window, cx)
+// preview.rs(crate 안): ProjectWindow::sound_note(track, pitch, velocity, length, cx) -> NoteSend — PRE-1·PRE-3 공통 경로
+// selection.rs(crate 안): 처리기. ProjectWindow::open_popup_with(kind, at, window, cx, build(menu, window, cx)) 하위 메뉴용
 
 // Action(신규 4개, 301개): operator::Cancel, palette::OpenCommandLine, settings::TogglePreviewOnMove, settings::SetPreviewLength(Int)
 // 설정: settings.preview { on_move: bool, length_ms: u32(1..=10000) }
