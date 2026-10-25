@@ -143,7 +143,18 @@ scripts/bench-check.py: pianoroll/scene_10k_notes 26.4 µs(기준 29.7 µs, -11%
 | 4 걸치는 클립이 없으면 선택이 빔 | 수락. 선택을 그대로 둔다 |
 | 5 빈 선택의 기준 칸을 `Esc`가 못 지움 | 수락. 기준 칸만 남은 상태도 선택 중으로 보아(`sync_selection_mode`) `Esc`=`select::Clear`가 지운다. A13 표의 「Normal(선택 없음): 없음」은 기준 칸도 없는 상태로 읽는다 |
 
-재리뷰 3회에 닿아 결정 요청 `docs/decisions/2026-10-25-s3-t2-review-limit.md`를 썼다. 결정이 나기 전에는 병합하지 않는다.
+재리뷰 3회에 닿아 결정 요청 `docs/decisions/2026-10-25-s3-t2-review-limit.md`를 썼다. 사람이 A(좁은 확인 1회)로 정했다.
+
+## 리뷰 4 대응(`docs/reports/s3-t2/review-4.md`, 좁은 확인, 판정 「수정 후 재리뷰」, 차단 없음)
+
+| 지적 | 대응 | 커밋 |
+| --- | --- | --- |
+| 1 다른 트랙의 틈에서 넓히면 선택 트랙의 숨은 노트가 더해짐 | 「지금 선택의 클립」 규칙은 선택의 트랙이 지금 트랙일 때만 쓴다. 지금 선택에 더하는 조건도 (트랙, 클립)으로 본다 | `Use the selection's clip for gap extends only on the same track` |
+| 2 손으로 쓴 `f20`이 하나 있으면 새 `f20`도 통과 | `save_user`가 「이미 있는」을 (컨텍스트, 키, Action) 항목 단위로 본다 | `Compare whole keymap entries when allowing existing reserved keys` |
+| 3 기준 칸만 남은 상태를 뷰 전환이 지우지 않음 | `apply_mode_event`가 FSM이 선택을 비우면 기준 칸만 남은 상태도 지운다 | `Clear an anchor-only selection on view toggle` |
+| 4 누락 시험 | `review_s3_t2_r4.rs` 7개를 리뷰어가 쓴 그대로 둔다(수정 커밋 앞에 커밋, 실패 4 → 통과) | 리뷰 커밋 |
+
+결정 부록(사람, 2026-10-25): 리뷰를 더 하지 않고 게이트가 녹색이면 병합한다. 이월(같은 트랙 마디 단위 넓히기의 직사각형이 덮는 클립과 고른 클립이 다름)은 단계 파일 S3-T6로 옮겼다.
 
 ## 리뷰어에게
 
