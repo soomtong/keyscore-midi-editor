@@ -1,4 +1,4 @@
-# HANDOFF: KeyScore S3 진행 중 — S3-T1 병합, S3-T2 다음
+# HANDOFF: KeyScore S3 진행 중 — S3-T2 리뷰 3회 완료, 재리뷰 한도 결정 대기
 
 ## 목표
 
@@ -6,11 +6,12 @@
 
 ## 현재 브랜치
 
-`main` — S0 완료·서명(2026-10-15), S1-T1~T7과 계이름 텍스트 주석 `//` 변경 병합(테스트 818개 통과). S1 출구 서명(YoungTaek, 2026-10-16). S2-T1~T4·S2-T5a~T5d·S2-T6a~T6f 병합(테스트 1568개). S2-T6은 T6a(설정 창·키맵 편집기)·T6b(`?` 오버레이)·T6c(입력·메트로놈·AI 탭)·T6d(가상 포트)·T6e(포트별 클럭·테스트 노트·포트 상태)·T6f(이월 줄)로 나눴다. S2-T7은 T7a(저장·열기·닫기·최근 파일, 병합 72f2845, 테스트 1645 + 리뷰 r3 18)·T7b(자동 저장본·복구, 병합 4be705a, 테스트 1728 + 리뷰 r4 5)·T7c(가져오기·내보내기 메뉴, 병합 후 테스트 1795)·T7d(OUT-8 대체 매핑 제안, 병합 87deb10, 테스트 1824 + 리뷰 r3 3)·T7e(S2-T7b 리뷰 4·S2-T7c 리뷰 2·S2-T7d 리뷰 3 이월, 병합 96aa5aa, 테스트 1876 + 리뷰 r1 20·r2 8)로 나눴다(결정 `2026-10-21-s2-t7-save-policy-and-split.md`, `2026-10-22-s2-t7c-import-export.md`, `2026-10-22-out8-port-mapping-sheet.md`). S2 출구 보고서 `docs/reports/stage-2-exit.md`를 2026-10-24에 썼다(자동 게이트 통과, UI-11 시험 확인, 이월 31줄 대조). S2 출구 서명(YoungTaek, 2026-10-24, 키보드 한 바퀴 확인. 나머지 수동 항목은 추후 점검). S3-T1 피아노롤 Element 병합(d6ccc7c, 리뷰 2회, 전체 시험 1918). 다음은 S3-T2.
+`main` — S0 완료·서명(2026-10-15), S1-T1~T7과 계이름 텍스트 주석 `//` 변경 병합(테스트 818개 통과). S1 출구 서명(YoungTaek, 2026-10-16). S2-T1~T4·S2-T5a~T5d·S2-T6a~T6f 병합(테스트 1568개). S2-T6은 T6a(설정 창·키맵 편집기)·T6b(`?` 오버레이)·T6c(입력·메트로놈·AI 탭)·T6d(가상 포트)·T6e(포트별 클럭·테스트 노트·포트 상태)·T6f(이월 줄)로 나눴다. S2-T7은 T7a(저장·열기·닫기·최근 파일, 병합 72f2845, 테스트 1645 + 리뷰 r3 18)·T7b(자동 저장본·복구, 병합 4be705a, 테스트 1728 + 리뷰 r4 5)·T7c(가져오기·내보내기 메뉴, 병합 후 테스트 1795)·T7d(OUT-8 대체 매핑 제안, 병합 87deb10, 테스트 1824 + 리뷰 r3 3)·T7e(S2-T7b 리뷰 4·S2-T7c 리뷰 2·S2-T7d 리뷰 3 이월, 병합 96aa5aa, 테스트 1876 + 리뷰 r1 20·r2 8)로 나눴다(결정 `2026-10-21-s2-t7-save-policy-and-split.md`, `2026-10-22-s2-t7c-import-export.md`, `2026-10-22-out8-port-mapping-sheet.md`). S2 출구 보고서 `docs/reports/stage-2-exit.md`를 2026-10-24에 썼다(자동 게이트 통과, UI-11 시험 확인, 이월 31줄 대조). S2 출구 서명(YoungTaek, 2026-10-24, 키보드 한 바퀴 확인. 나머지 수동 항목은 추후 점검). S3-T1 피아노롤 Element 병합(d6ccc7c, 리뷰 2회, 전체 시험 1918). S3-T2는 브랜치 `s3/t2-cursor-selection-modifiers`(끝 커밋은 `git log -1 s3/t2-cursor-selection-modifiers`)에 구현·리뷰 3회(모두 「수정 후 재리뷰」, 3회차는 차단 없음)를 마치고 결정 요청 `docs/decisions/2026-10-25-s3-t2-review-limit.md`(권고 A: 3회차 수정 범위만의 좁은 확인 리뷰 뒤 병합)를 기다린다. 병합하지 않았다. 최종 상태 전체 시험 1981 통과.
 
 ## 완료된 작업
 
 - [x] 저장소 구조: 계획은 `plan/`, REQ 원문은 `docs/REQ.md`
+- [ ] S3-T2 커서·선택·수식키 체계(브랜치 `s3/t2-cursor-selection-modifiers`, 미병합, 결정 대기). 5.7 표 전체(테이블 시험 56칸), 선택 `Selection`(트랙·클립·노트 집합, `Shift+이동` 기준 칸은 `PianoRollState::anchor`), `b`/`Shift+b`/`Cmd+A`/`Esc`, `Alt` 조작(`pianoroll::ops` → core `transform::map_notes` 공개, `Note::with_start/with_pitch/with_length` 공개), 되돌리기 묶음(`ProjectDocument::apply_coalesced`, 창의 `observe_keystrokes`가 같은 조작 아닌 키에 `seal`), `n`/`p`/`Shift+n`/`Shift+p`/`Cmd+←→`, vim `f`/`F`/`;`/`,`, 마크(`SetMark/JumpMark`)와 피아노롤 우클릭 메뉴(`open_popup_with`), 미리듣기 PRE-1(`preview::sound_note`를 테스트 노트와 공유, 설정 `preview {on_move, length_ms}`와 설정 > 입력 컨트롤), `Shift+Space`는 피아노롤 커서부터, `:` 명령줄(A12, `palette::OpenCommandLine`, `commands::ex`), vim.json A2·A8·A10·A11, `operator::Cancel`, 시퀀스 대기 중 `Esc` 가로채기(예약 키 `f20` 디스패치, 키맵은 `f20`을 거부). 리뷰 3회의 규칙: 선택이 현재 클립 밖이면 `Alt` 조작 거부, 넓히기는 좁히지 않음(클립 우선순위 기준 칸→커서→선택→직사각형 첫 클립), 커서 노트 조작 뒤 커서는 스텝 격자로 노트 안, 기준 칸만 남은 상태도 선택 중. 결정 요청 `2026-10-25-playback-end-of-song.md`(곡 끝 동작)도 썼다. 자세한 것은 `docs/reports/s3-t2/{plan,report,review-1,review-2,review-3}.md`
 - [x] S3-T1 피아노롤 Element(리뷰 2회: 1회차 「수정 후 재리뷰」 지적 3·제안 7, 2회차 「병합 가능」 제안 3, 병합 d6ccc7c). `src/pianoroll/{mod.rs,scene.rs,element.rs}` + `src/pianoroll_window.rs`. 순수 장면 계산 `scene::build`(행 명암·마디/박 선·노트·커서·재생 헤드, 클립별 최대 노트 길이 캐시 `MaxLenCache`로 `partition_point`), `PianoRollElement`는 `paint_layer` 하나 안에서 `paint_quad`만(SP-2 분기 A), 클릭은 커서, 휠은 스크롤(`should_handle_scroll`). 창 상태 `PianoRollState`(`Rc<RefCell>`): 커서(틱·음높이), 뷰포트(첫 틱, px/틱 0.1 기본, 첫 행, 행 높이 12), 한 스텝 960 고정(S3-T4가 묶음), 빈 `Selection`(S3-T2). 커서 키(스텝·반음·마디·옥타브)와 줌(`cmd-=`/`cmd--`/`cmd-0`, vim `z z`)은 뷰포트가 따라감. 들어갈 때 커서가 클립 밖이면 첫 클립 시작, 안 보이면 가운데(크기 모르면 `Follow` 보류). 벤치 `pianoroll/scene_10k_notes` 29.7 µs, release 프레임 시험 중앙값 1.5 ms. 이월: S3-T2 `Ctrl+h` 읽기, S3-T6 주 뷰 가장자리 4 px, S4-T1 뷰별 줌
 - [x] S2 출구 보고서 `docs/reports/stage-2-exit.md`(2026-10-24). 빠른 게이트·UI-11 통과. 이월 31줄 가운데 남은 것은 FAT32 inode 재사용(S8-T3), 가져오기 진행률(S6-T3), [복구]·[버리기] 경합 틈·`virtual_ports` 같은 이름 둘(S8-T3)로 단계 파일에 옮겼다. 수동 확인 항목은 보고서 「사람이 확인할 항목」
 - [x] S2-T7e 세 리뷰의 이월 줄 정리(리뷰 2회, 둘 다 「병합 가능」, 병합 96aa5aa). `autosave.rs`: `remove_dead_locks`가 끝난 세션의 내용 없는 메타와 메타 없는 키의 1분 넘은 세대별 임시 파일을 지우고 시작 때(`offer_recovery`, 복구 대상 없어도) 돈다, `recover`는 `claim`(열기+잠금 한 번)을 창보다 먼저 잡고 실패하면 건너뛰며 건너뛴 수(`still_dead` 거짓 포함)를 모든 창에 알림, `discard`는 `claimed`면 건너뜀(리뷰 4 시험 기대값 1로 변경), `init`은 `try_lock` 3회(닿는 경로는 지금 없음). `smf/report.rs`: `overlapping_notes`는 (SMF 트랙, 채널, 음높이)마다 틱 순 시작↔틱 순 끝 짝에 없는 노트 수(Type 0은 같은 채널 트랙 섞임), `dropped_same_tick`(같은 재배율 틱의 다른 값 템포·박자표), `yields_song_track`(곡 트랙이 안 되는 Type 1 트랙의 이름은 손실), `Rescale::for_ppq`. `import_text_into`: 같은 이름 트랙 여럿이면 조건에 맞는 첫 트랙. `engine.rs`: `visual_match`(보이는 모양 같은 목적지 중 고유 ID 최소, `open_port`·`release_mapped`), `follow_device_in_settings`(메트로놈·클럭 설정이 대체 포트면 장치 이름으로, `release_mapped`·`install`), `remember_user_port`·`rename_virtual_port`가 새 이름의 `mapped_ports` 표시를 `same_port_name`으로 지움. 이월(S2 출구 전 판단): [복구]·[버리기] 다른 실행 경합의 좁은 틈, `rename_virtual_port`로 설정 `virtual_ports`에 남은 이름으로 바꾸면 같은 이름 둘
@@ -84,6 +85,9 @@
 - 재생 시작 때 트랙마다 `send_now`로 프로그램 보내기(S2-T5a 리뷰 1): 명령 큐(256)가 넘쳤다. 스케줄러 chase를 쓴다. 스냅샷 교체 전 `collect_garbage`를 부르지 않으면 교체 약 260번 뒤 큐가 막힌다(리뷰 2).
 - 사람 결정의 해석을 REQ 의미로 옮길 때 원문과 다르게 읽힐 수 있는 행은 사람에게 확인한다(S2-T3 리뷰 3).
 - 단계 파일 수치를 검증 없이 옮기기: S0-T3 「1시간 = 3,456,000틱」은 60 BPM 기준이었다(정정함).
+- 커밋 메시지를 `git commit -m "..."`의 큰따옴표 안에 백틱(`:a:b`)과 함께 쓰면 zsh가 명령 치환해 글자가 사라진다(S3-T2). 본문은 파일에 써서 `-F`로 넘긴다.
+- REQ에 없는 UI 세부(선택 직사각형의 기하)를 코드로 먼저 정하면 리뷰 회차마다 새 조합이 나온다(S3-T2, 3회). 처음 계획에 규칙을 글로 전부 적고(기준 칸 생명주기, 클립 우선순위, 넓히기가 좁히는가) 그 글을 시험으로 고정한다.
+- 리뷰어 서브 에이전트가 `git worktree`에서 같은 `target/`을 쓰면 본 트리의 시험 바이너리가 옛 코드로 바뀐다(S3-T2 리뷰 3). 리뷰어 지시에 `CARGO_TARGET_DIR` 분리를 넣는다.
 
 ## 남은 작업
 
@@ -95,6 +99,8 @@
 - [ ] 사람의 수동 확인 대기: Surge XT 수신(SP-3), 실제 키보드·IME(SP-1), 120 Hz 디스플레이(SP-2)
 
 결정 대기(`rg -l "상태: 결정 대기" docs/decisions/`):
+- `2026-10-25-s3-t2-review-limit.md` — S3-T2 병합 전(권고 A)
+- `2026-10-25-playback-end-of-song.md` — S3-T3 또는 S5 전(권고 A: 곡 끝에서 정지)
 - `2026-10-11-ai-model-defaults.md` — S7 전
 - `2026-10-12-quantize-grid-lengths.md` — S5 전
 
@@ -125,8 +131,8 @@ REQ 문구: 사람이 에이전트에게 수정을 허락한 범위(결정 문�
 
 ## 다음 에이전트에게
 
-1. S2 출구는 서명됐다. 보고서 「사람이 확인할 항목」 가운데 「추후 점검」 항목(메뉴 키 등가물, 팔레트 첫 Esc, 크래시 복구, 가져오기·내보내기, 포트 매핑 시트, 핫플러그·서버 재시작, IME, 타이밍 시험)은 사람이 나중에 보며 S3을 막지 않는다. 사람이 결함을 알리면 Task 브랜치로 고친다.
-2. S3-T2 커서·선택·수식키 체계: `plan/stages/13-S3-step-and-pianoroll.md`의 S3-T2 절과 이월 줄(키맵 결정 A2·A8·A10·A11·A12 반영, `Ctrl+h` 읽기 고정, `operator::Cancel`, 곡 끝 동작)을 읽고 Task 루프. 선택은 `pianoroll::Selection`(지금 빈 BTreeSet<Note>)에 채우고 `Normal > PianoRoll > Selection` 컨텍스트는 `ModeEvent::Select/ClearSelection`으로 든다. 미리듣기(PRE-1)는 `Transport`의 테스트 노트 경로(`send_port_test_note`)를 참고한다.
+1. S3-T2는 결정 대기다. `docs/decisions/2026-10-25-s3-t2-review-limit.md`에 사람이 결정을 적으면: A면 새 에이전트로 「3회차 수정(`97eebee..fe5d3b5`)과 그 회귀, 리뷰 시험 38개」만 범위로 한 좁은 확인 리뷰(`docs/reports/s3-t2/review-4.md`)를 하고 「병합 가능」이면 `git merge --no-ff s3/t2-cursor-selection-modifiers`, 단계 파일·HANDOFF 갱신. B면 바로 병합. C면 범위 재정의 계획. 그동안은 S3-T2에 의존하지 않는 일(예: 곡 끝 동작 결정 요청 처리, S3-T5 건반 뷰 계획)을 한다. S3-T3는 선택·`apply_coalesced`·`seal`에 의존하므로 병합 뒤에 시작한다. 리뷰어 주의: worktree를 쓰면 `CARGO_TARGET_DIR`를 따로 둔다(3회차 리뷰어가 `target/` 공유로 옛 바이너리를 돌린 일이 있다).
+2. S2 출구는 서명됐다. 보고서 「사람이 확인할 항목」 가운데 「추후 점검」 항목(메뉴 키 등가물, 팔레트 첫 Esc, 크래시 복구, 가져오기·내보내기, 포트 매핑 시트, 핫플러그·서버 재시작, IME, 타이밍 시험)은 사람이 나중에 보며 S3을 막지 않는다. 사람이 결함을 알리면 Task 브랜치로 고친다.
 3. Task 루프: 브랜치 `s2/t<번호>-<slug>` → `docs/reports/s2-t<번호>/plan.md` → 테스트 먼저(뼈대 `todo!()`로 실패 확인) → 구현 → 게이트 전부(커밋 전에) → `report.md` → 새 에이전트로 적대적 리뷰(`general-purpose`, 구현 맥락 없이, 양식 `plan/templates/adversarial-review.md`, 산출물만 남기고 커밋 금지, 기존 `.proptest-regressions` 삭제 금지) → 지적마다 커밋 하나 → 재리뷰(최대 3회) → `git merge --no-ff`.
 4. 자동 게이트: `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`, `cargo deny check`, `scripts/check-deps.sh`, `scripts/check-deps.test.sh`, `scripts/bench-check.test.sh`. `core`·`text`에 외부 의존을 더하면 `scripts/check-deps.sh`의 허용 목록도 고친다.
 5. REQ에 없는 결정은 임의로 정하지 말고 사람에게 묻거나 `docs/decisions/`에 결정 요청을 쓴다. 사람과의 대화는 한국어로 하고, 문서에 `**`를 쓰지 않는다.
