@@ -1190,11 +1190,13 @@ fn selection_follows_document_changes(cx: &mut TestAppContext) {
     assert_eq!(selection_of(cx, &view), vec![(1920, 960, 62)]);
     press(cx, handle, "cmd-z");
     assert!(clip_a_notes(cx, &view).contains(&D4));
-    assert!(
-        selection_of(cx, &view).is_empty(),
-        "되돌리기로 사라진 노트는 선택에서 빠진다"
+    // S3-T3a(S3-T2 리뷰 1 제안 8): 되돌리기로 되살아난 원래 노트가 선택이 된다
+    assert_eq!(
+        selection_of(cx, &view),
+        vec![D4],
+        "되돌리기 뒤 선택은 되살아난 노트"
     );
-    assert!(!has_selection(cx, &view));
+    assert!(has_selection(cx, &view));
     // 다른 편집이 선택 노트의 일부만 없애면 남은 것만 남는다
     select(cx, &view, &[D4, A4]);
     let (track, clip_id) = ids(cx, &view);

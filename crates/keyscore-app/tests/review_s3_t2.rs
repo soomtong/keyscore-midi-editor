@@ -514,11 +514,12 @@ fn brk_undo_via_menu_then_same_op_starts_new_unit(cx: &mut TestAppContext) {
     run(cx, handle, edit::Undo);
     assert_eq!(undo_len(cx, &view), 1);
     assert!(clip_a_notes(cx, &view).contains(&(7680, 1920 + 2 * 960, 69)));
-    // undo로 노트 값이 바뀌어 선택이 비었다(구현의 가지치기 규칙). 묶음 질문만 보기 위해 키 입력 없이
+    // undo 뒤 선택은 되살아난 노트다(S3-T3a, S3-T2 리뷰 1 제안 8). 묶음 질문만 보기 위해 키 입력 없이
     // 다시 고른다(`set_selection`은 seal을 거치지 않는다).
-    assert!(
-        selection_of(cx, &view).is_empty(),
-        "undo 뒤 선택이 비는 것을 확인"
+    assert_eq!(
+        selection_of(cx, &view),
+        vec![(7680, 1920 + 2 * 960, 69)],
+        "undo 뒤 선택은 되살아난 노트"
     );
     select(cx, &view, &[(7680, 1920 + 2 * 960, 69)]);
     press(cx, handle, "alt-shift-l");
