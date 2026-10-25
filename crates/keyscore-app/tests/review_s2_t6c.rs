@@ -600,7 +600,8 @@ fn brk_calibrate_by_space(cx: &mut TestAppContext) {
     start(cx, "r-space");
     let (handle, _) = open_project(cx);
     let (sh, view) = open_settings(cx, handle, SettingsSection::Input);
-    press(cx, sh, "tab");
+    // S3-T2: 키 레이아웃 뒤에 미리듣기 컨트롤 둘이 서서 보정 칸은 세 번째 Tab이다
+    press(cx, sh, "tab tab tab");
     let focused = cx
         .update_window(sh, |_, window, cx| {
             view.read(cx).focused_control(window, cx)

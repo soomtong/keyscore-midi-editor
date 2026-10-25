@@ -60,7 +60,7 @@
       "shift-t": "transport::TapTempo",
       "c": "lane::Toggle",
       "a": "ai::OpenPanel",
-      ":": "palette::Open",
+      ":": "palette::OpenCommandLine",
       "?": "help::KeymapOverlay"
     }
   },

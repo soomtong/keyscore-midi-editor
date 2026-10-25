@@ -210,8 +210,12 @@ impl Note {
         Ok(Note { offset, ..self })
     }
 
-    /// 같은 내용에 길이만 바꾼 노트(길이 스케일).
-    pub(crate) fn with_length(&self, length: u32) -> Result<Self, ModelError> {
+    /// 같은 내용에 길이만 바꾼 노트(길이 스케일, 늘림·줄임).
+    ///
+    /// # Errors
+    ///
+    /// 길이가 0이면 [`ModelError::ZeroNoteLength`], 끝이 u64를 넘으면 [`ModelError::TickOverflow`].
+    pub fn with_length(&self, length: u32) -> Result<Self, ModelError> {
         if length == 0 {
             return Err(ModelError::ZeroNoteLength);
         }
@@ -223,7 +227,11 @@ impl Note {
     }
 
     /// 같은 내용에 음높이만 바꾼 노트(조옮김). 절대 피치 범위(결정 B)를 다시 검사한다.
-    pub(crate) fn with_pitch(&self, pitch: Pitch) -> Result<Self, ModelError> {
+    ///
+    /// # Errors
+    ///
+    /// 음높이 + 오프셋이 범위 밖이면 [`ModelError::AbsolutePitchOutOfRange`].
+    pub fn with_pitch(&self, pitch: Pitch) -> Result<Self, ModelError> {
         Note {
             pitch,
             ..self.clone()
@@ -286,7 +294,11 @@ impl Note {
     }
 
     /// 같은 내용을 다른 시작 틱에 둔 노트. 클립 분할·이동에서 기준점을 바꿀 때 쓴다.
-    pub(crate) fn with_start(&self, start: Tick) -> Result<Self, ModelError> {
+    ///
+    /// # Errors
+    ///
+    /// 끝이 u64를 넘으면 [`ModelError::TickOverflow`].
+    pub fn with_start(&self, start: Tick) -> Result<Self, ModelError> {
         start.checked_add(u64::from(self.length))?;
         Ok(Note {
             start,

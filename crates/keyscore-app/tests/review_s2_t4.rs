@@ -88,7 +88,8 @@ fn palette_enter_runs_once_and_does_not_reach_document(cx: &mut TestAppContext) 
     assert_eq!(mode_of(cx, &view), Mode::Normal);
 }
 
-// 열린 팔레트에서 친 `:`는 질의 글자다(Normal의 `:` → `palette::Open`이 가로채지 않는다).
+// 열린 팔레트에서 친 `:`는 질의 글자다(Normal의 `:` → `palette::OpenCommandLine`이 가로채지 않는다).
+// S3-T2(결정 A12): `:`는 팔레트를 `:` 접두가 채워진 채 열므로 질의는 `:a:b`다.
 #[gpui_kit::test]
 fn colon_typed_in_open_palette_goes_to_query(cx: &mut TestAppContext) {
     start(cx, "colon");
@@ -98,7 +99,7 @@ fn colon_typed_in_open_palette_goes_to_query(cx: &mut TestAppContext) {
     type_text(cx, handle, "a:b");
     assert_eq!(
         cx.read(|cx| view.read(cx).palette_query(cx)).as_deref(),
-        Some("a:b")
+        Some(":a:b")
     );
 }
 

@@ -8,8 +8,8 @@ use std::rc::Rc;
 use gpui_kit::{
     App, BorderStyle, Bounds, ContentMask, DispatchPhase, Element, ElementId, GlobalElementId,
     Hitbox, HitboxBehavior, Hsla, InspectorElementId, IntoElement, LayoutId, MouseButton,
-    MouseDownEvent, Pixels, ScrollDelta, ScrollWheelEvent, Style, Window, fill, point, px, quad,
-    relative, size,
+    MouseDownEvent, MouseUpEvent, Pixels, ScrollDelta, ScrollWheelEvent, Style, Window, fill,
+    point, px, quad, relative, size,
 };
 use keyscore_core::{Tick, TrackId};
 
@@ -37,6 +37,8 @@ pub struct Palette {
 
 /// 클릭 콜백: 눌린 칸.
 pub type ClickHandler = Rc<dyn Fn(Cursor, &mut Window, &mut App)>;
+/// 우클릭 콜백: 눌린 칸과 창 좌표(메뉴를 띄울 자리).
+pub type RightClickHandler = Rc<dyn Fn(Cursor, gpui_kit::Point<Pixels>, &mut Window, &mut App)>;
 
 pub struct PianoRollElement {
     pub(crate) state: PianoRollState,
@@ -47,6 +49,7 @@ pub struct PianoRollElement {
     pub(crate) animating: bool,
     pub(crate) palette: Palette,
     pub(crate) on_click: Option<ClickHandler>,
+    pub(crate) on_right_click: Option<RightClickHandler>,
 }
 
 impl PianoRollElement {
@@ -65,6 +68,7 @@ impl PianoRollElement {
             animating: false,
             palette,
             on_click: None,
+            on_right_click: None,
         }
     }
 
@@ -78,6 +82,16 @@ impl PianoRollElement {
     #[must_use]
     pub fn on_click(mut self, handler: impl Fn(Cursor, &mut Window, &mut App) + 'static) -> Self {
         self.on_click = Some(Rc::new(handler));
+        self
+    }
+
+    /// 우클릭(S3-T2: 마크 메뉴, UI-11).
+    #[must_use]
+    pub fn on_right_click(
+        mut self,
+        handler: impl Fn(Cursor, gpui_kit::Point<Pixels>, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.on_right_click = Some(Rc::new(handler));
         self
     }
 
@@ -304,6 +318,27 @@ impl PianoRollElement {
                     .cell_at(f32::from(local.x), f32::from(local.y))
                 {
                     on_click(cell, window, cx);
+                }
+            });
+        }
+        // 우클릭은 뗄 때 연다. 누를 때는 창의 겹 바깥 누름 처리기가 포커스를 문서로 돌리므로, 누를 때 메뉴를
+        // 열면 메뉴가 포커스를 잃어 Esc로 닫히지 않는다.
+        if let Some(on_right_click) = self.on_right_click.clone() {
+            let right_state = state.clone();
+            let right_hit = hitbox.clone();
+            window.on_mouse_event(move |event: &MouseUpEvent, phase, window, cx| {
+                if phase != DispatchPhase::Bubble
+                    || event.button != MouseButton::Right
+                    || !right_hit.is_hovered(window)
+                {
+                    return;
+                }
+                let local = event.position - origin;
+                if let Some(cell) = right_state
+                    .viewport()
+                    .cell_at(f32::from(local.x), f32::from(local.y))
+                {
+                    on_right_click(cell, event.position, window, cx);
                 }
             });
         }

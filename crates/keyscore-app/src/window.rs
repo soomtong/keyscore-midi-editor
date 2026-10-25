@@ -17,10 +17,11 @@ use gpui_kit::{
 };
 
 use crate::actions::view::{ToggleBottomPanel, ToggleInspector, ToggleTrackList};
-use crate::actions::{ai, clip, mode, palette, select, view};
+use crate::actions::{ai, clip, mode, palette, view};
 use crate::app_state::AppSettings;
 use crate::command_palette::{CommandPalette, PaletteEvent};
 use crate::commands::RunCommand;
+use crate::commands::ex::ExCommand;
 use crate::dispatch::run_action;
 use crate::document::ProjectDocument;
 use crate::mode::{Mode, ModeEvent, ModeState, View};
@@ -76,6 +77,8 @@ pub struct ProjectWindow {
     pub(crate) transport: Transport,
     /// undo 상한 알림을 이미 냈는가(창마다 한 번, EDT-1 결정 A).
     history_notice_shown: bool,
+    /// 미리듣기 실패 알림을 이미 냈는가(창마다 한 번, S3-T2 리뷰 1 제안 11).
+    pub(crate) preview_notice_shown: bool,
     /// 문서가 바뀌면 재생 중 스냅샷을 교체한다(TRN-3). 창이 닫히면 재생을 멈춘다.
     _document_changed: Subscription,
     _released: Subscription,
@@ -85,6 +88,8 @@ pub struct ProjectWindow {
     baseline: Option<(f32, f32)>,
     /// 창 크기 바뀜 구독(패널 크기 상태를 새로 만든다).
     _window_resized: Subscription,
+    /// 키 입력 관찰(되돌리기 묶음 끊기, S3-T2).
+    _keystrokes: Subscription,
     /// 이 뷰를 담은 창(파일 흐름이 시트를 띄우고 창을 닫는다).
     handle: gpui_kit::AnyWindowHandle,
     /// 저장·닫기 흐름이 돌고 있다(시트가 떠 있을 수 있다). 그동안 새 흐름을 시작하지 않는다(S2-T7a).
@@ -111,6 +116,7 @@ impl ProjectWindow {
         let focus = cx.focus_handle();
         let document_changed = cx.observe_in(&document, window, |this, _, window, cx| {
             this.keep_current_track(cx);
+            this.selection_document_changed(cx);
             this.sync_fields(window, cx);
             this.transport_document_changed(cx);
             this.notice_history_limit(cx);
@@ -132,6 +138,20 @@ impl ProjectWindow {
         // 그려지고, 다음 조절이 비율로 줄어든 값을 저장하지 않는다(S2-T1 리뷰 3 제안 1).
         let window_resized = cx.observe_window_bounds(window, |this, _, cx| {
             this.reset_panel_states(cx);
+        });
+        // 되돌리기 묶음(5.7): 같은 조작의 키가 아닌 키 입력이 끼면 묶음을 끊는다. 메뉴·팔레트 실행은 키 입력이
+        // 아니라 여기 오지 않는다. 다른 창의 키는 그 창의 일이다(S3-T2).
+        let keystrokes = cx.observe_keystrokes(|this, event, window, cx| {
+            if window.window_handle() != this.handle {
+                return;
+            }
+            let same_op = event
+                .action
+                .as_deref()
+                .is_some_and(crate::selection::is_note_op_action);
+            if !same_op {
+                this.seal_history(cx);
+            }
         });
         let me = cx.entity().downgrade();
         if cx.has_global::<OpenWindows>() {
@@ -161,10 +181,12 @@ impl ProjectWindow {
             palette: None,
             transport: Transport::default(),
             history_notice_shown: false,
+            preview_notice_shown: false,
             _document_changed: document_changed,
             _released: released,
             baseline: None,
             _window_resized: window_resized,
+            _keystrokes: keystrokes,
             handle: window.window_handle(),
             file_flow: false,
             autosave: crate::autosave::WindowAutosave::new(),
@@ -259,6 +281,15 @@ impl ProjectWindow {
             if entered_piano_roll {
                 self.entered_piano_roll(cx);
             }
+            // FSM이 선택을 비웠으면(뷰 전환, 선택 해제) 실제 선택도 비운다(S3-T2). 기준 칸만 남은 상태도 선택 중이라
+            // 함께 지운다. 남기면 문서가 바뀔 때 노트 없는 `Selection` 컨텍스트가 다시 켜진다(리뷰 4 지적 3).
+            if !next.has_selection()
+                && (!self.pianoroll.selection().is_empty() || self.pianoroll.anchor().is_some())
+            {
+                self.pianoroll
+                    .set_selection(crate::pianoroll::Selection::default());
+                self.pianoroll.set_anchor(None);
+            }
             // 입력란에서 전역 키(`ctrl-tab`)로 모드가 바뀌면 문서로 포커스를 옮긴다. 그대로 두면 상태줄은
             // 새 모드인데 키는 입력란 글자가 된다(리뷰 2 제안 1).
             if self.field_focused(window, cx) {
@@ -273,6 +304,36 @@ impl ProjectWindow {
     #[must_use]
     pub fn piano_roll(&self) -> &crate::pianoroll::PianoRollState {
         &self.pianoroll
+    }
+
+    /// 지금 선택(S3-T2).
+    #[must_use]
+    pub fn selection(&self) -> crate::pianoroll::Selection {
+        self.pianoroll.selection()
+    }
+
+    /// 선택을 바꾸고 모드 FSM의 선택 유무를 맞춘다(S3-T2).
+    pub fn set_selection(
+        &mut self,
+        selection: crate::pianoroll::Selection,
+        cx: &mut Context<Self>,
+    ) {
+        self.pianoroll.set_selection(selection);
+        self.sync_selection_mode(cx);
+        cx.notify();
+    }
+
+    /// 선택 유무만 바꾸는 FSM 사건(`Select`·`ClearSelection`). 모드·뷰는 바뀌지 않아 입력란 처리가 없다.
+    pub(crate) fn apply_selection_event(&mut self, event: ModeEvent) {
+        self.mode = self.mode.apply(event);
+    }
+
+    /// 피아노롤 우클릭 메뉴가 떠 있는가(S3-T2).
+    #[must_use]
+    pub fn context_menu_open(&self) -> bool {
+        self.popup
+            .as_ref()
+            .is_some_and(|p| p.kind == PopupKind::PianoRollMenu)
     }
 
     /// 피아노롤의 가로·세로 뷰포트. 인스펙터·레인이 같은 가로축을 그릴 때 읽는다(가로 동기 훅).
@@ -383,7 +444,7 @@ impl ProjectWindow {
     }
 
     /// 포커스가 텍스트 입력란(gpui-component `Input` 컨텍스트) 안에 있는가.
-    fn text_input_focused(window: &Window) -> bool {
+    pub(crate) fn text_input_focused(window: &Window) -> bool {
         window.context_stack().iter().any(|c| c.contains("Input"))
     }
 
@@ -495,8 +556,32 @@ impl ProjectWindow {
 
     /// 명령 팔레트를 연다(`palette::Open`, UI-2). 이미 열려 있으면 질의로 포커스만 돌린다.
     fn open_palette(&mut self, _: &palette::Open, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_palette_with(None, window, cx);
+    }
+
+    /// `:`(A12): 팔레트를 `:` 접두가 채워진 채 연다. 이어 치는 글자는 ex 명령이다.
+    fn open_command_line(
+        &mut self,
+        _: &palette::OpenCommandLine,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.open_palette_with(Some(":"), window, cx);
+    }
+
+    fn open_palette_with(
+        &mut self,
+        initial: Option<&str>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if let Some((palette, _)) = &self.palette {
-            palette.update(cx, |palette, cx| palette.focus_query(window, cx));
+            palette.update(cx, |palette, cx| {
+                if let Some(text) = initial {
+                    palette.set_query_text(text, window, cx);
+                }
+                palette.focus_query(window, cx);
+            });
             return;
         }
         // 팝업은 하나만 띄운다. 다른 팝업·키맵 오버레이가 열려 있으면 닫는다(포커스는 곧 팔레트로 간다,
@@ -507,13 +592,37 @@ impl ProjectWindow {
         let palette = cx.new(|cx| CommandPalette::new(target, window, cx));
         let events = cx.subscribe_in(&palette, window, |this, _, event, window, cx| {
             this.close_palette(window, cx);
-            if let PaletteEvent::Run(action) = event {
-                run_action(action.boxed_clone(), window, cx);
+            match event {
+                PaletteEvent::Run(action) => run_action(action.boxed_clone(), window, cx),
+                PaletteEvent::Ex(cmd) => this.run_ex(cmd.clone(), window, cx),
+                PaletteEvent::Close => {}
             }
         });
-        palette.update(cx, |palette, cx| palette.focus_query(window, cx));
+        palette.update(cx, |palette, cx| {
+            if let Some(text) = initial {
+                palette.set_query_text(text, window, cx);
+            }
+            palette.focus_query(window, cx);
+        });
         self.palette = Some((palette, events));
         cx.notify();
+    }
+
+    /// ex 명령(A12, REQ 7.5 vim 대응 열)을 실행한다. 인자 없는 명령은 같은 Action을 실행 함수로 낸다.
+    fn run_ex(&mut self, cmd: ExCommand, window: &mut Window, cx: &mut Context<Self>) {
+        use crate::actions::args::Opt;
+        use crate::actions::{file, settings, window as win};
+        match cmd {
+            ExCommand::Write(None) => run_action(Box::new(file::Save), window, cx),
+            ExCommand::Write(Some(name)) => self.file_save_as_named(name, cx),
+            ExCommand::Quit => run_action(Box::new(win::Close), window, cx),
+            ExCommand::Edit(None) => run_action(Box::new(file::Open), window, cx),
+            ExCommand::Edit(Some(path)) => self.open_ex_path(&path, cx),
+            ExCommand::New => run_action(Box::new(file::New), window, cx),
+            ExCommand::Set(section) => {
+                run_action(Box::new(settings::Open(Opt(section))), window, cx);
+            }
+        }
     }
 
     /// 팔레트를 닫고 문서로 포커스를 돌린다. 실행할 Action은 그 뒤에 문서 포커스로 디스패치된다.
@@ -562,9 +671,21 @@ impl ProjectWindow {
         cx: &mut Context<Self>,
         build: impl FnOnce(PopupMenu) -> PopupMenu + 'static,
     ) {
+        self.open_popup_with(kind, at, window, cx, |menu, _, _| build(menu));
+    }
+
+    /// [`Self::open_popup`]과 같되 하위 메뉴를 만들 수 있게 창·컨텍스트를 넘긴다(S3-T2 마크 메뉴).
+    pub(crate) fn open_popup_with(
+        &mut self,
+        kind: PopupKind,
+        at: Point<Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        build: impl FnOnce(PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu + 'static,
+    ) {
         self.palette = None;
         self.overlay = None;
-        let menu = PopupMenu::build(window, cx, |menu, _, _| build(menu));
+        let menu = PopupMenu::build(window, cx, build);
         let dismissed = cx.subscribe_in(&menu, window, |this, _, _: &DismissEvent, window, cx| {
             this.popup = None;
             window.focus(&this.focus, cx);
@@ -618,8 +739,7 @@ impl ProjectWindow {
     /// 모드 FSM에 사건을 넣는 Action 처리기들(전이 표: `docs/reports/s2-t3/plan.md`).
     fn mode_handlers(element: Stateful<Div>, cx: &mut Context<Self>) -> Stateful<Div> {
         use ModeEvent::{
-            ClearSelection, Cycle, CycleBack, DismissGhost, Enter, LeaveAi, OpenClip, ToNormal,
-            ToggleView,
+            Cycle, CycleBack, DismissGhost, Enter, LeaveAi, OpenClip, ToNormal, ToggleView,
         };
         let e = element;
         let e = Self::on_mode::<clip::Open>(e, OpenClip, cx);
@@ -636,7 +756,6 @@ impl ProjectWindow {
         let e = Self::on_mode::<mode::Cycle>(e, Cycle, cx);
         let e = Self::on_mode::<mode::CycleBack>(e, CycleBack, cx);
         let e = Self::on_mode::<mode::Normal>(e, ToNormal, cx);
-        let e = Self::on_mode::<select::Clear>(e, ClearSelection, cx);
         let e = Self::on_mode::<ai::OpenPanel>(e, Enter(Mode::Ai), cx);
         let e = Self::on_mode::<ai::Accept>(e, LeaveAi, cx);
         let e = Self::on_mode::<ai::Dismiss>(e, LeaveAi, cx);
@@ -676,6 +795,7 @@ impl ProjectWindow {
             .on_action(cx.listener(Self::edit_undo))
             .on_action(cx.listener(Self::edit_redo))
             .on_action(cx.listener(Self::open_palette))
+            .on_action(cx.listener(Self::open_command_line))
             .on_action(cx.listener(Self::help_keymap_overlay))
             .on_action(cx.listener(Self::file_save))
             .on_action(cx.listener(Self::file_save_as))
@@ -1226,6 +1346,8 @@ pub(crate) enum PopupKind {
     Channel,
     /// 인스펙터의 가사 언어 메뉴
     LyricLang,
+    /// 피아노롤 우클릭 메뉴(마크, S3-T2)
+    PianoRollMenu,
 }
 
 /// 열린 팝업 메뉴.

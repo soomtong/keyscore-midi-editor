@@ -191,9 +191,15 @@ fn vim_layer_does_not_change_any_escape_binding(cx: &mut TestAppContext) {
         })
     }
     start(cx, "vim-escape", None);
-    let default = escape_bindings(cx);
+    let mut default = escape_bindings(cx);
     cx.update(|cx| keymap::set_preset(cx, Preset::Vim));
     let vim = escape_bindings(cx);
+    // S3-T2(A13): vim 전용 컨텍스트 `Normal > Operator`의 escape=operator::Cancel은 결정 표의 줄이다. 기본 바인딩을
+    // 가리거나 바꾸는 것이 아니라 vim에만 있는 컨텍스트에 더한 것이다.
+    default.insert((
+        "Normal > Operator".to_string(),
+        "operator::Cancel".to_string(),
+    ));
     assert_eq!(default, vim);
     for ctx in ["Step", "Sequence", "Play", "Lyric", "Controller", "AI"] {
         assert!(

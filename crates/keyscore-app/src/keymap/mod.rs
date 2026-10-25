@@ -23,7 +23,9 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::{Duration, SystemTime};
 
-use gpui_kit::{App, Global, KeyBinding, KeyBindingContextPredicate, Keystroke, NoAction, Task};
+use gpui_kit::{
+    App, Global, KeyBinding, KeyBindingContextPredicate, Keystroke, NoAction, Task, Window,
+};
 use serde::{Deserialize, Serialize};
 
 use self::source::{ActionRef, Binding, KeymapError, Layer, Pos, parse};
@@ -222,6 +224,14 @@ pub fn build(
                 }
             },
         };
+        // 시퀀스 대기를 비우는 예약 키(A13 가로채기)는 어느 레이어에도 걸 수 없다. 걸리면 Esc가 그 Action을
+        // 실행하게 된다(리뷰 1 지적 5).
+        if uses_reserved_key(&keys) {
+            errors.push(error(format!(
+                "키 '{keys}'는 쓸 수 없다. '{FLUSH_KEY}'는 앱이 시퀀스 취소에 예약한 키다"
+            )));
+            continue;
+        }
         match KeyBinding::load(
             &keys,
             action,
@@ -235,6 +245,29 @@ pub fn build(
         }
     }
     (out, errors)
+}
+
+/// 시퀀스 대기를 비우는 데 쓰는, 어느 프리셋에도 바인딩이 없는 키.
+const FLUSH_KEY: &str = "f20";
+
+/// 키 시퀀스가 예약 키를 쓰는가. 토큰은 GPUI가 읽는 대로(이름 키는 소문자로) 비교한다(`F20`도 잡는다, 리뷰 2 지적 5).
+fn uses_reserved_key(keys: &str) -> bool {
+    keys.split_whitespace()
+        .any(|k| Keystroke::parse(k).is_ok_and(|ks| ks.key == FLUSH_KEY))
+}
+
+/// 창의 루트 뷰가 프로젝트 창인가.
+fn is_project_window(window: &Window, cx: &App) -> bool {
+    window
+        .root::<gpui_kit::component::Root>()
+        .flatten()
+        .is_some_and(|root| {
+            root.read(cx)
+                .view()
+                .clone()
+                .downcast::<crate::window::ProjectWindow>()
+                .is_ok()
+        })
 }
 
 /// 앱 전역 키맵 상태.
@@ -304,8 +337,26 @@ pub fn install(
     //   처리기는 카운트를 받지 않는다.
     // - 키 입력이 끝났는데 그것이 카운트 숫자도 아니고 대기 중인 시퀀스의 앞부분도 아니면 남은
     //   카운트를 비운다. 바인딩이 없는 키(`escape`)도 비운다.
-    cx.intercept_keystrokes(|_, _, cx| {
+    cx.intercept_keystrokes(|event, window, cx| {
         cx.global_mut::<KeymapState>().in_key_dispatch = true;
+        // A13(S3-T2): 멀티키 시퀀스 대기 중(`g` 뒤)의 Esc는 시퀀스만 취소한다. GPUI 기본은 접두를 재생한 뒤
+        // Esc를 평소처럼 디스패치해 선택 해제 같은 바인딩이 실행된다. 여기서 Esc를 삼키고, 대기를 비우는 공개
+        // API가 없어(`clear_pending_keystrokes`는 crate 안) 바인딩 없는 키 하나를 디스패치해 시간 초과와 같은
+        // 결과(접두 단독 바인딩이 있으면 실행, 대기·카운트 비움)를 만든다. 프로젝트 창에서만 한다.
+        let k = &event.keystroke;
+        if k.key == "escape"
+            && !k.modifiers.modified()
+            && window.has_pending_keystrokes()
+            && is_project_window(window, cx)
+        {
+            cx.stop_propagation();
+            cx.global_mut::<KeymapState>().count = None;
+            window.defer(cx, |window, cx| {
+                if let Ok(flush) = Keystroke::parse(FLUSH_KEY) {
+                    window.dispatch_keystroke(flush, cx);
+                }
+            });
+        }
     })
     .detach();
     cx.observe_keystrokes(|event, window, cx| {
@@ -509,6 +560,28 @@ pub fn current_layers(cx: &App) -> (LayerSet, Result<user::UserKeymap, String>) 
 /// 파일을 쓰지 못한 이유.
 pub fn save_user(cx: &mut App, user: &user::UserKeymap) -> Result<(), String> {
     let path = user_path(cx);
+    // 새로 넣는 예약 키는 파일에 쓰기 전에 거부한다. 쓰면 `build`가 매번 거부해 KM-6 오류가 남고 편집기는 거짓 성공을
+    // 말한다(리뷰 2 지적 6). 손으로 써 둔 예약 키 항목은 KM-6 오류로만 보이고 다른 편집을 막지 않는다(리뷰 3 지적 2).
+    // 「이미 있는」은 (컨텍스트, 키, Action) 항목 단위로 본다. 키 글자만 보면 파일에 손으로 쓴 예약 키가 하나 있을 때
+    // 다른 Action에 새로 거는 같은 키가 통과한다(리뷰 4 지적 2).
+    let already: Vec<Binding> = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|old| user::UserKeymap::parse(&old).ok())
+        .map(|old| old.bindings().to_vec())
+        .unwrap_or_default();
+    let same_entry = |a: &Binding, b: &Binding| {
+        a.context == b.context && a.keys == b.keys && a.action == b.action
+    };
+    if let Some(b) = user
+        .bindings()
+        .iter()
+        .find(|b| uses_reserved_key(&b.keys) && !already.iter().any(|old| same_entry(old, b)))
+    {
+        return Err(format!(
+            "키 '{}'는 쓸 수 없다. '{FLUSH_KEY}'는 앱이 시퀀스 취소에 예약한 키다",
+            b.keys
+        ));
+    }
     // 사람이 쓴(편집기가 쓰지 않은) 내용만 `.bak`으로 남긴다. 편집할 때마다 덮으면 두 번째 편집부터 손으로 쓴
     // 원본·주석이 사라진다(리뷰 1 제안 11). 편집기가 쓴 파일은 다시 읽어 쓰면 글자 그대로 같다. 앱을 다시 띄워도
     // 같은 판단이 된다(리뷰 2 제안 3).

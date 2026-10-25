@@ -191,6 +191,61 @@ impl InputSettings {
 /// 클릭 길이(ms)의 허용 범위. 스케줄러의 노트 길이 상한(`MAX_NOTE_LENGTH`, 10 s)과 같다.
 pub const METRONOME_LENGTH_RANGE: std::ops::RangeInclusive<u32> = 1..=10_000;
 
+/// 미리듣기 길이(ms)의 허용 범위(PRE-1). 메트로놈 클릭과 같은 상한.
+pub const PREVIEW_LENGTH_RANGE: std::ops::RangeInclusive<u32> = 1..=10_000;
+
+/// 노트 미리듣기 설정(REQ 5.3 「이동 시 미리듣기」, PRE-1 「길이는 설정(기본 200 ms)」). S3-T2.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreviewSettings {
+    /// 커서가 노트 위로 가면 들려준다(기본 켬).
+    pub on_move: bool,
+    /// 미리듣기 길이(ms) 1–10000.
+    pub length_ms: u32,
+}
+
+impl Default for PreviewSettings {
+    fn default() -> Self {
+        PreviewSettings {
+            on_move: true,
+            length_ms: 200,
+        }
+    }
+}
+
+impl PreviewSettings {
+    fn read(mut map: Map<String, Value>, warnings: &mut Vec<String>) -> (Self, Map<String, Value>) {
+        let mut p = PreviewSettings::default();
+        if let Some(v) = map.remove("on_move") {
+            match v {
+                Value::Bool(b) => p.on_move = b,
+                _ => warnings.push("preview.on_move는 참·거짓이어야 해 기본값을 쓴다".to_string()),
+            }
+        }
+        if let Some(v) = map.remove("length_ms") {
+            match v.as_u64().and_then(|n| u32::try_from(n).ok()) {
+                Some(ms) if PREVIEW_LENGTH_RANGE.contains(&ms) => p.length_ms = ms,
+                _ => warnings.push(format!(
+                    "preview.length_ms는 {}–{} 사이의 정수여야 해 기본값을 쓴다",
+                    PREVIEW_LENGTH_RANGE.start(),
+                    PREVIEW_LENGTH_RANGE.end()
+                )),
+            }
+        }
+        (p, map)
+    }
+
+    fn write(&self, map: &mut Map<String, Value>) {
+        map.insert("on_move".to_string(), Value::Bool(self.on_move));
+        map.insert("length_ms".to_string(), Value::from(self.length_ms));
+    }
+
+    /// 스케줄러에 넘길 미리듣기 길이.
+    #[must_use]
+    pub fn length(&self) -> Duration {
+        Duration::from_millis(u64::from(self.length_ms))
+    }
+}
+
 impl MetronomeSettings {
     /// 스케줄러에 넘길 설정. `port`는 이 스냅샷에서 메트로놈 포트의 번호다.
     #[must_use]
@@ -464,6 +519,8 @@ pub struct Settings {
     pub input: InputSettings,
     pub metronome: MetronomeSettings,
     pub midi_output: MidiOutputSettings,
+    /// 노트 미리듣기(S3-T2).
+    pub preview: PreviewSettings,
     /// 최근 파일 경로(최근이 먼저, S2-T7a).
     pub recent_files: Vec<String>,
     /// `keymap` 객체 안의 모르는 키.
@@ -474,6 +531,8 @@ pub struct Settings {
     metronome_extra: Map<String, Value>,
     /// `midi_output` 객체 안의 모르는 키.
     midi_output_extra: Map<String, Value>,
+    /// `preview` 객체 안의 모르는 키.
+    preview_extra: Map<String, Value>,
     /// 모르는 최상위 키. 다시 쓸 때 그대로 둔다.
     extra: Map<String, Value>,
     /// `layout` 객체 안의 모르는 키(뒤 버전이 더한 패널 등).
@@ -571,6 +630,14 @@ impl Settings {
             }
             Some(_) => warnings.push("midi_output 설정이 객체가 아니라 기본값을 쓴다".to_string()),
         }
+        match map.remove("preview") {
+            None => {}
+            Some(Value::Object(preview)) => {
+                (settings.preview, settings.preview_extra) =
+                    PreviewSettings::read(preview, &mut warnings);
+            }
+            Some(_) => warnings.push("preview 설정이 객체가 아니라 기본값을 쓴다".to_string()),
+        }
         if let Some(v) = map.remove("recent_files") {
             settings.recent_files = read_recent_files(v, &mut warnings);
         }
@@ -618,6 +685,9 @@ impl Settings {
         let mut midi_output = self.midi_output_extra.clone();
         self.midi_output.write(&mut midi_output);
         map.insert("midi_output".to_string(), Value::Object(midi_output));
+        let mut preview = self.preview_extra.clone();
+        self.preview.write(&mut preview);
+        map.insert("preview".to_string(), Value::Object(preview));
         map.insert(
             "theme".to_string(),
             serde_json::to_value(self.theme).map_err(io::Error::other)?,

@@ -10,20 +10,27 @@ use gpui_kit::component::kbd::Kbd;
 use gpui_kit::component::{ActiveTheme as _, Disableable as _};
 use gpui_kit::{
     Action, AppContext as _, AsKeystroke as _, Context, Entity, EventEmitter, FocusHandle,
-    Focusable, InteractiveElement as _, IntoElement, ParentElement as _, Render,
-    StatefulInteractiveElement as _, Styled as _, TestSupportExt as _, Window, div, px,
+    Focusable, Hsla, InteractiveElement as _, IntoElement, ParentElement as _, Render,
+    SharedString, StatefulInteractiveElement as _, Styled as _, TestSupportExt as _, Window, div,
+    px,
 };
 
 use crate::actions::{mode, palette};
+use crate::commands::ex::{self, ExCommand};
 use crate::commands::{self, PaletteEntry};
 
 /// 팔레트가 창에 알리는 일.
 pub enum PaletteEvent {
     /// 이 Action을 실행해 달라(팔레트는 닫힌다).
     Run(Box<dyn Action>),
+    /// 이 ex 명령을 실행해 달라(결정 A12, 팔레트는 닫힌다).
+    Ex(ExCommand),
     /// 닫아 달라.
     Close,
 }
+
+/// ex 줄의 요소 id(시험이 찾는다).
+const EX_ROW_ID: &str = "palette-row-ex";
 
 /// 열린 팔레트 하나.
 pub struct CommandPalette {
@@ -34,6 +41,8 @@ pub struct CommandPalette {
     visible: Vec<usize>,
     /// 단축키를 찾는 기준(문서의 포커스).
     target: FocusHandle,
+    /// 마지막 질의. 컴포넌트는 확정하면서 질의를 비우므로 확정 처리기는 이것을 읽는다(ex 명령줄).
+    query_text: String,
 }
 
 impl EventEmitter<PaletteEvent> for CommandPalette {}
@@ -48,6 +57,7 @@ impl CommandPalette {
             entries,
             visible,
             target,
+            query_text: String::new(),
         }
     }
 
@@ -62,12 +72,62 @@ impl CommandPalette {
         self.state.update(cx, |state, cx| state.focus(window, cx));
     }
 
+    /// 질의를 `text`로 둔다(`:` 명령줄 접두, A12).
+    pub fn set_query_text(&mut self, text: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let text = text.to_owned();
+        self.state.update(cx, |state, cx| {
+            state.set_query(SharedString::from(text.clone()), window, cx);
+        });
+        self.set_query(&text, cx);
+    }
+
+    /// 지금 질의가 ex 명령줄이면 읽은 결과.
+    fn ex(&self) -> Option<Result<ExCommand, ex::ExError>> {
+        ex::is_command_line(&self.query_text).then(|| ex::parse(&self.query_text))
+    }
+
     /// 확정한 줄. 실행할 수 없는 줄은 컴포넌트가 확정하지 않는다(꺼진 줄).
     fn confirm(&mut self, row: usize, cx: &mut Context<Self>) {
+        if let Some(parsed) = self.ex() {
+            if let Ok(cmd) = parsed {
+                cx.emit(PaletteEvent::Ex(cmd));
+            }
+            return;
+        }
         let entry = self.visible.get(row).and_then(|ix| self.entries.get(*ix));
         if let Some(action) = entry.and_then(PaletteEntry::action) {
             cx.emit(PaletteEvent::Run(action.boxed_clone()));
         }
+    }
+
+    /// ex 명령줄 한 줄: 읽힌 명령의 설명, 또는 실행 불가 줄로 이유.
+    fn ex_item(parsed: &Result<ExCommand, ex::ExError>, muted: Hsla) -> CommandItem {
+        let (label, disabled) = match parsed {
+            Ok(cmd) => (cmd.label(), false),
+            Err(e) => (format!("실행할 수 없다: {e}"), true),
+        };
+        let shown = SharedString::from(label);
+        CommandItem::new()
+            .label(shown.clone())
+            .disabled(disabled)
+            .child(move |_, _| {
+                div()
+                    .id(EX_ROW_ID)
+                    .aria_label(shown.clone())
+                    .test_support()
+                    .w_full()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .child(div().flex_none().child(shown.clone()))
+                    .child(
+                        div()
+                            .flex_1()
+                            .text_xs()
+                            .text_color(muted)
+                            .child("ex 명령(:w :q :e :new :set)"),
+                    )
+            })
     }
 
     /// `Tab`: 선택한 줄의 이름으로 질의를 채운다(5.11 「자동완성 확정」).
@@ -84,9 +144,15 @@ impl CommandPalette {
             .update(cx, |state, cx| state.set_query(label, window, cx));
     }
 
-    /// 질의가 바뀌었다. 컴포넌트는 거르지 않고(`filterable(false)`) 강조를 첫 줄로 되돌린다.
+    /// 질의가 바뀌었다. 컴포넌트는 거르지 않고(`filterable(false)`) 강조를 첫 줄로 되돌린다. `:` 접두면
+    /// Action 줄은 없고 ex 줄 하나다(A12).
     fn set_query(&mut self, query: &str, cx: &mut Context<Self>) {
-        self.visible = commands::filter_entries(&self.entries, query);
+        query.clone_into(&mut self.query_text);
+        self.visible = if ex::is_command_line(query) {
+            Vec::new()
+        } else {
+            commands::filter_entries(&self.entries, query)
+        };
         cx.notify();
     }
 
@@ -113,6 +179,7 @@ impl Focusable for CommandPalette {
 impl Render for CommandPalette {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let muted = cx.theme().muted_foreground;
+        let ex_row = self.ex().map(|parsed| Self::ex_item(&parsed, muted));
         let items: Vec<CommandItem> = self
             .visible
             .iter()
@@ -159,6 +226,7 @@ impl Render for CommandPalette {
                             }))
                     })
             })
+            .chain(ex_row)
             .collect();
         let this = cx.entity().downgrade();
         let on_cancel = this.clone();

@@ -163,6 +163,21 @@ pub(crate) fn register(cx: &mut App) {
         AppSettings::update(cx, |s| s.input.key_layout = action.0);
         cx.refresh_windows();
     });
+    // 미리듣기(REQ 5.3, PRE-1, S3-T2)도 설정 > 입력의 선택 상자와 팔레트가 같은 처리기를 쓴다
+    cx.on_action(|_: &settings::TogglePreviewOnMove, cx| {
+        AppSettings::update(cx, |s| s.preview.on_move = !s.preview.on_move);
+        cx.refresh_windows();
+    });
+    cx.on_action(|action: &settings::SetPreviewLength, cx| {
+        let Ok(ms) = u32::try_from(action.0.0) else {
+            return;
+        };
+        if !crate::settings::PREVIEW_LENGTH_RANGE.contains(&ms) {
+            return;
+        }
+        AppSettings::update(cx, |s| s.preview.length_ms = ms);
+        cx.refresh_windows();
+    });
     // 보정 마법사는 S5-T2가 만든다. 그때까지는 입력 구역을 열고 알린다(7.6 대응표의 자리)
     cx.on_action(|_: &settings::Calibrate, cx| {
         open(cx, Some(SettingsSection::Input));

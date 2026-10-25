@@ -127,14 +127,19 @@ impl ProjectWindow {
         self.play_from(from, cx);
     }
 
-    /// 커서가 생기기 전(S3)까지는 처음부터다.
+    /// 피아노롤 뷰에서는 피아노롤 커서부터(S3-T2). 배치 뷰 커서는 S4까지 처음부터다.
     pub(crate) fn transport_play_from_cursor(
         &mut self,
         _: &transport::PlayFromCursor,
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.play_from(Tick::ZERO, cx);
+        let from = if self.mode_state().view() == crate::mode::View::PianoRoll {
+            self.pianoroll.cursor().tick
+        } else {
+            Tick::ZERO
+        };
+        self.play_from(from, cx);
     }
 
     pub(crate) fn transport_toggle(

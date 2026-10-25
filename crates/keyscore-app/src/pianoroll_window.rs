@@ -17,7 +17,7 @@ impl ProjectWindow {
         element: Stateful<Div>,
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
-        element
+        let element = element
             .on_action(cx.listener(Self::cursor_left))
             .on_action(cx.listener(Self::cursor_right))
             .on_action(cx.listener(Self::cursor_up))
@@ -29,7 +29,8 @@ impl ProjectWindow {
             .on_action(cx.listener(Self::view_zoom_in))
             .on_action(cx.listener(Self::view_zoom_out))
             .on_action(cx.listener(Self::view_zoom_reset))
-            .on_action(cx.listener(Self::view_center_cursor))
+            .on_action(cx.listener(Self::view_center_cursor));
+        Self::selection_handlers(element, cx)
     }
 
     /// 피아노롤에 그리는 재생 헤드 틱. 재생 중이면 지금 자리, 일시정지면 그 자리, 정지면 없음.
@@ -42,12 +43,11 @@ impl ProjectWindow {
         }
     }
 
-    /// 커서를 옮기고 뷰포트가 따라가게 한다.
+    /// 커서를 옮기고 뷰포트가 따라가게 한다. 노트 위로 가면 들려준다(PRE-1, S3-T2).
     pub(crate) fn move_piano_roll_cursor(&mut self, delta: CursorMove, cx: &mut Context<Self>) {
         let meter = self.document.read(cx).project().meter_map().clone();
         self.pianoroll.move_cursor(delta, &meter);
-        self.pianoroll.ensure_cursor_visible();
-        cx.notify();
+        self.cursor_moved(false, cx);
     }
 
     /// 가운데 주 뷰의 피아노롤.
@@ -90,11 +90,21 @@ impl ProjectWindow {
         .playhead(playhead, animating)
         .on_click({
             let listener = cx.listener(|this, cell: &Cursor, window, cx| {
+                // 클릭은 키 입력이 아니므로 되돌리기 묶음을 여기서 끊는다(5.7 「다른 키가 끼면」)
+                this.seal_history(cx);
                 this.pianoroll.set_cursor(*cell);
+                this.cursor_moved(false, cx);
                 this.focus_document(window, cx);
-                cx.notify();
             });
             move |cell, window, cx| listener(&cell, window, cx)
+        })
+        .on_right_click({
+            let listener = cx.listener(
+                |this, (cell, at): &(Cursor, gpui_kit::Point<gpui_kit::Pixels>), window, cx| {
+                    this.open_piano_roll_menu(*cell, *at, window, cx);
+                },
+            );
+            move |cell, at, window, cx| listener(&(cell, at), window, cx)
         });
         // 자리표시자와 같은 id·라벨을 쓴다(창 시험이 「main-view」로 찾는다).
         gpui_kit::div()

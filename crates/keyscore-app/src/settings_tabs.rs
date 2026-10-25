@@ -20,11 +20,13 @@ use crate::actions::args::KeyLayout;
 use crate::actions::settings;
 use crate::app_state::AppSettings;
 use crate::gm::percussion_label;
-use crate::settings::{InputSettings, MetronomeSettings};
+use crate::settings::{InputSettings, MetronomeSettings, PREVIEW_LENGTH_RANGE, PreviewSettings};
 use crate::settings_window::SettingsWindow;
 
 /// 메트로놈 클릭 길이 목록(ms). 파일에 손으로 넣은 다른 값은 목록에 덧붙여 보인다.
 const LENGTHS_MS: [u32; 10] = [10, 20, 30, 50, 80, 100, 150, 200, 300, 500];
+/// 미리듣기 길이 목록(ms, PRE-1 기본 200). 다른 값은 목록에 덧붙여 보인다.
+const PREVIEW_LENGTHS_MS: [u32; 7] = [50, 100, 150, 200, 300, 500, 1000];
 
 pub(crate) type Choice = SelectState<SearchableVec<SharedString>>;
 
@@ -32,6 +34,8 @@ pub(crate) type Choice = SelectState<SearchableVec<SharedString>>;
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Control {
     KeyLayout,
+    PreviewOnMove,
+    PreviewLength,
     Port,
     Channel,
     Accent,
@@ -40,8 +44,10 @@ enum Control {
 }
 
 impl Control {
-    const ALL: [Control; 6] = [
+    const ALL: [Control; 8] = [
         Control::KeyLayout,
+        Control::PreviewOnMove,
+        Control::PreviewLength,
         Control::Port,
         Control::Channel,
         Control::Accent,
@@ -52,6 +58,8 @@ impl Control {
     const fn id(self) -> &'static str {
         match self {
             Control::KeyLayout => "settings-key-layout",
+            Control::PreviewOnMove => "settings-preview-on-move",
+            Control::PreviewLength => "settings-preview-length",
             Control::Port => "settings-metronome-port",
             Control::Channel => "settings-metronome-channel",
             Control::Accent => "settings-metronome-accent",
@@ -64,6 +72,10 @@ impl Control {
 /// 입력·메트로놈 구역의 상태.
 pub(crate) struct Tabs {
     key_layout: Entity<Choice>,
+    /// 이동 시 미리듣기 켬·끔(REQ 5.3, S3-T2).
+    preview_on_move: Entity<Choice>,
+    /// 미리듣기 길이(PRE-1, S3-T2).
+    preview_length: Entity<Choice>,
     port: Entity<Choice>,
     channel: Entity<Choice>,
     accent: Entity<Choice>,
@@ -75,10 +87,12 @@ pub(crate) struct Tabs {
     ports: Vec<OutputPort>,
     /// 길이 선택 상자의 항목(같은 자리).
     lengths: Vec<u32>,
+    /// 미리듣기 길이 선택 상자의 항목(같은 자리).
+    preview_lengths: Vec<u32>,
     /// 포트 목록을 다시 읽어야 한다(구역을 열 때, 포트가 오갈 때).
     ports_stale: bool,
     /// 선택 상자가 지금 보이는 설정. 다르면(팔레트·파일 등 밖에서 바뀜) 선택을 맞춘다.
-    shown: Option<(InputSettings, MetronomeSettings)>,
+    shown: Option<(InputSettings, MetronomeSettings, PreviewSettings)>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -121,6 +135,8 @@ impl Tabs {
             window,
             cx,
         );
+        let preview_on_move = make(labels(["켬".to_owned(), "끔".to_owned()]), window, cx);
+        let preview_length = make(labels(PREVIEW_LENGTHS_MS.map(length_label)), window, cx);
         let port = make(labels([]), window, cx);
         let channel = make(labels((1..=16u8).map(|c| c.to_string())), window, cx);
         let accent = make(labels((0..=127u8).map(percussion_label)), window, cx);
@@ -129,6 +145,8 @@ impl Tabs {
         let mut subscriptions = Vec::new();
         for (control, state) in [
             (Control::KeyLayout, &key_layout),
+            (Control::PreviewOnMove, &preview_on_move),
+            (Control::PreviewLength, &preview_length),
             (Control::Port, &port),
             (Control::Channel, &channel),
             (Control::Accent, &accent),
@@ -151,6 +169,8 @@ impl Tabs {
         }
         Tabs {
             key_layout,
+            preview_on_move,
+            preview_length,
             port,
             channel,
             accent,
@@ -159,6 +179,7 @@ impl Tabs {
             calibrate: cx.focus_handle().tab_stop(true),
             ports: Vec::new(),
             lengths: LENGTHS_MS.to_vec(),
+            preview_lengths: PREVIEW_LENGTHS_MS.to_vec(),
             ports_stale: true,
             shown: None,
             _subscriptions: subscriptions,
@@ -168,6 +189,8 @@ impl Tabs {
     fn state(&self, control: Control) -> &Entity<Choice> {
         match control {
             Control::KeyLayout => &self.key_layout,
+            Control::PreviewOnMove => &self.preview_on_move,
+            Control::PreviewLength => &self.preview_length,
             Control::Port => &self.port,
             Control::Channel => &self.channel,
             Control::Accent => &self.accent,
@@ -221,7 +244,11 @@ impl Tabs {
     /// 선택 상자의 항목·선택을 지금 설정에 맞춘다. 그릴 때 부른다(선택을 바꾸려면 `Window`가 필요하다).
     fn sync(&mut self, window: &mut Window, cx: &mut App) {
         let settings = AppSettings::get(cx);
-        let now = (settings.input, settings.metronome.clone());
+        let now = (
+            settings.input,
+            settings.metronome.clone(),
+            settings.preview.clone(),
+        );
         let mut force = false;
         if self.ports_stale {
             self.ports_stale = false;
@@ -249,14 +276,31 @@ impl Tabs {
             self.lengths = lengths;
             force = true;
         }
+        if !self.preview_lengths.contains(&now.2.length_ms) {
+            let mut lengths = PREVIEW_LENGTHS_MS.to_vec();
+            lengths.push(now.2.length_ms);
+            lengths.sort_unstable();
+            let items = labels(lengths.iter().map(|ms| length_label(*ms)));
+            self.preview_length
+                .update(cx, |s, cx| s.set_items(items, window, cx));
+            self.preview_lengths = lengths;
+            force = true;
+        }
         if !force && self.shown.as_ref() == Some(&now) {
             return;
         }
-        let (input, m) = &now;
+        let (input, m, preview) = &now;
         let rows = [
             (
                 Control::KeyLayout,
                 Some(usize::from(input.key_layout == KeyLayout::Solfege)),
+            ),
+            (Control::PreviewOnMove, Some(usize::from(!preview.on_move))),
+            (
+                Control::PreviewLength,
+                self.preview_lengths
+                    .iter()
+                    .position(|l| *l == preview.length_ms),
             ),
             (Control::Port, self.ports.iter().position(|p| *p == m.port)),
             (
@@ -298,6 +342,25 @@ impl SettingsWindow {
             window.dispatch_action(Box::new(settings::SetKeyLayout(layout)), cx);
             return;
         }
+        // 미리듣기(S3-T2)도 팔레트와 같은 Action으로 바꾼다(처리기는 앱 전역)
+        if control == Control::PreviewOnMove {
+            let on = index == 0;
+            if on != AppSettings::get(cx).preview.on_move {
+                window.dispatch_action(Box::new(settings::TogglePreviewOnMove), cx);
+            }
+            return;
+        }
+        if control == Control::PreviewLength {
+            if let Some(ms) = self.tabs().preview_lengths.get(index) {
+                window.dispatch_action(
+                    Box::new(settings::SetPreviewLength(crate::actions::args::Int(
+                        i64::from(*ms),
+                    ))),
+                    cx,
+                );
+            }
+            return;
+        }
         let tabs = self.tabs();
         let mut metronome = AppSettings::get(cx).metronome.clone();
         match control {
@@ -321,7 +384,7 @@ impl SettingsWindow {
                 Some(ms) => metronome.length_ms = *ms,
                 None => return,
             },
-            Control::KeyLayout => return,
+            Control::KeyLayout | Control::PreviewOnMove | Control::PreviewLength => return,
         }
         if metronome == AppSettings::get(cx).metronome {
             return;
@@ -339,6 +402,7 @@ impl SettingsWindow {
     ) -> impl IntoElement {
         self.tabs_mut().sync(window, cx);
         let layout = AppSettings::get(cx).input.key_layout;
+        let preview = AppSettings::get(cx).preview.clone();
         let tabs = self.tabs();
         let calibrate = tabs.calibrate.clone();
         div()
@@ -350,6 +414,29 @@ impl SettingsWindow {
                 Control::KeyLayout.id(),
                 format!("키 레이아웃: {}", layout_label(layout)),
                 &tabs.key_layout,
+                cx,
+            ))
+            .child(row(
+                "이동 시 미리듣기",
+                Control::PreviewOnMove.id(),
+                format!(
+                    "이동 시 미리듣기: {}",
+                    if preview.on_move { "켬" } else { "끔" }
+                ),
+                &tabs.preview_on_move,
+                cx,
+            ))
+            .child(row(
+                "미리듣기 길이",
+                Control::PreviewLength.id(),
+                format!(
+                    "미리듣기 길이: {}",
+                    length_label(preview.length_ms.clamp(
+                        *PREVIEW_LENGTH_RANGE.start(),
+                        *PREVIEW_LENGTH_RANGE.end()
+                    ))
+                ),
+                &tabs.preview_length,
                 cx,
             ))
             .child(

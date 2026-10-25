@@ -531,6 +531,11 @@ fn settings_sections_keyboard_reachable(cx: &mut TestAppContext) {
     press(cx, sh, "down");
     press(cx, sh, "enter");
     assert_eq!(key_layout(cx), KeyLayout::Solfege);
+    // S3-T2: 미리듣기 켬·끔과 길이가 레이아웃 뒤에 선다
+    press(cx, sh, "tab");
+    assert_eq!(focused(cx).as_deref(), Some("settings-preview-on-move"));
+    press(cx, sh, "tab");
+    assert_eq!(focused(cx).as_deref(), Some("settings-preview-length"));
     press(cx, sh, "tab");
     assert_eq!(focused(cx).as_deref(), Some("settings-calibrate"));
     // 메트로놈 구역: Tab으로 차례로 지난다
