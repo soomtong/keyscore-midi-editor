@@ -165,10 +165,23 @@ impl ProjectWindow {
         let anchor = self.pianoroll.anchor().unwrap_or(before);
         self.pianoroll.set_anchor(Some(anchor));
         let step = self.pianoroll.step_ticks();
-        // 직사각형이 걸치는 클립: 기준 칸이 든 클립, 기준 칸이 클립 사이 틈이면 커서가 든 클립(리뷰 1 지적 2)
+        // 직사각형이 걸치는 클립: 기준 칸이 든 클립, 없으면(틈) 커서가 든 클립, 그것도 없으면 직사각형의 시간
+        // 범위에 걸치는 첫 클립(리뷰 1 지적 2, 리뷰 2 지적 2).
         let picked = self
             .clip_at(anchor.tick, cx)
             .or_else(|| self.clip_at(after.tick, cx))
+            .or_else(|| {
+                let lo = anchor.tick.min(after.tick).get();
+                let hi = anchor.tick.max(after.tick).get().saturating_add(step);
+                let track_id = self.current_track()?;
+                self.with_track(cx, |track| {
+                    track
+                        .clips()
+                        .find(|(_, c)| c.start().get() < hi && lo < c.end())
+                        .map(|(id, _)| (track_id, id))
+                })
+                .flatten()
+            })
             .and_then(|(track_id, clip_id)| {
                 let doc = self.document.read(cx);
                 let clip = doc.project().track(track_id)?.clip(clip_id)?;
@@ -179,7 +192,14 @@ impl ProjectWindow {
                 ))
             });
         match picked {
-            Some((track_id, clip_id, notes)) => {
+            Some((track_id, clip_id, mut notes)) => {
+                // 「넓히기」는 좁히지 않는다: 같은 클립의 지금 선택(`Alt` 조작으로 옮겨진 노트 포함)에 직사각형의 노트를
+                // 더한다. 조작 뒤 커서는 그대로라 기준 칸만 옮기면 직사각형이 줄어 방금 옮긴 노트를 떨어뜨리기 때문이다
+                // (리뷰 2 지적 1). 좁히려면 Esc로 비우고 다시 고른다.
+                let current = self.pianoroll.selection();
+                if current.clip() == Some(clip_id) {
+                    notes.extend(current.notes().cloned());
+                }
                 self.replace_selection(track_id, clip_id, notes, cx);
             }
             None => self.set_selection(Selection::default(), cx),
@@ -326,7 +346,7 @@ impl ProjectWindow {
             if self.clip_under_cursor(cx) != Some((t, c)) {
                 self.say(
                     format!(
-                        "{}: 선택이 현재 클립에 없다(그 클립으로 돌아가거나 Esc로 선택을 비운다)",
+                        "{}: 선택이 현재 클립에 없다(Shift+p·Cmd+←로 그 클립에 돌아가거나 Esc로 선택을 비운다)",
                         op.label()
                     ),
                     cx,
@@ -374,8 +394,14 @@ impl ProjectWindow {
             if let Some((from, to)) = planned.moved.first() {
                 self.shift_anchor(from, to);
             }
-            let notes: BTreeSet<Note> = planned.moved.into_iter().map(|(_, to)| to).collect();
-            self.replace_selection(track_id, clip_id, notes, cx);
+            // 바뀐 노트는 새 값으로, 그대로 둔 노트(한 스텝 이하 줄이기)는 그대로 선택에 남긴다(리뷰 2 지적 4)
+            let mut selected: BTreeSet<Note> = notes
+                .iter()
+                .filter(|n| !planned.moved.iter().any(|(from, _)| from == *n))
+                .cloned()
+                .collect();
+            selected.extend(planned.moved.into_iter().map(|(_, to)| to));
+            self.replace_selection(track_id, clip_id, selected, cx);
         }
         cx.notify();
     }
@@ -398,11 +424,19 @@ impl ProjectWindow {
                 .map_or(0, |c| c.start().get())
         };
         let cursor = self.pianoroll.cursor();
+        let step = i128::from(self.pianoroll.step_ticks().max(1));
         let delta = i128::from(to.start().get()) - i128::from(from.start().get());
         let moved_tick = i128::from(cursor.tick.get()) + delta;
         let abs_start = i128::from(clip_start) + i128::from(to.start().get());
         let abs_last = i128::from(clip_start) + i128::from(to.end()) - 1;
-        let tick = moved_tick.clamp(abs_start, abs_last.max(abs_start));
+        // 노트 밖에 남으면 한 스텝씩 물러나 노트 안으로(커서의 스텝 격자를 지킨다, 리뷰 2 지적 3). 그래도 시작
+        // 앞이면 시작으로.
+        let tick = if moved_tick > abs_last {
+            let steps = (moved_tick - abs_last + step - 1) / step;
+            (moved_tick - steps * step).max(abs_start)
+        } else {
+            moved_tick.max(abs_start)
+        };
         let new_cursor = Cursor {
             tick: Tick::new(u64::try_from(tick.max(0)).unwrap_or(u64::MAX)),
             pitch: to.pitch(),

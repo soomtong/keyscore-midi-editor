@@ -954,12 +954,13 @@ fn b_shift_b_cmd_a_select_and_escape_clears(cx: &mut TestAppContext) {
     );
     press(cx, handle, "shift-l");
     assert_eq!(cursor_of(cx, &view), (2880, 62));
+    // 넓히기는 좁히지 않는다(리뷰 2 지적 1): [1920, 3840) × 62에 노트가 없어도 마디 선택 3개는 남는다
     assert_eq!(
-        selection_of(cx, &view),
-        vec![],
-        "[1920, 3840) × 62에는 노트가 없다"
+        selection_of(cx, &view).len(),
+        3,
+        "[1920, 3840) × 62에는 노트가 없지만 넓히기는 선택을 지우지 않는다"
     );
-    assert!(!has_selection(cx, &view));
+    assert!(has_selection(cx, &view));
 }
 
 // ---------- 11. 이동 시 미리듣기(PRE-1) ----------
