@@ -226,7 +226,7 @@ pub fn build(
         };
         // 시퀀스 대기를 비우는 예약 키(A13 가로채기)는 어느 레이어에도 걸 수 없다. 걸리면 Esc가 그 Action을
         // 실행하게 된다(리뷰 1 지적 5).
-        if keys.split_whitespace().any(|k| k == FLUSH_KEY) {
+        if uses_reserved_key(&keys) {
             errors.push(error(format!(
                 "키 '{keys}'는 쓸 수 없다. '{FLUSH_KEY}'는 앱이 시퀀스 취소에 예약한 키다"
             )));
@@ -249,6 +249,12 @@ pub fn build(
 
 /// 시퀀스 대기를 비우는 데 쓰는, 어느 프리셋에도 바인딩이 없는 키.
 const FLUSH_KEY: &str = "f20";
+
+/// 키 시퀀스가 예약 키를 쓰는가. 토큰은 GPUI가 읽는 대로(이름 키는 소문자로) 비교한다(`F20`도 잡는다, 리뷰 2 지적 5).
+fn uses_reserved_key(keys: &str) -> bool {
+    keys.split_whitespace()
+        .any(|k| Keystroke::parse(k).is_ok_and(|ks| ks.key == FLUSH_KEY))
+}
 
 /// 창의 루트 뷰가 프로젝트 창인가.
 fn is_project_window(window: &Window, cx: &App) -> bool {
@@ -553,6 +559,14 @@ pub fn current_layers(cx: &App) -> (LayerSet, Result<user::UserKeymap, String>) 
 ///
 /// 파일을 쓰지 못한 이유.
 pub fn save_user(cx: &mut App, user: &user::UserKeymap) -> Result<(), String> {
+    // 예약 키는 파일에 쓰기 전에 거부한다. 쓰면 `build`가 매번 거부해 KM-6 오류가 남고 편집기는 거짓 성공을 말한다
+    // (리뷰 2 지적 6).
+    if let Some(b) = user.bindings().iter().find(|b| uses_reserved_key(&b.keys)) {
+        return Err(format!(
+            "키 '{}'는 쓸 수 없다. '{FLUSH_KEY}'는 앱이 시퀀스 취소에 예약한 키다",
+            b.keys
+        ));
+    }
     let path = user_path(cx);
     // 사람이 쓴(편집기가 쓰지 않은) 내용만 `.bak`으로 남긴다. 편집할 때마다 덮으면 두 번째 편집부터 손으로 쓴
     // 원본·주석이 사라진다(리뷰 1 제안 11). 편집기가 쓴 파일은 다시 읽어 쓰면 글자 그대로 같다. 앱을 다시 띄워도
