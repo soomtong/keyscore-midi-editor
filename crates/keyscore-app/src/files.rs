@@ -295,22 +295,29 @@ impl ProjectWindow {
         });
     }
 
-    /// `:e 경로`(A12): 문서 폴더(문서에 경로가 없으면 현재 폴더) 기준으로 그 파일을 연다(이미 열려 있으면 그 창).
-    /// 실패는 이 창의 상태줄에 알린다.
+    /// `:e 경로`(A12): `~`는 홈으로 풀고, 상대 경로는 문서 폴더(문서에 경로가 없으면 저장 시트와 같은 기본 폴더)
+    /// 기준으로 그 파일을 연다(이미 열려 있으면 그 창). 실패는 이 창의 상태줄에 알린다.
     pub(crate) fn open_ex_path(&mut self, path: &str, cx: &mut Context<Self>) {
-        let given = Path::new(path);
-        let resolved = if given.is_absolute() {
-            given.to_path_buf()
+        let expanded = match path
+            .strip_prefix("~/")
+            .or_else(|| (path == "~").then_some(""))
+        {
+            Some(rest) => std::env::var_os("HOME").map_or_else(
+                || PathBuf::from(path),
+                |home| PathBuf::from(home).join(rest),
+            ),
+            None => PathBuf::from(path),
+        };
+        let resolved = if expanded.is_absolute() {
+            expanded
         } else {
             let base = self
                 .document
                 .read(cx)
                 .path()
                 .and_then(Path::parent)
-                .map(Path::to_path_buf)
-                .or_else(|| std::env::current_dir().ok())
-                .unwrap_or_default();
-            base.join(given)
+                .map_or_else(default_directory, Path::to_path_buf);
+            base.join(expanded)
         };
         let view = cx.entity();
         // 처리기 안에서는 다른 창을 열지 않는다(디스패치 중). 끝난 뒤에 연다.
