@@ -170,12 +170,19 @@ impl ProjectWindow {
         let step = self.pianoroll.step_ticks();
         // 직사각형이 걸치는 클립: 기준 칸이 든 클립, 없으면(틈) 커서가 든 클립, 그것도 없으면 지금 선택의 클립,
         // 그것도 없으면 직사각형의 시간 범위에 걸치는 첫 클립(리뷰 1 지적 2, 리뷰 2 지적 2, 리뷰 3 지적 1). 선택의
-        // 클립이 첫 클립 규칙보다 앞서야 틈에서 넓힐 때 선택이 다른 클립으로 뒤집히지 않는다.
+        // 클립이 첫 클립 규칙보다 앞서야 틈에서 넓힐 때 선택이 다른 클립으로 뒤집히지 않는다. 선택의 클립은 지금
+        // 트랙의 것일 때만 쓴다. 다른 트랙으로 옮겨 온 뒤 쓰면 화면에 없는 트랙의 노트를 더한다(리뷰 4 지적 1).
         let current = self.pianoroll.selection();
+        let current_track = self.current_track();
         let picked = self
             .clip_at(anchor.tick, cx)
             .or_else(|| self.clip_at(after.tick, cx))
-            .or_else(|| current.track().zip(current.clip()))
+            .or_else(|| {
+                current
+                    .track()
+                    .zip(current.clip())
+                    .filter(|(t, _)| Some(*t) == current_track)
+            })
             .or_else(|| {
                 let lo = anchor.tick.min(after.tick).get();
                 let hi = anchor.tick.max(after.tick).get().saturating_add(step);
@@ -202,7 +209,7 @@ impl ProjectWindow {
             // 「넓히기」는 좁히지 않는다: 같은 클립의 지금 선택(`Alt` 조작으로 옮겨진 노트 포함)에 직사각형의 노트를
             // 더한다. 조작 뒤 커서는 그대로라 기준 칸만 옮기면 직사각형이 줄어 방금 옮긴 노트를 떨어뜨리기 때문이다
             // (리뷰 2 지적 1). 좁히려면 Esc로 비우고 다시 고른다.
-            if current.clip() == Some(clip_id) {
+            if current.track() == Some(track_id) && current.clip() == Some(clip_id) {
                 notes.extend(current.notes().cloned());
             }
             self.replace_selection(track_id, clip_id, notes, cx);
