@@ -72,6 +72,24 @@ cargo test --workspace --no-fail-fast: 2008 passed, 2 failed, 2 ignored(1시간�
 - 시험용 이름 붙은 pasteboard는 시험이 끝나도 pasteboard 서버에 남는다(로그아웃 때 사라진다).
 - `edit::RepeatLast`(`.`)가 이 Task의 동작을 반복하는 것은 S3-T3b에서 만든다.
 
+## 리뷰 1 대응(`docs/reports/s3-t3a/review-1.md`, 판정 「수정 후 재리뷰」)
+
+| 지적 | 대응 | 커밋 |
+| --- | --- | --- |
+| 1 차단: 복제·반복 간격을 한 스텝 배수로 올려 짧은 선택이 「바로 뒤」에 오지 않음 | REQ 7.5 글자대로 폭 그대로(`duplicate_offset(notes)`). 격자 정렬은 결정 요청 `docs/decisions/2026-10-26-duplicate-offset-grid.md`(결정 대기, 추천 B, 반영은 S3-T3b). 순수 시험 이름·기대값을 바꿈(`plan_duplicate_offset_is_exact_span`). 계획 5·시험 8·리스크 고침 | `Duplicate and repeat by the exact selection span` |
+| 2 앞 클립이 마디 중간에서 끝나면 같은 마디 틈에 붙지 않음 | core `clip_for_notes`: 시작은 마디 시작, 앞 클립이 그 마디 안 자리 틱 앞에서 끝나면 그 끝. 끝은 마디 끝, 다음 클립이 노트 끝과 마디 끝 사이에서 시작하면 그 시작. 노트가 다른 클립에 닿을 때만 거부. 시험 `clip_for_notes_starts_after_prev_clip_and_stops_before_next_in_same_bar`. 계획 4 고침 | `Fit gap clips between mid-bar clip ends for paste` |
+| 3 배치 뷰 undo가 노트 선택을 만듦 | `select_appeared`는 피아노롤 뷰에서만 | `Restore the undo selection only in the piano roll view` |
+
+| 제안 | 대응 |
+| --- | --- |
+| 1 큰 붙여넣기 undo가 제곱 | core 편집 단위 문제라 이 Task에서 고치지 않는다. S8-T3 이월 줄로 옮겼다 |
+| 2 내부 구조를 쓸 때도 SMF·텍스트를 읽음 | `paste_contents`가 `changeCount`만 먼저 본다 |
+| 3 맨 글의 알 수 없는 오류 문구 | 머리 없는 글이 조각으로도 안 읽히면 「클립보드의 글이 계이름 텍스트가 아니다」. `paste_reads_external_smf_then_text`가 문구를 본다 |
+| 4 빠진 형식을 알리지 않음 | 복사 알림에 「다른 앱용 텍스트·SMF는 만들지 못했다」. 이 경로를 일으키는 노트(`Loss::Mismatch`)를 만드는 시험은 쓰지 못했다 |
+| 5 리뷰 시험 옮기기 | `review_s3_t3a.rs` 20개를 그대로 PR에 둔다(모두 통과). 「같은 값 둘」 UI 시험은 그 파일의 `delete_same_value_twins_removes_both_and_undo_selects` |
+
+수정 뒤: `transform_insert` 6, `review_s3_t3a`(core) 3, `clipboard_notes` 7, `note_edit` 10, `review_s3_t3a`(app) 20 통과. fmt·clippy 통과.
+
 ## 리뷰어에게
 
 - 대상 규칙(`note_edit.rs` `edit_targets`): 복사만 선택의 클립이 현재 클립이 아니어도 된다. 같은 값의 노트가 여럿이면 모두 대상이다.
