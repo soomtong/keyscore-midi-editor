@@ -89,14 +89,14 @@ pub fn plan_paste(
     })
 }
 
-/// 복제·반복 간격: `notes`의 폭(가장 늦은 끝 − 가장 이른 시작)을 한 스텝의 배수로 올린 값, 최소 한 스텝.
-/// 스타카토 노트를 반복해도 격자에서 밀리지 않게 하기 위해서다.
+/// 복제·반복 간격: `notes`의 폭(가장 늦은 끝 − 가장 이른 시작). REQ 7.5 「선택의 길이만큼 뒤에」, 5.8 「바로 뒤에」를
+/// 글자대로 따른다(S3-T3a 리뷰 1 지적 1). 격자에 맞춰 올리는 규칙은 결정 요청
+/// `docs/decisions/2026-10-26-duplicate-offset-grid.md`에 있다.
 #[must_use]
-pub fn duplicate_offset(notes: &[Note], step: u64) -> u64 {
-    let step = step.max(1);
+pub fn duplicate_offset(notes: &[Note]) -> u64 {
     let first = notes.iter().map(|n| n.start().get()).min().unwrap_or(0);
     let last = notes.iter().map(Note::end).max().unwrap_or(first);
-    (last - first).div_ceil(step).max(1).saturating_mul(step)
+    (last - first).max(1)
 }
 
 /// `notes`(그 클립의 노트)를 같은 클립 안에 [`duplicate_offset`]만큼 뒤로 복사하는 편집.
@@ -109,9 +109,8 @@ pub fn plan_duplicate(
     track: TrackId,
     clip: ClipId,
     notes: &[Note],
-    step: u64,
 ) -> Result<Placed, ModelError> {
-    let offset = duplicate_offset(notes, step);
+    let offset = duplicate_offset(notes);
     let copies = notes
         .iter()
         .map(|n| n.with_start(n.start().checked_add(offset)?))

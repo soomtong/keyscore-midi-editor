@@ -419,14 +419,7 @@ impl ProjectWindow {
         let Some(t) = self.edit_targets(label, true, cx) else {
             return;
         };
-        let step = self.pianoroll.step_ticks();
-        let planned = plan_duplicate(
-            self.document.read(cx).project(),
-            t.track,
-            t.clip,
-            &t.notes,
-            step,
-        );
+        let planned = plan_duplicate(self.document.read(cx).project(), t.track, t.clip, &t.notes);
         match planned {
             Ok(placed) => self.apply_placed(label, t.track, placed, Some(key), cx),
             Err(e) => self.say(format!("{label}: {e}"), cx),

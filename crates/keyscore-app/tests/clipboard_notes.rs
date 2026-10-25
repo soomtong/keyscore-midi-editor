@@ -169,23 +169,23 @@ fn plan_paste_into_clip_gap_and_extension() {
 }
 
 #[test]
-fn plan_duplicate_offset_is_span_rounded_up_to_step() {
-    // 스타카토 900틱 셋: 폭 2820 → 2880
+fn plan_duplicate_offset_is_exact_span() {
+    // 간격은 폭 그대로(REQ 7.5 「선택의 길이만큼」, 리뷰 1 지적 1). 스타카토 900틱 셋: 2820
     let staccato = [note(0, 900, 60), note(960, 900, 62), note(1920, 900, 64)];
-    assert_eq!(duplicate_offset(&staccato, 960), 2880);
-    // 한 스텝보다 짧은 노트 하나 → 한 스텝
-    assert_eq!(duplicate_offset(&[note(100, 10, 60)], 960), 960);
+    assert_eq!(duplicate_offset(&staccato), 2820);
+    // 16분음표 하나 → 바로 뒤(240)
+    assert_eq!(duplicate_offset(&[note(100, 240, 60)]), 240);
     // 화음은 폭이 가장 긴 노트
     assert_eq!(
-        duplicate_offset(&[note(0, 960, 60), note(0, 1000, 64)], 960),
-        1920
+        duplicate_offset(&[note(0, 960, 60), note(0, 1000, 64)]),
+        1000
     );
 
     let (d, t, ids) = doc(&[(0, BAR, staccato.to_vec()), (2 * BAR, BAR, Vec::new())]);
-    let placed = plan_duplicate(d.project(), t, ids[0], &staccato, 960).unwrap();
+    let placed = plan_duplicate(d.project(), t, ids[0], &staccato).unwrap();
     assert_eq!(
         key(&placed.notes),
-        vec![(2880, 900, 60), (3840, 900, 62), (4800, 900, 64)]
+        vec![(2820, 900, 60), (3780, 900, 62), (4740, 900, 64)]
     );
     assert!(matches!(placed.edits[0], Edit::ExtendClip { length, .. } if length == 2 * BAR));
     // 늘린 클립이 다음 클립과 겹치면 거부(다음 클립이 1.5마디에서 시작)
@@ -194,7 +194,7 @@ fn plan_duplicate_offset_is_span_rounded_up_to_step() {
         (BAR + BAR / 2, BAR, Vec::new()),
     ]);
     assert!(matches!(
-        plan_duplicate(d.project(), t, ids[0], &staccato, 960),
+        plan_duplicate(d.project(), t, ids[0], &staccato),
         Err(ModelError::ClipOverlap { .. })
     ));
 }

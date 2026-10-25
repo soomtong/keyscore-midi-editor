@@ -35,7 +35,7 @@
    - 자리 틱이 클립 밖(틈)이면 새 클립을 만든다(5.10 「클립 밖에서 입력을 시작하면 마디 단위로 새 클립」의 읽기): 시작은 자리 틱이 든 마디의 시작, 끝은 마지막 노트 끝을 품는 마디의 끝. 다만 앞 클립이 그 마디 안 자리 틱 앞에서 끝나면 시작은 그 끝, 다음 클립이 노트 끝과 마디 끝 사이에서 시작하면 끝은 그 시작이다(리뷰 1 지적 2: 마디 중간에서 끝나는 클립 옆의 틈). 노트가 다른 클립과 겹치면 거부한다.
    - 배치 뷰에서는 클립 단위 편집(S4)이라 이 Task의 처리기는 아무것도 바꾸지 않고 「배치 뷰의 클립 편집은 아직 없다」를 알린다(삭제·복사·잘라내기·복제·반복도 같다).
    - 뒤: 선택은 붙인 노트, 기준 칸은 비운다. 커서는 그대로.
-5. 복제 `edit::Duplicate`(`cmd-d`)·반복 `edit::Repeat`(`r`, vim `y y p`): 대상 노트를 같은 클립 안에 `offset`만큼 뒤로 복사한다. `offset`은 대상의 `span`(가장 늦은 끝 − 가장 이른 시작)을 한 스텝의 배수로 올린 값(최소 한 스텝)이다. 스타카토(960 칸의 900틱 노트)를 반복해도 격자에서 밀리지 않게 하기 위해서다. 클립 끝을 넘으면 4와 같이 늘리고, 겹치면 거부한다.
+5. 복제 `edit::Duplicate`(`cmd-d`)·반복 `edit::Repeat`(`r`, vim `y y p`): 대상 노트를 같은 클립 안에 `offset`만큼 뒤로 복사한다. `offset`은 대상의 폭(가장 늦은 끝 − 가장 이른 시작)이다(REQ 7.5 「선택의 길이만큼 뒤에」 글자대로, 리뷰 1 지적 1. 처음 계획의 「한 스텝 배수로 올림」은 REQ에 없는 결정이라 뺐고, 격자 정렬은 결정 요청 `docs/decisions/2026-10-26-duplicate-offset-grid.md`로 넘겼다). 클립 끝을 넘으면 4와 같이 늘리고, 겹치면 거부한다.
    - 뒤: 선택은 새로 만든 사본, 기준 칸은 비운다. 그래서 다시 누르면 사본의 뒤에 하나 더 붙는다(「누를 때마다 하나 더」). 선택 없이 커서 노트에서 시작해도 사본이 선택이 된다.
    - 되돌리기 묶음: 같은 키를 연달아 누른 복제·반복은 undo 한 단위다(5.7 「같은 조작을 연속으로 누른 것」. S3-T2의 `apply_coalesced` + `observe_keystrokes`의 `seal` 규칙). 삭제·붙여넣기·잘라내기는 누를 때마다 한 단위다(vim `x x`를 하나씩 되돌리는 관례).
    - 복제·반복은 클립보드를 바꾸지 않는다.
@@ -83,8 +83,8 @@ pub fn internal(cx: &App) -> Option<ClipNotes>;                // 시험용 읽�
 pub struct Placed { pub edits: Vec<Edit>, pub notes: Vec<Note> /* 클립 기준 시작 */, pub clip: PlacedClip }
 pub enum PlacedClip { Existing(ClipId), New { start: Tick } }
 pub fn plan_paste(project: &Project, track: TrackId, at: Tick, content: &ClipNotes) -> Result<Placed, ModelError>;
-pub fn duplicate_offset(notes: &[Note], step: u64) -> u64;
-pub fn plan_duplicate(project: &Project, track: TrackId, clip: ClipId, notes: &[Note], step: u64) -> Result<Placed, ModelError>;
+pub fn duplicate_offset(notes: &[Note]) -> u64;
+pub fn plan_duplicate(project: &Project, track: TrackId, clip: ClipId, notes: &[Note]) -> Result<Placed, ModelError>;
 pub fn plan_delete(track: TrackId, clip: ClipId, notes: &[Note]) -> Vec<Edit>;
 pub fn targets(clip: &Clip, values: &BTreeSet<Note>) -> Vec<Note>;   // 값마다 클립의 같은 노트 전부
 pub fn appeared(before: &Track, after: &Track) -> Option<(ClipId, BTreeSet<Note>)>; // undo·redo 뒤 선택(6)
@@ -105,7 +105,7 @@ pub fn appeared(before: &Track, after: &Track) -> Option<(ClipId, BTreeSet<Note>
 | 5 | `clip_notes_smf_and_text_round_trip` | 단위 | `to_smf`→`from_smf`, `to_text`→`from_text`가 같은 (시작, 길이, 음높이) 목록. 템포가 다른 곡도 틱은 같다 |
 | 6 | `from_text_rejects_non_notation_and_empty` | 단위 | 노트 없는 텍스트·문법 오류는 `Err` |
 | 7 | `plan_paste_into_clip_gap_and_extension` | 단위 | 클립 안 자리, 끝 넘김 연장, 틈이면 새 클립(마디 정렬), 다음 클립과 겹치면 `Err` |
-| 8 | `plan_duplicate_offset_is_span_rounded_up_to_step` | 단위 | 스타카토 900틱 셋 → 2880, 한 스텝보다 짧은 노트 하나 → 한 스텝, 연장·겹침 거부 |
+| 8 | `plan_duplicate_offset_is_exact_span` | 단위 | 간격은 폭 그대로(스타카토 셋 2820, 16분음표 240), 연장·겹침 거부 |
 | 9 | `appeared_picks_new_notes_in_one_clip` | 단위 | 다중집합 차, 두 클립에 나타나면 `None`, 사라지기만 하면 `None` |
 | 10 | `delete_x_delete_backspace_remove_targets` | UI | 선택 삭제(같은 값 둘 포함), 선택 없이 커서 노트, 대상 없음 알림, 선택이 다른 클립이면 거부, 뒤에 선택·`Selection` 컨텍스트 비움 |
 | 11 | `cut_copy_paste_in_piano_roll` | UI | `cmd-c` → 커서 이동 → `cmd-v`는 커서 틱에 붙고 선택이 붙인 노트, `cmd-x`는 지우고 붙일 수 있음, `shift-x`는 `cmd-x`와 같음, 끝 넘김은 클립 연장, 틈은 새 클립, 겹침 거부 |
@@ -137,6 +137,6 @@ pub fn appeared(before: &Track, after: &Track) -> Option<(ClipId, BTreeSet<Note>
 ## 리스크·결정 요청
 
 - 틈에 붙이면 새 클립을 만드는 것은 5.10의 「클립 밖에서 Step·Sequence 입력을 시작하면 새 클립」을 붙여넣기에 넓혀 읽은 것이다. 리뷰가 다르게 읽으면(거부) 계획을 고친다.
-- 복제·반복의 간격을 한 스텝 배수로 올리는 것, 복제·반복만 되돌리기 묶음에 넣는 것은 REQ에 없는 세부다. 이유는 끝의 정의 5에 적었다.
+- 복제·반복만 되돌리기 묶음에 넣는 것은 REQ에 없는 세부다. 이유는 끝의 정의 5에 적었다. 복제 간격의 격자 정렬은 결정 요청 `docs/decisions/2026-10-26-duplicate-offset-grid.md`(이 Task는 REQ 글자대로 폭 그대로).
 - 외부 텍스트를 계이름 텍스트로 읽으므로 우연히 문법에 맞는 글(「c d e」)은 노트가 된다. 문법 오류나 노트 0개면 거부한다.
 - 시스템 클립보드는 GPUI가 문자열·이미지만 쓸 수 있어 `objc2-app-kit`(이미 의존 트리에 있음, MIT/Apache-2.0)으로 직접 쓴다. 쓰고 나면 GPUI의 `read_from_clipboard`도 같은 문자열을 본다. `cargo deny`와 `scripts/check-deps.sh`(app은 대상 아님)로 확인한다.
