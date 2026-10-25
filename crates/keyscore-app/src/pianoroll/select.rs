@@ -115,13 +115,14 @@ pub fn next_clip_start(track: &Track, tick: Tick) -> Option<Tick> {
         .find(|start| *start > tick)
 }
 
-/// `tick` 앞에서 시작하는 마지막 클립의 시작.
+/// `tick` 앞에서 끝나는 마지막 클립의 시작(REQ 5.8 「이전 클립으로」). 커서가 클립 중간이면 그 클립이 아니라
+/// 앞 클립이다(리뷰 1 제안 7). 커서가 클립 시작에 있으면 그 클립의 끝은 `tick`보다 뒤라 역시 앞 클립이다.
 #[must_use]
 pub fn prev_clip_start(track: &Track, tick: Tick) -> Option<Tick> {
     track
         .clips()
+        .filter(|(_, c)| c.end() <= tick.get())
         .map(|(_, c)| c.start())
-        .filter(|start| *start < tick)
         .last()
 }
 
