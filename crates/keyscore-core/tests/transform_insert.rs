@@ -166,12 +166,16 @@ proptest! {
             let clip = clip_of(&d, t, ids[0]);
             prop_assert_eq!(clip.notes().len(), notes.len());
             prop_assert!(clip.notes().iter().all(|n| n.end() <= clip.length()));
-            prop_assert!(clip.length().is_multiple_of(BAR) || clip.length() == length);
+            // 길이는 그대로, 마디 배수, 또는 다음 클립 시작까지(리뷰 2 지적 1)
+            prop_assert!(
+                clip.length() == length
+                    || clip.length().is_multiple_of(BAR)
+                    || next.is_some_and(|gap| clip.length() == length + gap)
+            );
         } else {
-            // 거부는 다음 클립과 겹칠 때뿐이다
+            // 거부는 노트가 다음 클립에 닿을 때뿐이다
             let end = notes.iter().map(Note::end).max().unwrap_or(0);
-            let bar_end = end.div_ceil(BAR) * BAR;
-            prop_assert!(next.is_some_and(|gap| bar_end > length + gap));
+            prop_assert!(next.is_some_and(|gap| end > length + gap));
         }
     }
 }

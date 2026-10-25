@@ -191,8 +191,9 @@ pub fn map_notes(
 }
 
 /// 노트들을 클립 `clip`에 넣는 편집(붙여넣기·복제, S3-T3a). 노트 시작은 클립 기준이다. 끝이 클립을 넘는 노트가
-/// 있으면 먼저 클립을 마디 단위로 늘린다(`ExtendClip`, REQ 5.10. 규칙은 [`quantize`]의 연장과 같다). 늘린 클립이
-/// 다음 클립과 겹치면 거부한다. 빈 `notes`는 빈 묶음이다.
+/// 있으면 먼저 클립을 마디 단위로 늘린다(`ExtendClip`, REQ 5.10). 다만 다음 클립이 노트 끝과 그 마디 끝 사이에서
+/// 시작하면 그 시작까지만 늘린다(REQ 7.5 「클립 경계를 넘으면 클립을 늘리고」). 노트가 다음 클립에 닿으면 거부한다.
+/// 일괄 연산([`quantize`] 등, S0-T7 결정)의 연장은 마디 끝까지라 이 점이 다르다. 빈 `notes`는 빈 묶음이다.
 ///
 /// # Errors
 ///
@@ -212,9 +213,21 @@ pub fn insert_notes(
     }
     let mut edits = Vec::with_capacity(notes.len() + 1);
     if end > c.length() {
-        let length = bar_aligned_length(project, c, end)?;
         let start = c.start().get();
-        let stop = start.checked_add(length).ok_or(ModelError::TickOverflow)?;
+        let bar_stop = start
+            .checked_add(bar_aligned_length(project, c, end)?)
+            .ok_or(ModelError::TickOverflow)?;
+        let note_end = start.checked_add(end).ok_or(ModelError::TickOverflow)?;
+        // 다음 클립이 노트 끝과 마디 끝 사이에서 시작하면 그 시작까지만 늘린다(`clip_for_notes`와 같은 규칙,
+        // S3-T3a 리뷰 2 지적 1). 노트가 다음 클립에 닿을 때만 거부한다.
+        let stop = t
+            .clips()
+            .filter(|(other, _)| *other != clip)
+            .map(|(_, o)| o.start().get())
+            .filter(|&s| s >= note_end && s < bar_stop)
+            .min()
+            .unwrap_or(bar_stop);
+        let length = stop - start;
         if t.clips()
             .any(|(other, o)| other != clip && o.start().get() < stop && start < o.end())
         {

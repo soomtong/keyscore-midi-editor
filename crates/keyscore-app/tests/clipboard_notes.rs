@@ -188,11 +188,12 @@ fn plan_duplicate_offset_is_exact_span() {
         vec![(2820, 900, 60), (3780, 900, 62), (4740, 900, 64)]
     );
     assert!(matches!(placed.edits[0], Edit::ExtendClip { length, .. } if length == 2 * BAR));
-    // 늘린 클립이 다음 클립과 겹치면 거부(다음 클립이 1.5마디에서 시작)
-    let (d, t, ids) = doc(&[
-        (0, BAR, staccato.to_vec()),
-        (BAR + BAR / 2, BAR, Vec::new()),
-    ]);
+    // 다음 클립이 사본 끝(5640) 뒤에서 시작하면 그 앞까지만 늘린다(리뷰 2 지적 1)
+    let (d, t, ids) = doc(&[(0, BAR, staccato.to_vec()), (5760, BAR, Vec::new())]);
+    let placed = plan_duplicate(d.project(), t, ids[0], &staccato).unwrap();
+    assert!(matches!(placed.edits[0], Edit::ExtendClip { length, .. } if length == 5760));
+    // 사본이 다음 클립에 닿으면 거부(다음 클립이 5000에서 시작)
+    let (d, t, ids) = doc(&[(0, BAR, staccato.to_vec()), (5000, BAR, Vec::new())]);
     assert!(matches!(
         plan_duplicate(d.project(), t, ids[0], &staccato),
         Err(ModelError::ClipOverlap { .. })
