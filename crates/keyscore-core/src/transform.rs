@@ -187,8 +187,7 @@ pub fn map_notes(
     notes: &[NoteRef],
     f: impl FnMut(&NoteRef, &Clip, &Note) -> Result<Note, ModelError>,
 ) -> Result<Vec<Edit>, ModelError> {
-    let _ = (project, notes, f);
-    todo!("S3-T2")
+    plan(project, notes, f)
 }
 
 /// 길이 스케일(EDT-3). 클립마다 그 클립 안의 가장 이른 선택 노트를 기준으로 시작 간격과 길이를
