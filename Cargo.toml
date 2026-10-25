@@ -47,6 +47,11 @@ proptest = "1"
 criterion = { version = "0.7", default-features = false, features = ["cargo_bench_support"] }
 # 앱 UI(S2-T1). GPUI는 gpui-kit이 고정한 gpui-pre 스냅샷을 따른다(REQ 9.1, SP-1). gpui를 따로 적지 않는다.
 gpui-kit = "=0.7.1"
+# 시스템 클립보드에 SMF 바이트와 텍스트를 함께 쓴다(S3-T3a, KM-15). GPUI 클립보드는 문자열·이미지만 쓴다.
+# gpui-kit이 이미 같은 판을 쓰므로 의존 트리에 새 crate가 들지 않는다.
+objc2 = { version = "0.6.5", default-features = false, features = ["std"] }
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSPasteboard"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSArray", "NSData", "NSString"] }
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

@@ -28,6 +28,7 @@
 - 이월(S2-T7a 리뷰 3, S2 출구): 파일 정체 `FileId`는 장치·inode만 본다. FAT32 같은 외부 볼륨에서 inode 재사용으로 새 파일이 옛 창에 묶일 수 있다. 크래시 복구 시나리오를 검증할 때 `st_birthtime`을 정체에 더할지 정한다.
 - 이월(S2-T7e 리뷰 1 제안 2, S2 출구): [복구]·[버리기]가 다른 실행에서 겹칠 때 [버리기]의 메타 읽기와 내용 열기 사이에 [복구] 쪽 첫 쓰기가 끝나면 새 저장본을 지우는 좁은 틈. 메타·내용을 모두 잠근 뒤 지우는 방안.
 - 이월(S2-T7e 리뷰 1 제안 5, S2 출구): `rename_virtual_port`로 설정 `virtual_ports`에 남은(시작 때 만들지 못한) 이름으로 바꾸면 설정에 같은 이름이 둘 된다. `check_new_name`이 설정 목록도 보게 한다.
+- 이월(S3-T3a 리뷰 1 제안 1): 노트 2만 개를 붙여넣은 뒤 undo가 디버그 빌드에서 2.6 s다. 노트마다 `InsertNote`/`RemoveNote`가 클립 노트 Vec에 끼우고 빼서 노트 수의 제곱이다(붙여넣기 305 ms, 삭제 288 ms). NF 측정 때 클립 단위 묶음 편집(정렬 병합)을 core에 둘지 정한다. 측정 시험은 `crates/keyscore-app/tests/review_s3_t3a.rs` `large_selection_edit_cost`.
 
 ### S8-T4 접근성·테마
 

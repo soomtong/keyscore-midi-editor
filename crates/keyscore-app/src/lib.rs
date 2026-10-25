@@ -6,6 +6,7 @@
 pub mod actions;
 pub mod app_state;
 pub mod autosave;
+pub mod clipboard;
 pub mod command_palette;
 pub mod commands;
 pub mod dispatch;
@@ -18,6 +19,7 @@ pub mod import_export;
 mod inspector;
 pub mod keymap;
 pub mod mode;
+mod note_edit;
 mod overlay;
 pub mod palette;
 pub mod pianoroll;

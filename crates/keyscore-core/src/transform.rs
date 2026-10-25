@@ -190,6 +190,134 @@ pub fn map_notes(
     plan(project, notes, f)
 }
 
+/// 노트들을 클립 `clip`에 넣는 편집(붙여넣기·복제, S3-T3a). 노트 시작은 클립 기준이다. 끝이 클립을 넘는 노트가
+/// 있으면 먼저 클립을 마디 단위로 늘린다(`ExtendClip`, REQ 5.10). 다만 다음 클립이 노트 끝과 그 마디 끝 사이에서
+/// 시작하면 그 시작까지만 늘린다(REQ 7.5 「클립 경계를 넘으면 클립을 늘리고」). 노트가 다음 클립에 닿으면 거부한다.
+/// 일괄 연산([`quantize`] 등, S0-T7 결정)의 연장은 마디 끝까지라 이 점이 다르다. 빈 `notes`는 빈 묶음이다.
+///
+/// # Errors
+///
+/// 트랙·클립이 없으면 [`ModelError::UnknownTrack`]·[`ModelError::UnknownClip`], 다음 클립과 겹치면
+/// [`ModelError::ClipOverlap`], 틱이 넘치면 [`ModelError::TickOverflow`].
+pub fn insert_notes(
+    project: &Project,
+    track: TrackId,
+    clip: ClipId,
+    notes: &[Note],
+) -> Result<Vec<Edit>, ModelError> {
+    let t = project.track(track).ok_or(ModelError::UnknownTrack)?;
+    let c = t.clip(clip).ok_or(ModelError::UnknownClip)?;
+    let mut end = 0;
+    for n in notes {
+        end = end.max(n.end());
+    }
+    let mut edits = Vec::with_capacity(notes.len() + 1);
+    if end > c.length() {
+        let start = c.start().get();
+        let bar_stop = start
+            .checked_add(bar_aligned_length(project, c, end)?)
+            .ok_or(ModelError::TickOverflow)?;
+        let note_end = start.checked_add(end).ok_or(ModelError::TickOverflow)?;
+        // 다음 클립이 노트 끝과 마디 끝 사이에서 시작하면 그 시작까지만 늘린다(`clip_for_notes`와 같은 규칙,
+        // S3-T3a 리뷰 2 지적 1). 노트가 다음 클립에 닿을 때만 거부한다.
+        let stop = t
+            .clips()
+            .filter(|(other, _)| *other != clip)
+            .map(|(_, o)| o.start().get())
+            .filter(|&s| s >= note_end && s < bar_stop)
+            .min()
+            .unwrap_or(bar_stop);
+        let length = stop - start;
+        if t.clips()
+            .any(|(other, o)| other != clip && o.start().get() < stop && start < o.end())
+        {
+            return Err(ModelError::ClipOverlap { start, end: stop });
+        }
+        edits.push(Edit::ExtendClip {
+            track,
+            id: clip,
+            length,
+        });
+    }
+    edits.extend(notes.iter().map(|n| Edit::InsertNote {
+        track,
+        clip,
+        note: n.clone(),
+    }));
+    Ok(edits)
+}
+
+/// 틈에 노트를 넣을 새 클립 편집(`InsertClip`, REQ 5.10 「클립 밖 입력은 마디 단위로 새 클립」). 노트 시작은 절대
+/// 틱이다. 클립 시작은 `at`이 든 마디의 시작(앞 클립이 그 마디 안 `at` 앞에서 끝나면 그 끝), 끝은 마지막 노트 끝을
+/// 품는 마디의 끝(다음 클립이 그 앞에서 시작하면 그 시작)이다. 노트가 다른 클립과 겹치면 거부한다.
+///
+/// # Errors
+///
+/// `notes`가 비었으면 [`ModelError::NoteNotFound`], 어떤 노트가 클립 시작 앞이면
+/// [`ModelError::NoteBeforeClipStart`], 트랙이 없으면
+/// [`ModelError::UnknownTrack`], 겹치면 [`ModelError::ClipOverlap`], 틱이 넘치면 [`ModelError::TickOverflow`].
+pub fn clip_for_notes(
+    project: &Project,
+    track: TrackId,
+    notes: &[Note],
+    at: Tick,
+) -> Result<Edit, ModelError> {
+    let t = project.track(track).ok_or(ModelError::UnknownTrack)?;
+    if notes.is_empty() {
+        return Err(ModelError::NoteNotFound);
+    }
+    let meter = project.meter_map();
+    let bar_start = meter
+        .bar_start(meter.position(at).bar())
+        .unwrap_or(Tick::ZERO)
+        .get();
+    // 앞 클립이 그 마디 안에서 끝나면(SMF 가져오기·줄이기가 만든 마디 중간 끝) 그 끝에서 시작한다(S3-T3a 리뷰 1
+    // 지적 2). 마디 시작으로 잡으면 틈인데도 앞 클립과 겹쳐 거부된다.
+    let start = t
+        .clips()
+        .map(|(_, o)| o.end())
+        .filter(|&e| e > bar_start && e <= at.get())
+        .max()
+        .unwrap_or(bar_start);
+    let mut end = start;
+    let mut relative = Vec::with_capacity(notes.len());
+    for n in notes {
+        let rel = n
+            .start()
+            .get()
+            .checked_sub(start)
+            .ok_or(ModelError::NoteBeforeClipStart)?;
+        end = end.max(n.end());
+        relative.push(n.with_start(Tick::new(rel))?);
+    }
+    // 끝은 마지막 노트 끝을 품는 마디의 끝. 다음 클립이 그 사이(노트 끝 뒤)에서 시작하면 그 시작까지만 늘린다.
+    // 노트가 다음 클립에 닿으면 거부한다.
+    let probe = Clip::new(Tick::new(start), 1)?;
+    let bar_stop = start
+        .checked_add(bar_aligned_length(project, &probe, (end - start).max(1))?)
+        .ok_or(ModelError::TickOverflow)?;
+    let stop = t
+        .clips()
+        .map(|(_, o)| o.start().get())
+        .filter(|&s| s >= end && s < bar_stop)
+        .min()
+        .unwrap_or(bar_stop);
+    if t.clips()
+        .any(|(_, o)| o.start().get() < stop && start < o.end())
+    {
+        return Err(ModelError::ClipOverlap { start, end: stop });
+    }
+    let length = stop - start;
+    let mut clip = Clip::new(Tick::new(start), length)?;
+    for n in relative {
+        clip.insert_note(n)?;
+    }
+    Ok(Edit::InsertClip {
+        track,
+        clip: Box::new(clip),
+    })
+}
+
 /// 길이 스케일(EDT-3). 클립마다 그 클립 안의 가장 이른 선택 노트를 기준으로 시작 간격과 길이를
 /// 함께 `numerator / denominator`배 한다(결정 개정). 길이는 최소 1틱이다.
 ///

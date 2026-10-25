@@ -3,6 +3,7 @@
 //! 장면 계산(`scene`)은 GPUI와 무관한 순수 함수이고, `element`는 그 결과를 `paint_layer` 하나 안에서
 //! 그린다(`docs/spikes/sp2-element-instancing.md` 분기 A).
 
+pub mod edit;
 pub mod element;
 pub mod ops;
 pub mod scene;
