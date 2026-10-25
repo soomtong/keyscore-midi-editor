@@ -82,6 +82,7 @@ impl ProjectWindow {
         if !keep_anchor {
             self.pianoroll.set_anchor(None);
         }
+        self.sync_selection_mode(cx);
         self.pianoroll.ensure_cursor_visible();
         self.preview_cursor_note(cx);
         cx.notify();
@@ -109,9 +110,11 @@ impl ProjectWindow {
 
     // ---------- 선택 ----------
 
-    /// 선택 유무를 모드 FSM에 맞춘다(`Normal > PianoRoll > Selection` 컨텍스트, `Esc`=`select::Clear`).
+    /// 선택 유무를 모드 FSM에 맞춘다(`Normal > PianoRoll > Selection` 컨텍스트, `Esc`=`select::Clear`). 노트가
+    /// 비어도 `Shift+이동`의 기준 칸이 남아 있으면(빈 칸을 넓히는 중) 선택 중으로 본다. 그래야 `Esc`가 통상의
+    /// 취소로 기준 칸을 지운다(리뷰 3 제안 5).
     pub(crate) fn sync_selection_mode(&mut self, cx: &mut Context<Self>) {
-        let has = !self.pianoroll.selection().is_empty();
+        let has = !self.pianoroll.selection().is_empty() || self.pianoroll.anchor().is_some();
         if has != self.mode_state().has_selection() {
             self.apply_selection_event(if has {
                 ModeEvent::Select
@@ -165,11 +168,14 @@ impl ProjectWindow {
         let anchor = self.pianoroll.anchor().unwrap_or(before);
         self.pianoroll.set_anchor(Some(anchor));
         let step = self.pianoroll.step_ticks();
-        // 직사각형이 걸치는 클립: 기준 칸이 든 클립, 없으면(틈) 커서가 든 클립, 그것도 없으면 직사각형의 시간
-        // 범위에 걸치는 첫 클립(리뷰 1 지적 2, 리뷰 2 지적 2).
+        // 직사각형이 걸치는 클립: 기준 칸이 든 클립, 없으면(틈) 커서가 든 클립, 그것도 없으면 지금 선택의 클립,
+        // 그것도 없으면 직사각형의 시간 범위에 걸치는 첫 클립(리뷰 1 지적 2, 리뷰 2 지적 2, 리뷰 3 지적 1). 선택의
+        // 클립이 첫 클립 규칙보다 앞서야 틈에서 넓힐 때 선택이 다른 클립으로 뒤집히지 않는다.
+        let current = self.pianoroll.selection();
         let picked = self
             .clip_at(anchor.tick, cx)
             .or_else(|| self.clip_at(after.tick, cx))
+            .or_else(|| current.track().zip(current.clip()))
             .or_else(|| {
                 let lo = anchor.tick.min(after.tick).get();
                 let hi = anchor.tick.max(after.tick).get().saturating_add(step);
@@ -191,18 +197,15 @@ impl ProjectWindow {
                     sel::region_notes(clip, anchor, after, step),
                 ))
             });
-        match picked {
-            Some((track_id, clip_id, mut notes)) => {
-                // 「넓히기」는 좁히지 않는다: 같은 클립의 지금 선택(`Alt` 조작으로 옮겨진 노트 포함)에 직사각형의 노트를
-                // 더한다. 조작 뒤 커서는 그대로라 기준 칸만 옮기면 직사각형이 줄어 방금 옮긴 노트를 떨어뜨리기 때문이다
-                // (리뷰 2 지적 1). 좁히려면 Esc로 비우고 다시 고른다.
-                let current = self.pianoroll.selection();
-                if current.clip() == Some(clip_id) {
-                    notes.extend(current.notes().cloned());
-                }
-                self.replace_selection(track_id, clip_id, notes, cx);
+        // 걸치는 클립이 없으면(트랙에 클립이 없음) 지금 선택을 그대로 둔다(리뷰 3 제안 4)
+        if let Some((track_id, clip_id, mut notes)) = picked {
+            // 「넓히기」는 좁히지 않는다: 같은 클립의 지금 선택(`Alt` 조작으로 옮겨진 노트 포함)에 직사각형의 노트를
+            // 더한다. 조작 뒤 커서는 그대로라 기준 칸만 옮기면 직사각형이 줄어 방금 옮긴 노트를 떨어뜨리기 때문이다
+            // (리뷰 2 지적 1). 좁히려면 Esc로 비우고 다시 고른다.
+            if current.clip() == Some(clip_id) {
+                notes.extend(current.notes().cloned());
             }
-            None => self.set_selection(Selection::default(), cx),
+            self.replace_selection(track_id, clip_id, notes, cx);
         }
         self.cursor_moved(true, cx);
     }

@@ -559,15 +559,24 @@ pub fn current_layers(cx: &App) -> (LayerSet, Result<user::UserKeymap, String>) 
 ///
 /// 파일을 쓰지 못한 이유.
 pub fn save_user(cx: &mut App, user: &user::UserKeymap) -> Result<(), String> {
-    // 예약 키는 파일에 쓰기 전에 거부한다. 쓰면 `build`가 매번 거부해 KM-6 오류가 남고 편집기는 거짓 성공을 말한다
-    // (리뷰 2 지적 6).
-    if let Some(b) = user.bindings().iter().find(|b| uses_reserved_key(&b.keys)) {
+    let path = user_path(cx);
+    // 새로 넣는 예약 키는 파일에 쓰기 전에 거부한다. 쓰면 `build`가 매번 거부해 KM-6 오류가 남고 편집기는 거짓 성공을
+    // 말한다(리뷰 2 지적 6). 손으로 써 둔 예약 키 항목은 KM-6 오류로만 보이고 다른 편집을 막지 않는다(리뷰 3 지적 2).
+    let already: Vec<String> = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|old| user::UserKeymap::parse(&old).ok())
+        .map(|old| old.bindings().iter().map(|b| b.keys.clone()).collect())
+        .unwrap_or_default();
+    if let Some(b) = user
+        .bindings()
+        .iter()
+        .find(|b| uses_reserved_key(&b.keys) && !already.contains(&b.keys))
+    {
         return Err(format!(
             "키 '{}'는 쓸 수 없다. '{FLUSH_KEY}'는 앱이 시퀀스 취소에 예약한 키다",
             b.keys
         ));
     }
-    let path = user_path(cx);
     // 사람이 쓴(편집기가 쓰지 않은) 내용만 `.bak`으로 남긴다. 편집할 때마다 덮으면 두 번째 편집부터 손으로 쓴
     // 원본·주석이 사라진다(리뷰 1 제안 11). 편집기가 쓴 파일은 다시 읽어 쓰면 글자 그대로 같다. 앱을 다시 띄워도
     // 같은 판단이 된다(리뷰 2 제안 3).
