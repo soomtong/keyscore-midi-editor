@@ -23,7 +23,9 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::{Duration, SystemTime};
 
-use gpui_kit::{App, Global, KeyBinding, KeyBindingContextPredicate, Keystroke, NoAction, Task};
+use gpui_kit::{
+    App, Global, KeyBinding, KeyBindingContextPredicate, Keystroke, NoAction, Task, Window,
+};
 use serde::{Deserialize, Serialize};
 
 use self::source::{ActionRef, Binding, KeymapError, Layer, Pos, parse};
@@ -237,6 +239,23 @@ pub fn build(
     (out, errors)
 }
 
+/// 시퀀스 대기를 비우는 데 쓰는, 어느 프리셋에도 바인딩이 없는 키.
+const FLUSH_KEY: &str = "f20";
+
+/// 창의 루트 뷰가 프로젝트 창인가.
+fn is_project_window(window: &Window, cx: &App) -> bool {
+    window
+        .root::<gpui_kit::component::Root>()
+        .flatten()
+        .is_some_and(|root| {
+            root.read(cx)
+                .view()
+                .clone()
+                .downcast::<crate::window::ProjectWindow>()
+                .is_ok()
+        })
+}
+
 /// 앱 전역 키맵 상태.
 pub struct KeymapState {
     options: KeymapOptions,
@@ -304,8 +323,26 @@ pub fn install(
     //   처리기는 카운트를 받지 않는다.
     // - 키 입력이 끝났는데 그것이 카운트 숫자도 아니고 대기 중인 시퀀스의 앞부분도 아니면 남은
     //   카운트를 비운다. 바인딩이 없는 키(`escape`)도 비운다.
-    cx.intercept_keystrokes(|_, _, cx| {
+    cx.intercept_keystrokes(|event, window, cx| {
         cx.global_mut::<KeymapState>().in_key_dispatch = true;
+        // A13(S3-T2): 멀티키 시퀀스 대기 중(`g` 뒤)의 Esc는 시퀀스만 취소한다. GPUI 기본은 접두를 재생한 뒤
+        // Esc를 평소처럼 디스패치해 선택 해제 같은 바인딩이 실행된다. 여기서 Esc를 삼키고, 대기를 비우는 공개
+        // API가 없어(`clear_pending_keystrokes`는 crate 안) 바인딩 없는 키 하나를 디스패치해 시간 초과와 같은
+        // 결과(접두 단독 바인딩이 있으면 실행, 대기·카운트 비움)를 만든다. 프로젝트 창에서만 한다.
+        let k = &event.keystroke;
+        if k.key == "escape"
+            && !k.modifiers.modified()
+            && window.has_pending_keystrokes()
+            && is_project_window(window, cx)
+        {
+            cx.stop_propagation();
+            cx.global_mut::<KeymapState>().count = None;
+            window.defer(cx, |window, cx| {
+                if let Ok(flush) = Keystroke::parse(FLUSH_KEY) {
+                    window.dispatch_keystroke(flush, cx);
+                }
+            });
+        }
     })
     .detach();
     cx.observe_keystrokes(|event, window, cx| {

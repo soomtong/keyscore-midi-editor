@@ -190,7 +190,7 @@ fn select(cx: &mut TestAppContext, view: &Entity<ProjectWindow>, notes: &[(u64, 
     let set: BTreeSet<Note> = notes.iter().map(|&(s, l, p)| note(s, l, p)).collect();
     view.update(cx, |this, cx| {
         let mut sel = Selection::default();
-        sel.set(track, clip, set, None);
+        sel.set(track, clip, set);
         this.set_selection(sel, cx);
     });
 }
@@ -357,8 +357,9 @@ fn bar_notes_and_clip_last_step() {
         "3/4의 두 번째 마디 [2880, 5760)"
     );
     assert_eq!(clip_last_step(&a, QUARTER).get(), 14400);
-    assert_eq!(clip_last_step(&clip(0, 1000, &[]), QUARTER).get(), 0);
-    assert_eq!(clip_last_step(&clip(0, 2000, &[]), QUARTER).get(), 960);
+    assert_eq!(clip_last_step(&clip(0, 960, &[]), QUARTER).get(), 0);
+    assert_eq!(clip_last_step(&clip(0, 1000, &[]), QUARTER).get(), 960);
+    assert_eq!(clip_last_step(&clip(0, 2000, &[]), QUARTER).get(), 1920);
     assert_eq!(
         clip_last_step(&clip(4 * BAR, BAR, &[]), QUARTER).get(),
         4 * BAR + 3 * QUARTER
@@ -447,12 +448,7 @@ fn plan_note_op_rules() {
     assert!(plan(&high, &[(960, 960, 120)], NoteOp::OctaveUp).is_err());
     assert!(plan(&high, &[(1920, 960, 3)], NoteOp::OctaveDown).is_err());
     assert!(
-        plan(
-            &high,
-            &[(960, 960, 120), (1920, 960, 3)],
-            NoteOp::TransposeUp
-        )
-        .is_err(),
+        plan(&high, &[(0, 960, 127), (1920, 960, 3)], NoteOp::TransposeUp).is_err(),
         "하나라도 밖이면 전부 거부"
     );
     let planned = plan(&high, &[(960, 960, 120)], NoteOp::TransposeDown)
@@ -488,6 +484,8 @@ struct Cell {
     expect: Expect,
 }
 
+// 5.7 표 한 칸이 한 줄이라 표 길이만큼 길다.
+#[allow(clippy::too_many_lines)]
 fn table() -> Vec<Cell> {
     use Expect::{Cursor as C, CursorAndSelection as CS, Nothing, Replaced};
     let cell = |keys, cursor, selection, expect| Cell {
@@ -1067,6 +1065,7 @@ fn cursor_move_onto_note_sends_preview_on_track_port_channel(cx: &mut TestAppCon
     let rx = start_engine(cx, "preview");
     let (handle, view) = open(cx, fixture());
     enter_piano_roll(cx, handle, &view);
+    set_cursor(cx, &view, 0, 62);
     let _ = rx.drain_for(Duration::from_millis(100));
     press(cx, handle, "l");
     assert_eq!(cursor_of(cx, &view), (960, 62));
@@ -1077,6 +1076,14 @@ fn cursor_move_onto_note_sends_preview_on_track_port_channel(cx: &mut TestAppCon
     rx.wait_for(|m| is_note_off(m, 62))
         .expect("D4 Note Off(기본 200 ms)");
     press(cx, handle, "l");
+    assert_eq!(cursor_of(cx, &view), (1920, 62));
+    let quiet = rx.drain_for(Duration::from_millis(300));
+    assert!(
+        !quiet.iter().any(|m| m[0] & 0xF0 == 0x90 && m[2] > 0),
+        "노트 없는 칸: {quiet:?}"
+    );
+    press(cx, handle, "k k");
+    assert_eq!(cursor_of(cx, &view), (1920, 64));
     rx.wait_for(|m| is_note_on(m, 64)).expect("E4 Note On");
     rx.wait_for(|m| is_note_off(m, 64)).expect("E4 Note Off");
     press(cx, handle, "l");
@@ -1109,7 +1116,7 @@ fn cursor_move_onto_note_sends_preview_on_track_port_channel(cx: &mut TestAppCon
         AppSettings::update(cx, |s| {
             s.preview.on_move = true;
             s.preview.length_ms = 50;
-        })
+        });
     });
     let _ = rx.drain_for(Duration::from_millis(300));
     press(cx, handle, "k k k k");
@@ -1191,15 +1198,15 @@ fn selection_follows_document_changes(cx: &mut TestAppContext) {
     select(cx, &view, &[D4, A4]);
     let (track, clip_id) = ids(cx, &view);
     view.update(cx, |this, cx| {
-        this.document()
-            .update(cx, |d, _| {
-                d.apply(vec![Edit::RemoveNote {
-                    track,
-                    clip: clip_id,
-                    note: note(D4.0, D4.1, D4.2),
-                }])
-            })
+        this.document().update(cx, |d, cx| {
+            d.apply(vec![Edit::RemoveNote {
+                track,
+                clip: clip_id,
+                note: note(D4.0, D4.1, D4.2),
+            }])
             .unwrap();
+            cx.notify();
+        });
     });
     cx.run_until_parked();
     render(cx, handle);
@@ -1242,12 +1249,7 @@ fn scene_marks_selected_only_in_selected_clip() {
         (it.next().unwrap().0, it.next().unwrap().0)
     };
     let mut selection = Selection::default();
-    selection.set(
-        track.id(),
-        a_id,
-        [note(0, 960, 60)].into_iter().collect(),
-        None,
-    );
+    selection.set(track.id(), a_id, [note(0, 960, 60)].into_iter().collect());
     let mut cache = MaxLenCache::default();
     cache.refresh(Some(&track), 0);
     let meter = MeterMap::default();

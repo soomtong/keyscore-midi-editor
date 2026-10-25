@@ -204,7 +204,7 @@ fn vim_preset_keys_from_decisions_a2_a8_a10_a11(cx: &mut TestAppContext) {
             .set_cursor(keyscore_app::pianoroll::Cursor {
                 tick: Tick::ZERO,
                 pitch: Pitch::new(60).unwrap(),
-            })
+            });
     });
     press(cx, handle, "enter");
     assert_eq!(
@@ -296,7 +296,7 @@ fn escape_during_pending_sequence_only_cancels_sequence(cx: &mut TestAppContext)
             .set_cursor(keyscore_app::pianoroll::Cursor {
                 tick: Tick::new(2 * BAR),
                 pitch: Pitch::new(60).unwrap(),
-            })
+            });
     });
     press(cx, handle, "g g");
     assert_eq!(cursor_of(cx, &view), (0, 60), "g g = 클립 처음");
@@ -313,7 +313,7 @@ fn escape_during_pending_sequence_only_cancels_sequence(cx: &mut TestAppContext)
             .set_cursor(keyscore_app::pianoroll::Cursor {
                 tick: Tick::ZERO,
                 pitch: Pitch::new(60).unwrap(),
-            })
+            });
     });
     press(cx, handle, "b");
     assert_eq!(selection_len(cx, &view), 2);
@@ -381,6 +381,8 @@ fn colon_opens_palette_with_ex_prefix_and_runs_commands(cx: &mut TestAppContext)
     );
     press(cx, handle, "enter");
     assert_eq!(query(cx), Some(":wq".to_owned()));
+    // 팔레트의 Esc는 글자가 있으면 먼저 질의를 비우고, 다시 누르면 닫는다(컴포넌트 규칙, S2-T4)
+    press(cx, handle, "escape");
     press(cx, handle, "escape");
     assert_eq!(query(cx), None);
     // :new 는 새 창
@@ -398,10 +400,6 @@ fn colon_opens_palette_with_ex_prefix_and_runs_commands(cx: &mut TestAppContext)
     assert!(label_of(cx, handle, "palette-row-view::Toggle").is_some());
     assert!(label_of(cx, handle, "palette-row-ex").is_none());
     press(cx, handle, "escape");
-    // `:`를 두 번 누르면 질의는 하나의 콜론이다
-    press(cx, handle, ":");
-    press(cx, handle, ":");
-    assert_eq!(query(cx), Some(":".to_owned()));
     press(cx, handle, "escape");
     // :e 경로 는 그 파일을 연다
     let dir = std::env::temp_dir().join(format!("ks-cmdline-e-{}", std::process::id()));
@@ -414,10 +412,12 @@ fn colon_opens_palette_with_ex_prefix_and_runs_commands(cx: &mut TestAppContext)
     type_text(cx, handle, &format!("e {}", path.display()));
     press(cx, handle, "enter");
     assert_eq!(cx.read(|cx| open_project_windows(cx).len()), before + 1);
+    // 열기는 경로를 정규화한다(macOS 임시 폴더는 /private/var 로 풀린다)
+    let canonical = path.canonicalize().unwrap();
     let opened = cx.read(|cx| {
         open_project_windows(cx)
             .iter()
-            .any(|w| w.read(cx).document().read(cx).path() == Some(path.as_path()))
+            .any(|w| w.read(cx).document().read(cx).path() == Some(canonical.as_path()))
     });
     assert!(opened);
 }

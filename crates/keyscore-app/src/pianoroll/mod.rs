@@ -145,16 +145,16 @@ pub enum CursorMove {
     OctaveUp,
 }
 
-/// 선택(REQ 5.3 「선택 → 동작」, 5.7). 한 클립의 실제 `Note` 값 집합과, `Shift+이동`이 직사각형을 재는 기준 칸.
+/// 선택(REQ 5.3 「선택 → 동작」, 5.7). 한 클립의 실제 `Note` 값 집합.
 ///
 /// 노트는 그 (트랙, 클립)에 있는 값이거나 다음 문서 변경 때 걸러진다(`retain_existing`). 비어 있으면
-/// 트랙·클립·기준 칸도 없다.
+/// 트랙·클립도 없다. `Shift+이동`의 기준 칸은 선택이 비어도 남아야 해서(빈 칸을 지나 노트까지 넓히기)
+/// [`PianoRollState::anchor`]가 따로 든다.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Selection {
     track: Option<TrackId>,
     clip: Option<ClipId>,
     notes: BTreeSet<Note>,
-    anchor: Option<Cursor>,
 }
 
 impl Selection {
@@ -178,12 +178,6 @@ impl Selection {
         self.clip
     }
 
-    /// `Shift+이동`의 기준 칸(절대 틱). `b`·`Shift+b`·`Cmd+A`로 만든 선택에는 없다.
-    #[must_use]
-    pub fn anchor(&self) -> Option<Cursor> {
-        self.anchor
-    }
-
     /// `clip`의 이 노트가 선택에 있는가. 다른 클립의 같은 값은 아니다.
     #[must_use]
     pub fn contains(&self, clip: ClipId, note: &Note) -> bool {
@@ -195,13 +189,7 @@ impl Selection {
     }
 
     /// 선택을 `notes`로 바꾼다. 비면 `clear`와 같다.
-    pub fn set(
-        &mut self,
-        track: TrackId,
-        clip: ClipId,
-        notes: BTreeSet<Note>,
-        anchor: Option<Cursor>,
-    ) {
+    pub fn set(&mut self, track: TrackId, clip: ClipId, notes: BTreeSet<Note>) {
         if notes.is_empty() {
             self.clear();
             return;
@@ -209,7 +197,6 @@ impl Selection {
         self.track = Some(track);
         self.clip = Some(clip);
         self.notes = notes;
-        self.anchor = anchor;
     }
 
     pub fn clear(&mut self) {
@@ -305,6 +292,9 @@ pub(crate) struct Inner {
     pub(crate) height: f32,
     pub(crate) step_ticks: u64,
     pub(crate) selection: Selection,
+    /// `Shift+이동`의 기준 칸(절대 틱). 첫 `Shift+이동` 때 그 전 커서 칸으로 잡고, 수식키 없는 이동·선택
+    /// 해제·`b`류 선택이 지운다(S3-T2).
+    pub(crate) anchor: Option<Cursor>,
     /// vim 마크 a–z(S3-T2).
     pub(crate) marks: BTreeMap<char, Mark>,
     /// 마지막 `f`/`F` 방향(S3-T2).
@@ -449,6 +439,7 @@ impl PianoRollState {
                 height: 0.0,
                 step_ticks: DEFAULT_STEP_TICKS,
                 selection: Selection::default(),
+                anchor: None,
                 marks: BTreeMap::new(),
                 last_find: None,
                 cache: MaxLenCache::default(),
@@ -482,6 +473,16 @@ impl PianoRollState {
     /// 선택을 바꾼다(창은 `ProjectWindow::set_selection`으로 모드 FSM까지 맞춘다).
     pub fn set_selection(&self, selection: Selection) {
         self.inner.borrow_mut().selection = selection;
+    }
+
+    /// `Shift+이동`의 기준 칸.
+    #[must_use]
+    pub fn anchor(&self) -> Option<Cursor> {
+        self.inner.borrow().anchor
+    }
+
+    pub fn set_anchor(&self, anchor: Option<Cursor>) {
+        self.inner.borrow_mut().anchor = anchor;
     }
 
     pub fn set_mark(&self, name: char, mark: Mark) {

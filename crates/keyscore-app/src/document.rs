@@ -5,7 +5,7 @@
 
 use std::path::{Path, PathBuf};
 
-use keyscore_core::{Document, Edit, ModelError, Project};
+use keyscore_core::{CoalesceKey, Document, Edit, ModelError, Project};
 
 /// undo 히스토리 메모리 상한(창마다). 넘으면 가장 오래된 단위부터 버리고 처음 한 번 알린다(EDT-1, 결정
 /// `docs/decisions/2026-10-19-undo-history-memory-limit.md` A).
@@ -100,13 +100,18 @@ impl ProjectDocument {
     ///
     /// [`ProjectDocument::apply`]와 같다.
     pub fn apply_coalesced(&mut self, edits: Vec<Edit>, key: u64) -> Result<(), ModelError> {
-        let _ = (edits, key);
-        todo!("S3-T2")
+        if edits.is_empty() {
+            return Ok(());
+        }
+        self.document.apply(edits, Some(CoalesceKey(key)))?;
+        self.dirty = true;
+        self.revision += 1;
+        Ok(())
     }
 
     /// 다음 `apply_coalesced`가 직전 단위와 묶이지 않게 한다(다른 키가 끼었을 때).
     pub fn seal(&mut self) {
-        todo!("S3-T2")
+        self.document.seal();
     }
 
     /// # Errors

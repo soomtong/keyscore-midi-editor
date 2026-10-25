@@ -288,6 +288,41 @@ impl ProjectWindow {
         });
     }
 
+    /// `:w 이름`(A12): 그 이름을 제안하는 「다른 이름으로 저장」 시트. 확장자가 없으면 `.ksq`를 붙여 제안한다.
+    pub(crate) fn file_save_as_named(&mut self, name: String, cx: &mut Context<Self>) {
+        self.run_file_flow(cx, async move |view, cx| {
+            save_as_named(view, Some(name), cx).await;
+        });
+    }
+
+    /// `:e 경로`(A12): 문서 폴더(문서에 경로가 없으면 현재 폴더) 기준으로 그 파일을 연다(이미 열려 있으면 그 창).
+    /// 실패는 이 창의 상태줄에 알린다.
+    pub(crate) fn open_ex_path(&mut self, path: &str, cx: &mut Context<Self>) {
+        let given = Path::new(path);
+        let resolved = if given.is_absolute() {
+            given.to_path_buf()
+        } else {
+            let base = self
+                .document
+                .read(cx)
+                .path()
+                .and_then(Path::parent)
+                .map(Path::to_path_buf)
+                .or_else(|| std::env::current_dir().ok())
+                .unwrap_or_default();
+            base.join(given)
+        };
+        let view = cx.entity();
+        // 처리기 안에서는 다른 창을 열지 않는다(디스패치 중). 끝난 뒤에 연다.
+        cx.defer(move |cx| {
+            if let Err(e) = open_path(&resolved, cx) {
+                view.update(cx, |w, cx| {
+                    w.say(format!("{}: {e}", resolved.display()), cx);
+                });
+            }
+        });
+    }
+
     pub(crate) fn window_close(&mut self, _: &Close, _: &mut Window, cx: &mut Context<Self>) {
         // 시트가 떠 있으면 그 답을 기다린다.
         if self.file_flow {
@@ -391,6 +426,15 @@ async fn save(view: &Entity<ProjectWindow>, cx: &mut AsyncApp) -> bool {
 
 /// 다른 이름으로 저장. 성공하면 참.
 async fn save_as(view: &Entity<ProjectWindow>, cx: &mut AsyncApp) -> bool {
+    save_as_named(view, None, cx).await
+}
+
+/// 다른 이름으로 저장. `name`이 있으면 그 이름을 제안한다(`:w 이름`). 성공하면 참.
+async fn save_as_named(
+    view: &Entity<ProjectWindow>,
+    name: Option<String>,
+    cx: &mut AsyncApp,
+) -> bool {
     let (handle, current, read_only) = cx.update(|cx| {
         let w = view.read(cx);
         let d = w.document().read(cx);
@@ -404,9 +448,16 @@ async fn save_as(view: &Entity<ProjectWindow>, cx: &mut AsyncApp) -> bool {
         .as_deref()
         .and_then(Path::parent)
         .map_or_else(default_directory, Path::to_path_buf);
-    let suggested = match current.as_deref() {
-        Some(path) => file_name(path),
-        None => format!(
+    let suggested = match (name, current.as_deref()) {
+        (Some(name), _) => {
+            if Path::new(&name).extension().is_some() {
+                name
+            } else {
+                format!("{name}.ksq")
+            }
+        }
+        (None, Some(path)) => file_name(path),
+        (None, None) => format!(
             "{}.ksq",
             cx.update(|cx| view.read(cx).document().read(cx).suggested_stem())
         ),

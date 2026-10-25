@@ -33,11 +33,19 @@ pub enum ExError {
     UnknownSection(String),
 }
 
+/// 설정 구역 이름(`:set 이름`). 설정 파일의 키와 같다.
+const SECTIONS: [(&str, SettingsSection); 5] = [
+    ("metronome", SettingsSection::Metronome),
+    ("midi_output", SettingsSection::MidiOutput),
+    ("input", SettingsSection::Input),
+    ("ai", SettingsSection::Ai),
+    ("keymap", SettingsSection::Keymap),
+];
+
 /// 질의가 명령줄인가(앞 공백 뒤 `:`).
 #[must_use]
 pub fn is_command_line(query: &str) -> bool {
-    let _ = query;
-    todo!("S3-T2")
+    query.trim_start().starts_with(':')
 }
 
 /// `:w name` 같은 질의를 읽는다.
@@ -46,14 +54,58 @@ pub fn is_command_line(query: &str) -> bool {
 ///
 /// [`ExError`].
 pub fn parse(query: &str) -> Result<ExCommand, ExError> {
-    let _ = query;
-    todo!("S3-T2")
+    let Some(rest) = query.trim_start().strip_prefix(':') else {
+        return Err(ExError::NotCommandLine);
+    };
+    let rest = rest.trim();
+    if rest.is_empty() {
+        return Err(ExError::Empty);
+    }
+    let (name, arg) = match rest.split_once(char::is_whitespace) {
+        Some((name, arg)) => (name, Some(arg.trim())),
+        None => (rest, None),
+    };
+    let arg = arg.filter(|a| !a.is_empty());
+    let no_arg = |cmd: ExCommand| match arg {
+        Some(_) => Err(ExError::UnexpectedArgument(format!(":{name}"))),
+        None => Ok(cmd),
+    };
+    match name {
+        "w" => Ok(ExCommand::Write(arg.map(str::to_owned))),
+        "q" => no_arg(ExCommand::Quit),
+        "e" => Ok(ExCommand::Edit(arg.map(str::to_owned))),
+        "new" => no_arg(ExCommand::New),
+        "set" => match arg {
+            None => Ok(ExCommand::Set(None)),
+            Some(section) => SECTIONS
+                .iter()
+                .find(|(key, _)| *key == section)
+                .map(|(_, s)| ExCommand::Set(Some(*s)))
+                .ok_or_else(|| ExError::UnknownSection(section.to_owned())),
+        },
+        other => Err(ExError::Unknown(format!(":{other}"))),
+    }
 }
 
 impl ExCommand {
     /// 팔레트 줄에 보이는 설명.
     #[must_use]
     pub fn label(&self) -> String {
-        todo!("S3-T2")
+        match self {
+            ExCommand::Write(None) => "저장".to_owned(),
+            ExCommand::Write(Some(name)) => format!("다른 이름으로 저장: {name}"),
+            ExCommand::Quit => "창 닫기".to_owned(),
+            ExCommand::Edit(None) => "열기".to_owned(),
+            ExCommand::Edit(Some(path)) => format!("열기: {path}"),
+            ExCommand::New => "새 프로젝트".to_owned(),
+            ExCommand::Set(None) => "설정".to_owned(),
+            ExCommand::Set(Some(section)) => {
+                let name = SECTIONS
+                    .iter()
+                    .find(|(_, s)| s == section)
+                    .map_or("", |(key, _)| *key);
+                format!("설정: {name}")
+            }
+        }
     }
 }

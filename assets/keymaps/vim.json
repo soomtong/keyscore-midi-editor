@@ -6,13 +6,17 @@
   {
     "context": "Normal",
     "bindings": {
-      // 결정 대기: A1 shift-j -> note::OctaveDown / edit::Join, shift-k -> note::OctaveUp / note::ShowInfo
-      // 결정 대기: A2 g a -> view::Toggle (g v / g i 와 REQ 불일치)
-      // 결정 대기: A3 g c -> lane::Toggle, g shift-c -> mode::Controller
-      // 결정 대기: A8 enter -> note::Audition (배치 뷰 clip::Open 과 겹침)
-      // 결정 대기: A11 ; -> cursor::RepeatFind, , -> cursor::RepeatFindReverse
-      // 결정 대기: A9/A10 숫자 길이 코드와 덮인 기본 키(w a b e / z)의 대체 키
-      // 결정 대기: B20 ( ) 는 track::Prev/Next 로 배정, cursor::TrackUp/Down 은 키 없음
+      // 결정됨(2026-10-17-keymap-conflicts.md, 2026-10-24). 반영 단계가 남은 것:
+      //   A1 shift-j -> edit::Join, shift-k -> note::ShowInfo (S3-T3)
+      //   A3 g c -> lane::Toggle, g shift-c -> mode::Controller (S6-T1)
+      //   A9 g 1 … g 7, g 0 길이 코드 (S3-T3); A10 g w 가사(S6), g i AI(S7)
+      //   B20 ( ) 는 track::Prev/Next 로 배정, cursor::TrackUp/Down 은 키 없음
+      // S3-T2가 채운 것: A2 g a, A8 enter(Normal > PianoRoll), A10 g b / g shift-b, A11 ; ,
+      "g a": "view::Toggle",
+      "g b": "select::Bar",
+      "g shift-b": "select::Clip",
+      ";": "cursor::RepeatFind",
+      ",": "cursor::RepeatFindReverse",
       "u": "edit::Undo",
       "shift-u": "edit::Redo",
       "ctrl-r": "edit::Redo",
@@ -169,6 +173,8 @@
   {
     "context": "Normal > Operator",
     "bindings": {
+      // Esc = 통상의 취소(A13 결정): 오퍼레이터 대기·카운트 비움
+      "escape": "operator::Cancel",
       "a c": "object::AroundClip",
       "i b": "object::InnerBar",
       "i n": "object::InnerNote"
@@ -195,6 +201,8 @@
   {
     "context": "Normal > PianoRoll",
     "bindings": {
+      // A8: 피아노롤의 enter 는 노트 듣기(배치 뷰 enter 는 clip::Open 상속)
+      "enter": "note::Audition",
       "1": "operator::Count(1)",
       "2": "operator::Count(2)",
       "3": "operator::Count(3)",
