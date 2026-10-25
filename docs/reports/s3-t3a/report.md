@@ -113,6 +113,11 @@ cargo test --workspace --no-fail-fast: 2008 passed, 2 failed, 2 ignored(1시간�
 | 2 계획 인터페이스 주석이 처음 연장 규칙 | 새 규칙으로 고쳤다 |
 | 3 리뷰 2 시험 이름 | `cut_status_line_says_cut`으로 |
 
+## 병합 전 게이트(리뷰 3 대응 뒤, 4f00f47)
+
+- `cargo test --workspace --no-fail-fast`: 2062 passed, 0 failed, 2 ignored(1시간판 측정용)
+- fmt, clippy `-D warnings`, `cargo deny check`(advisories·bans·licenses·sources ok) 통과
+
 ## 리뷰어에게
 
 - 대상 규칙(`note_edit.rs` `edit_targets`): 복사만 선택의 클립이 현재 클립이 아니어도 된다. 같은 값의 노트가 여럿이면 모두 대상이다.
