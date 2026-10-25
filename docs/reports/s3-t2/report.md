@@ -76,7 +76,7 @@ scripts/bench-check.py: pianoroll/scene_10k_notes 26.4 µs(기준 29.7 µs, -11%
 
 - [x] fmt
 - [x] clippy -D warnings(워크스페이스, 모든 타깃)
-- [x] test: `cargo test --workspace --no-fail-fast` 1940 passed, 3 failed(기대값 갱신으로 해결, 재실행 통과), 2 ignored
+- [x] test: `cargo test --workspace --no-fail-fast` 1940 passed, 3 failed(기대값 갱신으로 해결, 재실행 통과), 2 ignored. 리뷰 3회 수정 뒤 최종 상태(`fe5d3b5`)에서 다시 1981 passed, 0 failed, 2 ignored. fmt·clippy도 최종 상태에서 통과
 - [x] deny: advisories·bans·licenses·sources ok
 - [x] `scripts/check-deps.sh` ok, `scripts/check-deps.test.sh` 16 passed, `scripts/bench-check.test.sh` 8 passed(의존성 변경 없음)
 - [x] 단계별 추가 게이트: 5.7 표 테이블 시험(6), 선택 없을 때 `Alt` 조작(7). `scripts/bench-check.py` 통과(`pianoroll/scene_10k_notes` -11%)
