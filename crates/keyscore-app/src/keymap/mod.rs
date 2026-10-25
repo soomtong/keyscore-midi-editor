@@ -224,6 +224,14 @@ pub fn build(
                 }
             },
         };
+        // 시퀀스 대기를 비우는 예약 키(A13 가로채기)는 어느 레이어에도 걸 수 없다. 걸리면 Esc가 그 Action을
+        // 실행하게 된다(리뷰 1 지적 5).
+        if keys.split_whitespace().any(|k| k == FLUSH_KEY) {
+            errors.push(error(format!(
+                "키 '{keys}'는 쓸 수 없다. '{FLUSH_KEY}'는 앱이 시퀀스 취소에 예약한 키다"
+            )));
+            continue;
+        }
         match KeyBinding::load(
             &keys,
             action,
