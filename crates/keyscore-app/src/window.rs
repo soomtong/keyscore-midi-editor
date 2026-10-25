@@ -452,7 +452,13 @@ impl ProjectWindow {
     /// undo·redo 뒤 선택(S3-T3a, S3-T2 리뷰 1 제안 8): 현재 트랙에 새로 나타난 노트가 모두 한 클립에 있으면 선택을
     /// 그 노트로 바꾼다(삭제를 되돌리면 되살아난 노트, 조작을 되돌리면 원래 노트). 아니면 문서 관찰자가 클립에 없는
     /// 노트만 뺀다.
+    ///
+    /// 피아노롤 뷰에서만 한다. 배치 뷰에서 만들면 화면에 없는 노트 선택이 생기고 `Selection` 컨텍스트가 켜진다
+    /// (S3-T2: 뷰 전환이 노트 선택을 비운다, 리뷰 1 지적 3).
     fn select_appeared(&mut self, before: Option<keyscore_core::Track>, cx: &mut Context<Self>) {
+        if self.mode.view() != View::PianoRoll {
+            return;
+        }
         let Some(before) = before else {
             return;
         };
