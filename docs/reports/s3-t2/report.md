@@ -93,10 +93,30 @@ scripts/bench-check.py: pianoroll/scene_10k_notes 26.4 µs(기준 29.7 µs, -11%
 - 곡 끝 동작은 결정 요청(`2026-10-25-playback-end-of-song.md`)으로 남겼다.
 - 실제 창에서 눈으로 확인하지 못했다(S3-T1과 같은 이유). 사람이 `cargo run -p keyscore-app --release`로 픽스처를 열어 `shift-l`로 노트가 강조되는지, `alt-k`로 올라가는지, 우클릭 메뉴가 뜨는지, `:set`이 설정 창을 여는지 본다.
 
+## 리뷰 1 대응(`docs/reports/s3-t2/review-1.md`, 판정 「수정 후 재리뷰」)
+
+| 지적 | 대응 | 커밋 |
+| --- | --- | --- |
+| 1 차단: 선택이 현재 클립 밖인데 `Alt` 조작이 편집 | `apply_note_op`가 선택의 (트랙, 클립)이 커서의 현재 클립이 아니면 거부하고 알린다(선택은 5.11 흐름을 위해 남긴다). 계획 2에 적음 | `Apply S3-T2 review 1 items 1-4, 11, 12` |
+| 2 기준 칸이 틈이면 영원히 빈 선택 | `extend`가 기준 칸의 클립이 없으면 커서가 든 클립을 쓴다. 계획 1에 적음 | 같음 |
+| 3 `Shorten` 연타에서 커서가 노트 밖 | `follow_cursor_note`: 변위를 적용한 뒤 노트 구간 `[시작, 끝 − 1]`로 당긴다 | 같음 |
+| 4 조작 뒤 낡은 기준 칸 | `shift_anchor`: 기준 칸을 노트와 같은 변위만큼 옮긴다 | 같음 |
+| 5 사용자 키맵의 `f20` | 키맵 `build`가 어느 레이어든 `f20`이 든 키를 KM-6 오류로 거부한다. 리뷰 시험 7의 기대값을 「오류가 나고 뷰는 그대로」로 맞췄다(리뷰어 허용) | `Reserve the sequence flush key in keymaps` |
+| 6 누락 시험 | `review_s3_t2.rs` 13개 그대로 PR에 둔다(7개 모두 통과) | 리뷰 커밋 |
+
+| 제안 | 대응 |
+| --- | --- |
+| 7 `Shift+p` 읽기 | 수락. REQ 글자대로 「커서가 든 클립의 앞 클립」(`prev_clip_start`: 끝이 커서 틱 이전인 마지막 클립). 계획 3에 적음 |
+| 8 undo 뒤 선택 되살리기 | 거절(이 Task). `ReplaceNotes`의 짝으로 되살리려면 undo·redo가 적용한 편집을 창이 알아야 한다(`core::Document`는 돌려주지 않음). S3-T3 편집 동작(삭제·붙여넣기도 선택을 바꿈)과 함께 정한다. 단계 파일 S3-T3 이월 |
+| 9 정지 중 이름 포트 미리듣기의 `prepare` | 거절(이 Task). 포트 번호를 캐시하면 다른 창의 테스트 노트·재생이 스냅샷을 바꾼 뒤 엉뚱한 포트로 보낼 수 있어 엔진에 교체 세대가 필요하다. 실제 신디로 키 반복을 재 본 뒤 S3-T4(Step 입력 미리듣기)·S3-T6(드래그 미리듣기 MS-4)에서 가벼운 경로를 둔다. 단계 파일 S3-T4 이월 |
+| 10 `:e` 틸드·기본 폴더 | 수락. `~`는 홈으로, 경로 없는 문서는 저장 시트와 같은 `default_directory` |
+| 11 미리듣기 실패를 영구히 무시 | 수락. 창마다 한 번 알린다(`preview_notice_shown`) |
+| 12 `expect` 이유·`moved[0]` | 수락. 주석을 달고 `first()`로 |
+
 ## 리뷰어에게
 
 - `selection.rs` `extend`: 기준 칸이 든 클립을 고르는 `clip_at(anchor.tick)`과, 커서가 클립 밖으로 나갔을 때(선택이 비어도 기준 칸은 남음)의 동작을 깨뜨려 보라. 기준 칸 생명주기(수식키 없는 이동·`b`류·`Esc`·뷰 전환이 지움)는 `cursor_moved(keep_anchor)`·`select_in_current_clip`·`select_clear`·`apply_mode_event`에 흩어져 있다.
-- `apply_note_op`의 커서 따라가기(`moves_time`은 `to.start − from.start`만큼 커서 틱을 옮김)와, 선택이 다른 트랙·클립을 가리킬 때(현재 트랙이 바뀐 뒤 `Alt+k`) 그 선택이 적용되는 것이 의도다. 다르게 읽히면 지적해 달라.
+- `apply_note_op`: 선택이 다른 트랙·클립을 가리키면 거부한다(리뷰 1 지적 1). 커서 노트 조작 뒤 커서는 변위를 적용하고 노트 구간 안으로 당긴다(`follow_cursor_note`), 선택 조작 뒤 기준 칸은 같은 변위만큼 옮긴다(`shift_anchor`).
 - 되돌리기 묶음을 끊는 `observe_keystrokes`는 처리기 뒤에 돈다. 같은 키가 `note::Lengthen`을 내지만 처리기가 거부해(클립 겹침) 편집이 없을 때도 묶음은 유지된다(끊을 이유가 없다). 입력란에 글자를 칠 때도 `seal`이 돈다(문서는 바뀌지 않음).
 - `keymap/mod.rs`의 Esc 가로채기: `cx.stop_propagation()` 뒤 GPUI가 `finish_dispatch_key_event`의 캡처 단계 리스너를 한 번 더 부를 수 있다(앱에 키 리스너는 설정 창 선택 상자뿐). `f20` 디스패치는 `Window::defer`라 같은 프레임의 뒤에 돈다.
 - `preview.rs`는 S2-T5c 테스트 노트 코드를 옮긴 것이다. 동작 차이가 생겼는지 `inspector.rs` 시험(11개 통과)과 대조해 달라.
