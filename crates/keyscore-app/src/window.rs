@@ -148,7 +148,7 @@ impl ProjectWindow {
             let same_op = event
                 .action
                 .as_deref()
-                .is_some_and(crate::selection::is_note_op_action);
+                .is_some_and(crate::selection::is_coalescing_action);
             if !same_op {
                 this.seal_history(cx);
             }
@@ -443,6 +443,31 @@ impl ProjectWindow {
         cx.notify();
     }
 
+    /// undo·redo 전의 현재 트랙(뒤에 나타난 노트를 찾는다).
+    fn current_track_snapshot(&self, cx: &Context<Self>) -> Option<keyscore_core::Track> {
+        let id = self.current_track()?;
+        self.document.read(cx).project().track(id).cloned()
+    }
+
+    /// undo·redo 뒤 선택(S3-T3a, S3-T2 리뷰 1 제안 8): 현재 트랙에 새로 나타난 노트가 모두 한 클립에 있으면 선택을
+    /// 그 노트로 바꾼다(삭제를 되돌리면 되살아난 노트, 조작을 되돌리면 원래 노트). 아니면 문서 관찰자가 클립에 없는
+    /// 노트만 뺀다.
+    fn select_appeared(&mut self, before: Option<keyscore_core::Track>, cx: &mut Context<Self>) {
+        let Some(before) = before else {
+            return;
+        };
+        let found = {
+            let doc = self.document.read(cx);
+            doc.project()
+                .track(before.id())
+                .and_then(|after| crate::pianoroll::edit::appeared(&before, after))
+        };
+        if let Some((clip, notes)) = found {
+            self.pianoroll.set_anchor(None);
+            self.replace_selection(before.id(), clip, notes, cx);
+        }
+    }
+
     /// 포커스가 텍스트 입력란(gpui-component `Input` 컨텍스트) 안에 있는가.
     pub(crate) fn text_input_focused(window: &Window) -> bool {
         window.context_stack().iter().any(|c| c.contains("Input"))
@@ -472,13 +497,16 @@ impl ProjectWindow {
             }
             return;
         }
+        let before = self.current_track_snapshot(cx);
         let result = self.document.update(cx, |doc, cx| {
             let r = doc.undo();
             cx.notify();
             r
         });
-        if let Err(e) = result {
-            self.say(format!("되돌리지 못했다: {e}"), cx);
+        match result {
+            Ok(true) => self.select_appeared(before, cx),
+            Ok(false) => {}
+            Err(e) => self.say(format!("되돌리지 못했다: {e}"), cx),
         }
         cx.notify();
     }
@@ -497,13 +525,16 @@ impl ProjectWindow {
             }
             return;
         }
+        let before = self.current_track_snapshot(cx);
         let result = self.document.update(cx, |doc, cx| {
             let r = doc.redo();
             cx.notify();
             r
         });
-        if let Err(e) = result {
-            self.say(format!("다시 실행하지 못했다: {e}"), cx);
+        match result {
+            Ok(true) => self.select_appeared(before, cx),
+            Ok(false) => {}
+            Err(e) => self.say(format!("다시 실행하지 못했다: {e}"), cx),
         }
         cx.notify();
     }

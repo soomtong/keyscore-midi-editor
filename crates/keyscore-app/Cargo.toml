@@ -19,12 +19,16 @@ serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 thiserror.workspace = true
 schemars = "1"
+objc2.workspace = true
+objc2-app-kit.workspace = true
+objc2-foundation.workspace = true
 
 [dev-dependencies]
 gpui-kit = { workspace = true, features = ["test-support"] }
 coremidi.workspace = true
 insta.workspace = true
 criterion.workspace = true
+proptest.workspace = true
 
 [[bench]]
 name = "pianoroll"

@@ -30,7 +30,8 @@ impl ProjectWindow {
             .on_action(cx.listener(Self::view_zoom_out))
             .on_action(cx.listener(Self::view_zoom_reset))
             .on_action(cx.listener(Self::view_center_cursor));
-        Self::selection_handlers(element, cx)
+        let element = Self::selection_handlers(element, cx);
+        Self::note_edit_handlers(element, cx)
     }
 
     /// 피아노롤에 그리는 재생 헤드 틱. 재생 중이면 지금 자리, 일시정지면 그 자리, 정지면 없음.

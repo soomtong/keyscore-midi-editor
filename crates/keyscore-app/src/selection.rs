@@ -30,10 +30,12 @@ fn pitch_name(pitch: keyscore_core::Pitch) -> String {
     format!("{}{}", NAMES[usize::from(p % 12)], i16::from(p / 12) - 1)
 }
 
-/// 5.7 `Alt` 행의 Action인가(되돌리기 묶음을 끊지 않는 키 입력).
-pub(crate) fn is_note_op_action(action: &dyn Action) -> bool {
+/// 되돌리기 묶음에 드는 Action인가(5.7 `Alt` 행과 복제·반복, 이 키 입력은 묶음을 끊지 않는다).
+pub(crate) fn is_coalescing_action(action: &dyn Action) -> bool {
     let a = action.as_any();
-    a.is::<note::NudgeEarlier>()
+    a.is::<crate::actions::edit::Duplicate>()
+        || a.is::<crate::actions::edit::Repeat>()
+        || a.is::<note::NudgeEarlier>()
         || a.is::<note::NudgeLater>()
         || a.is::<note::NudgeBarEarlier>()
         || a.is::<note::NudgeBarLater>()
@@ -49,14 +51,18 @@ impl ProjectWindow {
     // ---------- 공통 ----------
 
     /// 현재 트랙을 읽어 `f`를 돌린다.
-    fn with_track<R>(&self, cx: &Context<Self>, f: impl FnOnce(&Track) -> R) -> Option<R> {
+    pub(crate) fn with_track<R>(
+        &self,
+        cx: &Context<Self>,
+        f: impl FnOnce(&Track) -> R,
+    ) -> Option<R> {
         let doc = self.document.read(cx);
         let track = doc.project().track(self.current_track()?)?;
         Some(f(track))
     }
 
     /// 커서 틱을 품은 현재 트랙의 클립.
-    fn clip_under_cursor(&self, cx: &Context<Self>) -> Option<(TrackId, ClipId)> {
+    pub(crate) fn clip_under_cursor(&self, cx: &Context<Self>) -> Option<(TrackId, ClipId)> {
         let track_id = self.current_track()?;
         let doc = self.document.read(cx);
         let track = doc.project().track(track_id)?;
@@ -100,7 +106,7 @@ impl ProjectWindow {
     }
 
     /// 커서 위의 노트(현재 클립).
-    fn note_under_cursor(&self, cx: &Context<Self>) -> Option<(TrackId, ClipId, Note)> {
+    pub(crate) fn note_under_cursor(&self, cx: &Context<Self>) -> Option<(TrackId, ClipId, Note)> {
         let (track_id, clip_id) = self.clip_under_cursor(cx)?;
         let cursor = self.pianoroll.cursor();
         let doc = self.document.read(cx);
@@ -147,7 +153,7 @@ impl ProjectWindow {
     }
 
     /// 선택을 `notes`로 바꾸고 FSM을 맞춘다.
-    fn replace_selection(
+    pub(crate) fn replace_selection(
         &mut self,
         track: TrackId,
         clip: ClipId,
