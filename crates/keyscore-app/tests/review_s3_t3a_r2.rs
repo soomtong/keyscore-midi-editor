@@ -371,7 +371,8 @@ fn cut_status_line_says_copied(cx: &mut TestAppContext) {
     set_cursor(cx, &view, 0, 60);
     press(cx, handle, "cmd-x");
     assert_eq!(clip_a(cx, &view), vec![E4, G4]);
-    assert_eq!(last_message(cx, &view), "노트 2개를 복사했다");
+    // 리뷰 2 제안 3 반영 뒤: 잘라내기는 「잘라냈다」(구현자가 기대값을 고침)
+    assert_eq!(last_message(cx, &view), "노트 2개를 잘라냈다");
 }
 
 /// 리뷰 1 제안 4의 대응(「다른 앱용 텍스트·SMF는 만들지 못했다」)을 일으켜 보려는 시도. 텍스트 왕복이 어려워 보이는

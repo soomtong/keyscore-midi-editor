@@ -169,7 +169,8 @@ impl ProjectWindow {
 
     /// 대상을 클립보드로 복사한다(내부 구조 + 시스템 클립보드 SMF·텍스트). 텍스트·SMF는 문서를 빌린 채 만들어
     /// 프로젝트를 복제하지 않는다.
-    fn copy_targets(&mut self, targets: &Targets, cx: &mut Context<Self>) {
+    /// `done`은 상태줄의 동사(「복사했다」「잘라냈다」)다.
+    fn copy_targets(&mut self, targets: &Targets, done: &str, cx: &mut Context<Self>) {
         let Some(content) = ClipNotes::new(targets.notes.clone()) else {
             return;
         };
@@ -200,11 +201,11 @@ impl ProjectWindow {
             .filter_map(|(gone, name)| gone.then_some(name))
             .collect();
         if missing.is_empty() {
-            self.say(format!("노트 {count}개를 복사했다"), cx);
+            self.say(format!("노트 {count}개를 {done}"), cx);
         } else {
             self.say(
                 format!(
-                    "노트 {count}개를 복사했다(다른 앱용 {}은 만들지 못했다)",
+                    "노트 {count}개를 {done}(다른 앱용 {}를 만들지 못했다)",
                     missing.join("·")
                 ),
                 cx,
@@ -324,7 +325,7 @@ impl ProjectWindow {
             return;
         }
         if let Some(t) = self.edit_targets("복사", false, cx) {
-            self.copy_targets(&t, cx);
+            self.copy_targets(&t, "복사했다", cx);
         }
     }
 
@@ -336,7 +337,7 @@ impl ProjectWindow {
         let Some(t) = self.edit_targets("잘라내기", true, cx) else {
             return;
         };
-        self.copy_targets(&t, cx);
+        self.copy_targets(&t, "잘라냈다", cx);
         if self.delete_notes("잘라내기", &t, cx) {
             self.clear_selection_after_edit(cx);
         }
@@ -368,7 +369,7 @@ impl ProjectWindow {
             self.say("마디 복사: 노트가 없다", cx);
             return;
         }
-        self.copy_targets(&Targets { track, clip, notes }, cx);
+        self.copy_targets(&Targets { track, clip, notes }, "복사했다", cx);
     }
 
     // ---------- 붙여넣기 ----------
