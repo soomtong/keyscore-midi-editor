@@ -192,7 +192,24 @@ impl ProjectWindow {
                 content.to_smf(project, track, at),
             )
         };
+        let count = content.notes().len();
         clipboard::store(cx, content, text.as_deref(), midi.as_deref());
+        // 다른 앱에 건넬 형식이 빠졌으면 알린다(리뷰 1 제안 4). 앱 안에서는 내부 구조를 쓰므로 붙여넣기는 된다.
+        let missing: Vec<&str> = [(text.is_none(), "텍스트"), (midi.is_none(), "SMF")]
+            .into_iter()
+            .filter_map(|(gone, name)| gone.then_some(name))
+            .collect();
+        if missing.is_empty() {
+            self.say(format!("노트 {count}개를 복사했다"), cx);
+        } else {
+            self.say(
+                format!(
+                    "노트 {count}개를 복사했다(다른 앱용 {}은 만들지 못했다)",
+                    missing.join("·")
+                ),
+                cx,
+            );
+        }
     }
 
     // ---------- 삭제 ----------
@@ -308,7 +325,6 @@ impl ProjectWindow {
         }
         if let Some(t) = self.edit_targets("복사", false, cx) {
             self.copy_targets(&t, cx);
-            self.say(format!("노트 {}개를 복사했다", t.notes.len()), cx);
         }
     }
 
@@ -352,9 +368,7 @@ impl ProjectWindow {
             self.say("마디 복사: 노트가 없다", cx);
             return;
         }
-        let count = notes.len();
         self.copy_targets(&Targets { track, clip, notes }, cx);
-        self.say(format!("노트 {count}개를 복사했다"), cx);
     }
 
     // ---------- 붙여넣기 ----------

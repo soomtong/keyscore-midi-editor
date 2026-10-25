@@ -134,12 +134,15 @@ impl ClipNotes {
         let parsed = text_to_project(text, Mode::Lenient).or_else(|e| {
             // 다른 앱에서 복사한 MML 조각(`c d e`)에는 트랙 머리가 없다. 머리가 없을 때만 트랙 블록 하나로 다시 읽는다.
             if text.contains("@track") {
-                Err(e)
+                Err(e.to_string())
             } else {
-                text_to_project(&format!("@track Clip ch1\n{text}\n"), Mode::Lenient).map_err(|_| e)
+                // 머리 없는 글은 계이름 텍스트 조각으로만 읽는다. 첫 시도의 「@track 블록 밖…」 오류는 맨 글을 붙인
+                // 사람에게 뜻이 없다(리뷰 1 제안 3).
+                text_to_project(&format!("@track Clip ch1\n{text}\n"), Mode::Lenient)
+                    .map_err(|_| "클립보드의 글이 계이름 텍스트가 아니다".to_owned())
             }
         });
-        let (project, _) = parsed.map_err(|e| e.to_string())?;
+        let (project, _) = parsed?;
         Self::from_project(&project).ok_or_else(|| "텍스트에 노트가 없다".to_owned())
     }
 
@@ -240,18 +243,19 @@ pub fn store(cx: &mut App, notes: ClipNotes, text: Option<&str>, midi: Option<&[
 ///
 /// 붙여넣을 노트가 없으면 이유 문구.
 pub fn paste_contents(cx: &App) -> Result<ClipNotes, String> {
-    let system = read_system(cx);
+    let board = pasteboard(cx);
+    // 우리가 쓴 그대로면 내부 구조. 이때는 SMF·텍스트를 읽지 않는다(리뷰 1 제안 2).
     if let Some(state) = cx.try_global::<ClipboardState>()
-        && state.written == Some(system.change_count)
+        && state.written == Some(board.changeCount())
         && let Some(notes) = &state.internal
     {
         return Ok(notes.clone());
     }
-    if let Some(midi) = &system.midi {
-        return ClipNotes::from_smf(midi);
+    if let Some(midi) = board.dataForType(&NSString::from_str(MIDI_TYPE)) {
+        return ClipNotes::from_smf(&midi.to_vec());
     }
-    if let Some(text) = &system.text {
-        return ClipNotes::from_text(text);
+    if let Some(text) = board.stringForType(&NSString::from_str(TEXT_TYPE)) {
+        return ClipNotes::from_text(&text.to_string());
     }
     Err("클립보드가 비었다".to_owned())
 }

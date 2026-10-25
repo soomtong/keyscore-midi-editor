@@ -415,7 +415,11 @@ fn paste_reads_external_smf_then_text(cx: &mut TestAppContext) {
     let undo = undo_len(cx, &view);
     press(cx, handle, "cmd-v");
     assert_eq!(undo_len(cx, &view), undo);
-    assert!(last_message(cx, &view).contains("붙여넣을"));
+    let message = last_message(cx, &view);
+    assert!(
+        message.contains("붙여넣을") && message.contains("계이름 텍스트가 아니다"),
+        "{message}"
+    );
 }
 
 // ---------- 15. 복제·반복 ----------
