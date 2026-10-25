@@ -387,7 +387,8 @@ fn every_runnable_label_is_highlighted_in_component(cx: &mut TestAppContext) {
 // ---------- 5. 단축키 표시(KM-10) ----------
 
 // vim 프리셋에서 팔레트의 단축키 표시는 가려진 키를 보이지 않는다(`v`는 vim 덧층의 select::VisualNote).
-// 메뉴의 제목 꼬리와 대비된다(review-3 지적 2).
+// 메뉴의 제목 꼬리와 대비된다(review-3 지적 2). S3-T2(결정 A2)부터 vim은 `g a`를 view::Toggle에 걸므로 그 키가
+// 보인다. 가려진 `v`가 보이지 않는 것이 이 시험의 요점이다.
 #[gpui_kit::test]
 fn palette_does_not_show_shadowed_key_in_vim(cx: &mut TestAppContext) {
     start(cx, "r3-vim-palette-key");
@@ -403,7 +404,7 @@ fn palette_does_not_show_shadowed_key_in_vim(cx: &mut TestAppContext) {
                 .and_then(|e| e.label().map(str::to_owned))
         })
         .unwrap();
-    assert_eq!(key, None);
+    assert_eq!(key.as_deref(), Some("G A"));
 }
 
 // ---------- 리뷰 3 부록 B(지적 1·2): 결정 2026-10-17-s2-t4-review-limit A로 고친 뒤 옮김 ----------
