@@ -105,6 +105,14 @@ cargo test --workspace --no-fail-fast: 2008 passed, 2 failed, 2 ignored(1시간�
 
 수정 뒤: core `transform_insert` 6·`review_s3_t3a` 3·`review_s3_t3a_r2` 7, app `clipboard_notes` 7·`note_edit` 10·`review_s3_t3a` 20·`review_s3_t3a_r2` 9·`pianoroll_select` 14·`review_s3_t2` 13 통과. fmt·clippy 통과.
 
+## 리뷰 3 대응(`docs/reports/s3-t3a/review-3.md`, 판정 「병합 가능」)
+
+| 제안 | 대응 |
+| --- | --- |
+| 1 `r` 연타 undo → redo 뒤 선택이 사본 전부 | 계획 6(나타난 노트가 선택)대로라 그대로 둔다 |
+| 2 계획 인터페이스 주석이 처음 연장 규칙 | 새 규칙으로 고쳤다 |
+| 3 리뷰 2 시험 이름 | `cut_status_line_says_cut`으로 |
+
 ## 리뷰어에게
 
 - 대상 규칙(`note_edit.rs` `edit_targets`): 복사만 선택의 클립이 현재 클립이 아니어도 된다. 같은 값의 노트가 여럿이면 모두 대상이다.

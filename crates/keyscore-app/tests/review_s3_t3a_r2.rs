@@ -365,7 +365,7 @@ fn undo_selection_away_from_cursor_blocks_next_delete(cx: &mut TestAppContext) {
 
 /// 잘라내기의 상태줄은 「복사했다」로 끝난다(노트는 지워졌다).
 #[gpui_kit::test]
-fn cut_status_line_says_copied(cx: &mut TestAppContext) {
+fn cut_status_line_says_cut(cx: &mut TestAppContext) {
     let (handle, view) = setup_with(cx, "cut-status", fixture());
     select(cx, &view, 0, &[C4, D4]);
     set_cursor(cx, &view, 0, 60);

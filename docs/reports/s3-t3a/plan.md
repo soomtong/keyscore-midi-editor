@@ -51,11 +51,12 @@
 
 ~~~rust
 // crates/keyscore-core/src/transform.rs
-/// 노트들을 클립에 넣는 편집. 끝이 클립을 넘으면 먼저 마디 단위로 늘린다(`ExtendClip`, 다음 클립과 겹치면 거부).
-/// 노트 시작은 클립 기준이다.
+/// 노트들을 클립에 넣는 편집. 끝이 클립을 넘으면 먼저 마디 단위로 늘리되 다음 클립이 그 사이에서 시작하면 그 시작까지
+/// (`ExtendClip`, 노트가 다음 클립에 닿으면 거부, 리뷰 2 지적 1). 노트 시작은 클립 기준이다.
 pub fn insert_notes(project: &Project, track: TrackId, clip: ClipId, notes: &[Note]) -> Result<Vec<Edit>, ModelError>;
-/// 틈에 노트를 넣을 새 클립 편집(`InsertClip`). 시작은 `at`이 든 마디 시작, 끝은 마지막 노트 끝을 품는 마디의 끝.
-/// 노트 시작은 절대 틱이다. 다음 클립과 겹치면 거부.
+/// 틈에 노트를 넣을 새 클립 편집(`InsertClip`). 시작은 `at`이 든 마디 시작(앞 클립이 그 마디 안에서 끝나면 그 끝),
+/// 끝은 마지막 노트 끝을 품는 마디의 끝(다음 클립이 그 앞에서 시작하면 그 시작, 리뷰 1 지적 2). 노트 시작은 절대 틱이다.
+/// 노트가 다른 클립과 겹치면 거부.
 pub fn clip_for_notes(project: &Project, track: TrackId, notes: &[Note], at: Tick) -> Result<Edit, ModelError>;
 
 // crates/keyscore-app/src/clipboard.rs
