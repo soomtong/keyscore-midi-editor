@@ -281,8 +281,11 @@ impl ProjectWindow {
             if entered_piano_roll {
                 self.entered_piano_roll(cx);
             }
-            // FSM이 선택을 비웠으면(뷰 전환, 선택 해제) 실제 선택도 비운다(S3-T2).
-            if !next.has_selection() && !self.pianoroll.selection().is_empty() {
+            // FSM이 선택을 비웠으면(뷰 전환, 선택 해제) 실제 선택도 비운다(S3-T2). 기준 칸만 남은 상태도 선택 중이라
+            // 함께 지운다. 남기면 문서가 바뀔 때 노트 없는 `Selection` 컨텍스트가 다시 켜진다(리뷰 4 지적 3).
+            if !next.has_selection()
+                && (!self.pianoroll.selection().is_empty() || self.pianoroll.anchor().is_some())
+            {
                 self.pianoroll
                     .set_selection(crate::pianoroll::Selection::default());
                 self.pianoroll.set_anchor(None);
