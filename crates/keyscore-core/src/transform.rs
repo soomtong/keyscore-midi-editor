@@ -190,6 +190,104 @@ pub fn map_notes(
     plan(project, notes, f)
 }
 
+/// 노트들을 클립 `clip`에 넣는 편집(붙여넣기·복제, S3-T3a). 노트 시작은 클립 기준이다. 끝이 클립을 넘는 노트가
+/// 있으면 먼저 클립을 마디 단위로 늘린다(`ExtendClip`, REQ 5.10. 규칙은 [`quantize`]의 연장과 같다). 늘린 클립이
+/// 다음 클립과 겹치면 거부한다. 빈 `notes`는 빈 묶음이다.
+///
+/// # Errors
+///
+/// 트랙·클립이 없으면 [`ModelError::UnknownTrack`]·[`ModelError::UnknownClip`], 다음 클립과 겹치면
+/// [`ModelError::ClipOverlap`], 틱이 넘치면 [`ModelError::TickOverflow`].
+pub fn insert_notes(
+    project: &Project,
+    track: TrackId,
+    clip: ClipId,
+    notes: &[Note],
+) -> Result<Vec<Edit>, ModelError> {
+    let t = project.track(track).ok_or(ModelError::UnknownTrack)?;
+    let c = t.clip(clip).ok_or(ModelError::UnknownClip)?;
+    let mut end = 0;
+    for n in notes {
+        end = end.max(n.end());
+    }
+    let mut edits = Vec::with_capacity(notes.len() + 1);
+    if end > c.length() {
+        let length = bar_aligned_length(project, c, end)?;
+        let start = c.start().get();
+        let stop = start.checked_add(length).ok_or(ModelError::TickOverflow)?;
+        if t.clips()
+            .any(|(other, o)| other != clip && o.start().get() < stop && start < o.end())
+        {
+            return Err(ModelError::ClipOverlap { start, end: stop });
+        }
+        edits.push(Edit::ExtendClip {
+            track,
+            id: clip,
+            length,
+        });
+    }
+    edits.extend(notes.iter().map(|n| Edit::InsertNote {
+        track,
+        clip,
+        note: n.clone(),
+    }));
+    Ok(edits)
+}
+
+/// 틈에 노트를 넣을 새 클립 편집(`InsertClip`, REQ 5.10 「클립 밖 입력은 마디 단위로 새 클립」). 노트 시작은 절대
+/// 틱이다. 클립 시작은 `at`이 든 마디의 시작, 끝은 마지막 노트 끝을 품는 마디의 끝이다. 같은 트랙의 다른 클립과
+/// 겹치면 거부한다.
+///
+/// # Errors
+///
+/// `notes`가 비었으면 [`ModelError::NoteNotFound`], 어떤 노트가 클립 시작 앞이면
+/// [`ModelError::NoteBeforeClipStart`], 트랙이 없으면
+/// [`ModelError::UnknownTrack`], 겹치면 [`ModelError::ClipOverlap`], 틱이 넘치면 [`ModelError::TickOverflow`].
+pub fn clip_for_notes(
+    project: &Project,
+    track: TrackId,
+    notes: &[Note],
+    at: Tick,
+) -> Result<Edit, ModelError> {
+    let t = project.track(track).ok_or(ModelError::UnknownTrack)?;
+    if notes.is_empty() {
+        return Err(ModelError::NoteNotFound);
+    }
+    let meter = project.meter_map();
+    let start = meter
+        .bar_start(meter.position(at).bar())
+        .unwrap_or(Tick::ZERO)
+        .get();
+    let mut clip = Clip::new(Tick::new(start), 1)?;
+    let mut end = start;
+    let mut relative = Vec::with_capacity(notes.len());
+    for n in notes {
+        let rel = n
+            .start()
+            .get()
+            .checked_sub(start)
+            .ok_or(ModelError::NoteBeforeClipStart)?;
+        end = end.max(n.end());
+        relative.push(n.with_start(Tick::new(rel))?);
+    }
+    // 길이 1인 임시 클립 기준으로 끝을 마디 경계까지 올린다(`bar_aligned_length`와 같은 규칙).
+    let length = bar_aligned_length(project, &clip, (end - start).max(1))?;
+    let stop = start.checked_add(length).ok_or(ModelError::TickOverflow)?;
+    if t.clips()
+        .any(|(_, o)| o.start().get() < stop && start < o.end())
+    {
+        return Err(ModelError::ClipOverlap { start, end: stop });
+    }
+    clip = Clip::new(Tick::new(start), length)?;
+    for n in relative {
+        clip.insert_note(n)?;
+    }
+    Ok(Edit::InsertClip {
+        track,
+        clip: Box::new(clip),
+    })
+}
+
 /// 길이 스케일(EDT-3). 클립마다 그 클립 안의 가장 이른 선택 노트를 기준으로 시작 간격과 길이를
 /// 함께 `numerator / denominator`배 한다(결정 개정). 길이는 최소 1틱이다.
 ///
