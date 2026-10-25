@@ -562,15 +562,20 @@ pub fn save_user(cx: &mut App, user: &user::UserKeymap) -> Result<(), String> {
     let path = user_path(cx);
     // 새로 넣는 예약 키는 파일에 쓰기 전에 거부한다. 쓰면 `build`가 매번 거부해 KM-6 오류가 남고 편집기는 거짓 성공을
     // 말한다(리뷰 2 지적 6). 손으로 써 둔 예약 키 항목은 KM-6 오류로만 보이고 다른 편집을 막지 않는다(리뷰 3 지적 2).
-    let already: Vec<String> = std::fs::read_to_string(&path)
+    // 「이미 있는」은 (컨텍스트, 키, Action) 항목 단위로 본다. 키 글자만 보면 파일에 손으로 쓴 예약 키가 하나 있을 때
+    // 다른 Action에 새로 거는 같은 키가 통과한다(리뷰 4 지적 2).
+    let already: Vec<Binding> = std::fs::read_to_string(&path)
         .ok()
         .and_then(|old| user::UserKeymap::parse(&old).ok())
-        .map(|old| old.bindings().iter().map(|b| b.keys.clone()).collect())
+        .map(|old| old.bindings().to_vec())
         .unwrap_or_default();
+    let same_entry = |a: &Binding, b: &Binding| {
+        a.context == b.context && a.keys == b.keys && a.action == b.action
+    };
     if let Some(b) = user
         .bindings()
         .iter()
-        .find(|b| uses_reserved_key(&b.keys) && !already.contains(&b.keys))
+        .find(|b| uses_reserved_key(&b.keys) && !already.iter().any(|old| same_entry(old, b)))
     {
         return Err(format!(
             "키 '{}'는 쓸 수 없다. '{FLUSH_KEY}'는 앱이 시퀀스 취소에 예약한 키다",
