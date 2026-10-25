@@ -174,6 +174,23 @@ pub fn shift(
     })
 }
 
+/// 고른 노트마다 `f`가 준 노트로 바꾸는 편집 묶음(클립마다 `ReplaceNotes` 하나). 커서·선택 조작(S3-T2)이
+/// 쓴다. 규칙은 [`quantize`]·[`shift`]와 같다: 결과가 클립 끝을 넘으면 클립을 마디 단위로 늘리고(다음 클립과
+/// 겹치면 거부), 꼬리였던 노트는 시작만 클립 안이면 된다. `f`가 돌려준 오류는 그대로 전달한다.
+///
+/// # Errors
+///
+/// 참조가 맞지 않거나(같은 노트를 있는 개수보다 많이 골라도), `f`가 실패하거나, 클립을 늘려야 하는데 다음
+/// 클립과 겹치면 `Err`.
+pub fn map_notes(
+    project: &Project,
+    notes: &[NoteRef],
+    f: impl FnMut(&NoteRef, &Clip, &Note) -> Result<Note, ModelError>,
+) -> Result<Vec<Edit>, ModelError> {
+    let _ = (project, notes, f);
+    todo!("S3-T2")
+}
+
 /// 길이 스케일(EDT-3). 클립마다 그 클립 안의 가장 이른 선택 노트를 기준으로 시작 간격과 길이를
 /// 함께 `numerator / denominator`배 한다(결정 개정). 길이는 최소 1틱이다.
 ///

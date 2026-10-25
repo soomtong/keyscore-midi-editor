@@ -275,6 +275,28 @@ impl ProjectWindow {
         &self.pianoroll
     }
 
+    /// 지금 선택(S3-T2).
+    #[must_use]
+    pub fn selection(&self) -> crate::pianoroll::Selection {
+        self.pianoroll.selection()
+    }
+
+    /// 선택을 바꾸고 모드 FSM의 선택 유무를 맞춘다(S3-T2).
+    pub fn set_selection(
+        &mut self,
+        selection: crate::pianoroll::Selection,
+        cx: &mut Context<Self>,
+    ) {
+        let _ = (selection, cx);
+        todo!("S3-T2")
+    }
+
+    /// 피아노롤 우클릭 메뉴가 떠 있는가(S3-T2).
+    #[must_use]
+    pub fn context_menu_open(&self) -> bool {
+        false
+    }
+
     /// 피아노롤의 가로·세로 뷰포트. 인스펙터·레인이 같은 가로축을 그릴 때 읽는다(가로 동기 훅).
     #[must_use]
     pub fn piano_roll_viewport(&self) -> crate::pianoroll::Viewport {

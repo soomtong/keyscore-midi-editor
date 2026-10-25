@@ -1247,6 +1247,8 @@ pub mod operator {
             Yank,
             /// 변경 오퍼레이터(삭제 후 Step 모드)
             Change,
+            /// 오퍼레이터 대기·카운트 취소(A13: vim `Normal > Operator`의 `escape`, S3-T2)
+            Cancel,
         ]
     );
 
@@ -1328,6 +1330,8 @@ pub mod palette {
             CompletePrev,
             /// 팔레트 닫기(A13: Esc = 통상의 취소)
             Close,
+            /// 명령줄: 팔레트를 `:` 접두가 채워진 채 열기(A12, S3-T2)
+            OpenCommandLine,
         ]
     );
 }
@@ -1355,7 +1359,7 @@ pub mod help {
 
 /// `settings::` Action.
 pub mod settings {
-    use super::{KeyLayout, Opt, SettingsSection};
+    use super::{Int, KeyLayout, Opt, SettingsSection};
 
     gpui_kit::actions!(
         settings,
@@ -1366,8 +1370,18 @@ pub mod settings {
             NextSection,
             /// 설정 이전 구역(S2-T6a)
             PrevSection,
+            /// 이동 시 미리듣기 켬·끔(REQ 5.3, 설정 > 입력, S3-T2)
+            TogglePreviewOnMove,
         ]
     );
+
+    /// 미리듣기 길이(ms, PRE-1 기본 200. 설정 > 입력, S3-T2)
+    #[derive(
+        Clone, PartialEq, Debug, serde::Deserialize, schemars::JsonSchema, gpui_kit::Action,
+    )]
+    #[action(namespace = settings)]
+    #[serde(deny_unknown_fields)]
+    pub struct SetPreviewLength(pub Int);
 
     /// 설정 열기(`metronome` `midi_output` `input` `ai` `keymap`)
     #[derive(
@@ -1417,7 +1431,8 @@ pub mod window {
 /// 모든 Action 이름(정렬). 카탈로그 285개, S2-T1 패널 토글 2개(`view::ToggleTrackList`, `view::ToggleBottomPanel`),
 /// 그 뒤 Task가 더한 것(`palette::Close`, S2-T6a의 `keymap::SelectNext`·`SelectPrev`·`FocusSearch`,
 /// `settings::NextSection`·`PrevSection`, `dialog::Confirm`·`Cancel`, S2-T6b의 `help::CloseOverlay`, S2-T6d의
-/// `midi::RemoveVirtualPort`, S2-T7d의 `midi::MapMissingPorts`)이다. `mode::Back`은 S2-T3에서 뺐다.
+/// `midi::RemoveVirtualPort`, S2-T7d의 `midi::MapMissingPorts`, S3-T2의 `operator::Cancel`·`palette::OpenCommandLine`·
+/// `settings::TogglePreviewOnMove`·`settings::SetPreviewLength`)이다. `mode::Back`은 S2-T3에서 뺐다.
 pub const ALL_ACTION_NAMES: &[&str] = &[
     "ai::Accept",
     "ai::AcceptGhost",
@@ -1589,6 +1604,7 @@ pub const ALL_ACTION_NAMES: &[&str] = &[
     "object::AroundClip",
     "object::InnerBar",
     "object::InnerNote",
+    "operator::Cancel",
     "operator::Change",
     "operator::Count",
     "operator::Delete",
@@ -1597,6 +1613,7 @@ pub const ALL_ACTION_NAMES: &[&str] = &[
     "palette::Complete",
     "palette::CompletePrev",
     "palette::Open",
+    "palette::OpenCommandLine",
     "play::NextTrack",
     "play::Note",
     "play::OctaveDown",
@@ -1640,6 +1657,8 @@ pub const ALL_ACTION_NAMES: &[&str] = &[
     "settings::Open",
     "settings::PrevSection",
     "settings::SetKeyLayout",
+    "settings::SetPreviewLength",
+    "settings::TogglePreviewOnMove",
     "step::Accidental",
     "step::Back",
     "step::BackToBarStart",

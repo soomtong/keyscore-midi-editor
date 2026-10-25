@@ -93,6 +93,22 @@ impl ProjectDocument {
         Ok(())
     }
 
+    /// 편집을 적용하되, 직전 단위가 같은 `key`로 적용된 것이면 한 undo 단위로 묶는다(REQ 5.7 「되돌리기 묶음」).
+    /// 사이에 `seal`·다른 편집·undo가 있었으면 새 단위다.
+    ///
+    /// # Errors
+    ///
+    /// [`ProjectDocument::apply`]와 같다.
+    pub fn apply_coalesced(&mut self, edits: Vec<Edit>, key: u64) -> Result<(), ModelError> {
+        let _ = (edits, key);
+        todo!("S3-T2")
+    }
+
+    /// 다음 `apply_coalesced`가 직전 단위와 묶이지 않게 한다(다른 키가 끼었을 때).
+    pub fn seal(&mut self) {
+        todo!("S3-T2")
+    }
+
     /// # Errors
     ///
     /// [`ModelError`].

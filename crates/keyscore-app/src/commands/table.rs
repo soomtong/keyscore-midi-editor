@@ -1061,6 +1061,13 @@ pub(super) const SPECS: &[CommandSpec] = &[
         &[],
     ),
     CommandSpec::elsewhere(
+        "operator::Cancel",
+        "오퍼레이터·카운트 취소",
+        Surface::PianoRoll,
+        "Esc(vim 프리셋의 오퍼레이터 대기 취소. 통상의 취소, A13)",
+        &[],
+    ),
+    CommandSpec::elsewhere(
         "operator::Change",
         "변경 오퍼레이터",
         Surface::PianoRoll,
@@ -1110,6 +1117,14 @@ pub(super) const SPECS: &[CommandSpec] = &[
         &[],
     ),
     CommandSpec::menu("palette::Open", "명령 팔레트", MenuId::View, 3, 53, &[]),
+    CommandSpec::menu(
+        "palette::OpenCommandLine",
+        "명령줄",
+        MenuId::View,
+        3,
+        54,
+        &[],
+    ),
     CommandSpec::elsewhere(
         "play::NextTrack",
         "Play 다음 트랙 출력",
@@ -1412,6 +1427,25 @@ pub(super) const SPECS: &[CommandSpec] = &[
             Variant::new("건반형 레이아웃", "\"piano\""),
             Variant::new("계이름형 레이아웃", "\"solfege\""),
         ],
+    ),
+    CommandSpec::elsewhere(
+        "settings::SetPreviewLength",
+        "미리듣기 길이",
+        Surface::Settings,
+        "설정 > 입력 > 미리듣기 길이 선택 상자",
+        &[
+            Variant::new("미리듣기 길이 100 ms", "100"),
+            Variant::new("미리듣기 길이 200 ms", "200"),
+            Variant::new("미리듣기 길이 300 ms", "300"),
+            Variant::new("미리듣기 길이 500 ms", "500"),
+        ],
+    ),
+    CommandSpec::elsewhere(
+        "settings::TogglePreviewOnMove",
+        "이동 시 미리듣기 켬·끔",
+        Surface::Settings,
+        "설정 > 입력 > 이동 시 미리듣기",
+        &[],
     ),
     CommandSpec::elsewhere(
         "step::Accidental",

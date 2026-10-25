@@ -37,6 +37,8 @@ pub struct Palette {
 
 /// 클릭 콜백: 눌린 칸.
 pub type ClickHandler = Rc<dyn Fn(Cursor, &mut Window, &mut App)>;
+/// 우클릭 콜백: 눌린 칸과 창 좌표(메뉴를 띄울 자리).
+pub type RightClickHandler = Rc<dyn Fn(Cursor, gpui_kit::Point<Pixels>, &mut Window, &mut App)>;
 
 pub struct PianoRollElement {
     pub(crate) state: PianoRollState,
@@ -47,6 +49,7 @@ pub struct PianoRollElement {
     pub(crate) animating: bool,
     pub(crate) palette: Palette,
     pub(crate) on_click: Option<ClickHandler>,
+    pub(crate) on_right_click: Option<RightClickHandler>,
 }
 
 impl PianoRollElement {
@@ -65,6 +68,7 @@ impl PianoRollElement {
             animating: false,
             palette,
             on_click: None,
+            on_right_click: None,
         }
     }
 
@@ -78,6 +82,16 @@ impl PianoRollElement {
     #[must_use]
     pub fn on_click(mut self, handler: impl Fn(Cursor, &mut Window, &mut App) + 'static) -> Self {
         self.on_click = Some(Rc::new(handler));
+        self
+    }
+
+    /// 우클릭(S3-T2: 마크 메뉴, UI-11).
+    #[must_use]
+    pub fn on_right_click(
+        mut self,
+        handler: impl Fn(Cursor, gpui_kit::Point<Pixels>, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.on_right_click = Some(Rc::new(handler));
         self
     }
 

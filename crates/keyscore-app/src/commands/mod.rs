@@ -3,6 +3,7 @@
 //! Action마다 표시 이름(팔레트 이름 = 메뉴 항목 이름)과 자리를 하나 둔다. 자리는 메뉴이거나, 메뉴에 두지
 //! 않는다고 명시한 「다른 곳」(눈에 보이는 자리를 적는다)이다. 설명은 Action 문서 주석을 쓴다.
 
+pub mod ex;
 mod table;
 
 use gpui_kit::component::kbd::Kbd;

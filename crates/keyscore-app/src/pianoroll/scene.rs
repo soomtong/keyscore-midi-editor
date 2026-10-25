@@ -243,7 +243,7 @@ fn build_notes(input: &SceneInput<'_>, out: &mut Scene) {
                 },
                 velocity: note.velocity().to_midi1(),
                 dim,
-                selected: !dim && input.selection.contains(note),
+                selected: !dim && input.selection.contains(id, note),
             });
         }
     }

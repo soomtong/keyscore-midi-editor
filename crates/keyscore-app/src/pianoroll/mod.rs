@@ -4,13 +4,15 @@
 //! 그린다(`docs/spikes/sp2-element-instancing.md` 분기 A).
 
 pub mod element;
+pub mod ops;
 pub mod scene;
+pub mod select;
 
 use std::cell::RefCell;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::rc::Rc;
 
-use keyscore_core::{ClipId, MeterMap, Note, Pitch, Tick, Track, TrackId};
+use keyscore_core::{Clip, ClipId, MeterMap, Note, Pitch, Tick, Track, TrackId};
 
 /// 기본 배율: 4분음표(960틱) = 96 px.
 pub const DEFAULT_PX_PER_TICK: f64 = 0.1;
@@ -143,10 +145,16 @@ pub enum CursorMove {
     OctaveUp,
 }
 
-/// 현재 클립 안의 선택 노트. 내용은 S3-T2가 채운다.
+/// 선택(REQ 5.3 「선택 → 동작」, 5.7). 한 클립의 실제 `Note` 값 집합과, `Shift+이동`이 직사각형을 재는 기준 칸.
+///
+/// 노트는 그 (트랙, 클립)에 있는 값이거나 다음 문서 변경 때 걸러진다(`retain_existing`). 비어 있으면
+/// 트랙·클립·기준 칸도 없다.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Selection {
+    track: Option<TrackId>,
+    clip: Option<ClipId>,
     notes: BTreeSet<Note>,
+    anchor: Option<Cursor>,
 }
 
 impl Selection {
@@ -156,22 +164,86 @@ impl Selection {
     }
 
     #[must_use]
-    pub fn contains(&self, note: &Note) -> bool {
-        self.notes.contains(note)
-    }
-
-    pub fn insert(&mut self, note: Note) -> bool {
-        self.notes.insert(note)
-    }
-
-    pub fn clear(&mut self) {
-        self.notes.clear();
-    }
-
-    #[must_use]
     pub fn len(&self) -> usize {
         self.notes.len()
     }
+
+    #[must_use]
+    pub fn track(&self) -> Option<TrackId> {
+        self.track
+    }
+
+    #[must_use]
+    pub fn clip(&self) -> Option<ClipId> {
+        self.clip
+    }
+
+    /// `Shift+이동`의 기준 칸(절대 틱). `b`·`Shift+b`·`Cmd+A`로 만든 선택에는 없다.
+    #[must_use]
+    pub fn anchor(&self) -> Option<Cursor> {
+        self.anchor
+    }
+
+    /// `clip`의 이 노트가 선택에 있는가. 다른 클립의 같은 값은 아니다.
+    #[must_use]
+    pub fn contains(&self, clip: ClipId, note: &Note) -> bool {
+        self.clip == Some(clip) && self.notes.contains(note)
+    }
+
+    pub fn notes(&self) -> impl Iterator<Item = &Note> {
+        self.notes.iter()
+    }
+
+    /// 선택을 `notes`로 바꾼다. 비면 `clear`와 같다.
+    pub fn set(
+        &mut self,
+        track: TrackId,
+        clip: ClipId,
+        notes: BTreeSet<Note>,
+        anchor: Option<Cursor>,
+    ) {
+        if notes.is_empty() {
+            self.clear();
+            return;
+        }
+        self.track = Some(track);
+        self.clip = Some(clip);
+        self.notes = notes;
+        self.anchor = anchor;
+    }
+
+    pub fn clear(&mut self) {
+        *self = Selection::default();
+    }
+
+    /// 문서가 바뀐 뒤: `clip`(선택의 클립, 없으면 `None`)에 더 없는 노트를 뺀다. 비면 `clear`. 바뀌었으면 참.
+    pub fn retain_existing(&mut self, clip: Option<&Clip>) -> bool {
+        let before = self.notes.len();
+        match clip {
+            Some(clip) => self.notes.retain(|n| clip.notes().binary_search(n).is_ok()),
+            None => self.notes.clear(),
+        }
+        if self.notes.is_empty() {
+            let had = before > 0;
+            self.clear();
+            return had;
+        }
+        self.notes.len() != before
+    }
+}
+
+/// vim 마크(`m a`, `' a`): 트랙과 칸. 창마다 a–z.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Mark {
+    pub track: TrackId,
+    pub cursor: Cursor,
+}
+
+/// 마지막 `f`/`F` 탐색의 방향(`;` `,` 반복).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FindDirection {
+    Forward,
+    Backward,
 }
 
 /// 클립마다 가장 긴 노트 길이. 보이는 노트의 왼쪽 경계를 이진 탐색할 때 쓴다. 문서 `revision`과 트랙이
@@ -233,6 +305,10 @@ pub(crate) struct Inner {
     pub(crate) height: f32,
     pub(crate) step_ticks: u64,
     pub(crate) selection: Selection,
+    /// vim 마크 a–z(S3-T2).
+    pub(crate) marks: BTreeMap<char, Mark>,
+    /// 마지막 `f`/`F` 방향(S3-T2).
+    pub(crate) last_find: Option<FindDirection>,
     pub(crate) cache: MaxLenCache,
     pub(crate) scene: scene::Scene,
     /// 마지막 `paint`가 그린 노트 수(시험용).
@@ -373,6 +449,8 @@ impl PianoRollState {
                 height: 0.0,
                 step_ticks: DEFAULT_STEP_TICKS,
                 selection: Selection::default(),
+                marks: BTreeMap::new(),
+                last_find: None,
                 cache: MaxLenCache::default(),
                 scene: scene::Scene::default(),
                 painted: 0,
@@ -399,6 +477,29 @@ impl PianoRollState {
     #[must_use]
     pub fn selection(&self) -> Selection {
         self.inner.borrow().selection.clone()
+    }
+
+    /// 선택을 바꾼다(창은 `ProjectWindow::set_selection`으로 모드 FSM까지 맞춘다).
+    pub fn set_selection(&self, selection: Selection) {
+        self.inner.borrow_mut().selection = selection;
+    }
+
+    pub fn set_mark(&self, name: char, mark: Mark) {
+        self.inner.borrow_mut().marks.insert(name, mark);
+    }
+
+    #[must_use]
+    pub fn mark(&self, name: char) -> Option<Mark> {
+        self.inner.borrow().marks.get(&name).copied()
+    }
+
+    #[must_use]
+    pub fn last_find(&self) -> Option<FindDirection> {
+        self.inner.borrow().last_find
+    }
+
+    pub fn set_last_find(&self, direction: FindDirection) {
+        self.inner.borrow_mut().last_find = Some(direction);
     }
 
     /// 마지막 `paint`가 그린 노트 수.

@@ -191,6 +191,27 @@ impl InputSettings {
 /// 클릭 길이(ms)의 허용 범위. 스케줄러의 노트 길이 상한(`MAX_NOTE_LENGTH`, 10 s)과 같다.
 pub const METRONOME_LENGTH_RANGE: std::ops::RangeInclusive<u32> = 1..=10_000;
 
+/// 미리듣기 길이(ms)의 허용 범위(PRE-1). 메트로놈 클릭과 같은 상한.
+pub const PREVIEW_LENGTH_RANGE: std::ops::RangeInclusive<u32> = 1..=10_000;
+
+/// 노트 미리듣기 설정(REQ 5.3 「이동 시 미리듣기」, PRE-1 「길이는 설정(기본 200 ms)」). S3-T2.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreviewSettings {
+    /// 커서가 노트 위로 가면 들려준다(기본 켬).
+    pub on_move: bool,
+    /// 미리듣기 길이(ms) 1–10000.
+    pub length_ms: u32,
+}
+
+impl Default for PreviewSettings {
+    fn default() -> Self {
+        PreviewSettings {
+            on_move: true,
+            length_ms: 200,
+        }
+    }
+}
+
 impl MetronomeSettings {
     /// 스케줄러에 넘길 설정. `port`는 이 스냅샷에서 메트로놈 포트의 번호다.
     #[must_use]
@@ -464,6 +485,8 @@ pub struct Settings {
     pub input: InputSettings,
     pub metronome: MetronomeSettings,
     pub midi_output: MidiOutputSettings,
+    /// 노트 미리듣기(S3-T2).
+    pub preview: PreviewSettings,
     /// 최근 파일 경로(최근이 먼저, S2-T7a).
     pub recent_files: Vec<String>,
     /// `keymap` 객체 안의 모르는 키.
@@ -474,6 +497,8 @@ pub struct Settings {
     metronome_extra: Map<String, Value>,
     /// `midi_output` 객체 안의 모르는 키.
     midi_output_extra: Map<String, Value>,
+    /// `preview` 객체 안의 모르는 키.
+    preview_extra: Map<String, Value>,
     /// 모르는 최상위 키. 다시 쓸 때 그대로 둔다.
     extra: Map<String, Value>,
     /// `layout` 객체 안의 모르는 키(뒤 버전이 더한 패널 등).
