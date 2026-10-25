@@ -90,6 +90,21 @@ cargo test --workspace --no-fail-fast: 2008 passed, 2 failed, 2 ignored(1시간�
 
 수정 뒤: `transform_insert` 6, `review_s3_t3a`(core) 3, `clipboard_notes` 7, `note_edit` 10, `review_s3_t3a`(app) 20 통과. fmt·clippy 통과.
 
+## 리뷰 2 대응(`docs/reports/s3-t3a/review-2.md`, 판정 「수정 후 재리뷰」, 차단 없음)
+
+| 지적 | 대응 | 커밋 |
+| --- | --- | --- |
+| 1 있던 클립 연장이 마디 중간에서 시작하는 다음 클립 때문에 거부됨(리뷰 1 지적 2와 같은 갈래) | core `insert_notes`도 다음 클립이 노트 끝과 마디 끝 사이에서 시작하면 그 시작까지만 늘린다. 노트가 닿을 때만 거부. 틈 쪽(`clip_for_notes`)과 한 규칙이다. S0-T7 일괄 연산·S3-T2 `Alt` 밀기(`map_notes`)의 연장은 결정 `2026-10-12-quantize-and-transform-rules.md`대로 마디 끝까지라 다르다(계획 4에 적음). 같은 갈래가 두 번 나와 원인(연장 끝 계산)을 두 함수 모두에서 고쳤다. 제 속성 시험 `insert_notes_preserves_invariants`의 성질을 새 규칙으로, 순수 시험 `plan_duplicate_offset_is_exact_span`의 겹침 자리를 바꿨다 | `Extend pasted clips only up to a mid-bar next clip` |
+
+| 제안 | 대응 |
+| --- | --- |
+| 1 클립 마지막 칸의 vim `p`가 맞닿은 새 클립 | 계획 4대로라 그대로 둔다(자리 틱이 클립 밖이면 새 클립) |
+| 2 커서 없는 클립을 되살린 undo 뒤 `x` 거부 | 5.3 규칙대로라 그대로 둔다. `Shift+p`·`Cmd+←`로 돌아가라는 알림이 나온다 |
+| 3 잘라내기 알림이 「복사했다」 | 「잘라냈다」. 리뷰 시험 `cut_status_line_says_copied`의 기록 기대값을 고쳤다 |
+| 4 빠진 형식 알림의 조사 | 「텍스트·SMF를」로 |
+
+수정 뒤: core `transform_insert` 6·`review_s3_t3a` 3·`review_s3_t3a_r2` 7, app `clipboard_notes` 7·`note_edit` 10·`review_s3_t3a` 20·`review_s3_t3a_r2` 9·`pianoroll_select` 14·`review_s3_t2` 13 통과. fmt·clippy 통과.
+
 ## 리뷰어에게
 
 - 대상 규칙(`note_edit.rs` `edit_targets`): 복사만 선택의 클립이 현재 클립이 아니어도 된다. 같은 값의 노트가 여럿이면 모두 대상이다.
