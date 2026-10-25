@@ -20,6 +20,7 @@
 2. 삭제 `edit::Delete`(`x` `delete` `backspace`): 대상 노트를 `Edit::RemoveNote`로 지운다(undo 한 단위). 뒤에 선택과 기준 칸을 비운다. 커서는 그대로.
    - vim `shift-x` `edit::DeleteBefore`: 커서 앞 노트 하나(`n`/`p`의 순서에서 커서 칸 바로 앞, `select::prev_note`)를 지운다. 선택과 무관하다. 그 노트가 현재 클립 밖(다른 클립)이면 거부한다.
    - vim `shift-d` `edit::DeleteToBarEnd`: 현재 클립에서 시작이 `[커서 틱, 커서가 든 마디의 끝)`인 노트 전부(음높이 무관)를 지운다.
+   - `X`·`D`는 선택과 무관한 동작이라 선택을 비우지 않는다. 지운 노트는 문서 관찰자가 선택에서 뺀다(`retain_existing`).
 3. 복사 `edit::Copy`(`cmd-c`, vim `y y`)·잘라내기 `edit::Cut`(`cmd-x`, `shift-x`): 대상 노트를 클립보드 내용(`ClipNotes`)으로 만든다. 내용은 노트 값(길이·음높이·벨로시티·피치 오프셋·가사·모르는 키)을 그대로 두고 시작만 「가장 이른 대상 노트의 시작」 기준으로 바꾼 것이다. 숨김 꼬리 노트도 전체 길이로 담는다. 잘라내기는 복사한 뒤 삭제(2)와 같다(undo 한 단위). 선택은 복사에서는 그대로, 잘라내기에서는 비운다.
    - vim `shift-y` `edit::CopyBar`: 현재 클립에서 커서가 든 마디에 걸치는 노트(`select::bar_notes`, `b`와 같은 기준)를 복사한다. 선택은 바꾸지 않는다.
    - 시스템 클립보드에 쓰기(KM-15, 7.5): 한 번에 지우고(`clearContents`) 두 형식을 함께 쓴다.
@@ -28,7 +29,7 @@
      - 다 쓴 뒤 그 클립보드의 `changeCount`를 내부 클립보드와 함께 기억한다.
    - 앱 내부 클립보드는 앱 전역 하나(`Global`)다. 그래서 다른 창에서 붙여넣을 수 있다.
 4. 붙여넣기 `edit::Paste`(`cmd-v`)·`edit::PasteBefore`(vim `shift-p`)·`edit::PasteAfter`(vim `p`)
-   - 가져올 내용: 시스템 클립보드의 `changeCount`가 기억한 값과 같으면 내부 구조. 다르면(다른 앱이 바꿈, 앱을 다시 띄움) 시스템 클립보드에서 `public.midi-audio`가 있으면 SMF로(`SmfFile::read` → `smf_import`, IO-2와 같은 변환), 없으면 문자열을 계이름 텍스트로(`keyscore_text::parse(…, Lenient)`, IO-3과 같은 변환) 읽는다. 가져온 프로젝트의 모든 트랙·클립의 노트를 절대 틱으로 모아 가장 이른 시작 기준으로 바꾼다(트랙 구분·헤더·템포는 버린다. 붙여넣기는 노트를 현재 클립에 넣는 동작이다). 읽기 실패·노트 0개면 「붙여넣을 노트가 없다」(이유 포함)이고 문서는 그대로다.
+   - 가져올 내용: 시스템 클립보드의 `changeCount`가 기억한 값과 같으면 내부 구조. 다르면(다른 앱이 바꿈, 앱을 다시 띄움) 시스템 클립보드에서 `public.midi-audio`가 있으면 SMF로(`SmfFile::read` → `smf_import`, IO-2와 같은 변환), 없으면 문자열을 계이름 텍스트로(`text_to_project(…, Lenient)`, IO-3과 같은 변환) 읽는다. 다른 앱에서 복사한 MML 조각에는 `@track` 머리가 없으므로, 그대로 읽어 실패하고 `@track`이 없으면 `@track Clip ch1` 블록 하나로 다시 읽는다. 가져온 프로젝트의 모든 트랙·클립의 노트를 절대 틱으로 모아 가장 이른 시작 기준으로 바꾼다(트랙 구분·헤더·템포는 버린다. 붙여넣기는 노트를 현재 클립에 넣는 동작이다). 읽기 실패·노트 0개면 「붙여넣을 노트가 없다」(이유 포함)이고 문서는 그대로다.
    - 자리: `Paste`와 `PasteBefore`는 내용의 틱 0이 커서 틱에, `PasteAfter`는 커서 틱 + 한 스텝에 온다(vim `p`는 커서 뒤, `P`는 커서 자리). 음높이는 바꾸지 않는다(커서 음높이로 옮기지 않는다).
    - 넣을 클립: 자리 틱을 품은 현재 트랙의 클립. 노트 끝이 클립 끝을 넘으면 클립을 마디 단위로 늘린다(S0-T7 규칙과 같은 `bar_aligned_length`). 늘린 클립이 다음 클립과 겹치면 거부한다.
    - 자리 틱이 클립 밖(틈)이면 새 클립을 만든다(5.10 「클립 밖에서 입력을 시작하면 마디 단위로 새 클립」의 읽기): 시작은 자리 틱이 든 마디의 시작, 끝은 마지막 노트 끝을 품는 마디의 끝. 다음 클립과 겹치면 거부한다.
@@ -73,6 +74,8 @@ pub const MIDI_TYPE: &str = "public.midi-audio";
 pub struct SystemContents { pub change_count: isize, pub midi: Option<Vec<u8>>, pub text: Option<String> }
 pub fn write_system(cx: &App, text: Option<&str>, midi: Option<&[u8]>) -> isize;   // changeCount
 pub fn read_system(cx: &App) -> SystemContents;
+pub fn store(cx: &mut App, notes: ClipNotes, text: Option<&str>, midi: Option<&[u8]>); // 복사: 내부 + 시스템
+pub fn paste_contents(cx: &App) -> Result<ClipNotes, String>;                     // 내부 → SMF → 텍스트
 pub fn use_named_pasteboard(cx: &mut App, name: &str);        // 시험용
 pub fn internal(cx: &App) -> Option<ClipNotes>;                // 시험용 읽기
 
@@ -80,11 +83,13 @@ pub fn internal(cx: &App) -> Option<ClipNotes>;                // 시험용 읽�
 pub struct Placed { pub edits: Vec<Edit>, pub notes: Vec<Note> /* 클립 기준 시작 */, pub clip: PlacedClip }
 pub enum PlacedClip { Existing(ClipId), New { start: Tick } }
 pub fn plan_paste(project: &Project, track: TrackId, at: Tick, content: &ClipNotes) -> Result<Placed, ModelError>;
+pub fn duplicate_offset(notes: &[Note], step: u64) -> u64;
 pub fn plan_duplicate(project: &Project, track: TrackId, clip: ClipId, notes: &[Note], step: u64) -> Result<Placed, ModelError>;
 pub fn plan_delete(track: TrackId, clip: ClipId, notes: &[Note]) -> Vec<Edit>;
 pub fn targets(clip: &Clip, values: &BTreeSet<Note>) -> Vec<Note>;   // 값마다 클립의 같은 노트 전부
 pub fn appeared(before: &Track, after: &Track) -> Option<(ClipId, BTreeSet<Note>)>; // undo·redo 뒤 선택(6)
 
+// 되돌리기 묶음 판정: selection::is_note_op_action → is_coalescing_action(edit::Duplicate·Repeat 추가)
 // 처리기(crate 안): src/note_edit.rs — edit::Delete/DeleteBefore/DeleteToBarEnd/Cut/Copy/CopyBar/Paste/PasteBefore/
 // PasteAfter/Duplicate/Repeat. 되돌리기 묶음 키는 ops::COALESCE_BASE와 겹치지 않는 자리.
 ~~~
