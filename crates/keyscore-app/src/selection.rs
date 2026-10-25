@@ -165,8 +165,10 @@ impl ProjectWindow {
         let anchor = self.pianoroll.anchor().unwrap_or(before);
         self.pianoroll.set_anchor(Some(anchor));
         let step = self.pianoroll.step_ticks();
+        // 직사각형이 걸치는 클립: 기준 칸이 든 클립, 기준 칸이 클립 사이 틈이면 커서가 든 클립(리뷰 1 지적 2)
         let picked = self
             .clip_at(anchor.tick, cx)
+            .or_else(|| self.clip_at(after.tick, cx))
             .and_then(|(track_id, clip_id)| {
                 let doc = self.document.read(cx);
                 let clip = doc.project().track(track_id)?.clip(clip_id)?;
@@ -305,6 +307,10 @@ impl ProjectWindow {
     // ---------- Alt 조작 ----------
 
     /// 선택(없으면 커서 노트)에 `op`를 적용한다. 같은 조작의 연속은 undo 한 단위다(5.7).
+    ///
+    /// 선택이 가리키는 (트랙, 클립)이 커서의 현재 클립이 아니면 거부한다. 그 노트는 흐리게 그려지거나 화면에
+    /// 없고 5.3은 「앞뒤 클립의 노트는 … 편집은 되지 않는다」다(리뷰 1 지적 1). 선택 자체는 남는다(5.11의
+    /// 「선택을 유지한 채 다음 트랙」 흐름, `Esc`로 비운다).
     fn apply_note_op(&mut self, op: NoteOp, cx: &mut Context<Self>) {
         let selection = self.pianoroll.selection();
         let (track_id, clip_id, notes, on_cursor_note) = if selection.is_empty() {
@@ -317,6 +323,16 @@ impl ProjectWindow {
             let (Some(t), Some(c)) = (selection.track(), selection.clip()) else {
                 return;
             };
+            if self.clip_under_cursor(cx) != Some((t, c)) {
+                self.say(
+                    format!(
+                        "{}: 선택이 현재 클립에 없다(그 클립으로 돌아가거나 Esc로 선택을 비운다)",
+                        op.label()
+                    ),
+                    cx,
+                );
+                return;
+            }
             (t, c, selection.notes().cloned().collect(), false)
         };
         let step = self.pianoroll.step_ticks();
@@ -351,29 +367,70 @@ impl ProjectWindow {
             return;
         }
         if on_cursor_note {
-            // 커서가 노트를 따라간다(연타가 같은 노트에 계속 적용되도록). 선택은 생기지 않는다.
-            let (from, to) = &planned.moved[0];
-            let mut cursor = self.pianoroll.cursor();
-            let mut changed = false;
-            if op.moves_time() {
-                let delta = i128::from(to.start().get()) - i128::from(from.start().get());
-                let tick = (i128::from(cursor.tick.get()) + delta).max(0);
-                cursor.tick = Tick::new(u64::try_from(tick).unwrap_or(u64::MAX));
-                changed = true;
-            }
-            if op.moves_pitch() {
-                cursor.pitch = to.pitch();
-                changed = true;
-            }
-            if changed {
-                self.pianoroll.set_cursor(cursor);
-                self.cursor_moved(false, cx);
+            if let Some((from, to)) = planned.moved.first() {
+                self.follow_cursor_note(track_id, clip_id, from, to, cx);
             }
         } else {
+            if let Some((from, to)) = planned.moved.first() {
+                self.shift_anchor(from, to);
+            }
             let notes: BTreeSet<Note> = planned.moved.into_iter().map(|(_, to)| to).collect();
             self.replace_selection(track_id, clip_id, notes, cx);
         }
         cx.notify();
+    }
+
+    /// 선택 없이 커서 노트에 조작한 뒤: 커서가 노트를 따라간다(연타가 같은 노트에 계속 적용되도록). 선택은 생기지
+    /// 않는다. 길이를 줄여 커서가 노트 밖에 남으면 노트 안(끝 직전)으로 당긴다(리뷰 1 지적 3).
+    fn follow_cursor_note(
+        &mut self,
+        track_id: TrackId,
+        clip_id: ClipId,
+        from: &Note,
+        to: &Note,
+        cx: &mut Context<Self>,
+    ) {
+        let clip_start = {
+            let doc = self.document.read(cx);
+            doc.project()
+                .track(track_id)
+                .and_then(|t| t.clip(clip_id))
+                .map_or(0, |c| c.start().get())
+        };
+        let cursor = self.pianoroll.cursor();
+        let delta = i128::from(to.start().get()) - i128::from(from.start().get());
+        let moved_tick = i128::from(cursor.tick.get()) + delta;
+        let abs_start = i128::from(clip_start) + i128::from(to.start().get());
+        let abs_last = i128::from(clip_start) + i128::from(to.end()) - 1;
+        let tick = moved_tick.clamp(abs_start, abs_last.max(abs_start));
+        let new_cursor = Cursor {
+            tick: Tick::new(u64::try_from(tick.max(0)).unwrap_or(u64::MAX)),
+            pitch: to.pitch(),
+        };
+        if new_cursor != cursor {
+            self.pianoroll.set_cursor(new_cursor);
+            self.cursor_moved(false, cx);
+        }
+    }
+
+    /// 선택에 조작한 뒤: 기준 칸도 노트와 함께 옮긴다. 그대로 두면 다음 `Shift+이동`이 낡은 직사각형으로 다시
+    /// 계산해 방금 옮긴 노트를 선택에서 떨어뜨린다(리뷰 1 지적 4).
+    fn shift_anchor(&mut self, from: &Note, to: &Note) {
+        let Some(anchor) = self.pianoroll.anchor() else {
+            return;
+        };
+        let dt = i128::from(to.start().get()) - i128::from(from.start().get());
+        let dp = i16::from(to.pitch().get()) - i16::from(from.pitch().get());
+        let tick = (i128::from(anchor.tick.get()) + dt).max(0);
+        let pitch = (i16::from(anchor.pitch.get()) + dp).clamp(0, 127);
+        let moved = Cursor {
+            tick: Tick::new(u64::try_from(tick).unwrap_or(u64::MAX)),
+            pitch: u8::try_from(pitch)
+                .ok()
+                .and_then(|p| keyscore_core::Pitch::new(p).ok())
+                .unwrap_or(anchor.pitch),
+        };
+        self.pianoroll.set_anchor(Some(moved));
     }
 
     fn note_nudge_earlier(
@@ -671,7 +728,8 @@ impl ProjectWindow {
 
     // ---------- 미리듣기 ----------
 
-    /// 설정 「이동 시 미리듣기」가 켜져 있으면 커서 위 노트를 들려준다(PRE-1). 실패는 조용히 넘긴다.
+    /// 설정 「이동 시 미리듣기」가 켜져 있으면 커서 위 노트를 들려준다(PRE-1). 실패는 이동마다 상태줄을 덮지
+    /// 않게 창마다 한 번만 알린다(리뷰 1 제안 11).
     fn preview_cursor_note(&mut self, cx: &mut Context<Self>) {
         let settings = AppSettings::get(cx).preview.clone();
         if !settings.on_move {
@@ -683,7 +741,13 @@ impl ProjectWindow {
         let Some(track) = self.document.read(cx).project().track(track_id).cloned() else {
             return;
         };
-        let _ = self.sound_note(&track, note.pitch(), note.velocity(), settings.length(), cx);
+        let result = self.sound_note(&track, note.pitch(), note.velocity(), settings.length(), cx);
+        if let Some(message) = result.failure("미리듣기")
+            && !self.preview_notice_shown
+        {
+            self.preview_notice_shown = true;
+            self.say(format!("{message}(이 알림은 창마다 한 번만)"), cx);
+        }
     }
 
     /// `note::Audition`(vim `enter`, 팔레트): 커서 노트를 설정과 무관하게 들려준다.

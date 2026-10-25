@@ -77,6 +77,8 @@ pub struct ProjectWindow {
     pub(crate) transport: Transport,
     /// undo 상한 알림을 이미 냈는가(창마다 한 번, EDT-1 결정 A).
     history_notice_shown: bool,
+    /// 미리듣기 실패 알림을 이미 냈는가(창마다 한 번, S3-T2 리뷰 1 제안 11).
+    pub(crate) preview_notice_shown: bool,
     /// 문서가 바뀌면 재생 중 스냅샷을 교체한다(TRN-3). 창이 닫히면 재생을 멈춘다.
     _document_changed: Subscription,
     _released: Subscription,
@@ -179,6 +181,7 @@ impl ProjectWindow {
             palette: None,
             transport: Transport::default(),
             history_notice_shown: false,
+            preview_notice_shown: false,
             _document_changed: document_changed,
             _released: released,
             baseline: None,

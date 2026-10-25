@@ -308,7 +308,8 @@ impl ProjectWindow {
             self.say("테스트 노트를 보낼 트랙이 없다", cx);
             return;
         };
-        let pitch = Pitch::new(TEST_PITCH).expect("가운데 C");
+        // TEST_PITCH(60)는 상수라 0–127 안이다
+        let pitch = Pitch::new(TEST_PITCH).expect("TEST_PITCH는 0–127 안의 상수");
         let result = self.sound_note(
             &track,
             pitch,
