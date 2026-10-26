@@ -128,8 +128,8 @@ impl ProjectWindow {
         let has = !self.pianoroll.selection().is_empty() || self.pianoroll.anchor().is_some();
         // 오퍼레이터 대기와 선택은 함께 있지 않다(S3-T3c 불변식). 메뉴·팔레트의 선택이나 undo가 되살린 노트로 선택이
         // 생기면 대기를 끝낸다. 대기 중 키 입력은 가로채기가 거르지만 키가 아닌 경로는 여기서만 잡힌다(리뷰 1 지적 1).
-        if has && self.vim.pending.take().is_some() {
-            cx.notify();
+        if has {
+            self.clear_operator(cx);
         }
         if has != self.mode_state().has_selection() {
             self.apply_selection_event(if has {

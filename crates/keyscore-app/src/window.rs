@@ -291,7 +291,7 @@ impl ProjectWindow {
         if next != self.mode {
             // 오퍼레이터 대기와 비주얼은 Normal 피아노롤의 것이다. 모드·뷰가 바뀌면 끝낸다(S3-T3c). 비주얼만 끝내고
             // 선택·기준 칸은 FSM 규칙(아래)대로 둔다.
-            self.vim.pending = None;
+            self.clear_operator(cx);
             self.pianoroll.set_visual(None);
             let entered_piano_roll =
                 next.view() == View::PianoRoll && self.mode.view() != View::PianoRoll;
@@ -396,7 +396,7 @@ impl ProjectWindow {
         if self.current_track != track {
             self.current_track = track;
             // 오퍼레이터 대기는 그 트랙의 커서에 걸린 것이다(S3-T3c)
-            self.vim.pending = None;
+            self.clear_operator(cx);
             cx.notify();
         }
     }

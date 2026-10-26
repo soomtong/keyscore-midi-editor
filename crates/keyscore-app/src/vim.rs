@@ -206,9 +206,10 @@ impl ProjectWindow {
         }
     }
 
-    /// 오퍼레이터 대기를 끝낸다(모드·뷰·트랙 바뀜, 클릭).
+    /// 오퍼레이터 대기를 끝낸다(모드·뷰·트랙 바뀜, 클릭, 선택이 생김). 대기 앞뒤의 카운트도 비운다(리뷰 2 지적 3).
     pub(crate) fn clear_operator(&mut self, cx: &mut Context<Self>) {
         if self.vim.pending.take().is_some() {
+            keymap::clear_count(cx);
             cx.notify();
         }
     }
