@@ -513,10 +513,13 @@ fn other_key_cancels_operator_without_running(cx: &mut TestAppContext) {
         cx.read(|cx| view.read(cx).transport_state()),
         keyscore_app::engine::TransportState::Stopped
     );
-    // i 단독 대기 시간 뒤에도 Step으로 가지 않고 대기가 남는다
+    // i 단독은 바인딩이 없어(null) 시간이 지나도 Step으로 가지 않고 대기가 남는다
     press(cx, handle, "d i");
     wait(cx, handle);
     assert_eq!(mode(cx, &view), Mode::Normal);
+    assert_eq!(pending(cx, &view), Some((Operator::Delete, None)));
+    // A13: 시퀀스 대기 중(i 뒤) Esc는 시퀀스만 취소한다. 다음 Esc가 오퍼레이터를 취소한다
+    press(cx, handle, "escape");
     assert_eq!(pending(cx, &view), Some((Operator::Delete, None)));
     press(cx, handle, "escape");
     assert_eq!(pending(cx, &view), None);
@@ -767,7 +770,10 @@ fn visual_ends_on_extend_select_and_view(cx: &mut TestAppContext) {
     press(cx, handle, "v");
     press(cx, handle, "i");
     wait(cx, handle);
-    // 비주얼에서 i 단독은 아무 일도 하지 않는다. Step 진입은 Esc 뒤의 i
+    // 비주얼에서 i 단독은 아무 일도 하지 않는다. 첫 Esc는 i 시퀀스만 취소하고(A13) 둘째 Esc가 비주얼을 끝낸다.
+    // Step 진입은 그 뒤의 i
+    press(cx, handle, "escape");
+    assert_eq!(visual(cx, &view), Some(VisualKind::Note));
     press(cx, handle, "escape i");
     assert_eq!(mode(cx, &view), Mode::Step);
     assert_eq!(visual(cx, &view), None);
@@ -859,7 +865,9 @@ fn operator_is_one_undo_unit(cx: &mut TestAppContext) {
     assert_eq!(undo_len(cx, &view), 1);
     press(cx, handle, "u");
     assert_eq!(clip_a(cx, &view), ALL.to_vec());
-    press(cx, handle, "c a c");
+    // undo는 되살린 노트를 선택한다(S3-T3a). 선택이 있으면 c는 바로 작용하므로(결정 3 A) 먼저 비운다
+    assert_eq!(selection_of(cx, &view), vec![C4, D4, E4]);
+    press(cx, handle, "escape c a c");
     assert_eq!(clip_a(cx, &view), Vec::<Triple>::new());
     assert_eq!(clips_len(cx, &view), vec![(0, 2 * BAR), (4 * BAR, BAR)]);
     press(cx, handle, "escape u");

@@ -9,12 +9,13 @@ use gpui_kit::component::menu::PopupMenuItem;
 use gpui_kit::{Action, Context, Div, InteractiveElement as _, Pixels, Point, Stateful, Window};
 use keyscore_core::{ClipId, Note, Tick, Track, TrackId};
 
-use crate::actions::{cursor, note, operator, select};
+use crate::actions::{cursor, note, select};
 use crate::app_state::AppSettings;
 use crate::dispatch::run_action;
 use crate::mode::{ModeEvent, View};
 use crate::pianoroll::ops::{NoteOp, plan_note_op};
 use crate::pianoroll::select as sel;
+use crate::pianoroll::vim::Motion;
 use crate::pianoroll::{Cursor, CursorMove, FindDirection, Mark, Selection};
 use crate::window::{PopupKind, ProjectWindow};
 
@@ -84,8 +85,12 @@ impl ProjectWindow {
 
     /// 커서가 옮겨진 뒤 할 일: 뷰포트가 따라가고, 설정이 켜져 있으면 커서 노트를 들려준다. `keep_anchor`가
     /// 거짓이면(수식키 없는 이동) 다음 `Shift+이동`의 기준 칸을 지운다.
+    ///
+    /// vim 비주얼 중이면 기준 칸을 지우지 않고 선택을 기준 칸 ↔ 커서 칸으로 다시 계산한다(S3-T3c).
     pub(crate) fn cursor_moved(&mut self, keep_anchor: bool, cx: &mut Context<Self>) {
-        if !keep_anchor {
+        if self.pianoroll.visual().is_some() {
+            self.recompute_visual(cx);
+        } else if !keep_anchor {
             self.pianoroll.set_anchor(None);
         }
         self.sync_selection_mode(cx);
@@ -166,7 +171,10 @@ impl ProjectWindow {
     }
 
     /// `Shift+이동`: 커서를 옮기고 기준 칸 ↔ 커서 칸 직사각형의 노트를 선택한다(5.7 「선택 넓히기」).
+    ///
+    /// vim 비주얼 중이면 비주얼만 끝내고(기준 칸은 남긴다) 이 규칙으로 넘어간다(S3-T3c).
     fn extend(&mut self, mv: CursorMove, cx: &mut Context<Self>) {
+        self.pianoroll.set_visual(None);
         let before = self.pianoroll.cursor();
         let meter = self.document.read(cx).project().meter_map().clone();
         self.pianoroll.move_cursor(mv, &meter);
@@ -546,110 +554,99 @@ impl ProjectWindow {
 
     // ---------- 노트·클립 단위 이동 ----------
 
-    fn cursor_next_note(&mut self, _: &cursor::NextNote, _: &mut Window, cx: &mut Context<Self>) {
-        let c = self.pianoroll.cursor();
-        if let Some(Some((_, to))) = self.with_track(cx, |t| sel::next_note(t, c)) {
-            self.jump_cursor(to, cx);
-        }
-    }
+    // 노트·클립 단위 이동은 모두 vim 모션의 공통 길(`run_motion`, S3-T3c)을 거친다. 카운트와 오퍼레이터 대기를
+    // 거기서 처리한다.
 
-    fn cursor_prev_note(&mut self, _: &cursor::PrevNote, _: &mut Window, cx: &mut Context<Self>) {
-        let c = self.pianoroll.cursor();
-        if let Some(Some((_, to))) = self.with_track(cx, |t| sel::prev_note(t, c)) {
-            self.jump_cursor(to, cx);
-        }
-    }
-
-    fn cursor_next_clip(&mut self, _: &cursor::NextClip, _: &mut Window, cx: &mut Context<Self>) {
-        let c = self.pianoroll.cursor();
-        if let Some(Some(tick)) = self.with_track(cx, |t| sel::next_clip_start(t, c.tick)) {
-            self.jump_cursor(Cursor { tick, ..c }, cx);
-        }
-    }
-
-    fn cursor_prev_clip(&mut self, _: &cursor::PrevClip, _: &mut Window, cx: &mut Context<Self>) {
-        let c = self.pianoroll.cursor();
-        if let Some(Some(tick)) = self.with_track(cx, |t| sel::prev_clip_start(t, c.tick)) {
-            self.jump_cursor(Cursor { tick, ..c }, cx);
-        }
-    }
-
-    fn cursor_clip_start(&mut self, _: &cursor::ClipStart, _: &mut Window, cx: &mut Context<Self>) {
-        let c = self.pianoroll.cursor();
-        let start = self.clip_under_cursor(cx).and_then(|(t, id)| {
-            let doc = self.document.read(cx);
-            Some(doc.project().track(t)?.clip(id)?.start())
-        });
-        if let Some(tick) = start {
-            self.jump_cursor(Cursor { tick, ..c }, cx);
-        }
-    }
-
-    fn cursor_clip_end(&mut self, _: &cursor::ClipEnd, _: &mut Window, cx: &mut Context<Self>) {
-        let c = self.pianoroll.cursor();
-        let step = self.pianoroll.step_ticks();
-        let end = self.clip_under_cursor(cx).and_then(|(t, id)| {
-            let doc = self.document.read(cx);
-            Some(sel::clip_last_step(doc.project().track(t)?.clip(id)?, step))
-        });
-        if let Some(tick) = end {
-            self.jump_cursor(Cursor { tick, ..c }, cx);
-        }
-    }
-
-    /// vim `f`/`F`와 `;`/`,`: 같은 음높이의 다음·이전 노트.
-    fn find_same_pitch(
+    fn cursor_next_note(
         &mut self,
-        direction: FindDirection,
-        remember: bool,
+        _: &cursor::NextNote,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let c = self.pianoroll.cursor();
-        let found = self.with_track(cx, |t| match direction {
-            FindDirection::Forward => sel::next_same_pitch(t, c),
-            FindDirection::Backward => sel::prev_same_pitch(t, c),
-        });
-        if remember {
-            self.pianoroll.set_last_find(direction);
-        }
-        if let Some(Some(to)) = found {
-            self.jump_cursor(to, cx);
-        }
+        self.run_motion(Motion::NextNote, window, cx);
+    }
+
+    fn cursor_prev_note(
+        &mut self,
+        _: &cursor::PrevNote,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.run_motion(Motion::PrevNote, window, cx);
+    }
+
+    fn cursor_next_clip(
+        &mut self,
+        _: &cursor::NextClip,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.run_motion(Motion::NextClip, window, cx);
+    }
+
+    fn cursor_prev_clip(
+        &mut self,
+        _: &cursor::PrevClip,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.run_motion(Motion::PrevClip, window, cx);
+    }
+
+    fn cursor_clip_start(
+        &mut self,
+        _: &cursor::ClipStart,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.run_motion(Motion::ClipStart, window, cx);
+    }
+
+    fn cursor_clip_end(
+        &mut self,
+        _: &cursor::ClipEnd,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.run_motion(Motion::ClipEnd, window, cx);
     }
 
     fn cursor_next_same_pitch(
         &mut self,
         _: &cursor::NextSamePitch,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.find_same_pitch(FindDirection::Forward, true, cx);
+        self.run_find(FindDirection::Forward, true, window, cx);
     }
 
     fn cursor_prev_same_pitch(
         &mut self,
         _: &cursor::PrevSamePitch,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.find_same_pitch(FindDirection::Backward, true, cx);
+        self.run_find(FindDirection::Backward, true, window, cx);
     }
 
     fn cursor_repeat_find(
         &mut self,
         _: &cursor::RepeatFind,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         if let Some(direction) = self.pianoroll.last_find() {
-            self.find_same_pitch(direction, false, cx);
+            self.run_find(direction, false, window, cx);
+        } else {
+            // 탐색 기록이 없으면 이동도 오퍼레이터도 없다
+            self.clear_operator(cx);
         }
     }
 
     fn cursor_repeat_find_reverse(
         &mut self,
         _: &cursor::RepeatFindReverse,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         if let Some(direction) = self.pianoroll.last_find() {
@@ -657,7 +654,9 @@ impl ProjectWindow {
                 FindDirection::Forward => FindDirection::Backward,
                 FindDirection::Backward => FindDirection::Forward,
             };
-            self.find_same_pitch(reverse, false, cx);
+            self.run_find(reverse, false, window, cx);
+        } else {
+            self.clear_operator(cx);
         }
     }
 
@@ -746,6 +745,8 @@ impl ProjectWindow {
         cx: &mut Context<Self>,
     ) {
         self.seal_history(cx);
+        // 왼쪽 클릭과 같이 오퍼레이터 대기를 끝낸다(S3-T3c)
+        self.clear_operator(cx);
         self.jump_cursor(cell, cx);
         self.open_popup_with(
             PopupKind::PianoRollMenu,
@@ -817,12 +818,6 @@ impl ProjectWindow {
         }
     }
 
-    /// `operator::Cancel`(A13): 오퍼레이터 대기와 카운트를 비운다. 오퍼레이터 상태는 S3-T3가 만든다.
-    fn operator_cancel(_: &mut Self, _: &operator::Cancel, _: &mut Window, cx: &mut Context<Self>) {
-        crate::keymap::clear_count(cx);
-        cx.notify();
-    }
-
     /// 선택·조작·탐색·마크 처리기를 단다(`piano_roll_handlers`에서).
     pub(crate) fn selection_handlers(
         element: Stateful<Div>,
@@ -864,6 +859,5 @@ impl ProjectWindow {
             .on_action(cx.listener(Self::cursor_set_mark))
             .on_action(cx.listener(Self::cursor_jump_mark))
             .on_action(cx.listener(Self::note_audition))
-            .on_action(cx.listener(Self::operator_cancel))
     }
 }

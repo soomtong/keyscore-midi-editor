@@ -191,7 +191,21 @@
       "escape": "operator::Cancel",
       "a c": "object::AroundClip",
       "i b": "object::InnerBar",
-      "i n": "object::InnerNote"
+      "i n": "object::InnerNote",
+      // 텍스트 객체의 접두. Normal 의 i(Step)·a(노트 뒤 Step)가 대기 중에 실행되지 않게 가린다(S3-T3c).
+      "i": null,
+      "a": null
+    }
+  },
+  {
+    // 비주얼 선택 중(S3-T3c, 결정 2026-10-26-s3-t3c-vim-operators 3 A): 텍스트 객체가 선택을 바꾼다(v i n).
+    "context": "Normal > Visual",
+    "bindings": {
+      "a c": "object::AroundClip",
+      "i b": "object::InnerBar",
+      "i n": "object::InnerNote",
+      "i": null,
+      "a": null
     }
   },
   {

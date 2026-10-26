@@ -92,6 +92,8 @@ pub struct ProjectWindow {
     _keystrokes: Subscription,
     /// 음 키 대기의 키 가로채기(S3-T3b).
     _pitch_keys: Subscription,
+    /// vim 오퍼레이터 대기·`y` 접두의 키 가로채기(S3-T3c).
+    _vim_keys: Subscription,
     /// 이 뷰를 담은 창(파일 흐름이 시트를 띄우고 창을 닫는다).
     handle: gpui_kit::AnyWindowHandle,
     /// 저장·닫기 흐름이 돌고 있다(시트가 떠 있을 수 있다). 그동안 새 흐름을 시작하지 않는다(S2-T7a).
@@ -157,8 +159,10 @@ impl ProjectWindow {
             if !same_op {
                 this.seal_history(cx);
             }
+            this.vim_after_keystroke(event.action.as_deref(), cx);
         });
         let pitch_keys = Self::intercept_pitch_keys(window, cx);
+        let vim_keys = Self::intercept_vim_keys(window, cx);
         let me = cx.entity().downgrade();
         if cx.has_global::<OpenWindows>() {
             let list = &mut cx.global_mut::<OpenWindows>().0;
@@ -194,6 +198,7 @@ impl ProjectWindow {
             _window_resized: window_resized,
             _keystrokes: keystrokes,
             _pitch_keys: pitch_keys,
+            _vim_keys: vim_keys,
             handle: window.window_handle(),
             file_flow: false,
             autosave: crate::autosave::WindowAutosave::new(),
@@ -284,6 +289,10 @@ impl ProjectWindow {
     ) {
         let next = self.mode.apply(event);
         if next != self.mode {
+            // 오퍼레이터 대기와 비주얼은 Normal 피아노롤의 것이다. 모드·뷰가 바뀌면 끝낸다(S3-T3c). 비주얼만 끝내고
+            // 선택·기준 칸은 FSM 규칙(아래)대로 둔다.
+            self.vim.pending = None;
+            self.pianoroll.set_visual(None);
             let entered_piano_roll =
                 next.view() == View::PianoRoll && self.mode.view() != View::PianoRoll;
             self.mode = next;
@@ -386,6 +395,8 @@ impl ProjectWindow {
         }
         if self.current_track != track {
             self.current_track = track;
+            // 오퍼레이터 대기는 그 트랙의 커서에 걸린 것이다(S3-T3c)
+            self.vim.pending = None;
             cx.notify();
         }
     }
@@ -868,7 +879,7 @@ impl ProjectWindow {
     /// `Normal > PianoRoll` 같은 술어는 그 깊이로 맞춘다. 가장 안쪽이 창 포커스를 잡아야 경로 전체가
     /// 디스패치 경로가 된다.
     fn wrap_in_contexts(&self, content: AnyElement) -> AnyElement {
-        let path = self.mode.context_path();
+        let path = self.context_path();
         let (innermost, outer) = path.split_last().expect("컨텍스트 경로는 비지 않는다");
         let mut element = div()
             .size_full()
@@ -902,12 +913,12 @@ impl ProjectWindow {
 
     /// 상태줄 왼쪽의 모드 표시. 누르면 모드 메뉴가 열린다.
     fn mode_indicator(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let label = self.mode.mode().label();
+        let label = self.mode_label();
         let bounds = self.indicator_bounds.clone();
         div()
             .id("status-mode")
             .role(Role::Button)
-            .aria_label(label)
+            .aria_label(label.clone())
             .test_support()
             .relative()
             .px_1()

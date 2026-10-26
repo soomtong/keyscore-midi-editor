@@ -148,6 +148,67 @@ pub enum CursorMove {
     OctaveUp,
 }
 
+/// `cursor`를 `delta`만큼 옮긴 칸(`step`은 한 스텝 틱). 틱은 0 아래로, 음높이는 0–127 밖으로 가지 않는다.
+#[must_use]
+pub fn moved(cursor: Cursor, delta: CursorMove, step: u64, meter: &MeterMap) -> Cursor {
+    let Cursor { tick, pitch } = cursor;
+    let pitch_by = |semitones: i16| {
+        let value = (i16::from(pitch.get()) + semitones).clamp(0, i16::from(ROWS - 1));
+        // clamp로 0–127 안이다.
+        u8::try_from(value)
+            .ok()
+            .and_then(|v| Pitch::new(v).ok())
+            .unwrap_or(pitch)
+    };
+    match delta {
+        CursorMove::StepBack => Cursor {
+            tick: Tick::new(tick.get().saturating_sub(step)),
+            pitch,
+        },
+        CursorMove::StepForward => Cursor {
+            tick: tick.checked_add(step).unwrap_or(tick),
+            pitch,
+        },
+        CursorMove::SemitoneDown => Cursor {
+            tick,
+            pitch: pitch_by(-1),
+        },
+        CursorMove::SemitoneUp => Cursor {
+            tick,
+            pitch: pitch_by(1),
+        },
+        CursorMove::OctaveDown => Cursor {
+            tick,
+            pitch: pitch_by(-12),
+        },
+        CursorMove::OctaveUp => Cursor {
+            tick,
+            pitch: pitch_by(12),
+        },
+        CursorMove::BarBack => {
+            let bar = meter.position(tick).bar();
+            let start = meter.bar_start(bar).unwrap_or(Tick::ZERO);
+            // 마디 중간이면 그 마디 시작, 시작이면 앞 마디 시작(5.7 「한 마디 뒤로」)
+            let target = if tick > start {
+                start
+            } else {
+                meter.bar_start(bar.saturating_sub(1)).unwrap_or(Tick::ZERO)
+            };
+            Cursor {
+                tick: target,
+                pitch,
+            }
+        }
+        CursorMove::BarForward => {
+            let bar = meter.position(tick).bar();
+            Cursor {
+                tick: meter.bar_start(bar + 1).unwrap_or(tick),
+                pitch,
+            }
+        }
+    }
+}
+
 /// 선택(REQ 5.3 「선택 → 동작」, 5.7). 한 클립의 실제 `Note` 값 집합.
 ///
 /// 노트는 그 (트랙, 클립)에 있는 값이거나 다음 문서 변경 때 걸러진다(`retain_existing`). 비어 있으면
@@ -541,64 +602,7 @@ impl PianoRollState {
     /// 커서를 옮긴다. 틱은 0 아래로, 음높이는 0–127 밖으로 가지 않는다.
     pub fn move_cursor(&self, delta: CursorMove, meter: &MeterMap) {
         let mut inner = self.inner.borrow_mut();
-        let Cursor { tick, pitch } = inner.cursor;
-        let step = inner.step_ticks;
-        let pitch_by = |semitones: i16| {
-            let value = (i16::from(pitch.get()) + semitones).clamp(0, i16::from(ROWS - 1));
-            // clamp로 0–127 안이다.
-            u8::try_from(value)
-                .ok()
-                .and_then(|v| Pitch::new(v).ok())
-                .unwrap_or(pitch)
-        };
-        let next = match delta {
-            CursorMove::StepBack => Cursor {
-                tick: Tick::new(tick.get().saturating_sub(step)),
-                pitch,
-            },
-            CursorMove::StepForward => Cursor {
-                tick: tick.checked_add(step).unwrap_or(tick),
-                pitch,
-            },
-            CursorMove::SemitoneDown => Cursor {
-                tick,
-                pitch: pitch_by(-1),
-            },
-            CursorMove::SemitoneUp => Cursor {
-                tick,
-                pitch: pitch_by(1),
-            },
-            CursorMove::OctaveDown => Cursor {
-                tick,
-                pitch: pitch_by(-12),
-            },
-            CursorMove::OctaveUp => Cursor {
-                tick,
-                pitch: pitch_by(12),
-            },
-            CursorMove::BarBack => {
-                let bar = meter.position(tick).bar();
-                let start = meter.bar_start(bar).unwrap_or(Tick::ZERO);
-                // 마디 중간이면 그 마디 시작, 시작이면 앞 마디 시작(5.7 「한 마디 뒤로」)
-                let target = if tick > start {
-                    start
-                } else {
-                    meter.bar_start(bar.saturating_sub(1)).unwrap_or(Tick::ZERO)
-                };
-                Cursor {
-                    tick: target,
-                    pitch,
-                }
-            }
-            CursorMove::BarForward => {
-                let bar = meter.position(tick).bar();
-                Cursor {
-                    tick: meter.bar_start(bar + 1).unwrap_or(tick),
-                    pitch,
-                }
-            }
-        };
-        inner.cursor = next;
+        inner.cursor = moved(inner.cursor, delta, inner.step_ticks, meter);
     }
 
     /// 커서 칸이 보이도록 뷰포트를 옮긴다. 크기를 아직 모르면(그리기 전) 아무것도 하지 않는다.

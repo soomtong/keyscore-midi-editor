@@ -52,6 +52,11 @@ pub(crate) enum LastEdit {
     Op(NoteOp),
     /// 음높이 바꾸기: 받은 음 키의 옥타브 안 반음 자리. 반복은 대기 없이 지금 커서 노트의 옥타브에 둔다.
     Pitch(u8),
+    /// vim `d`·`c` 오퍼레이터와 그 대상(S3-T3c). 반복은 지금 커서·선택에서 같은 대상으로 다시 한다.
+    Operator {
+        op: crate::pianoroll::vim::Operator,
+        target: crate::vim::OperatorTarget,
+    },
 }
 
 impl LastEdit {
@@ -429,6 +434,10 @@ impl ProjectWindow {
             Some(LastEdit::Pitch(semitone)) => {
                 let semitone = *semitone;
                 self.set_pitch_semitone(semitone, cx);
+            }
+            Some(LastEdit::Operator { op, target }) => {
+                let (op, target) = (*op, *target);
+                self.apply_operator(op, target, window, cx);
             }
         }
     }

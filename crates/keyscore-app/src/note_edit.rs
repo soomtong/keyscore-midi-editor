@@ -172,7 +172,7 @@ impl ProjectWindow {
     /// 대상을 클립보드로 복사한다(내부 구조 + 시스템 클립보드 SMF·텍스트). 텍스트·SMF는 문서를 빌린 채 만들어
     /// 프로젝트를 복제하지 않는다.
     /// `done`은 상태줄의 동사(「복사했다」「잘라냈다」)다.
-    fn copy_targets(&mut self, targets: &Targets, done: &str, cx: &mut Context<Self>) {
+    pub(crate) fn copy_targets(&mut self, targets: &Targets, done: &str, cx: &mut Context<Self>) {
         let Some(content) = ClipNotes::new(targets.notes.clone()) else {
             return;
         };
@@ -217,7 +217,12 @@ impl ProjectWindow {
 
     // ---------- 삭제 ----------
 
-    fn delete_notes(&mut self, label: &str, t: &Targets, cx: &mut Context<Self>) -> bool {
+    pub(crate) fn delete_notes(
+        &mut self,
+        label: &str,
+        t: &Targets,
+        cx: &mut Context<Self>,
+    ) -> bool {
         self.apply_edit(label, plan_delete(t.track, t.clip, &t.notes), None, cx)
     }
 
@@ -235,7 +240,7 @@ impl ProjectWindow {
         }
     }
 
-    fn clear_selection_after_edit(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn clear_selection_after_edit(&mut self, cx: &mut Context<Self>) {
         self.pianoroll.set_anchor(None);
         self.set_selection(crate::pianoroll::Selection::default(), cx);
     }
@@ -291,9 +296,29 @@ impl ProjectWindow {
         if !self.edit_allowed(None, window, cx) {
             return;
         }
-        let Some((track, clip)) = self.clip_under_cursor(cx) else {
-            self.say("마디 끝까지 삭제: 커서가 클립 밖이다", cx);
+        let label = "마디 끝까지 삭제";
+        let Some(t) = self.bar_end_targets(label, cx) else {
             return;
+        };
+        if t.notes.is_empty() {
+            self.say(format!("{label}: 노트가 없다"), cx);
+            return;
+        }
+        if self.delete_notes(label, &t, cx) {
+            self.remember_edit(LastEdit::action(&edit::DeleteToBarEnd));
+        }
+    }
+
+    /// vim `D`·`C`의 대상: 현재 클립에서 시작이 [커서 틱, 커서가 든 마디 끝)인 노트 전부(비어 있을 수 있다).
+    /// 커서가 클립 밖이면 알리고 `None`.
+    pub(crate) fn bar_end_targets(
+        &mut self,
+        label: &str,
+        cx: &mut Context<Self>,
+    ) -> Option<Targets> {
+        let Some((track, clip)) = self.clip_under_cursor(cx) else {
+            self.say(format!("{label}: 커서가 클립 밖이다"), cx);
+            return None;
         };
         let cursor = self.pianoroll.cursor().tick.get();
         let notes = {
@@ -315,13 +340,7 @@ impl ProjectWindow {
                 })
                 .unwrap_or_default()
         };
-        if notes.is_empty() {
-            self.say("마디 끝까지 삭제: 노트가 없다", cx);
-            return;
-        }
-        if self.delete_notes("마디 끝까지 삭제", &Targets { track, clip, notes }, cx) {
-            self.remember_edit(LastEdit::action(&edit::DeleteToBarEnd));
-        }
+        Some(Targets { track, clip, notes })
     }
 
     // ---------- 복사·잘라내기 ----------

@@ -248,7 +248,15 @@ pub fn build(
 }
 
 /// 시퀀스 대기를 비우는 데 쓰는, 어느 프리셋에도 바인딩이 없는 키.
-const FLUSH_KEY: &str = "f20";
+pub(crate) const FLUSH_KEY: &str = "f20";
+
+/// 멀티키 시퀀스 대기를 비운다: 바인딩 없는 키 하나를 디스패치해 시간 초과와 같은 결과(접두 단독 바인딩이
+/// 있으면 실행, 대기·카운트 비움)를 만든다. GPUI에 대기를 비우는 공개 API가 없어서다.
+pub(crate) fn flush_pending_keystrokes(window: &mut Window, cx: &mut App) {
+    if let Ok(flush) = Keystroke::parse(FLUSH_KEY) {
+        window.dispatch_keystroke(flush, cx);
+    }
+}
 
 /// 키 시퀀스가 예약 키를 쓰는가. 토큰은 GPUI가 읽는 대로(이름 키는 소문자로) 비교한다(`F20`도 잡는다, 리뷰 2 지적 5).
 fn uses_reserved_key(keys: &str) -> bool {
@@ -351,11 +359,7 @@ pub fn install(
         {
             cx.stop_propagation();
             cx.global_mut::<KeymapState>().count = None;
-            window.defer(cx, |window, cx| {
-                if let Ok(flush) = Keystroke::parse(FLUSH_KEY) {
-                    window.dispatch_keystroke(flush, cx);
-                }
-            });
+            window.defer(cx, flush_pending_keystrokes);
         }
     })
     .detach();
