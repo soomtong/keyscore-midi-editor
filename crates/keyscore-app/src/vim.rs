@@ -262,8 +262,13 @@ impl ProjectWindow {
         };
         let escape = keystroke.key == "escape" && !keystroke.modifiers.modified();
         if let Some(p) = self.vim.pending {
-            // A13: 시퀀스 대기 중(`d i` 뒤)의 Esc는 시퀀스만 취소한다(키맵의 가로채기가 한다). 대기는 남는다
+            // A13: 시퀀스 대기 중(`d i` 뒤)의 Esc는 시퀀스만 취소한다(키맵의 가로채기가 한다). 대기는 남는다.
+            // 그 시퀀스가 오퍼레이터 키(`y` 대기의 `y`)면 비우기가 재생하는 오퍼레이터를 무시한다. 그대로 두면 겹친
+            // 오퍼레이터(`y y`)로 커서 노트를 복사한다(리뷰 1 지적 2).
             if escape && !pending_input.is_empty() {
+                if operator_prefix {
+                    self.ignore_replayed_operator_once(window, cx);
+                }
                 return false;
             }
             let ok = match found.first() {
@@ -285,10 +290,7 @@ impl ProjectWindow {
         }
         // `y` 뒤의 Esc: 키맵의 가로채기가 대기를 비울 때 재생되는 `y`를 무시한다
         if escape {
-            self.vim.ignore_replayed_operator = true;
-            cx.defer_in(window, |this, _, _| {
-                this.vim.ignore_replayed_operator = false;
-            });
+            self.ignore_replayed_operator_once(window, cx);
             return false;
         }
         if !found.is_empty() || still_pending {
@@ -305,6 +307,15 @@ impl ProjectWindow {
             });
         });
         true
+    }
+
+    /// 키맵의 Esc 가로채기가 대기 입력을 비울 때 재생되는 오퍼레이터를 무시한다. 그 비우기는 키맵이 먼저 건
+    /// 지연에서 돌고, 이 지연이 그 뒤에 표시를 내린다.
+    fn ignore_replayed_operator_once(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.vim.ignore_replayed_operator = true;
+        cx.defer_in(window, |this, _, _| {
+            this.vim.ignore_replayed_operator = false;
+        });
     }
 
     /// 대기 입력을 비운 뒤 오퍼레이터를 취소한다. 접두 키가 오퍼레이터(`y`)면 그 재생은 무시한다.
