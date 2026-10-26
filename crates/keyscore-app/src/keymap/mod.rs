@@ -501,12 +501,16 @@ pub fn pending_count(cx: &App) -> Option<u32> {
     cx.global::<KeymapState>().count
 }
 
-/// 카운트 숫자 Action(`operator::Count(n)`, vim 프리셋의 `1`–`9`). 상한을 두어 넘치지 않게 한다.
+/// 카운트 숫자 Action(`operator::Count(n)`, vim 프리셋의 `0`–`9`). 상한을 두어 넘치지 않게 한다.
 fn register_count_actions(cx: &mut App) {
     const MAX_COUNT: u32 = 9999;
     cx.on_action(|digit: &crate::actions::operator::Count, cx| {
         let d = u32::try_from(digit.0.0.clamp(0, 9)).unwrap_or(0);
         let state = cx.global_mut::<KeymapState>();
+        // `0`은 카운트의 둘째 자리부터만 숫자다(`1 0` = 10). 맨 앞 `0`은 카운트를 시작하지 않는다(vim과 같다).
+        if d == 0 && state.count.is_none() {
+            return;
+        }
         state.count = Some(
             state
                 .count

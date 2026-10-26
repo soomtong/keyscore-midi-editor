@@ -178,6 +178,8 @@
       "7": "operator::Count(7)",
       "8": "operator::Count(8)",
       "9": "operator::Count(9)",
+      // A9: 숫자는 카운트라 0도 카운트의 자리다(1 0 = 10). 기본 프리셋의 0(길이 기본값)은 g 0 으로 갔다.
+      "0": "operator::Count(0)",
       "m": null,
       "z": null
     }
@@ -225,6 +227,7 @@
       "5": "operator::Count(5)",
       "6": "operator::Count(6)",
       "7": "operator::Count(7)",
+      "0": "operator::Count(0)",
       "b": "cursor::PrevNote",
       "e": "cursor::NoteEnd",
       "n": "search::Next",
