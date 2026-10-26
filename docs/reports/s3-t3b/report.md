@@ -59,9 +59,9 @@ note_edit(T3a): 10 passed, review_s2_t2: 26 passed
 
 - [x] fmt
 - [x] clippy -D warnings
-- [ ] test(전체, `--no-fail-fast`): 돌리는 중
-- [ ] deny
-- [ ] `scripts/check-deps.sh`, `check-deps.test.sh`, `bench-check.test.sh`
+- [x] test(전체, `--no-fail-fast`): 2차(`e74a39b` 직전 코드, 리뷰 2 대응까지)에서 2104 통과, 1 실패 → `review_s2_t6b_r3::vim_octave_once_and_count_keep_direction`이 vim 카운트 줄 9개를 기대했는데 리뷰 1 지적 3으로 `0`이 더해져 10개. 기대값을 고쳤다(결정 A9). 그 뒤 바뀐 것은 시험 파일뿐이고(`58915ce`와 이 수정), 바뀐 시험 파일 넷을 따로 돌려 통과했다. 1차(수정 전)의 실패 3개는 「리뷰 2 대응」 끝에 적었다.
+- [x] deny(advisories·bans·licenses·sources ok)
+- [x] `scripts/check-deps.sh`, `check-deps.test.sh`, `bench-check.test.sh`(8 passed)
 
 ## 알려진 한계
 
