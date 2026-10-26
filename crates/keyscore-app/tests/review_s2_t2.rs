@@ -628,9 +628,10 @@ fn shift_digit_dotted_length_matches_macos_keystroke(cx: &mut TestAppContext) {
         });
     });
     let (handle, _view) = open_nested(cx, "Step", "Dummy");
-    // 대조군: 바인딩 표기 그대로의 입력은 닿는다.
+    // 대조군: 결정 B25 a′(2026-10-24, S3-T3b 반영)로 `shift-N` 표기 바인딩은 지웠다. 실제 입력이 내지 않는
+    // `shift-3`은 이제 닿지 않는다.
     cx.dispatch_keystroke(handle, Keystroke::parse("shift-3").unwrap());
-    assert!(fired.replace(false), "대조군");
+    assert!(!fired.replace(false), "대조군: shift-3 바인딩이 남아 있다");
     cx.dispatch_keystroke(
         handle,
         Keystroke {

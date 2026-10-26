@@ -1,8 +1,9 @@
 // 기본 프리셋(REQ 5.7, 5.8). cmd- 표준 단축키는 standard.json 에 있다.
 // 결정 대기 주석이 붙은 키는 docs/decisions/2026-10-17-keymap-conflicts.md 가 닫힐 때까지 비워 둔다.
 [
-// macOS(GPUI)는 Shift+숫자를 key "!"…"&"(Shift 없음)로 만든다(US/ABC 자판). 그래서 점음표 길이는 shift-N과
-// 그 기호 키 양쪽에 건다(S2-T2 리뷰 1 지적 2). 다른 자판의 기호 위치는 B25 결정을 따른다.
+// 키 표기(결정 B25 a′, 2026-10-24): 숫자·기호 모두 입력되는 글자 그대로 쓴다. macOS(GPUI)는 Shift+숫자를
+// key "!"…"&"(Shift 없음)로 만들므로(US/ABC 자판, S2-T2 리뷰 1 지적 2) 점음표 길이는 그 기호 키에 건다.
+// shift-N 표기는 쓰지 않는다. 기호 위치가 다른 자판은 그 자판이 내는 글자로 사용자 키맵에서 바꾼다.
   {
     "bindings": {
       "ctrl-tab": "mode::Cycle",
@@ -120,25 +121,18 @@
       "alt-shift-j": "note::OctaveDown",
       "alt-shift-down": "note::OctaveDown",
       "1": "note::SetLength(whole)",
-      "shift-1": "note::SetDottedLength(whole)",
       "!": "note::SetDottedLength(whole)",
       "2": "note::SetLength(half)",
-      "shift-2": "note::SetDottedLength(half)",
       "@": "note::SetDottedLength(half)",
       "3": "note::SetLength(quarter)",
-      "shift-3": "note::SetDottedLength(quarter)",
       "#": "note::SetDottedLength(quarter)",
       "4": "note::SetLength(eighth)",
-      "shift-4": "note::SetDottedLength(eighth)",
       "$": "note::SetDottedLength(eighth)",
       "5": "note::SetLength(sixteenth)",
-      "shift-5": "note::SetDottedLength(sixteenth)",
       "%": "note::SetDottedLength(sixteenth)",
       "6": "note::SetLength(thirtysecond)",
-      "shift-6": "note::SetDottedLength(thirtysecond)",
       "^": "note::SetDottedLength(thirtysecond)",
       "7": "note::SetLength(sixtyfourth)",
-      "shift-7": "note::SetDottedLength(sixtyfourth)",
       "&": "note::SetDottedLength(sixtyfourth)",
       "0": "note::ResetLength"
     }
@@ -196,25 +190,18 @@
       "escape": "mode::Normal",
       "n": "step::Triplet",
       "1": "step::SetLength(whole)",
-      "shift-1": "step::SetDottedLength(whole)",
       "!": "step::SetDottedLength(whole)",
       "2": "step::SetLength(half)",
-      "shift-2": "step::SetDottedLength(half)",
       "@": "step::SetDottedLength(half)",
       "3": "step::SetLength(quarter)",
-      "shift-3": "step::SetDottedLength(quarter)",
       "#": "step::SetDottedLength(quarter)",
       "4": "step::SetLength(eighth)",
-      "shift-4": "step::SetDottedLength(eighth)",
       "$": "step::SetDottedLength(eighth)",
       "5": "step::SetLength(sixteenth)",
-      "shift-5": "step::SetDottedLength(sixteenth)",
       "%": "step::SetDottedLength(sixteenth)",
       "6": "step::SetLength(thirtysecond)",
-      "shift-6": "step::SetDottedLength(thirtysecond)",
       "^": "step::SetDottedLength(thirtysecond)",
       "7": "step::SetLength(sixtyfourth)",
-      "shift-7": "step::SetDottedLength(sixtyfourth)",
       "&": "step::SetDottedLength(sixtyfourth)",
       "0": "step::ResetLength",
       "[": "step::OctaveDown",

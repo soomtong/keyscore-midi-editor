@@ -7,12 +7,24 @@
     "context": "Normal",
     "bindings": {
       // 결정됨(2026-10-17-keymap-conflicts.md, 2026-10-24). 반영 단계가 남은 것:
-      //   A1 shift-j -> edit::Join, shift-k -> note::ShowInfo (S3-T3)
       //   A3 g c -> lane::Toggle, g shift-c -> mode::Controller (S6-T1)
-      //   A9 g 1 … g 7, g 0 길이 코드 (S3-T3); A10 g w 가사(S6), g i AI(S7)
+      //   A10 g w 가사(S6), g i AI(S7)
       //   B20 ( ) 는 track::Prev/Next 로 배정, cursor::TrackUp/Down 은 키 없음
       // S3-T2가 채운 것: A2 g a, A8 enter(Normal > PianoRoll), A10 g b / g shift-b, A11 ; ,
+      // S3-T3b가 채운 것: A1 shift-j / shift-k, A9 g 1 … g 7, g 0
       "g a": "view::Toggle",
+      // A1: J 합치기, K 노트 정보. 옥타브 이동은 기본 프리셋의 alt-shift-j/k 를 쓴다.
+      "shift-j": "edit::Join",
+      "shift-k": "note::ShowInfo",
+      // A9: 숫자는 카운트라 길이 코드는 g 접두로 옮긴다. 점음표는 기본 프리셋의 기호 키(! … &)를 쓴다.
+      "g 1": "note::SetLength(whole)",
+      "g 2": "note::SetLength(half)",
+      "g 3": "note::SetLength(quarter)",
+      "g 4": "note::SetLength(eighth)",
+      "g 5": "note::SetLength(sixteenth)",
+      "g 6": "note::SetLength(thirtysecond)",
+      "g 7": "note::SetLength(sixtyfourth)",
+      "g 0": "note::ResetLength",
       "g b": "select::Bar",
       "g shift-b": "select::Clip",
       ";": "cursor::RepeatFind",
@@ -183,7 +195,7 @@
   {
     "context": "Step",
     "bindings": {
-      // 결정 대기: B25 shift-~ -> step::TieLegato (기호 키 표기)
+      // B25 결정: step::TieLegato 의 vim 키는 비워 둔다(shift-~ 는 ~ 와 같은 글자라 표기할 수 없다).
       "{": "step::OctaveOnce(-1)",
       "}": "step::OctaveOnce(1)",
       "shift-space": "step::HalfRest",
@@ -195,7 +207,10 @@
     "context": "Normal > Arrangement",
     "bindings": {
       "shift-h": "note::Shorten",
-      "shift-l": "note::Lengthen"
+      "shift-l": "note::Lengthen",
+      // A1: 기본 프리셋의 이 컨텍스트 shift-j/k(선택 넓히기)가 Normal 의 vim 바인딩을 가리지 않게 다시 건다.
+      "shift-j": "edit::Join",
+      "shift-k": "note::ShowInfo"
     }
   },
   {
@@ -216,7 +231,9 @@
       "p": "edit::PasteAfter",
       "shift-b": "cursor::PrevBeat",
       "shift-h": "note::Shorten",
-      "shift-l": "note::Lengthen"
+      "shift-l": "note::Lengthen",
+      "shift-j": "edit::Join",
+      "shift-k": "note::ShowInfo"
     }
   }
 ]
