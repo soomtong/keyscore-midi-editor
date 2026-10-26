@@ -465,12 +465,11 @@ pub fn plan_quantize(
 /// 편집 뒤 선택: `targets` 가운데 편집 뒤에도 남은 노트와 편집으로 새로 나타난 노트.
 #[must_use]
 pub fn selection_after(before: &Clip, after: &Clip, targets: &[Note]) -> BTreeSet<Note> {
-    let gone: BTreeSet<Note> = new_notes(after.notes(), before.notes())
-        .into_iter()
-        .collect();
+    // 대상 값의 사본이 하나라도 뒤 클립에 남았으면 선택에 둔다. 같은 값 둘 가운데 하나만 사라진 경우(같은 노트 둘
+    // 합치기)도 남은 하나는 대상 그대로다(리뷰 1 지적 4).
     let mut out: BTreeSet<Note> = targets
         .iter()
-        .filter(|n| !gone.contains(*n) && after.notes().binary_search(n).is_ok())
+        .filter(|n| after.notes().binary_search(n).is_ok())
         .cloned()
         .collect();
     out.extend(new_notes(before.notes(), after.notes()));
