@@ -99,3 +99,10 @@ note_edit(T3a): 10 passed, review_s2_t2: 26 passed
 | 2 제안: 꼬리만 고르면 까닭이 안 보임 | 받아들임. 대상에 꼬리가 있고 바뀌는 노트가 없으면 「클립 끝을 넘는 숨김 꼬리 노트는 레가토하지 않는다」를 덧붙인다. | `note_ops.rs` 커밋 |
 
 전체 게이트 1차(수정 전 커밋)에서 이번 변경이 전제를 바꾼 기존 시험 3개가 실패해 전제만 고쳤다(`834ea4a`): `review_s2_t2_r2`의 `shift-N` 기호 검사 둘(B25로 검사 대상 바인딩이 없어짐, 「최소 하나」 단언 제거), `review_s3_t3a_r2::vim_p_on_last_step_of_clip_makes_separate_clip`(vim 반복은 `y y p`. `r`은 처리기가 없던 `SetPitch`에서 기본 `r`로 넘어간 우연이었다).
+
+## 리뷰 3 대응(`review-3.md`, 「병합 가능」, 제안 2)
+
+| 지적 | 대응 | 커밋 |
+| --- | --- | --- |
+| 1 제안: `shifted_symbol_bindings_match_us_keystrokes_*`가 늘 통과 | 받아들임. `checked == 0`을 B25 a′ 단언으로 둔다. | `58915ce` |
+| 2 제안: 고친 `vim_p_on_last_step…`이 알림만 단언 | 받아들임. 클립과 undo 길이가 그대로인지도 단언한다. | `58915ce` |
