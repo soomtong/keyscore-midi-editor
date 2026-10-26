@@ -336,12 +336,16 @@ fn vim_p_on_last_step_of_clip_makes_separate_clip(cx: &mut TestAppContext) {
     // 사본 선택은 새 클립에 있고 커서(6720)는 A에 있다. 바로 이은 반복은 거부된다. vim의 반복은 `y y p`다(REQ
     // 5.8.1, vim `r`은 음높이 바꾸기). 처음에는 `r`을 눌렀는데, `edit::SetPitch` 처리기가 없어 기본 프리셋의 `r`(반복)로
     // 넘어간 것이었다(S3-T3b에서 처리기가 생겼다).
+    let undo = undo_len(cx, &view);
     press(cx, handle, "y y p");
     assert!(
         last_message(cx, &view).contains("선택이 현재 클립에 없다"),
         "{:?}",
         last_message(cx, &view)
     );
+    // 거부는 문서를 바꾸지 않는다(S3-T3b 리뷰 3 제안 2)
+    assert_eq!(clips(cx, &view), all);
+    assert_eq!(undo_len(cx, &view), undo);
 }
 
 /// 클립 A에서 C4를 지우고 커서를 클립 B로 옮긴 뒤 `cmd-z`하면 선택은 A의 C4가 된다(계획 6). 그 상태에서 `x`는
