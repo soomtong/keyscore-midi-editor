@@ -92,10 +92,7 @@ impl ProjectWindow {
         .playhead(playhead, animating)
         .on_click({
             let listener = cx.listener(|this, cell: &Cursor, window, cx| {
-                // 클릭은 키 입력이 아니므로 되돌리기 묶음을 여기서 끊는다(5.7 「다른 키가 끼면」)
-                this.seal_history(cx);
-                this.pianoroll.set_cursor(*cell);
-                this.cursor_moved(false, cx);
+                this.click_piano_roll_cell(*cell, cx);
                 this.focus_document(window, cx);
             });
             move |cell, window, cx| listener(&cell, window, cx)
@@ -116,6 +113,15 @@ impl ProjectWindow {
             .size_full()
             .overflow_hidden()
             .child(element)
+    }
+
+    /// 피아노롤 칸을 눌렀을 때(포커스 옮기기 전까지): 커서를 그 칸으로. 비주얼 중이면 선택을 다시 계산하고,
+    /// 오퍼레이터 대기는 끝낸다(S3-T3c).
+    pub fn click_piano_roll_cell(&mut self, cell: Cursor, cx: &mut Context<Self>) {
+        // 클릭은 키 입력이 아니므로 되돌리기 묶음을 여기서 끊는다(5.7 「다른 키가 끼면」)
+        self.seal_history(cx);
+        self.pianoroll.set_cursor(cell);
+        self.cursor_moved(false, cx);
     }
 
     /// 피아노롤로 들어갈 때 커서를 클립 안에 둔다.

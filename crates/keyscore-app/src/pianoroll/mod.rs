@@ -9,6 +9,7 @@ pub mod keys;
 pub mod ops;
 pub mod scene;
 pub mod select;
+pub mod vim;
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
@@ -297,6 +298,8 @@ pub(crate) struct Inner {
     /// `Shift+이동`의 기준 칸(절대 틱). 첫 `Shift+이동` 때 그 전 커서 칸으로 잡고, 수식키 없는 이동·선택
     /// 해제·`b`류 선택이 지운다(S3-T2).
     pub(crate) anchor: Option<Cursor>,
+    /// vim 비주얼 선택의 종류(S3-T3c). 있으면 `anchor`도 있다(`set_anchor(None)`이 함께 지운다).
+    pub(crate) visual: Option<vim::VisualKind>,
     /// vim 마크 a–z(S3-T2).
     pub(crate) marks: BTreeMap<char, Mark>,
     /// 마지막 `f`/`F` 방향(S3-T2).
@@ -442,6 +445,7 @@ impl PianoRollState {
                 step_ticks: DEFAULT_STEP_TICKS,
                 selection: Selection::default(),
                 anchor: None,
+                visual: None,
                 marks: BTreeMap::new(),
                 last_find: None,
                 cache: MaxLenCache::default(),
@@ -483,8 +487,27 @@ impl PianoRollState {
         self.inner.borrow().anchor
     }
 
+    /// 기준 칸을 바꾼다. 지우면 비주얼도 끝난다(비주얼은 기준 칸이 있어야 한다, S3-T3c).
     pub fn set_anchor(&self, anchor: Option<Cursor>) {
-        self.inner.borrow_mut().anchor = anchor;
+        let mut inner = self.inner.borrow_mut();
+        inner.anchor = anchor;
+        if anchor.is_none() {
+            inner.visual = None;
+        }
+    }
+
+    /// vim 비주얼 선택의 종류(S3-T3c).
+    #[must_use]
+    pub fn visual(&self) -> Option<vim::VisualKind> {
+        self.inner.borrow().visual
+    }
+
+    /// 비주얼을 시작하거나 바꾸거나 끝낸다. 기준 칸이 없으면 비주얼을 둘 수 없어 무시한다.
+    pub fn set_visual(&self, kind: Option<vim::VisualKind>) {
+        let mut inner = self.inner.borrow_mut();
+        if kind.is_none() || inner.anchor.is_some() {
+            inner.visual = kind;
+        }
     }
 
     pub fn set_mark(&self, name: char, mark: Mark) {

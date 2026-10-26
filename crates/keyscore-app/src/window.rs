@@ -102,6 +102,7 @@ pub struct ProjectWindow {
     pub(crate) pianoroll: crate::pianoroll::PianoRollState,
     /// 음 키 대기·레가토 기억·마지막 편집(S3-T3b).
     pub(crate) note_ops: crate::note_ops::NoteOpsState,
+    pub(crate) vim: crate::vim::VimState,
 }
 
 impl ProjectWindow {
@@ -198,6 +199,7 @@ impl ProjectWindow {
             autosave: crate::autosave::WindowAutosave::new(),
             pianoroll: crate::pianoroll::PianoRollState::new(),
             note_ops: crate::note_ops::NoteOpsState::default(),
+            vim: crate::vim::VimState::default(),
         };
         this.refresh_fields(window, cx);
         this.refresh_file_state(window, cx);

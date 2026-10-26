@@ -38,6 +38,7 @@ mod track_list;
 pub mod tracks;
 mod transport;
 mod transport_bar;
+mod vim;
 pub mod window;
 
 use std::path::PathBuf;
