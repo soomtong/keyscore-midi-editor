@@ -6,12 +6,13 @@
 
 use std::collections::BTreeSet;
 
-use gpui_kit::{Context, Div, InteractiveElement as _, Stateful, Window};
+use gpui_kit::{Action, Context, Div, InteractiveElement as _, Stateful, Window};
 use keyscore_core::{ClipId, Note, Tick, TrackId};
 
 use crate::actions::edit;
 use crate::clipboard::{self, ClipNotes};
 use crate::mode::View;
+use crate::note_ops::LastEdit;
 use crate::pianoroll::edit::{
     Placed, PlacedClip, plan_delete, plan_duplicate, plan_paste, targets,
 };
@@ -23,10 +24,10 @@ const COALESCE_DUPLICATE: u64 = 0x5337_0100;
 const COALESCE_REPEAT: u64 = 0x5337_0101;
 
 /// 편집 대상: (트랙, 클립, 노트). 노트는 그 클립의 실제 값이다.
-struct Targets {
-    track: TrackId,
-    clip: ClipId,
-    notes: Vec<Note>,
+pub(crate) struct Targets {
+    pub(crate) track: TrackId,
+    pub(crate) clip: ClipId,
+    pub(crate) notes: Vec<Note>,
 }
 
 /// 붙여넣기 자리.
@@ -41,7 +42,7 @@ enum PasteAt {
 impl ProjectWindow {
     /// 편집 처리기를 시작해도 되는가. 입력란에 포커스가 있으면 그 입력란의 같은 동작(`input_action`)으로 보내고,
     /// 배치 뷰면(클립 단위 편집은 S4) 알린다.
-    fn edit_allowed(
+    pub(crate) fn edit_allowed(
         &mut self,
         input_action: Option<&str>,
         window: &mut Window,
@@ -58,7 +59,7 @@ impl ProjectWindow {
         }
         if self.mode_state().view() != View::PianoRoll {
             self.say(
-                "배치 뷰의 클립 편집(삭제·복사·붙여넣기·복제)은 아직 없다. v로 피아노롤에서 한다",
+                "배치 뷰의 클립 편집(삭제·복사·붙여넣기·복제·분할·길이 등)은 아직 없다. v로 피아노롤에서 한다",
                 cx,
             );
             return false;
@@ -67,7 +68,7 @@ impl ProjectWindow {
     }
 
     /// 대상(선택, 없으면 커서 위 노트). `edits_document`면 선택이 현재 클립 밖일 때 거부한다.
-    fn edit_targets(
+    pub(crate) fn edit_targets(
         &mut self,
         label: &str,
         edits_document: bool,
@@ -111,7 +112,7 @@ impl ProjectWindow {
     }
 
     /// 편집을 적용한다. `key`가 있으면 같은 키의 연속은 undo 한 단위다. 실패하면 알리고 거짓.
-    fn apply_edit(
+    pub(crate) fn apply_edit(
         &mut self,
         label: &str,
         edits: Vec<keyscore_core::Edit>,
@@ -145,9 +146,9 @@ impl ProjectWindow {
         placed: Placed,
         key: Option<u64>,
         cx: &mut Context<Self>,
-    ) {
+    ) -> bool {
         if !self.apply_edit(label, placed.edits, key, cx) {
-            return;
+            return false;
         }
         let clip = match placed.clip {
             PlacedClip::Existing(id) => Some(id),
@@ -165,6 +166,7 @@ impl ProjectWindow {
             self.replace_selection(track, clip, placed.notes.into_iter().collect(), cx);
         }
         cx.notify();
+        true
     }
 
     /// 대상을 클립보드로 복사한다(내부 구조 + 시스템 클립보드 SMF·텍스트). 텍스트·SMF는 문서를 빌린 채 만들어
@@ -229,6 +231,7 @@ impl ProjectWindow {
         };
         if self.delete_notes("삭제", &t, cx) {
             self.clear_selection_after_edit(cx);
+            self.remember_edit(LastEdit::action(&edit::Delete));
         }
     }
 
@@ -273,7 +276,9 @@ impl ProjectWindow {
             self.say("앞 노트 삭제: 앞 노트가 현재 클립에 없다", cx);
             return;
         }
-        self.delete_notes("앞 노트 삭제", &Targets { track, clip, notes }, cx);
+        if self.delete_notes("앞 노트 삭제", &Targets { track, clip, notes }, cx) {
+            self.remember_edit(LastEdit::action(&edit::DeleteBefore));
+        }
     }
 
     /// vim `D`: 현재 클립에서 시작이 [커서 틱, 커서가 든 마디 끝)인 노트 전부.
@@ -314,7 +319,9 @@ impl ProjectWindow {
             self.say("마디 끝까지 삭제: 노트가 없다", cx);
             return;
         }
-        self.delete_notes("마디 끝까지 삭제", &Targets { track, clip, notes }, cx);
+        if self.delete_notes("마디 끝까지 삭제", &Targets { track, clip, notes }, cx) {
+            self.remember_edit(LastEdit::action(&edit::DeleteToBarEnd));
+        }
     }
 
     // ---------- 복사·잘라내기 ----------
@@ -340,6 +347,7 @@ impl ProjectWindow {
         self.copy_targets(&t, "잘라냈다", cx);
         if self.delete_notes("잘라내기", &t, cx) {
             self.clear_selection_after_edit(cx);
+            self.remember_edit(LastEdit::action(&edit::Cut));
         }
     }
 
@@ -374,7 +382,14 @@ impl ProjectWindow {
 
     // ---------- 붙여넣기 ----------
 
-    fn paste(&mut self, at: PasteAt, window: &mut Window, cx: &mut Context<Self>) {
+    /// `action`은 `.`이 되풀이할 동작이다.
+    fn paste(
+        &mut self,
+        at: PasteAt,
+        action: &dyn Action,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if !self.edit_allowed(Some("input::Paste"), window, cx) {
             return;
         }
@@ -398,13 +413,17 @@ impl ProjectWindow {
         };
         let planned = plan_paste(self.document.read(cx).project(), track, tick, &content);
         match planned {
-            Ok(placed) => self.apply_placed("붙여넣기", track, placed, None, cx),
+            Ok(placed) => {
+                if self.apply_placed("붙여넣기", track, placed, None, cx) {
+                    self.remember_edit(LastEdit::action(action));
+                }
+            }
             Err(e) => self.say(format!("붙여넣기: {e}"), cx),
         }
     }
 
     fn edit_paste(&mut self, _: &edit::Paste, window: &mut Window, cx: &mut Context<Self>) {
-        self.paste(PasteAt::Cursor, window, cx);
+        self.paste(PasteAt::Cursor, &edit::Paste, window, cx);
     }
 
     fn edit_paste_before(
@@ -413,7 +432,7 @@ impl ProjectWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.paste(PasteAt::Cursor, window, cx);
+        self.paste(PasteAt::Cursor, &edit::PasteBefore, window, cx);
     }
 
     fn edit_paste_after(
@@ -422,12 +441,19 @@ impl ProjectWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.paste(PasteAt::AfterCursor, window, cx);
+        self.paste(PasteAt::AfterCursor, &edit::PasteAfter, window, cx);
     }
 
     // ---------- 복제·반복 ----------
 
-    fn duplicate(&mut self, label: &str, key: u64, window: &mut Window, cx: &mut Context<Self>) {
+    fn duplicate(
+        &mut self,
+        label: &str,
+        key: u64,
+        action: &dyn Action,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if !self.edit_allowed(None, window, cx) {
             return;
         }
@@ -436,19 +462,23 @@ impl ProjectWindow {
         };
         let planned = plan_duplicate(self.document.read(cx).project(), t.track, t.clip, &t.notes);
         match planned {
-            Ok(placed) => self.apply_placed(label, t.track, placed, Some(key), cx),
+            Ok(placed) => {
+                if self.apply_placed(label, t.track, placed, Some(key), cx) {
+                    self.remember_edit(LastEdit::action(action));
+                }
+            }
             Err(e) => self.say(format!("{label}: {e}"), cx),
         }
     }
 
     /// `Cmd+D`: 대상을 폭만큼 바로 뒤에 복제한다.
     fn edit_duplicate(&mut self, _: &edit::Duplicate, window: &mut Window, cx: &mut Context<Self>) {
-        self.duplicate("복제", COALESCE_DUPLICATE, window, cx);
+        self.duplicate("복제", COALESCE_DUPLICATE, &edit::Duplicate, window, cx);
     }
 
     /// `r`, vim `y y p`: 반복 복제. 사본이 선택이 되어 다시 누르면 하나 더 붙는다.
     fn edit_repeat(&mut self, _: &edit::Repeat, window: &mut Window, cx: &mut Context<Self>) {
-        self.duplicate("반복", COALESCE_REPEAT, window, cx);
+        self.duplicate("반복", COALESCE_REPEAT, &edit::Repeat, window, cx);
     }
 
     /// 편집 처리기를 단다(`piano_roll_handlers`에서).

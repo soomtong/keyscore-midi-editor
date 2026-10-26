@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 
 use std::time::Duration;
 
+use keyscore_core::transform::Grid;
 use keyscore_core::{Channel, OutputPort, Pitch};
 use keyscore_midi::MetronomeConfig;
 use serde::{Deserialize, Serialize};
@@ -185,6 +186,103 @@ impl InputSettings {
             KeyLayout::Solfege => "solfege",
         };
         map.insert("key_layout".to_string(), Value::from(layout));
+    }
+}
+
+/// 퀀타이즈 설정(EDT-2, REQ 5.8 `q` 「현재 설정」). 앱 설정이고 모든 프로젝트에 같다(결정
+/// `2026-10-26-s3-t3b-note-edit-details.md` 3-A). 값은 늘 범위 안이다(읽을 때 고친다).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct QuantizeSettings {
+    /// 그리드 1/4–1/64.
+    pub grid: Grid,
+    /// 셋잇단 그리드(2/3).
+    pub triplet: bool,
+    /// 강도 0–100%.
+    pub strength: u8,
+    /// 스윙 0–75%.
+    pub swing: u8,
+}
+
+impl Default for QuantizeSettings {
+    /// 1/16, 셋잇단 끔, 강도 100%, 스윙 0%(결정 3-A).
+    fn default() -> Self {
+        QuantizeSettings {
+            grid: Grid::Sixteenth,
+            triplet: false,
+            strength: 100,
+            swing: 0,
+        }
+    }
+}
+
+/// 퀀타이즈 그리드의 설정 파일 표기.
+const GRIDS: [(Grid, &str); 5] = [
+    (Grid::Quarter, "1/4"),
+    (Grid::Eighth, "1/8"),
+    (Grid::Sixteenth, "1/16"),
+    (Grid::ThirtySecond, "1/32"),
+    (Grid::SixtyFourth, "1/64"),
+];
+
+impl QuantizeSettings {
+    /// core 연산에 넘길 설정. 공개 필드에 범위 밖 값이 들어 있으면 그 값만 범위 끝으로 줄인다.
+    ///
+    /// # Panics
+    ///
+    /// 없다. 줄인 값은 core의 범위 안이다.
+    #[must_use]
+    pub fn to_core(&self) -> keyscore_core::transform::QuantizeSettings {
+        keyscore_core::transform::QuantizeSettings::new(
+            self.grid,
+            self.triplet,
+            self.strength.min(100),
+            self.swing.min(75),
+        )
+        .expect("범위로 줄인 강도·스윙")
+    }
+
+    fn read(mut map: Map<String, Value>, warnings: &mut Vec<String>) -> (Self, Map<String, Value>) {
+        let mut q = QuantizeSettings::default();
+        if let Some(v) = map.remove("grid") {
+            match GRIDS.iter().find(|(_, name)| v.as_str() == Some(name)) {
+                Some((grid, _)) => q.grid = *grid,
+                None => warnings.push(
+                    "quantize.grid는 1/4·1/8·1/16·1/32·1/64 가운데 하나라 기본값을 쓴다"
+                        .to_string(),
+                ),
+            }
+        }
+        if let Some(v) = map.remove("triplet") {
+            match v {
+                Value::Bool(b) => q.triplet = b,
+                _ => warnings.push("quantize.triplet은 참·거짓이어야 해 기본값을 쓴다".to_string()),
+            }
+        }
+        for (key, max, slot) in [
+            ("strength", 100, &mut q.strength),
+            ("swing", 75, &mut q.swing),
+        ] {
+            if let Some(v) = map.remove(key) {
+                match v.as_u64().and_then(|n| u8::try_from(n).ok()) {
+                    Some(n) if n <= max => *slot = n,
+                    _ => warnings.push(format!(
+                        "quantize.{key}는 0–{max} 사이의 정수여야 해 기본값을 쓴다"
+                    )),
+                }
+            }
+        }
+        (q, map)
+    }
+
+    fn write(self, map: &mut Map<String, Value>) {
+        let grid = GRIDS
+            .iter()
+            .find(|(g, _)| *g == self.grid)
+            .map_or("1/16", |(_, name)| name);
+        map.insert("grid".to_string(), Value::from(grid));
+        map.insert("triplet".to_string(), Value::Bool(self.triplet));
+        map.insert("strength".to_string(), Value::from(self.strength));
+        map.insert("swing".to_string(), Value::from(self.swing));
     }
 }
 
@@ -521,6 +619,8 @@ pub struct Settings {
     pub midi_output: MidiOutputSettings,
     /// 노트 미리듣기(S3-T2).
     pub preview: PreviewSettings,
+    /// 퀀타이즈(S3-T3b).
+    pub quantize: QuantizeSettings,
     /// 최근 파일 경로(최근이 먼저, S2-T7a).
     pub recent_files: Vec<String>,
     /// `keymap` 객체 안의 모르는 키.
@@ -533,6 +633,8 @@ pub struct Settings {
     midi_output_extra: Map<String, Value>,
     /// `preview` 객체 안의 모르는 키.
     preview_extra: Map<String, Value>,
+    /// `quantize` 객체 안의 모르는 키.
+    quantize_extra: Map<String, Value>,
     /// 모르는 최상위 키. 다시 쓸 때 그대로 둔다.
     extra: Map<String, Value>,
     /// `layout` 객체 안의 모르는 키(뒤 버전이 더한 패널 등).
@@ -550,6 +652,10 @@ impl Settings {
     /// 읽는다. 파일이 없으면 기본값이고 경고는 없다. 깨졌거나 값이 잘못됐으면 그 부분을 기본값으로
     /// 두고 경고를 돌려준다(설정 때문에 앱이 뜨지 않는 일이 없게).
     #[must_use]
+    #[allow(
+        clippy::too_many_lines,
+        reason = "설정 객체마다 같은 모양의 읽기(객체가 아니면 경고)를 파일 순서대로 한곳에 둔다"
+    )]
     pub fn load(path: &Path) -> (Settings, Vec<String>) {
         let bytes = match fs::read(path) {
             Ok(b) => b,
@@ -638,6 +744,14 @@ impl Settings {
             }
             Some(_) => warnings.push("preview 설정이 객체가 아니라 기본값을 쓴다".to_string()),
         }
+        match map.remove("quantize") {
+            None => {}
+            Some(Value::Object(quantize)) => {
+                (settings.quantize, settings.quantize_extra) =
+                    QuantizeSettings::read(quantize, &mut warnings);
+            }
+            Some(_) => warnings.push("quantize 설정이 객체가 아니라 기본값을 쓴다".to_string()),
+        }
         if let Some(v) = map.remove("recent_files") {
             settings.recent_files = read_recent_files(v, &mut warnings);
         }
@@ -688,6 +802,9 @@ impl Settings {
         let mut preview = self.preview_extra.clone();
         self.preview.write(&mut preview);
         map.insert("preview".to_string(), Value::Object(preview));
+        let mut quantize = self.quantize_extra.clone();
+        self.quantize.write(&mut quantize);
+        map.insert("quantize".to_string(), Value::Object(quantize));
         map.insert(
             "theme".to_string(),
             serde_json::to_value(self.theme).map_err(io::Error::other)?,

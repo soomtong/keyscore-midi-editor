@@ -471,7 +471,12 @@ fn check_shifted(cx: &mut TestAppContext, preset: Preset, name: &str) -> String 
         cx.update_window(handle, |_, window, _| window.remove_window())
             .unwrap();
     }
-    assert!(checked > 0, "Shift 기호 바인딩을 하나도 찾지 못했다");
+    // 결정 B25 a′(S3-T3b 반영)로 프리셋의 `shift-N` 표기 바인딩은 모두 지웠다. 처음의 `checked > 0` 대신 그 결정을
+    // 단언한다(리뷰 3 제안 1). 다시 생기면 이 단언이 깨져 위 검사를 되살리게 한다.
+    assert_eq!(
+        checked, 0,
+        "B25 a′: 프리셋에 Shift 기호 표기 바인딩이 없어야 한다"
+    );
     report
 }
 

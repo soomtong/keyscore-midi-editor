@@ -90,6 +90,8 @@ pub struct ProjectWindow {
     _window_resized: Subscription,
     /// 키 입력 관찰(되돌리기 묶음 끊기, S3-T2).
     _keystrokes: Subscription,
+    /// 음 키 대기의 키 가로채기(S3-T3b).
+    _pitch_keys: Subscription,
     /// 이 뷰를 담은 창(파일 흐름이 시트를 띄우고 창을 닫는다).
     handle: gpui_kit::AnyWindowHandle,
     /// 저장·닫기 흐름이 돌고 있다(시트가 떠 있을 수 있다). 그동안 새 흐름을 시작하지 않는다(S2-T7a).
@@ -98,6 +100,8 @@ pub struct ProjectWindow {
     pub(crate) autosave: crate::autosave::WindowAutosave,
     /// 피아노롤 커서·뷰포트·선택(S3-T1).
     pub(crate) pianoroll: crate::pianoroll::PianoRollState,
+    /// 음 키 대기·레가토 기억·마지막 편집(S3-T3b).
+    pub(crate) note_ops: crate::note_ops::NoteOpsState,
 }
 
 impl ProjectWindow {
@@ -153,6 +157,7 @@ impl ProjectWindow {
                 this.seal_history(cx);
             }
         });
+        let pitch_keys = Self::intercept_pitch_keys(window, cx);
         let me = cx.entity().downgrade();
         if cx.has_global::<OpenWindows>() {
             let list = &mut cx.global_mut::<OpenWindows>().0;
@@ -187,10 +192,12 @@ impl ProjectWindow {
             baseline: None,
             _window_resized: window_resized,
             _keystrokes: keystrokes,
+            _pitch_keys: pitch_keys,
             handle: window.window_handle(),
             file_flow: false,
             autosave: crate::autosave::WindowAutosave::new(),
             pianoroll: crate::pianoroll::PianoRollState::new(),
+            note_ops: crate::note_ops::NoteOpsState::default(),
         };
         this.refresh_fields(window, cx);
         this.refresh_file_state(window, cx);
@@ -340,6 +347,12 @@ impl ProjectWindow {
     #[must_use]
     pub fn piano_roll_viewport(&self) -> crate::pianoroll::Viewport {
         self.pianoroll.viewport()
+    }
+
+    /// `e`(음높이 바꾸기) 뒤 음 키를 기다리는 중인가(S3-T3b).
+    #[must_use]
+    pub const fn pitch_pending(&self) -> bool {
+        self.note_ops.pitch_pending
     }
 
     /// 현재 트랙(S2-T5b). 트랙이 없으면 `None`.

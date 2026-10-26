@@ -259,7 +259,8 @@ fn vim_octave_once_and_count_keep_direction(cx: &mut TestAppContext) {
         .iter()
         .filter(|x| x.ends_with("(operator::Count)"))
         .collect();
-    assert_eq!(cnt.len(), 9, "{cnt:?}");
+    // `1`–`9`에 `0`(카운트의 둘째 자리부터, 결정 A9·S3-T3b 리뷰 1 지적 3)이 더해져 열 줄이다.
+    assert_eq!(cnt.len(), 10, "{cnt:?}");
 }
 
 /// 사용자 키맵이 같은 자리를 다른 인자로 덮고, 시퀀스 키에 걸고, `zed::Unbind`로 끄고, 수식키 교환으로 키가
