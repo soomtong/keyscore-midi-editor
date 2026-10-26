@@ -501,10 +501,9 @@ impl ProjectWindow {
             return false;
         }
         let was_visual = self.pianoroll.visual().is_some();
+        // 대상을 못 고르면(거부·대상 없음) 선택과 비주얼은 그대로 둔다. S3-T3a의 거부와 같고, 커서를 선택의 클립으로
+        // 되돌려 이어 쓸 수 있다(리뷰 1 지적 3, 사람 결정 2026-10-27 「거부, 선택 유지」).
         let Some((t, front)) = self.operator_targets(op, target, cx) else {
-            if was_visual {
-                self.end_visual(cx);
-            }
             cx.notify();
             return false;
         };
