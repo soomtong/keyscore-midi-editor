@@ -1,12 +1,16 @@
-//! 삭제·붙여넣기·복제의 편집 계산(S3-T3a, REQ 5.8, 7.5, 5.10). GPUI와 무관한 순수 함수다.
+//! 노트 편집 계산(S3-T3a 삭제·붙여넣기·복제, S3-T3b 분할·합치기·길이·음높이·퀀타이즈·레가토, REQ 5.8, 7.5,
+//! 5.10). GPUI와 무관한 순수 함수다. 규칙은 `docs/reports/s3-t3a/plan.md`·`docs/reports/s3-t3b/plan.md`
+//! 「끝의 정의」에 있다.
 //!
-//! 클립 연장 규칙은 core `transform::insert_notes`·`clip_for_notes`(S0-T7과 같은 마디 단위 연장)를 따른다.
+//! 클립 연장 규칙은 core `transform::insert_notes`·`clip_for_notes`·`map_notes`(S0-T7과 같은 마디 단위 연장)를
+//! 따른다.
 
 use std::collections::BTreeSet;
 
-use keyscore_core::transform::{clip_for_notes, insert_notes};
-use keyscore_core::{Clip, ClipId, Edit, ModelError, Note, Project, Tick, Track, TrackId};
+use keyscore_core::transform::{QuantizeSettings, clip_for_notes, insert_notes};
+use keyscore_core::{Clip, ClipId, Edit, ModelError, Note, Pitch, Project, Tick, Track, TrackId};
 
+use crate::actions::args::LengthCode;
 use crate::clipboard::ClipNotes;
 
 /// 노트를 넣은 클립.
@@ -157,4 +161,141 @@ pub fn appeared(before: &Track, after: &Track) -> Option<(ClipId, BTreeSet<Note>
         found = Some((id, new.into_iter().collect()));
     }
     found
+}
+
+// ---------- S3-T3b ----------
+
+/// 기본 길이(4분음표, REQ 5.6 「`0`은 길이를 기본값으로」). 기본 길이 설정은 S3-T4가 만든다.
+pub const DEFAULT_LENGTH: u32 = 960;
+
+/// 길이 코드의 틱(REQ 5.6 표, PPQ 960). 점음표는 3/2.
+#[must_use]
+pub fn length_ticks(code: LengthCode, dotted: bool) -> u32 {
+    let _ = (code, dotted);
+    todo!()
+}
+
+/// 바꾸기 계산 결과: 적용할 편집과 (원래, 바뀐) 노트 짝. 짝은 커서가 따라갈 1:1 바꾸기(길이·음높이·퀀타이즈·
+/// 레가토)에만 채운다. 분할·합치기는 비운다.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Changed {
+    pub edits: Vec<Edit>,
+    pub moved: Vec<(Note, Note)>,
+}
+
+/// 분할(`/`): `notes` 가운데 절대 틱 `at`이 시작과 끝 사이에 있는 노트를 둘로 나눈다. 없으면 `Ok(None)`.
+///
+/// # Errors
+///
+/// 트랙·클립·노트가 없으면 [`ModelError`].
+pub fn plan_split(
+    project: &Project,
+    track: TrackId,
+    clip: ClipId,
+    notes: &[Note],
+    at: Tick,
+) -> Result<Option<Changed>, ModelError> {
+    let _ = (project, track, clip, notes, at);
+    todo!()
+}
+
+/// 합치기(`Cmd+J`): 같은 음높이가 둘 이상인 묶음마다 노트 하나로. 묶음이 없으면 `Ok(None)`.
+///
+/// # Errors
+///
+/// 트랙·클립·노트가 없거나 합친 길이가 `u32`를 넘으면 [`ModelError`].
+pub fn plan_join(
+    project: &Project,
+    track: TrackId,
+    clip: ClipId,
+    notes: &[Note],
+) -> Result<Option<Changed>, ModelError> {
+    let _ = (project, track, clip, notes);
+    todo!()
+}
+
+/// 길이 직접 지정(`1`–`7`, `0`): 길이를 `length`로. 이미 그 길이인 노트는 뺀다. 바뀌는 노트가 없으면 `Ok(None)`.
+///
+/// # Errors
+///
+/// 클립을 늘려야 하는데 다음 클립과 겹치거나 참조가 맞지 않으면 [`ModelError`].
+pub fn plan_set_length(
+    project: &Project,
+    track: TrackId,
+    clip: ClipId,
+    notes: &[Note],
+    length: u32,
+) -> Result<Option<Changed>, ModelError> {
+    let _ = (project, track, clip, notes, length);
+    todo!()
+}
+
+/// 음높이 바꾸기(`e`): 노트 하나의 음높이를 `pitch`로. 같으면 `Ok(None)`.
+///
+/// # Errors
+///
+/// 참조가 맞지 않으면 [`ModelError`].
+pub fn plan_set_pitch(
+    project: &Project,
+    track: TrackId,
+    clip: ClipId,
+    note: &Note,
+    pitch: Pitch,
+) -> Result<Option<Changed>, ModelError> {
+    let _ = (project, track, clip, note, pitch);
+    todo!()
+}
+
+/// 레가토(`~`): 노트마다 끝을 같은 클립에서 시작이 더 늦은 노트의 가장 이른 시작에 맞춘다. 바뀌는 노트가 없으면
+/// `Ok(None)`.
+///
+/// # Errors
+///
+/// 참조가 맞지 않으면 [`ModelError`].
+pub fn plan_legato(
+    project: &Project,
+    track: TrackId,
+    clip: ClipId,
+    notes: &[Note],
+) -> Result<Option<Changed>, ModelError> {
+    let _ = (project, track, clip, notes);
+    todo!()
+}
+
+/// 레가토 되돌리기: `pairs`(원래, 바뀐)의 바뀐 노트를 원래 노트로. 빈 짝이면 `Ok(None)`.
+///
+/// # Errors
+///
+/// 바뀐 노트가 클립에 없으면 [`ModelError`].
+pub fn plan_restore(
+    project: &Project,
+    track: TrackId,
+    clip: ClipId,
+    pairs: &[(Note, Note)],
+) -> Result<Option<Changed>, ModelError> {
+    let _ = (project, track, clip, pairs);
+    todo!()
+}
+
+/// 퀀타이즈(`q`): core `transform::quantize`. 바뀌는 노트가 없으면 `Ok(None)`.
+///
+/// # Errors
+///
+/// core와 같다(클립 시작 앞, 다음 클립과 겹침).
+pub fn plan_quantize(
+    project: &Project,
+    track: TrackId,
+    clip: ClipId,
+    notes: &[Note],
+    settings: &QuantizeSettings,
+) -> Result<Option<Changed>, ModelError> {
+    let _ = (project, track, clip, notes, settings);
+    todo!()
+}
+
+/// 편집 뒤 선택: `targets` 가운데 편집 뒤에도 남은 노트와 편집으로 새로 나타난 노트.
+#[must_use]
+pub fn selection_after(before: &Clip, after: &Clip, targets: &[Note]) -> BTreeSet<Note> {
+    let _ = (before, after, targets);
+    todo!()
 }

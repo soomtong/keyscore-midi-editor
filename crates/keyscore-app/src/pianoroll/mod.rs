@@ -5,6 +5,7 @@
 
 pub mod edit;
 pub mod element;
+pub mod keys;
 pub mod ops;
 pub mod scene;
 pub mod select;

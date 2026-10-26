@@ -20,6 +20,7 @@ mod inspector;
 pub mod keymap;
 pub mod mode;
 mod note_edit;
+mod note_ops;
 mod overlay;
 pub mod palette;
 pub mod pianoroll;

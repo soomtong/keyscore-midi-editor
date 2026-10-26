@@ -98,6 +98,8 @@ pub struct ProjectWindow {
     pub(crate) autosave: crate::autosave::WindowAutosave,
     /// 피아노롤 커서·뷰포트·선택(S3-T1).
     pub(crate) pianoroll: crate::pianoroll::PianoRollState,
+    /// 음 키 대기·레가토 기억·마지막 편집(S3-T3b).
+    pub(crate) note_ops: crate::note_ops::NoteOpsState,
 }
 
 impl ProjectWindow {
@@ -191,6 +193,7 @@ impl ProjectWindow {
             file_flow: false,
             autosave: crate::autosave::WindowAutosave::new(),
             pianoroll: crate::pianoroll::PianoRollState::new(),
+            note_ops: crate::note_ops::NoteOpsState::default(),
         };
         this.refresh_fields(window, cx);
         this.refresh_file_state(window, cx);
@@ -340,6 +343,12 @@ impl ProjectWindow {
     #[must_use]
     pub fn piano_roll_viewport(&self) -> crate::pianoroll::Viewport {
         self.pianoroll.viewport()
+    }
+
+    /// `e`(음높이 바꾸기) 뒤 음 키를 기다리는 중인가(S3-T3b).
+    #[must_use]
+    pub const fn pitch_pending(&self) -> bool {
+        self.note_ops.pitch_pending
     }
 
     /// 현재 트랙(S2-T5b). 트랙이 없으면 `None`.

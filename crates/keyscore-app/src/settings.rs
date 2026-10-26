@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 
 use std::time::Duration;
 
+use keyscore_core::transform::Grid;
 use keyscore_core::{Channel, OutputPort, Pitch};
 use keyscore_midi::MetronomeConfig;
 use serde::{Deserialize, Serialize};
@@ -185,6 +186,40 @@ impl InputSettings {
             KeyLayout::Solfege => "solfege",
         };
         map.insert("key_layout".to_string(), Value::from(layout));
+    }
+}
+
+/// 퀀타이즈 설정(EDT-2, REQ 5.8 `q` 「현재 설정」). 앱 설정이고 모든 프로젝트에 같다(결정
+/// `2026-10-26-s3-t3b-note-edit-details.md` 3-A). 값은 늘 범위 안이다(읽을 때 고친다).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct QuantizeSettings {
+    /// 그리드 1/4–1/64.
+    pub grid: Grid,
+    /// 셋잇단 그리드(2/3).
+    pub triplet: bool,
+    /// 강도 0–100%.
+    pub strength: u8,
+    /// 스윙 0–75%.
+    pub swing: u8,
+}
+
+impl Default for QuantizeSettings {
+    /// 1/16, 셋잇단 끔, 강도 100%, 스윙 0%(결정 3-A).
+    fn default() -> Self {
+        QuantizeSettings {
+            grid: Grid::Sixteenth,
+            triplet: false,
+            strength: 100,
+            swing: 0,
+        }
+    }
+}
+
+impl QuantizeSettings {
+    /// core 연산에 넘길 설정. 공개 필드에 범위 밖 값이 들어 있으면 그 값만 범위 끝으로 줄인다.
+    #[must_use]
+    pub fn to_core(&self) -> keyscore_core::transform::QuantizeSettings {
+        todo!()
     }
 }
 
@@ -521,6 +556,8 @@ pub struct Settings {
     pub midi_output: MidiOutputSettings,
     /// 노트 미리듣기(S3-T2).
     pub preview: PreviewSettings,
+    /// 퀀타이즈(S3-T3b).
+    pub quantize: QuantizeSettings,
     /// 최근 파일 경로(최근이 먼저, S2-T7a).
     pub recent_files: Vec<String>,
     /// `keymap` 객체 안의 모르는 키.
