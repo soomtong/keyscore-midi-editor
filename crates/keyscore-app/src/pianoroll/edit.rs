@@ -366,8 +366,8 @@ pub fn plan_set_pitch(
     map_with(project, track, clip, &[note], |n| n.with_pitch(pitch)).map(Some)
 }
 
-/// 레가토(`~`): 노트마다 끝을 같은 클립에서 시작이 더 늦은 노트의 가장 이른 시작에 맞춘다. 바뀌는 노트가 없으면
-/// `Ok(None)`.
+/// 레가토(`~`): 노트마다 끝을 같은 클립에서 시작이 더 늦은 노트의 가장 이른 시작에 맞춘다. 숨김 꼬리 노트는
+/// 그대로 둔다. 바뀌는 노트가 없으면 `Ok(None)`.
 ///
 /// # Errors
 ///
@@ -378,10 +378,16 @@ pub fn plan_legato(
     clip: ClipId,
     notes: &[Note],
 ) -> Result<Option<Changed>, ModelError> {
-    let all = clip_of(project, track, clip)?.notes();
+    let c = clip_of(project, track, clip)?;
+    let all = c.notes();
     let mut targets: Vec<&Note> = Vec::new();
     let mut lengths: Vec<u32> = Vec::new();
     for n in notes {
+        // 숨김 꼬리 노트는 건드리지 않는다. 줄이면 꼬리가 아니게 되고, 공개 편집으로는 꼬리를 다시 만들 수 없어
+        // 토글 되돌리기가 원래대로 돌리지 못한다(꼬리는 분할로만 생긴다, S3-T3b 리뷰 1 지적 1).
+        if n.end() > c.length() {
+            continue;
+        }
         let start = n.start().get();
         // 클립 노트는 시작 순이다.
         let i = all.partition_point(|o| o.start().get() <= start);

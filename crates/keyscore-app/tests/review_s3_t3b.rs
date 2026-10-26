@@ -223,13 +223,16 @@ fn legato_toggle_back_restores_hidden_tail_without_touching_clips(cx: &mut TestA
     assert_eq!(before[0], (0, 2 * BAR, vec![tail, y]));
     select(cx, &view, 0, &[tail]);
     set_cursor(cx, &view, 960, 60);
+    // 리뷰 1 지적 1 대응(S3-T3b): 꼬리는 공개 편집으로 되살릴 수 없어 레가토가 꼬리를 건드리지 않는다. 처음 기대
+    // (붙인 뒤 되돌리기)를 「꼬리·클립이 그대로」로 바꿨다. 두 번 눌러도 같다.
     press(cx, handle, "~");
-    assert_eq!(clip_a(cx, &view), vec![(960, 960, 60), y], "붙이기");
+    assert_eq!(clips(cx, &view), before, "꼬리는 그대로");
+    assert!(last_message(cx, &view).contains("바뀌는 노트가 없다"));
     press(cx, handle, "~");
     assert_eq!(
         clips(cx, &view),
         before,
-        "되돌리기는 꼬리를 그대로 되살린다. 상태줄: {}",
+        "꼬리·클립 그대로. 상태줄: {}",
         last_message(cx, &view)
     );
 }
