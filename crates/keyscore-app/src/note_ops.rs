@@ -406,7 +406,12 @@ impl ProjectWindow {
         match &self.note_ops.last {
             None => self.say("반복할 편집이 없다", cx),
             // 같은 처리기를 거치도록 Action을 다시 보낸다(디스패치는 다음 효과 주기에 돈다).
-            Some(LastEdit::Action(action)) => window.dispatch_action(action.boxed_clone(), cx),
+            Some(LastEdit::Action(action)) => {
+                window.dispatch_action(action.boxed_clone(), cx);
+                // 디스패치는 다음 효과 주기라 키 관찰의 묶음 끊기보다 늦게 적용된다. 복제·반복은 묶음 키로 적용되므로
+                // 그 뒤에 다시 끊어야 다음 `cmd-d`가 이 단위에 묶이지 않는다(리뷰 1 지적 2). 지연 순서는 등록 순이다.
+                cx.defer_in(window, |this, _, cx| this.seal_history(cx));
+            }
             Some(LastEdit::Op(op)) => {
                 let op = *op;
                 self.apply_note_op(op, cx);
