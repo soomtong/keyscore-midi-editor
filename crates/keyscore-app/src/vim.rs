@@ -44,6 +44,10 @@ pub(crate) struct VimState {
     /// 대기 입력을 비울 때 재생되는 접두 키의 오퍼레이터를 무시한다. 대기 취소 뒤 남은 `y`(`y y`의 접두)를
     /// 비우면 GPUI가 `operator::Yank`를 재생해 대기가 다시 생기기 때문이다.
     pub(crate) ignore_replayed_operator: bool,
+    /// GPUI 대기 입력(텍스트 객체 접두 `i` 등)을 남긴 키가 맞춰진 확장 경로(`Operator`·`Visual`). 대기 입력이
+    /// 남아 있는 동안 창은 이 경로로 그린다. 키가 아닌 경로(클릭, 메뉴 선택)로 대기·비주얼이 끝나도 그 입력이
+    /// Normal 컨텍스트에서 `i`(Step 모드)로 재생되지 않게 하려는 것이다(리뷰 2 지적 1).
+    pub(crate) held: Option<&'static [&'static str]>,
 }
 
 /// 오퍼레이터가 작용할 대상. `.`이 되풀이할 때도 쓴다.
@@ -194,6 +198,14 @@ impl ProjectWindow {
         }
     }
 
+    /// 창이 그릴 키 컨텍스트 경로. GPUI 대기 입력이 확장 경로에서 남았으면 그 경로를 붙든다(`held`).
+    pub(crate) fn key_context_path(&self, window: &Window) -> &'static [&'static str] {
+        match self.vim.held {
+            Some(held) if window.has_pending_keystrokes() => held,
+            _ => self.context_path(),
+        }
+    }
+
     /// 오퍼레이터 대기를 끝낸다(모드·뷰·트랙 바뀜, 클릭).
     pub(crate) fn clear_operator(&mut self, cx: &mut Context<Self>) {
         if self.vim.pending.take().is_some() {
@@ -237,7 +249,6 @@ impl ProjectWindow {
     ) -> bool {
         if keystroke.key == FLUSH_KEY
             || is_modifier_only(keystroke)
-            || !self.in_piano_roll_normal()
             || Self::text_input_focused(window)
         {
             return false;
@@ -246,21 +257,88 @@ impl ProjectWindow {
             .pending_input_keystrokes()
             .map(<[Keystroke]>::to_vec)
             .unwrap_or_default();
+        let escape = keystroke.key == "escape" && !keystroke.modifiers.modified();
+        // 붙든 경로의 대기 입력이 남았는데 대기·비주얼이 키 밖에서 끝났다(경로가 달라졌다): 그 경로에서 대기
+        // 입력을 비우고(접두는 `null`이라 아무 일도 없다) 이 키를 새로 보낸다. Esc는 비우기만 한다(A13).
+        if let Some(held) = self.vim.held
+            && !pending_input.is_empty()
+            && !std::ptr::eq(held, self.context_path())
+        {
+            let replay = (!escape).then(|| keystroke.clone());
+            self.flush_held_then(replay, window, cx);
+            return true;
+        }
+        if !self.in_piano_roll_normal() {
+            self.vim.held = None;
+            return false;
+        }
         let mut keys = pending_input.clone();
         keys.push(keystroke.clone());
         let stack = window.context_stack();
         let (found, still_pending) = cx.key_bindings().borrow().bindings_for_input(&keys, &stack);
+        let through = self.let_through_vim(
+            keystroke,
+            &pending_input,
+            found.first().map(gpui_kit::KeyBinding::action),
+            still_pending,
+            window,
+            cx,
+        );
+        if !through {
+            return true;
+        }
+        let path = self.context_path();
+        self.vim.held =
+            (std::ptr::eq(path, OPERATOR_PATH) || std::ptr::eq(path, VISUAL_PATH)).then_some(path);
+        false
+    }
+
+    /// 대기 입력을 비운 뒤(붙든 경로에서) 붙든 경로를 놓고, `replay`가 있으면 다시 그린 다음 보낸다.
+    fn flush_held_then(
+        &mut self,
+        replay: Option<Keystroke>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.vim.ignore_replayed_operator = true;
+        let me = cx.entity().downgrade();
+        window.defer(cx, move |window, cx| {
+            keymap::flush_pending_keystrokes(window, cx);
+            let _ = me.update(cx, |this, cx| {
+                this.vim.ignore_replayed_operator = false;
+                this.vim.held = None;
+                cx.notify();
+            });
+            if let Some(replay) = replay {
+                window.defer(cx, move |window, cx| {
+                    window.dispatch_keystroke(replay, cx);
+                });
+            }
+        });
+    }
+
+    /// 대기·`y` 접두 규칙(계획 2절). 키를 그대로 보내면 참, 삼켰으면 거짓.
+    fn let_through_vim(
+        &mut self,
+        keystroke: &Keystroke,
+        pending_input: &[Keystroke],
+        found: Option<&dyn Action>,
+        still_pending: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let escape = keystroke.key == "escape" && !keystroke.modifiers.modified();
         // 대기 입력이 오퍼레이터 키 하나(`y`, `y y`의 접두)인가
         let operator_prefix = pending_input.len() == 1 && {
+            let stack = window.context_stack();
             let (prefix, _) = cx
                 .key_bindings()
                 .borrow()
-                .bindings_for_input(&pending_input, &stack);
+                .bindings_for_input(pending_input, &stack);
             prefix
                 .first()
                 .is_some_and(|b| is_operator_start(b.action()))
         };
-        let escape = keystroke.key == "escape" && !keystroke.modifiers.modified();
         if let Some(p) = self.vim.pending {
             // A13: 시퀀스 대기 중(`d i` 뒤)의 Esc는 시퀀스만 취소한다(키맵의 가로채기가 한다). 대기는 남는다.
             // 그 시퀀스가 오퍼레이터 키(`y` 대기의 `y`)면 비우기가 재생하는 오퍼레이터를 무시한다. 그대로 두면 겹친
@@ -269,32 +347,32 @@ impl ProjectWindow {
                 if operator_prefix {
                     self.ignore_replayed_operator_once(window, cx);
                 }
-                return false;
+                return true;
             }
-            let ok = match found.first() {
-                Some(b) => allowed_while_pending(b.action(), p.op),
+            let ok = match found {
+                Some(action) => allowed_while_pending(action, p.op),
                 None => still_pending,
             };
             if ok {
-                return false;
+                return true;
             }
             if pending_input.is_empty() {
                 self.cancel_operator(cx);
             } else {
                 self.flush_then_cancel(window, cx);
             }
-            return true;
+            return false;
         }
         if !operator_prefix {
-            return false;
+            return true;
         }
         // `y` 뒤의 Esc: 키맵의 가로채기가 대기를 비울 때 재생되는 `y`를 무시한다
         if escape {
             self.ignore_replayed_operator_once(window, cx);
-            return false;
+            return true;
         }
-        if !found.is_empty() || still_pending {
-            return false;
+        if found.is_some() || still_pending {
+            return true;
         }
         // `y` 뒤에 이어지는 바인딩이 없는 키(`i`, `w`, 숫자): GPUI는 `y`를 재생한 뒤 이 키를 낡은 키 컨텍스트로
         // 맞춘다(`i`가 Step 모드로 간다). 키를 삼키고, 대기를 비워 `y`를 실행한 뒤(대기 상태 → `Operator`
@@ -306,7 +384,7 @@ impl ProjectWindow {
                 window.dispatch_keystroke(replay, cx);
             });
         });
-        true
+        false
     }
 
     /// 키맵의 Esc 가로채기가 대기 입력을 비울 때 재생되는 오퍼레이터를 무시한다. 그 비우기는 키맵이 먼저 건

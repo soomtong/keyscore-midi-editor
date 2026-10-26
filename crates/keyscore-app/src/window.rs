@@ -878,8 +878,8 @@ impl ProjectWindow {
     /// 키 컨텍스트 경로대로 `div`를 겹친다. GPUI는 요소 하나에 컨텍스트 하나를 쌓아 깊이를 만들고,
     /// `Normal > PianoRoll` 같은 술어는 그 깊이로 맞춘다. 가장 안쪽이 창 포커스를 잡아야 경로 전체가
     /// 디스패치 경로가 된다.
-    fn wrap_in_contexts(&self, content: AnyElement) -> AnyElement {
-        let path = self.context_path();
+    fn wrap_in_contexts(&self, content: AnyElement, window: &Window) -> AnyElement {
+        let path = self.key_context_path(window);
         let (innermost, outer) = path.split_last().expect("컨텍스트 경로는 비지 않는다");
         let mut element = div()
             .size_full()
@@ -1192,7 +1192,7 @@ impl Render for ProjectWindow {
             View::Arrangement => Self::region("main-view", "배치 뷰", cx).into_any_element(),
             View::PianoRoll => self.render_piano_roll(window, cx).into_any_element(),
         };
-        let main_view = self.wrap_in_contexts(main_view);
+        let main_view = self.wrap_in_contexts(main_view, window);
         let top = div()
             .id("top")
             .on_any_mouse_down(Self::focus_document_on_press(cx))
