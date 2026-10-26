@@ -90,6 +90,8 @@ pub struct ProjectWindow {
     _window_resized: Subscription,
     /// 키 입력 관찰(되돌리기 묶음 끊기, S3-T2).
     _keystrokes: Subscription,
+    /// 음 키 대기의 키 가로채기(S3-T3b).
+    _pitch_keys: Subscription,
     /// 이 뷰를 담은 창(파일 흐름이 시트를 띄우고 창을 닫는다).
     handle: gpui_kit::AnyWindowHandle,
     /// 저장·닫기 흐름이 돌고 있다(시트가 떠 있을 수 있다). 그동안 새 흐름을 시작하지 않는다(S2-T7a).
@@ -155,6 +157,7 @@ impl ProjectWindow {
                 this.seal_history(cx);
             }
         });
+        let pitch_keys = Self::intercept_pitch_keys(window, cx);
         let me = cx.entity().downgrade();
         if cx.has_global::<OpenWindows>() {
             let list = &mut cx.global_mut::<OpenWindows>().0;
@@ -189,6 +192,7 @@ impl ProjectWindow {
             baseline: None,
             _window_resized: window_resized,
             _keystrokes: keystrokes,
+            _pitch_keys: pitch_keys,
             handle: window.window_handle(),
             file_flow: false,
             autosave: crate::autosave::WindowAutosave::new(),

@@ -347,7 +347,7 @@ impl ProjectWindow {
     /// 선택이 가리키는 (트랙, 클립)이 커서의 현재 클립이 아니면 거부한다. 그 노트는 흐리게 그려지거나 화면에
     /// 없고 5.3은 「앞뒤 클립의 노트는 … 편집은 되지 않는다」다(리뷰 1 지적 1). 선택 자체는 남는다(5.11의
     /// 「선택을 유지한 채 다음 트랙」 흐름, `Esc`로 비운다).
-    fn apply_note_op(&mut self, op: NoteOp, cx: &mut Context<Self>) {
+    pub(crate) fn apply_note_op(&mut self, op: NoteOp, cx: &mut Context<Self>) {
         let selection = self.pianoroll.selection();
         let (track_id, clip_id, notes, on_cursor_note) = if selection.is_empty() {
             let Some((t, c, n)) = self.note_under_cursor(cx) else {
@@ -402,6 +402,7 @@ impl ProjectWindow {
             self.say(format!("{}: {e}", op.label()), cx);
             return;
         }
+        self.remember_edit(crate::note_ops::LastEdit::Op(op));
         if on_cursor_note {
             if let Some((from, to)) = planned.moved.first() {
                 self.follow_cursor_note(track_id, clip_id, from, to, cx);
@@ -424,7 +425,7 @@ impl ProjectWindow {
 
     /// 선택 없이 커서 노트에 조작한 뒤: 커서가 노트를 따라간다(연타가 같은 노트에 계속 적용되도록). 선택은 생기지
     /// 않는다. 길이를 줄여 커서가 노트 밖에 남으면 노트 안(끝 직전)으로 당긴다(리뷰 1 지적 3).
-    fn follow_cursor_note(
+    pub(crate) fn follow_cursor_note(
         &mut self,
         track_id: TrackId,
         clip_id: ClipId,

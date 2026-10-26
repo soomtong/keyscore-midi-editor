@@ -15,6 +15,7 @@ use keyscore_core::{
 };
 
 const BAR: u64 = 3840;
+const BAR32: u32 = 3840;
 
 type Triple = (u64, u32, u8);
 
@@ -145,7 +146,7 @@ fn split_keeps_lyric_on_first_half_only() {
 #[test]
 fn split_keeps_hidden_tail_as_tail() {
     // 클립 [0, 2마디)에 2마디 노트를 두고 1마디에서 클립을 자르면 왼쪽 클립에 꼬리 노트(0, 7680)가 남는다.
-    let (mut p, t, c) = project(&[(0, 2 * BAR, &[(0, 2 * BAR as u32, 60)])]);
+    let (mut p, t, c) = project(&[(0, 2 * BAR, &[(0, 2 * BAR32, 60)])]);
     let mut track = p.tracks()[0].clone();
     track.split_clip(c[0], Tick::new(BAR)).unwrap();
     p = {
@@ -153,16 +154,13 @@ fn split_keeps_hidden_tail_as_tail() {
         q.push_track(track).unwrap();
         q
     };
-    let tail = note(0, 2 * BAR as u32, 60);
+    let tail = note(0, 2 * BAR32, 60);
     let changed = plan_split(&p, t, c[0], &[tail], Tick::new(960))
         .unwrap()
         .unwrap();
     let clips = applied(&p, changed);
     assert_eq!(clips[0].1, BAR, "클립은 늘지 않는다");
-    assert_eq!(
-        clips[0].2,
-        vec![(0, 960, 60), (960, 2 * BAR as u32 - 960, 60)]
-    );
+    assert_eq!(clips[0].2, vec![(0, 960, 60), (960, 2 * BAR32 - 960, 60)]);
 }
 
 // ---------- 4·5. 합치기 ----------
@@ -234,7 +232,7 @@ fn join_takes_values_from_earliest_and_latest_end() {
 
 #[test]
 fn join_with_tail_keeps_tail() {
-    let (mut p, t, c) = project(&[(0, 3 * BAR, &[(0, 480, 60), (960, 2 * BAR as u32, 60)])]);
+    let (mut p, t, c) = project(&[(0, 3 * BAR, &[(0, 480, 60), (960, 2 * BAR32, 60)])]);
     let mut track = p.tracks()[0].clone();
     track.split_clip(c[0], Tick::new(BAR + 960)).unwrap();
     p = {
@@ -242,11 +240,11 @@ fn join_with_tail_keeps_tail() {
         q.push_track(track).unwrap();
         q
     };
-    let targets = notes(&[(0, 480, 60), (960, 2 * BAR as u32, 60)]);
+    let targets = notes(&[(0, 480, 60), (960, 2 * BAR32, 60)]);
     let changed = plan_join(&p, t, c[0], &targets).unwrap().unwrap();
     let clips = applied(&p, changed);
     assert_eq!(clips[0].1, BAR + 960, "클립은 늘지 않는다");
-    assert_eq!(clips[0].2, vec![(0, 960 + 2 * BAR as u32, 60)]);
+    assert_eq!(clips[0].2, vec![(0, 960 + 2 * BAR32, 60)]);
 }
 
 // ---------- 6. 길이 ----------
