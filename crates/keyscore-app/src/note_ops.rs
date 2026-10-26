@@ -270,13 +270,23 @@ impl ProjectWindow {
             m.revision == revision && m.track == t.track && m.clip == t.clip && m.targets == values
         });
         let project = self.document.read(cx).project();
+        // 숨김 꼬리 노트는 레가토하지 않는다(리뷰 1 지적 1). 대상에 꼬리가 있으면 바뀌는 노트가 없을 때 그 까닭을 알린다
+        // (리뷰 2 제안 2).
+        let has_tail = project
+            .track(t.track)
+            .and_then(|tr| tr.clip(t.clip))
+            .is_some_and(|c| t.notes.iter().any(|n| n.end() > c.length()));
         let (planned, restoring) = match &restore {
             Some(m) => (plan_restore(project, t.track, t.clip, &m.pairs), true),
             None => (plan_legato(project, t.track, t.clip, &t.notes), false),
         };
         let how = Finish {
             label: "레가토",
-            nothing: "바뀌는 노트가 없다",
+            nothing: if has_tail {
+                "바뀌는 노트가 없다(클립 끝을 넘는 숨김 꼬리 노트는 레가토하지 않는다)"
+            } else {
+                "바뀌는 노트가 없다"
+            },
             follow: true,
             remember: LastEdit::action(&edit::Legato),
         };
