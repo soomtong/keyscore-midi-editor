@@ -466,6 +466,12 @@ impl ProjectWindow {
             self.apply_operator(op, OperatorTarget::Selection, window, cx);
             return;
         }
+        // 노트 없이 기준 칸만 남은 선택(빈 칸을 넓히는 중)은 오퍼레이터에게 선택이 아니다. 기준 칸을 지워 선택을
+        // 끝내고 대기에 든다. 그대로 두면 `Selection` 컨텍스트라 `Operator`가 붙지 않는다(리뷰 2 지적 2).
+        if self.pianoroll.anchor().is_some() {
+            self.pianoroll.set_anchor(None);
+            self.sync_selection_mode(cx);
+        }
         self.vim.pending = Some(Pending { op, count });
         cx.notify();
     }
