@@ -333,8 +333,10 @@ fn vim_p_on_last_step_of_clip_makes_separate_clip(cx: &mut TestAppContext) {
     assert_eq!(all.len(), 4, "{all:?}");
     assert_eq!(all[0].1, 2 * BAR, "A가 늘지 않았다");
     assert_eq!((all[1].0, all[1].2.clone()), (2 * BAR, vec![(0, 960, 60)]));
-    // 사본 선택은 새 클립에 있고 커서(6720)는 A에 있다. 바로 이은 `r`은 거부된다.
-    press(cx, handle, "r");
+    // 사본 선택은 새 클립에 있고 커서(6720)는 A에 있다. 바로 이은 반복은 거부된다. vim의 반복은 `y y p`다(REQ
+    // 5.8.1, vim `r`은 음높이 바꾸기). 처음에는 `r`을 눌렀는데, `edit::SetPitch` 처리기가 없어 기본 프리셋의 `r`(반복)로
+    // 넘어간 것이었다(S3-T3b에서 처리기가 생겼다).
+    press(cx, handle, "y y p");
     assert!(
         last_message(cx, &view).contains("선택이 현재 클립에 없다"),
         "{:?}",

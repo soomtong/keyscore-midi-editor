@@ -471,7 +471,9 @@ fn check_shifted(cx: &mut TestAppContext, preset: Preset, name: &str) -> String 
         cx.update_window(handle, |_, window, _| window.remove_window())
             .unwrap();
     }
-    assert!(checked > 0, "Shift 기호 바인딩을 하나도 찾지 못했다");
+    // 결정 B25 a′(S3-T3b 반영)로 프리셋의 `shift-N` 표기 바인딩은 모두 지웠다. 그래서 검사할 바인딩이 없을 수 있다
+    // (처음의 `checked > 0` 단언을 뺐다). 다시 생기면 이 검사가 macOS 입력과 맞는지 본다.
+    let _ = checked;
     report
 }
 
