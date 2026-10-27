@@ -408,15 +408,14 @@ fn expected(all: &[Binding], stack: &[KeyContext], keys: &str) -> Option<String>
             })
             .collect();
         cands.sort_by(|a, b| b.0.cmp(&a.0).then(b.1.cmp(&a.1)));
-        let mut hidden = false;
-        for (_, _, b) in cands {
+        // GPUI는 (깊이, 순서)로 정렬해 첫 바인딩을 쓰고, 그것이 `null`이면 뒤의 바인딩을 모두 가린다
+        // (`resolve_bindings_for_input`). 같은 레이어 안에서 깊은 `null`이 얕은 바인딩을 가리는 경우도 같다
+        // (S3-T3c `Normal > Operator`의 `i`). 이 레이어에 바인딩이 없으면 아래 레이어를 본다.
+        if let Some((_, _, b)) = cands.first() {
             match &b.action {
                 ActionRef::Named { name, .. } => return Some(name.clone()),
-                ActionRef::Unbind => hidden = true,
+                ActionRef::Unbind => return None,
             }
-        }
-        if hidden {
-            return None;
         }
     }
     None

@@ -9,6 +9,7 @@ pub mod keys;
 pub mod ops;
 pub mod scene;
 pub mod select;
+pub mod vim;
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
@@ -145,6 +146,67 @@ pub enum CursorMove {
     BarForward,
     OctaveDown,
     OctaveUp,
+}
+
+/// `cursor`를 `delta`만큼 옮긴 칸(`step`은 한 스텝 틱). 틱은 0 아래로, 음높이는 0–127 밖으로 가지 않는다.
+#[must_use]
+pub fn moved(cursor: Cursor, delta: CursorMove, step: u64, meter: &MeterMap) -> Cursor {
+    let Cursor { tick, pitch } = cursor;
+    let pitch_by = |semitones: i16| {
+        let value = (i16::from(pitch.get()) + semitones).clamp(0, i16::from(ROWS - 1));
+        // clamp로 0–127 안이다.
+        u8::try_from(value)
+            .ok()
+            .and_then(|v| Pitch::new(v).ok())
+            .unwrap_or(pitch)
+    };
+    match delta {
+        CursorMove::StepBack => Cursor {
+            tick: Tick::new(tick.get().saturating_sub(step)),
+            pitch,
+        },
+        CursorMove::StepForward => Cursor {
+            tick: tick.checked_add(step).unwrap_or(tick),
+            pitch,
+        },
+        CursorMove::SemitoneDown => Cursor {
+            tick,
+            pitch: pitch_by(-1),
+        },
+        CursorMove::SemitoneUp => Cursor {
+            tick,
+            pitch: pitch_by(1),
+        },
+        CursorMove::OctaveDown => Cursor {
+            tick,
+            pitch: pitch_by(-12),
+        },
+        CursorMove::OctaveUp => Cursor {
+            tick,
+            pitch: pitch_by(12),
+        },
+        CursorMove::BarBack => {
+            let bar = meter.position(tick).bar();
+            let start = meter.bar_start(bar).unwrap_or(Tick::ZERO);
+            // 마디 중간이면 그 마디 시작, 시작이면 앞 마디 시작(5.7 「한 마디 뒤로」)
+            let target = if tick > start {
+                start
+            } else {
+                meter.bar_start(bar.saturating_sub(1)).unwrap_or(Tick::ZERO)
+            };
+            Cursor {
+                tick: target,
+                pitch,
+            }
+        }
+        CursorMove::BarForward => {
+            let bar = meter.position(tick).bar();
+            Cursor {
+                tick: meter.bar_start(bar + 1).unwrap_or(tick),
+                pitch,
+            }
+        }
+    }
 }
 
 /// 선택(REQ 5.3 「선택 → 동작」, 5.7). 한 클립의 실제 `Note` 값 집합.
@@ -297,6 +359,8 @@ pub(crate) struct Inner {
     /// `Shift+이동`의 기준 칸(절대 틱). 첫 `Shift+이동` 때 그 전 커서 칸으로 잡고, 수식키 없는 이동·선택
     /// 해제·`b`류 선택이 지운다(S3-T2).
     pub(crate) anchor: Option<Cursor>,
+    /// vim 비주얼 선택의 종류(S3-T3c). 있으면 `anchor`도 있다(`set_anchor(None)`이 함께 지운다).
+    pub(crate) visual: Option<vim::VisualKind>,
     /// vim 마크 a–z(S3-T2).
     pub(crate) marks: BTreeMap<char, Mark>,
     /// 마지막 `f`/`F` 방향(S3-T2).
@@ -442,6 +506,7 @@ impl PianoRollState {
                 step_ticks: DEFAULT_STEP_TICKS,
                 selection: Selection::default(),
                 anchor: None,
+                visual: None,
                 marks: BTreeMap::new(),
                 last_find: None,
                 cache: MaxLenCache::default(),
@@ -483,8 +548,27 @@ impl PianoRollState {
         self.inner.borrow().anchor
     }
 
+    /// 기준 칸을 바꾼다. 지우면 비주얼도 끝난다(비주얼은 기준 칸이 있어야 한다, S3-T3c).
     pub fn set_anchor(&self, anchor: Option<Cursor>) {
-        self.inner.borrow_mut().anchor = anchor;
+        let mut inner = self.inner.borrow_mut();
+        inner.anchor = anchor;
+        if anchor.is_none() {
+            inner.visual = None;
+        }
+    }
+
+    /// vim 비주얼 선택의 종류(S3-T3c).
+    #[must_use]
+    pub fn visual(&self) -> Option<vim::VisualKind> {
+        self.inner.borrow().visual
+    }
+
+    /// 비주얼을 시작하거나 바꾸거나 끝낸다. 기준 칸이 없으면 비주얼을 둘 수 없어 무시한다.
+    pub fn set_visual(&self, kind: Option<vim::VisualKind>) {
+        let mut inner = self.inner.borrow_mut();
+        if kind.is_none() || inner.anchor.is_some() {
+            inner.visual = kind;
+        }
     }
 
     pub fn set_mark(&self, name: char, mark: Mark) {
@@ -518,64 +602,7 @@ impl PianoRollState {
     /// 커서를 옮긴다. 틱은 0 아래로, 음높이는 0–127 밖으로 가지 않는다.
     pub fn move_cursor(&self, delta: CursorMove, meter: &MeterMap) {
         let mut inner = self.inner.borrow_mut();
-        let Cursor { tick, pitch } = inner.cursor;
-        let step = inner.step_ticks;
-        let pitch_by = |semitones: i16| {
-            let value = (i16::from(pitch.get()) + semitones).clamp(0, i16::from(ROWS - 1));
-            // clamp로 0–127 안이다.
-            u8::try_from(value)
-                .ok()
-                .and_then(|v| Pitch::new(v).ok())
-                .unwrap_or(pitch)
-        };
-        let next = match delta {
-            CursorMove::StepBack => Cursor {
-                tick: Tick::new(tick.get().saturating_sub(step)),
-                pitch,
-            },
-            CursorMove::StepForward => Cursor {
-                tick: tick.checked_add(step).unwrap_or(tick),
-                pitch,
-            },
-            CursorMove::SemitoneDown => Cursor {
-                tick,
-                pitch: pitch_by(-1),
-            },
-            CursorMove::SemitoneUp => Cursor {
-                tick,
-                pitch: pitch_by(1),
-            },
-            CursorMove::OctaveDown => Cursor {
-                tick,
-                pitch: pitch_by(-12),
-            },
-            CursorMove::OctaveUp => Cursor {
-                tick,
-                pitch: pitch_by(12),
-            },
-            CursorMove::BarBack => {
-                let bar = meter.position(tick).bar();
-                let start = meter.bar_start(bar).unwrap_or(Tick::ZERO);
-                // 마디 중간이면 그 마디 시작, 시작이면 앞 마디 시작(5.7 「한 마디 뒤로」)
-                let target = if tick > start {
-                    start
-                } else {
-                    meter.bar_start(bar.saturating_sub(1)).unwrap_or(Tick::ZERO)
-                };
-                Cursor {
-                    tick: target,
-                    pitch,
-                }
-            }
-            CursorMove::BarForward => {
-                let bar = meter.position(tick).bar();
-                Cursor {
-                    tick: meter.bar_start(bar + 1).unwrap_or(tick),
-                    pitch,
-                }
-            }
-        };
-        inner.cursor = next;
+        inner.cursor = moved(inner.cursor, delta, inner.step_ticks, meter);
     }
 
     /// 커서 칸이 보이도록 뷰포트를 옮긴다. 크기를 아직 모르면(그리기 전) 아무것도 하지 않는다.

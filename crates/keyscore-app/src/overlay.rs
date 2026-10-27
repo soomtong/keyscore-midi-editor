@@ -180,7 +180,7 @@ impl ProjectWindow {
     #[must_use]
     pub fn overlay_lines(&self, cx: &App) -> Option<Vec<String>> {
         let overlay = self.overlay.as_ref()?;
-        let path = self.mode_state().context_path();
+        let path = self.context_path();
         let version = cx.key_bindings().borrow().version();
         // 그려진 것과 같은 캐시를 본다(리뷰 2 제안 3). 캐시가 지금 판·경로가 아니면 새로 구한다
         let lines = match &overlay.cache {
@@ -204,7 +204,7 @@ impl ProjectWindow {
     /// 지금 키맵·지금 모드의 줄. 키맵 판이나 모드 경로가 바뀌었을 때만 다시 구한다. 오버레이가 열린 동안에도
     /// 전역 키(`ctrl-tab`)로 모드가 바뀔 수 있어, 연 때의 경로가 아니라 지금 경로를 쓴다(리뷰 1 지적 2).
     fn overlay_cache(&mut self, cx: &App) -> Option<Rc<Vec<Line>>> {
-        let path = self.mode_state().context_path();
+        let path = self.context_path();
         let version = cx.key_bindings().borrow().version();
         let overlay = self.overlay.as_mut()?;
         if let Some((v, p, lines)) = &overlay.cache
@@ -264,7 +264,7 @@ impl ProjectWindow {
     /// 열린 오버레이. 모드 키 컨텍스트 겹 바깥(창 루트의 자식)에 그린다.
     pub(crate) fn render_overlay(&mut self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
         let lines = self.overlay_cache(cx)?;
-        let path = self.mode_state().context_path();
+        let path = self.context_path();
         let overlay = self.overlay.as_mut()?;
         // 키맵이나 모드가 바뀌어 줄 수가 줄었으면 쪽을 맞춘다
         let pages = page_count(lines.len());

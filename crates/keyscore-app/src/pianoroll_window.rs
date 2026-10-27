@@ -9,7 +9,8 @@ use gpui_kit::{
 use crate::actions::{cursor, view};
 use crate::engine::TransportState;
 use crate::pianoroll::element::{Palette, PianoRollElement};
-use crate::pianoroll::{Cursor, CursorMove, ZOOM_FACTOR};
+use crate::pianoroll::vim::Motion;
+use crate::pianoroll::{Cursor, ZOOM_FACTOR};
 use crate::window::ProjectWindow;
 
 impl ProjectWindow {
@@ -31,6 +32,7 @@ impl ProjectWindow {
             .on_action(cx.listener(Self::view_zoom_reset))
             .on_action(cx.listener(Self::view_center_cursor));
         let element = Self::selection_handlers(element, cx);
+        let element = Self::vim_handlers(element, cx);
         let element = Self::note_edit_handlers(element, cx);
         Self::note_ops_handlers(element, cx)
     }
@@ -43,13 +45,6 @@ impl ProjectWindow {
             TransportState::Paused(at) => Some(at),
             TransportState::Stopped => None,
         }
-    }
-
-    /// 커서를 옮기고 뷰포트가 따라가게 한다. 노트 위로 가면 들려준다(PRE-1, S3-T2).
-    pub(crate) fn move_piano_roll_cursor(&mut self, delta: CursorMove, cx: &mut Context<Self>) {
-        let meter = self.document.read(cx).project().meter_map().clone();
-        self.pianoroll.move_cursor(delta, &meter);
-        self.cursor_moved(false, cx);
     }
 
     /// 가운데 주 뷰의 피아노롤.
@@ -92,10 +87,7 @@ impl ProjectWindow {
         .playhead(playhead, animating)
         .on_click({
             let listener = cx.listener(|this, cell: &Cursor, window, cx| {
-                // 클릭은 키 입력이 아니므로 되돌리기 묶음을 여기서 끊는다(5.7 「다른 키가 끼면」)
-                this.seal_history(cx);
-                this.pianoroll.set_cursor(*cell);
-                this.cursor_moved(false, cx);
+                this.click_piano_roll_cell(*cell, cx);
                 this.focus_document(window, cx);
             });
             move |cell, window, cx| listener(&cell, window, cx)
@@ -118,6 +110,16 @@ impl ProjectWindow {
             .child(element)
     }
 
+    /// 피아노롤 칸을 눌렀을 때(포커스 옮기기 전까지): 커서를 그 칸으로. 비주얼 중이면 선택을 다시 계산하고,
+    /// 오퍼레이터 대기는 끝낸다(S3-T3c).
+    pub fn click_piano_roll_cell(&mut self, cell: Cursor, cx: &mut Context<Self>) {
+        // 클릭은 키 입력이 아니므로 되돌리기 묶음을 여기서 끊는다(5.7 「다른 키가 끼면」)
+        self.seal_history(cx);
+        self.clear_operator(cx);
+        self.pianoroll.set_cursor(cell);
+        self.cursor_moved(false, cx);
+    }
+
     /// 피아노롤로 들어갈 때 커서를 클립 안에 둔다.
     pub(crate) fn entered_piano_roll(&mut self, cx: &mut Context<Self>) {
         let doc = self.document.read(cx);
@@ -128,61 +130,76 @@ impl ProjectWindow {
         self.pianoroll.reveal_cursor_on_entry();
     }
 
-    pub(crate) fn cursor_left(&mut self, _: &cursor::Left, _: &mut Window, cx: &mut Context<Self>) {
-        self.move_piano_roll_cursor(CursorMove::StepBack, cx);
+    pub(crate) fn cursor_left(
+        &mut self,
+        _: &cursor::Left,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.run_motion(Motion::Left, window, cx);
     }
 
     pub(crate) fn cursor_right(
         &mut self,
         _: &cursor::Right,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.move_piano_roll_cursor(CursorMove::StepForward, cx);
+        self.run_motion(Motion::Right, window, cx);
     }
 
-    pub(crate) fn cursor_up(&mut self, _: &cursor::Up, _: &mut Window, cx: &mut Context<Self>) {
-        self.move_piano_roll_cursor(CursorMove::SemitoneUp, cx);
+    pub(crate) fn cursor_up(
+        &mut self,
+        _: &cursor::Up,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.run_motion(Motion::Up, window, cx);
     }
 
-    pub(crate) fn cursor_down(&mut self, _: &cursor::Down, _: &mut Window, cx: &mut Context<Self>) {
-        self.move_piano_roll_cursor(CursorMove::SemitoneDown, cx);
+    pub(crate) fn cursor_down(
+        &mut self,
+        _: &cursor::Down,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.run_motion(Motion::Down, window, cx);
     }
 
     pub(crate) fn cursor_prev_bar(
         &mut self,
         _: &cursor::PrevBar,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.move_piano_roll_cursor(CursorMove::BarBack, cx);
+        self.run_motion(Motion::PrevBar, window, cx);
     }
 
     pub(crate) fn cursor_next_bar(
         &mut self,
         _: &cursor::NextBar,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.move_piano_roll_cursor(CursorMove::BarForward, cx);
+        self.run_motion(Motion::NextBar, window, cx);
     }
 
     pub(crate) fn cursor_octave_up(
         &mut self,
         _: &cursor::OctaveUp,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.move_piano_roll_cursor(CursorMove::OctaveUp, cx);
+        self.run_motion(Motion::OctaveUp, window, cx);
     }
 
     pub(crate) fn cursor_octave_down(
         &mut self,
         _: &cursor::OctaveDown,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.move_piano_roll_cursor(CursorMove::OctaveDown, cx);
+        self.run_motion(Motion::OctaveDown, window, cx);
     }
 
     pub(crate) fn view_zoom_in(

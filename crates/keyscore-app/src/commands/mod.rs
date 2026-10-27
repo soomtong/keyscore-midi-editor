@@ -462,10 +462,11 @@ fn action_item(
 }
 
 /// 메뉴 항목의 키를 확인할 창의 키 컨텍스트 경로. 모드 FSM의 모든 상태가 만드는 경로다
-/// (`mode::ModeState::context_path`). 「가사 분배 ⌘V」처럼 한 모드에서만 맞는 키도 그 모드에서는 사실이다.
+/// (`mode::ModeState::context_path`)와 vim 오퍼레이터 대기·비주얼의 경로(S3-T3c). 「가사 분배 ⌘V」처럼 한 모드에서만 맞는 키도 그 모드에서는 사실이다.
 fn menu_context_stacks() -> Vec<Vec<KeyContext>> {
     let mut paths: Vec<&'static [&'static str]> = crate::mode::ModeState::all()
         .map(crate::mode::ModeState::context_path)
+        .chain([crate::vim::OPERATOR_PATH, crate::vim::VISUAL_PATH])
         .collect();
     paths.sort_unstable();
     paths.dedup();

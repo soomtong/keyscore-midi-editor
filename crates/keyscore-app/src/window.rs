@@ -92,6 +92,10 @@ pub struct ProjectWindow {
     _keystrokes: Subscription,
     /// 음 키 대기의 키 가로채기(S3-T3b).
     _pitch_keys: Subscription,
+    /// vim 오퍼레이터 대기·`y` 접두의 키 가로채기(S3-T3c).
+    _vim_keys: Subscription,
+    /// GPUI 대기 입력 관찰(붙든 키 컨텍스트 경로를 놓는다, S3-T3c 리뷰 3).
+    _pending_input: Subscription,
     /// 이 뷰를 담은 창(파일 흐름이 시트를 띄우고 창을 닫는다).
     handle: gpui_kit::AnyWindowHandle,
     /// 저장·닫기 흐름이 돌고 있다(시트가 떠 있을 수 있다). 그동안 새 흐름을 시작하지 않는다(S2-T7a).
@@ -102,6 +106,7 @@ pub struct ProjectWindow {
     pub(crate) pianoroll: crate::pianoroll::PianoRollState,
     /// 음 키 대기·레가토 기억·마지막 편집(S3-T3b).
     pub(crate) note_ops: crate::note_ops::NoteOpsState,
+    pub(crate) vim: crate::vim::VimState,
 }
 
 impl ProjectWindow {
@@ -156,8 +161,13 @@ impl ProjectWindow {
             if !same_op {
                 this.seal_history(cx);
             }
+            this.vim_after_keystroke(event.action.as_deref(), cx);
         });
         let pitch_keys = Self::intercept_pitch_keys(window, cx);
+        let vim_keys = Self::intercept_vim_keys(window, cx);
+        let pending_input = cx.observe_pending_input(window, |this, window, cx| {
+            this.vim_pending_input_changed(window, cx);
+        });
         let me = cx.entity().downgrade();
         if cx.has_global::<OpenWindows>() {
             let list = &mut cx.global_mut::<OpenWindows>().0;
@@ -193,11 +203,14 @@ impl ProjectWindow {
             _window_resized: window_resized,
             _keystrokes: keystrokes,
             _pitch_keys: pitch_keys,
+            _vim_keys: vim_keys,
+            _pending_input: pending_input,
             handle: window.window_handle(),
             file_flow: false,
             autosave: crate::autosave::WindowAutosave::new(),
             pianoroll: crate::pianoroll::PianoRollState::new(),
             note_ops: crate::note_ops::NoteOpsState::default(),
+            vim: crate::vim::VimState::default(),
         };
         this.refresh_fields(window, cx);
         this.refresh_file_state(window, cx);
@@ -282,6 +295,10 @@ impl ProjectWindow {
     ) {
         let next = self.mode.apply(event);
         if next != self.mode {
+            // 오퍼레이터 대기와 비주얼은 Normal 피아노롤의 것이다. 모드·뷰가 바뀌면 끝낸다(S3-T3c). 비주얼만 끝내고
+            // 선택·기준 칸은 FSM 규칙(아래)대로 둔다.
+            self.clear_operator(cx);
+            self.pianoroll.set_visual(None);
             let entered_piano_roll =
                 next.view() == View::PianoRoll && self.mode.view() != View::PianoRoll;
             self.mode = next;
@@ -384,6 +401,8 @@ impl ProjectWindow {
         }
         if self.current_track != track {
             self.current_track = track;
+            // 오퍼레이터 대기는 그 트랙의 커서에 걸린 것이다(S3-T3c)
+            self.clear_operator(cx);
             cx.notify();
         }
     }
@@ -865,8 +884,8 @@ impl ProjectWindow {
     /// 키 컨텍스트 경로대로 `div`를 겹친다. GPUI는 요소 하나에 컨텍스트 하나를 쌓아 깊이를 만들고,
     /// `Normal > PianoRoll` 같은 술어는 그 깊이로 맞춘다. 가장 안쪽이 창 포커스를 잡아야 경로 전체가
     /// 디스패치 경로가 된다.
-    fn wrap_in_contexts(&self, content: AnyElement) -> AnyElement {
-        let path = self.mode.context_path();
+    fn wrap_in_contexts(&self, content: AnyElement, window: &Window) -> AnyElement {
+        let path = self.key_context_path(window);
         let (innermost, outer) = path.split_last().expect("컨텍스트 경로는 비지 않는다");
         let mut element = div()
             .size_full()
@@ -900,12 +919,12 @@ impl ProjectWindow {
 
     /// 상태줄 왼쪽의 모드 표시. 누르면 모드 메뉴가 열린다.
     fn mode_indicator(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let label = self.mode.mode().label();
+        let label = self.mode_label();
         let bounds = self.indicator_bounds.clone();
         div()
             .id("status-mode")
             .role(Role::Button)
-            .aria_label(label)
+            .aria_label(label.clone())
             .test_support()
             .relative()
             .px_1()
@@ -1179,7 +1198,8 @@ impl Render for ProjectWindow {
             View::Arrangement => Self::region("main-view", "배치 뷰", cx).into_any_element(),
             View::PianoRoll => self.render_piano_roll(window, cx).into_any_element(),
         };
-        let main_view = self.wrap_in_contexts(main_view);
+        self.release_stale_prefix(window, cx);
+        let main_view = self.wrap_in_contexts(main_view, window);
         let top = div()
             .id("top")
             .on_any_mouse_down(Self::focus_document_on_press(cx))
