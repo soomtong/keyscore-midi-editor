@@ -252,6 +252,9 @@ pub(crate) const FLUSH_KEY: &str = "f20";
 
 /// 멀티키 시퀀스 대기를 비운다: 바인딩 없는 키 하나를 디스패치해 시간 초과와 같은 결과(접두 단독 바인딩이
 /// 있으면 실행, 대기·카운트 비움)를 만든다. GPUI에 대기를 비우는 공개 API가 없어서다.
+///
+/// 프로젝트 창 엔티티를 빌리지 않은 자리(`window.defer`)에서만 부른다. 디스패치가 그 창의 처리기와 대기 입력
+/// 관찰자(`observe_pending_input`, S3-T3c)를 동기로 부르므로, 빌린 채 부르면 재진입한다(리뷰 4 제안 3).
 pub(crate) fn flush_pending_keystrokes(window: &mut Window, cx: &mut App) {
     if let Ok(flush) = Keystroke::parse(FLUSH_KEY) {
         window.dispatch_keystroke(flush, cx);

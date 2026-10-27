@@ -224,6 +224,9 @@ impl ProjectWindow {
             return;
         }
         self.vim.release_scheduled = true;
+        // 붙든 접두가 오퍼레이터(`y`)가 아니어도 무시 표시를 켠다. 재생될 수 있는 것은 `null`(`i` `a`), 바인딩
+        // 없는 접두(`g`), 오퍼레이터 키뿐이고, 이 표시는 오퍼레이터 시작만 삼키므로 다른 재생에는 영향이 없다
+        // (리뷰 4 제안 2).
         self.vim.ignore_replayed_operator = true;
         let me = cx.entity().downgrade();
         window.defer(cx, move |window, cx| {
