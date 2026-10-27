@@ -94,6 +94,8 @@ pub struct ProjectWindow {
     _pitch_keys: Subscription,
     /// vim 오퍼레이터 대기·`y` 접두의 키 가로채기(S3-T3c).
     _vim_keys: Subscription,
+    /// GPUI 대기 입력 관찰(붙든 키 컨텍스트 경로를 놓는다, S3-T3c 리뷰 3).
+    _pending_input: Subscription,
     /// 이 뷰를 담은 창(파일 흐름이 시트를 띄우고 창을 닫는다).
     handle: gpui_kit::AnyWindowHandle,
     /// 저장·닫기 흐름이 돌고 있다(시트가 떠 있을 수 있다). 그동안 새 흐름을 시작하지 않는다(S2-T7a).
@@ -163,6 +165,9 @@ impl ProjectWindow {
         });
         let pitch_keys = Self::intercept_pitch_keys(window, cx);
         let vim_keys = Self::intercept_vim_keys(window, cx);
+        let pending_input = cx.observe_pending_input(window, |this, window, cx| {
+            this.vim_pending_input_changed(window, cx);
+        });
         let me = cx.entity().downgrade();
         if cx.has_global::<OpenWindows>() {
             let list = &mut cx.global_mut::<OpenWindows>().0;
@@ -199,6 +204,7 @@ impl ProjectWindow {
             _keystrokes: keystrokes,
             _pitch_keys: pitch_keys,
             _vim_keys: vim_keys,
+            _pending_input: pending_input,
             handle: window.window_handle(),
             file_flow: false,
             autosave: crate::autosave::WindowAutosave::new(),
@@ -1192,6 +1198,7 @@ impl Render for ProjectWindow {
             View::Arrangement => Self::region("main-view", "배치 뷰", cx).into_any_element(),
             View::PianoRoll => self.render_piano_roll(window, cx).into_any_element(),
         };
+        self.release_stale_prefix(window, cx);
         let main_view = self.wrap_in_contexts(main_view, window);
         let top = div()
             .id("top")

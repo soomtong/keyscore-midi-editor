@@ -48,6 +48,8 @@ pub(crate) struct VimState {
     /// 남아 있는 동안 창은 이 경로로 그린다. 키가 아닌 경로(클릭, 메뉴 선택)로 대기·비주얼이 끝나도 그 입력이
     /// Normal 컨텍스트에서 `i`(Step 모드)로 재생되지 않게 하려는 것이다(리뷰 2 지적 1).
     pub(crate) held: Option<&'static [&'static str]>,
+    /// 붙든 경로로 대기 입력을 비우는 지연을 걸었다(그리기마다 다시 걸지 않는다).
+    pub(crate) release_scheduled: bool,
 }
 
 /// 오퍼레이터가 작용할 대상. `.`이 되풀이할 때도 쓴다.
@@ -196,6 +198,43 @@ impl ProjectWindow {
             Some(kind) => visual_label(kind).to_owned(),
             None => base.to_owned(),
         }
+    }
+
+    /// 대기 입력이 바뀔 때(창의 `observe_pending_input`): 대기 입력이 없어졌으면 붙들기를 놓고 다시 그린다.
+    /// 수식키 단독 입력처럼 가로채기를 거치지 않고 비워지는 길도 여기서 잡는다(리뷰 3 지적 1 가).
+    pub(crate) fn vim_pending_input_changed(&mut self, window: &Window, cx: &mut Context<Self>) {
+        if self.vim.held.is_some() && !window.has_pending_keystrokes() {
+            self.vim.held = None;
+            cx.notify();
+        }
+    }
+
+    /// 그리기 전에(창의 `render`에서): 붙든 경로의 대기 입력이 남았는데 대기·비주얼이 키 밖에서 끝났으면(경로가
+    /// 달라졌다) 곧바로 붙든 경로에서 그 입력을 비운다. 이 그리기는 아직 붙든 경로로 그려서 비우기의 재생이 그
+    /// 경로에서 맞춰지고(접두는 `null`), 비운 뒤 붙들기를 놓아 지금 경로로 다시 그린다. 그래서 붙든 경로는 다른
+    /// 모드·뷰에 남지 않는다(리뷰 3 지적 1 나).
+    pub(crate) fn release_stale_prefix(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(held) = self.vim.held else {
+            return;
+        };
+        if self.vim.release_scheduled
+            || !window.has_pending_keystrokes()
+            || std::ptr::eq(held, self.context_path())
+        {
+            return;
+        }
+        self.vim.release_scheduled = true;
+        self.vim.ignore_replayed_operator = true;
+        let me = cx.entity().downgrade();
+        window.defer(cx, move |window, cx| {
+            keymap::flush_pending_keystrokes(window, cx);
+            let _ = me.update(cx, |this, cx| {
+                this.vim.ignore_replayed_operator = false;
+                this.vim.release_scheduled = false;
+                this.vim.held = None;
+                cx.notify();
+            });
+        });
     }
 
     /// 창이 그릴 키 컨텍스트 경로. GPUI 대기 입력이 확장 경로에서 남았으면 그 경로를 붙든다(`held`).
