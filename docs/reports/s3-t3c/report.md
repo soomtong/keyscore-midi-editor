@@ -114,3 +114,8 @@ keyscore-app 전체: (아래 게이트)
 ## 리뷰 4(좁은 확인) 대응
 
 판정 「병합 가능」. 제안 셋을 받았다: 계획 2절에 붙든 경로로 그리는 한 프레임을 적고(1), `release_stale_prefix`에 무시 표시의 전제를(2), `flush_pending_keystrokes`에 엔티티를 빌리지 않은 자리에서만 부른다는 조건을(3) 주석으로 적었다.
+
+## 병합 전 최종 게이트(852353b)
+
+- fmt, clippy `-D warnings`, deny, `check-deps.sh`, `check-deps.test.sh`, `bench-check.test.sh`: 통과
+- `cargo test --workspace --no-fail-fast`: 2222 통과, 1 실패. 실패는 `review_s2_t5d::rapid_vanish_and_return_within_one_tick_reconnects_playback`(CoreMIDI 핫플러그 알림을 실제 시간 4 s 안에 기다리는 시험)로 이 Task가 건드리지 않은 경로다. 단독으로 세 번 다시 돌려 모두 통과했다(13 통과). 전체 시험 부하에서의 시간 초과로 본다(HANDOFF 「남은 작업」의 타이밍 시험 직렬화 후속과 같은 갈래).
