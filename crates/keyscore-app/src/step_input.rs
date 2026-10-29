@@ -536,10 +536,22 @@ impl ProjectWindow {
             return true;
         };
         let rel = at.get() - start;
+        // 쉼표가 덮을 끝은 다음 클립 시작에서 자른다. 쉼표는 노트가 아니라 다음 클립과 겹칠 일이 없다(리뷰 2 지적 2).
+        // 밀린 노트가 다음 클립에 닿는 것은 여전히 거부다.
+        let next = {
+            let doc = self.document.read(cx);
+            doc.project().track(track).and_then(|t| {
+                t.clips()
+                    .map(|(_, c)| c.start().get())
+                    .filter(|&s| s > start)
+                    .min()
+            })
+        };
+        let reach = next.map_or(rel + len, |n| (rel + len).min(n - start));
         let s = Splice {
             at: rel,
             by: i64::try_from(len).unwrap_or(i64::MAX),
-            reach: rel + len,
+            reach,
             ..Splice::default()
         };
         let planned = splice(self.document.read(cx).project(), track, id, &s);
