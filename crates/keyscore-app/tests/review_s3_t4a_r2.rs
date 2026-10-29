@@ -218,7 +218,11 @@ fn r2_backspace_after_half_restores(cx: &mut TestAppContext) {
 fn r2_shift_tab_then_backspace_follows_trail(cx: &mut TestAppContext) {
     let (handle, view) = setup(cx, "r2-trail", KeyLayout::Solfege, project(&[]));
     // 4분 셋잇단 = 640
-    press(cx, handle, "n c enter n d enter n e enter shift-tab shift-tab");
+    press(
+        cx,
+        handle,
+        "n c enter n d enter n e enter shift-tab shift-tab",
+    );
     assert_eq!(cursor(cx, &view), 640);
     press(cx, handle, "backspace");
     assert_eq!(cursor(cx, &view), 0);
@@ -342,7 +346,13 @@ fn r2_octave_and_triplet_close_chord(cx: &mut TestAppContext) {
     // 화음(c) 하나는 n이 닫고, n은 다음 음(e) 하나에
     assert_eq!(
         notes(cx, &view),
-        vec![(0, 960, 60), (0, 960, 64), (960, 960, 55), (1920, 960, 48), (2880, 640, 52)]
+        vec![
+            (0, 960, 60),
+            (0, 960, 64),
+            (960, 960, 55),
+            (1920, 960, 48),
+            (2880, 640, 52)
+        ]
     );
 }
 
