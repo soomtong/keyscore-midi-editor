@@ -48,10 +48,10 @@ keyscore-app --test commands·keymap_engine·keymap_overlay·note_ops·keymap_so
 
 - [x] fmt
 - [x] clippy -D warnings
-- [ ] test(전체, `--no-fail-fast`): 진행 중. 결과를 이 줄에 적는다
+- [x] test(전체, `--no-fail-fast`, 리뷰 2 대응 뒤 a6e9173): 바이너리 254개, 2295 passed, 0 failed, 2 ignored(기존). 첫 실행(리뷰어 빌드와 겹침)에서 타이밍 시험 `review_s2_t6b_r2::cached_render_is_cheap_with_big_keymap`이 한 번 실패했고(127 ms vs 12 ms), 혼자 돌린 이 실행에서는 통과했다
 - [x] deny
 - [x] `scripts/check-deps.sh`
-- [ ] `scripts/check-deps.test.sh`, `scripts/bench-check.test.sh`: 진행 중
+- [x] `scripts/check-deps.test.sh`(16 passed), `scripts/bench-check.test.sh`(8 passed)
 
 ## 알려진 한계
 

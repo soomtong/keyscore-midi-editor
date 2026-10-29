@@ -50,6 +50,7 @@
   - S3-T3d 구현 메모(2026-10-29): 곡 끝은 스냅샷 값(`Snapshot::with_end`)으로 스케줄러에 넘기고 스케줄러가 그 틱에서 스스로 멈춘다. 창이 보간으로 보고 `stop`하면 lookahead 안의 곡 끝 박 클릭이 나가기 때문이다. 창은 `engine::END_POLL`(20 ms)마다 `Scheduler::take_ended`로 확인해 정지(틱 0)로 간다. 루프 중에는 곡 끝을 무시한다(S5에서 다시 본다).
   - S3-T3d 끝냄(2026-10-29, 리뷰 3회, 1·3회차 「병합 가능」, 전체 시험 2264): 곡 끝 뒤 시작의 클럭 맞추기는 곡 끝이 확정될 때까지 미룬다(리뷰 2). 클립 없는 프로젝트는 곧바로 멈춘다(결정 문구 그대로, 사람에게 알림). 넘김: `locate`와 `take_ended`, 루프와 곡 끝은 S5 이월 줄.
   - S3-T3e 퀀타이즈 설정 시트(2026-10-26 T3b에서 뗌, 결정 `docs/decisions/2026-10-26-s3-t3b-note-edit-details.md` 「후속」): `Shift+q`의 프로젝트 창 시트(그리드·셋잇단·강도·스윙, 7.6), 값은 T3b가 만든 설정 `quantize`. 게이트: 시트를 키보드만으로 열고 바꾸고 닫는 UI 시험, 바꾼 값으로 `q`.
+  - S3-T3e 끝냄(2026-10-29, 리뷰 2회, 1·2회차 「병합 가능」, 전체 시험 2295): 창 안 시트(`Dialog > QuantizeSheet`), ↑↓·Tab 줄, ←→ 값(Shift 10씩), Enter 저장, Esc·바깥 클릭·포커스 이탈 취소. 새 Action `dialog::Increase`·`Decrease`·`IncreaseLarge`·`DecreaseLarge`. 7절 「모달 다이얼로그」 읽기는 `docs/decisions/2026-10-29-in-window-sheets-vs-modal-dialogs.md`(에이전트 해석).
 
 ### S3-T4 Step 모드와 길이 코드 문법
 
