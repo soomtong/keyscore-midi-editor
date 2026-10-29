@@ -215,8 +215,8 @@ impl Default for QuantizeSettings {
     }
 }
 
-/// 퀀타이즈 그리드의 설정 파일 표기.
-const GRIDS: [(Grid, &str); 5] = [
+/// 퀀타이즈 그리드의 설정 파일 표기. 순서는 거친 것부터다(설정 시트의 한 칸).
+pub(crate) const GRIDS: [(Grid, &str); 5] = [
     (Grid::Quarter, "1/4"),
     (Grid::Eighth, "1/8"),
     (Grid::Sixteenth, "1/16"),

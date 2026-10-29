@@ -28,6 +28,7 @@ mod pianoroll_window;
 pub mod port_mapping;
 pub mod ports;
 mod preview;
+pub mod quantize_sheet;
 mod selection;
 pub mod settings;
 mod settings_ports;

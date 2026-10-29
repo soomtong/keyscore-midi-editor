@@ -535,6 +535,18 @@
     }
   },
   {
+    // 퀀타이즈 설정 시트(S3-T3e): 위아래로 줄, 좌우로 값. Enter·Esc·Tab은 Dialog
+    "context": "QuantizeSheet",
+    "bindings": {
+      "down": "window::FocusNext",
+      "up": "window::FocusPrev",
+      "right": "dialog::Increase",
+      "left": "dialog::Decrease",
+      "shift-right": "dialog::IncreaseLarge",
+      "shift-left": "dialog::DecreaseLarge"
+    }
+  },
+  {
     "context": "Normal > Selection",
     "bindings": {
       // Esc = 통상의 취소(A13 결정)
