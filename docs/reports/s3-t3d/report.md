@@ -60,6 +60,9 @@ keyscore-app --test song_end: 6 passed
 - 그 틈에 일시정지하면 일시정지 자리가 곡 끝 뒤일 수 있다. 재개하면 곧바로 멈춘다(정지 위치 틱 0).
 - 곡 끝 처리에서 곡 끝 틱의 이벤트를 보낸 뒤 교체가 오면 그 틱의 Note Off가 한 번 더 나갈 수 있다(`sent_through_now`, 빠뜨리기보다 겹치기).
 - 루프 구간과 곡 끝의 관계는 S5.
+- 곡 끝 직전(스케줄러 lookahead 10 ms와 창 지연 안)에 Sequence로 들어가면 교체가 닿기 전에 멈출 수 있다(리뷰 1 제안 2).
+- Sequence 진입·이탈은 스냅샷 전체 교체라, 재생 중 편집과 같이 그 틈에 박 하나·Clock 한 칸이 빠질 수 있다(리뷰 1 제안 2).
+- `Scheduler::locate`는 정지 중이면 무시되는데 `last_start`는 올린다. 곡 끝 정지 뒤 창이 아직 「재생 중」인 틈에 위치 이동을 부르면 창이 재생 중으로 남는다. 지금 앱은 `locate`를 부르지 않는다. 위치 이동 Task(S5)로 넘긴다(리뷰 1 제안 3).
 
 ## 리뷰어에게
 
@@ -67,3 +70,14 @@ keyscore-app --test song_end: 6 passed
 - `peek_next`의 같은 틱 순서와 곡 끝 조기 반환, `sent_through_now`에서 `SongEnd`를 이벤트처럼 다룬 것이 교체·Clock·박 보고와 맞는지.
 - `take_ended`의 번호 비교(`popped` 대 `pushed`)가 패닉·교체 막힘(`blocked`) 경로에서도 맞는지.
 - 감시 작업은 `end_watch`에 들고, 창이 재생 중이 아니면 스스로 끝난다. 정지·다른 창 재생 뒤 새 재생이 앞 작업을 바꿔 놓는다.
+
+## 리뷰 대응
+
+### 리뷰 1(판정 「병합 가능」, 제안 4)
+
+| # | 대응 |
+| --- | --- |
+| 1 | 받음. 곡 끝 이후에서 시작하면 클럭 맞추기(Start·SPP·Continue)를 건너뛰고 곡 끝 정리의 Stop 하나만 보낸다(`start_playing`). 시험 `play_past_end_sends_only_stop_to_clock_devices` |
+| 2 | 받음. 「알려진 한계」에 두 줄 |
+| 3 | 받음. 「알려진 한계」와 단계 파일 S5 이월 |
+| 4 | 받음. 리뷰어 시험 `crates/keyscore-midi/tests/review_s3_t3d.rs`, `crates/keyscore-app/tests/review_s3_t3d.rs`를 커밋 |
