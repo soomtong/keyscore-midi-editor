@@ -73,6 +73,8 @@ pub struct ProjectWindow {
     pub(crate) overlay: Option<crate::overlay::KeymapOverlay>,
     /// 열린 명령 팔레트와 그 사건 구독.
     pub(crate) palette: Option<(Entity<CommandPalette>, Subscription)>,
+    /// 열린 퀀타이즈 설정 시트(S3-T3e).
+    pub(crate) quantize_sheet: Option<crate::quantize_sheet::QuantizeSheet>,
     /// 트랜스포트 상태(S2-T5a).
     pub(crate) transport: Transport,
     /// undo 상한 알림을 이미 냈는가(창마다 한 번, EDT-1 결정 A).
@@ -193,6 +195,7 @@ impl ProjectWindow {
             fields,
             inspector,
             overlay: None,
+            quantize_sheet: None,
             palette: None,
             transport: Transport::default(),
             history_notice_shown: false,
@@ -669,6 +672,7 @@ impl ProjectWindow {
         // S2-T6b 리뷰 1 지적 1).
         self.popup = None;
         self.overlay = None;
+        self.quantize_sheet = None;
         let target = self.focus.clone();
         let palette = cx.new(|cx| CommandPalette::new(target, window, cx));
         let events = cx.subscribe_in(&palette, window, |this, _, event, window, cx| {
@@ -766,6 +770,7 @@ impl ProjectWindow {
     ) {
         self.palette = None;
         self.overlay = None;
+        self.quantize_sheet = None;
         let menu = PopupMenu::build(window, cx, build);
         let dismissed = cx.subscribe_in(&menu, window, |this, _, _: &DismissEvent, window, cx| {
             this.popup = None;
@@ -878,6 +883,7 @@ impl ProjectWindow {
             .on_action(cx.listener(Self::open_palette))
             .on_action(cx.listener(Self::open_command_line))
             .on_action(cx.listener(Self::help_keymap_overlay))
+            .on_action(cx.listener(Self::open_quantize_sheet))
             .on_action(cx.listener(Self::file_save))
             .on_action(cx.listener(Self::file_save_as))
             .on_action(cx.listener(Self::window_close))
@@ -1280,6 +1286,7 @@ impl Render for ProjectWindow {
             .children(self.mode_menu_overlay(window))
             .children(self.palette_overlay(window))
             .children(self.render_overlay(cx))
+            .children(self.render_quantize_sheet(cx))
     }
 }
 

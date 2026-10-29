@@ -1409,6 +1409,14 @@ pub mod dialog {
             Confirm,
             /// 대화상자 취소(A13: Esc = 통상의 취소)
             Cancel,
+            /// 포커스 줄의 값을 한 칸 늘리기(S3-T3e 퀀타이즈 설정 시트)
+            Increase,
+            /// 포커스 줄의 값을 한 칸 줄이기
+            Decrease,
+            /// 포커스 줄의 값을 크게(수치는 10) 늘리기
+            IncreaseLarge,
+            /// 포커스 줄의 값을 크게(수치는 10) 줄이기
+            DecreaseLarge,
         ]
     );
 }
@@ -1432,7 +1440,8 @@ pub mod window {
 /// 그 뒤 Task가 더한 것(`palette::Close`, S2-T6a의 `keymap::SelectNext`·`SelectPrev`·`FocusSearch`,
 /// `settings::NextSection`·`PrevSection`, `dialog::Confirm`·`Cancel`, S2-T6b의 `help::CloseOverlay`, S2-T6d의
 /// `midi::RemoveVirtualPort`, S2-T7d의 `midi::MapMissingPorts`, S3-T2의 `operator::Cancel`·`palette::OpenCommandLine`·
-/// `settings::TogglePreviewOnMove`·`settings::SetPreviewLength`)이다. `mode::Back`은 S2-T3에서 뺐다.
+/// `settings::TogglePreviewOnMove`·`settings::SetPreviewLength`, S3-T3e의 `dialog::Increase`·`Decrease`·
+/// `IncreaseLarge`·`DecreaseLarge`)이다. `mode::Back`은 S2-T3에서 뺐다.
 pub const ALL_ACTION_NAMES: &[&str] = &[
     "ai::Accept",
     "ai::AcceptGhost",
@@ -1502,6 +1511,10 @@ pub const ALL_ACTION_NAMES: &[&str] = &[
     "cursor::Up",
     "dialog::Cancel",
     "dialog::Confirm",
+    "dialog::Decrease",
+    "dialog::DecreaseLarge",
+    "dialog::Increase",
+    "dialog::IncreaseLarge",
     "edit::CancelDrag",
     "edit::ChangeToBarEnd",
     "edit::Copy",

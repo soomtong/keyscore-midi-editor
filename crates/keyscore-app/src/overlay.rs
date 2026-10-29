@@ -232,6 +232,7 @@ impl ProjectWindow {
         // 팝업은 하나만 띄운다
         self.palette = None;
         self.popup = None;
+        self.quantize_sheet = None;
         let focus = cx.focus_handle();
         window.focus(&focus, cx);
         self.overlay = Some(KeymapOverlay {
