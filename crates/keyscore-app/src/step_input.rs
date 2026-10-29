@@ -496,8 +496,9 @@ impl ProjectWindow {
         self.step.prefix.clear();
         let len = step_ticks(self.step.length, triplet, false);
         let at = self.pianoroll.cursor().tick;
-        // 클립 안이면 커서 뒤 노트를 민다. 틈이나 클립 끝에서는 밀 것이 없고 클립도 만들지 않는다.
-        if self.step_inside(at, cx) && !self.step_shift(at, i64::from(len), cx) {
+        // 커서가 든 클립(끝 = 커서 포함)이면 커서 뒤 노트를 밀고, 쉼표가 클립 끝을 넘으면 클립을 늘린다(REQ 5.10,
+        // 리뷰 1 지적 2). 틈에서는 클립을 만들지 않는다.
+        if !self.step_rest_room(at, u64::from(len), cx) {
             return;
         }
         self.step.last = None;
@@ -506,27 +507,20 @@ impl ProjectWindow {
         self.step_move_to(end, None, cx);
     }
 
-    /// 커서가 클립 안(끝이 아니다)에 있는가.
-    fn step_inside(&self, at: Tick, cx: &Context<Self>) -> bool {
-        self.current_track()
-            .and_then(|t| self.document.read(cx).project().track(t))
-            .is_some_and(|t| {
-                t.clips()
-                    .any(|(_, c)| c.start() <= at && at.get() < c.end())
-            })
-    }
-
-    /// 커서가 든 클립에서 `at` 이상의 노트를 `by`만큼 옮긴다(옮길 노트가 없으면 편집 없음).
-    fn step_shift(&mut self, at: Tick, by: i64, cx: &mut Context<Self>) -> bool {
+    /// 쉼표의 자리: 커서가 든 클립에서 `at` 이상의 노트를 `len`만큼 밀고 `at + len`까지 클립을 늘린다. 틈이거나
+    /// 바꿀 것이 없으면 편집 없이 참. 거부되면 알리고 거짓.
+    fn step_rest_room(&mut self, at: Tick, len: u64, cx: &mut Context<Self>) -> bool {
         let Some(track) = self.current_track() else {
-            return false;
+            return true;
         };
         let Some(Host::Clip { id, start }) = self.step_host(track, at, cx) else {
-            return false;
+            return true;
         };
+        let rel = at.get() - start;
         let s = Splice {
-            at: at.get() - start,
-            by,
+            at: rel,
+            by: i64::try_from(len).unwrap_or(i64::MAX),
+            reach: rel + len,
             ..Splice::default()
         };
         let planned = splice(self.document.read(cx).project(), track, id, &s);
@@ -540,7 +534,7 @@ impl ProjectWindow {
                 ok
             }
             Err(e) => {
-                self.say(format!("Step: 밀지 못했다: {e}"), cx);
+                self.say(format!("Step: 쉼표 자리를 만들지 못했다: {e}"), cx);
                 false
             }
         }

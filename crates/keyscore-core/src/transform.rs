@@ -261,6 +261,8 @@ pub struct Splice {
     pub replace: Vec<(Note, Note)>,
     /// 넣을 노트(클립 기준 시작).
     pub insert: Vec<Note>,
+    /// 결과 클립이 적어도 덮어야 할 끝(클립 기준). 클립 끝을 넘는 쉼표처럼 노트 없이 늘릴 때 쓴다. 0이면 없음.
+    pub reach: u64,
 }
 
 /// [`Splice`]를 클립 `clip`에 적용하는 편집 묶음(`RemoveNote`들, `ReplaceNotes` 또는 `ExtendClip` 하나,
@@ -330,6 +332,7 @@ pub fn splice(
     for n in &splice.insert {
         end = end.max(n.end());
     }
+    end = end.max(splice.reach);
     let length = if end > c.length() {
         let start = c.start().get();
         let bar_stop = start

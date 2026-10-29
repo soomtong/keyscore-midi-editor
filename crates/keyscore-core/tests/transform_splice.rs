@@ -304,3 +304,35 @@ proptest! {
         }
     }
 }
+
+#[test]
+fn splice_reach_extends_clip_without_notes() {
+    // 클립 끝을 넘는 쉼표(S3-T4a 리뷰 1 지적 2): 노트 없이 마디 단위로 늘린다
+    let (mut d, t, ids) = doc(&[(0, BAR, vec![]), (2 * BAR + 960, BAR, vec![])]);
+    let s = Splice {
+        at: 2880,
+        by: 1920,
+        reach: 2880 + 1920,
+        ..Splice::default()
+    };
+    let edits = splice(d.project(), t, ids[0], &s).unwrap();
+    d.apply(edits, None).unwrap();
+    assert_eq!(length(&d, t, ids[0]), 2 * BAR);
+    // 다음 클립 시작까지만
+    let s = Splice {
+        reach: 2 * BAR + 480,
+        ..Splice::default()
+    };
+    let edits = splice(d.project(), t, ids[0], &s).unwrap();
+    d.apply(edits, None).unwrap();
+    assert_eq!(length(&d, t, ids[0]), 2 * BAR + 960);
+    // 다음 클립에 닿으면 거부
+    let s = Splice {
+        reach: 2 * BAR + 961,
+        ..Splice::default()
+    };
+    assert!(matches!(
+        splice(d.project(), t, ids[0], &s),
+        Err(ModelError::ClipOverlap { .. })
+    ));
+}

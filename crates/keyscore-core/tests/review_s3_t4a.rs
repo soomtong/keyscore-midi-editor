@@ -56,7 +56,6 @@ fn length(d: &Document, t: TrackId, c: ClipId) -> u64 {
     d.project().track(t).unwrap().clip(c).unwrap().length()
 }
 
-
 proptest! {
     /// 다음 클립이 있는 트랙에서 지우기·바꾸기·밀기·넣기를 섞어도: 거부면 문서 그대로, 적용되면 클립이 겹치지
     /// 않고 모든 노트 시작이 클립 안이며, 다음 클립은 그대로이고, undo가 원래 문서로 되돌린다.
@@ -85,7 +84,7 @@ proptest! {
             }
         }
         let insert = if insert_len > 0 { vec![note(at, insert_len, 72)] } else { vec![] };
-        let s = Splice { at, by, remove, replace, insert };
+        let s = Splice { at, by, remove, replace, insert, reach: 0 };
         if let Ok(edits) = splice(d.project(), t, ids[0], &s) {
             d.apply(edits, None).unwrap();
             let track = d.project().track(t).unwrap();
