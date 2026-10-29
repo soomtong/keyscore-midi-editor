@@ -81,3 +81,11 @@ keyscore-app --test song_end: 6 passed
 | 2 | 받음. 「알려진 한계」에 두 줄 |
 | 3 | 받음. 「알려진 한계」와 단계 파일 S5 이월 |
 | 4 | 받음. 리뷰어 시험 `crates/keyscore-midi/tests/review_s3_t3d.rs`, `crates/keyscore-app/tests/review_s3_t3d.rs`를 커밋 |
+
+### 리뷰 2(커밋 88d90c7만 좁게, 판정 「수정 후 재리뷰」)
+
+| # | 대응 |
+| --- | --- |
+| 1(수정) | 받음. 곡 끝 이후 시작의 클럭 맞추기를 건너뛰지 않고 미룬다(`Rt::clock_resync`). `schedule`이 그 바퀴의 루프·곡 끝으로 다시 보아 곧바로 곡 끝이 아니면 그때 `resync_clock`을 하고, 곡 끝 정리를 실제로 처리할 때만 버린다. 처음 고친 판은 곡 끝 정리가 시작 여유(`START_MARGIN`) 때문에 다음 바퀴로 밀리면 대기를 먼저 버려 리뷰어 시험이 네 번 중 한 번 실패했다. 고친 뒤 `review_s3_t3d_r2` 15회 연속 통과 |
+| 제안 1 | 받음. 리뷰어 시험 `crates/keyscore-midi/tests/review_s3_t3d_r2.rs` 커밋 |
+| 제안 2 | 받음. 리뷰 1 대응 1의 보충: 재생 중이었으면 맞추기가 보내던 앞 Stop도 함께 미루므로 곡 끝 뒤로 `play`·`locate`하면 Stop은 곡 끝 정리의 한 번이다 |
