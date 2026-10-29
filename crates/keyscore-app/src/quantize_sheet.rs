@@ -11,7 +11,7 @@ use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::{
     ClickEvent, Context, FocusHandle, InteractiveElement as _, IntoElement, MouseButton,
-    ParentElement as _, SharedString, StatefulInteractiveElement as _, Styled as _,
+    ParentElement as _, SharedString, StatefulInteractiveElement as _, Styled as _, Subscription,
     TestSupportExt as _, Window, deferred, div, prelude::FluentBuilder as _, px,
 };
 
@@ -63,6 +63,9 @@ pub(crate) struct QuantizeSheet {
     focus: FocusHandle,
     row: SheetRow,
     draft: QuantizeSettings,
+    /// 포커스가 시트 밖으로 나가면 취소로 닫는다(리뷰 1 제안 1). 루트 처리기가 포커스를 옮기는 Action(트랜스포트
+    /// 필드)을 받으면 시트가 포커스 없이 남아 문서 키가 시트 뒤에서 동작했다.
+    _focus_out: Subscription,
 }
 
 /// 값 한 칸의 크기.
@@ -156,11 +159,24 @@ impl ProjectWindow {
         self.palette = None;
         self.overlay = None;
         self.popup = None;
-        let sheet = self.quantize_sheet.get_or_insert_with(|| QuantizeSheet {
-            focus: cx.focus_handle(),
-            row: SheetRow::Grid,
-            draft: AppSettings::get(cx).quantize,
-        });
+        if self.quantize_sheet.is_none() {
+            let focus = cx.focus_handle();
+            // 창이 비활성이 되어 잃는 포커스는 취소가 아니다(입력란과 같은 macOS 관례, `fields.rs`)
+            let focus_out = cx.on_focus_out(&focus, window, |this, _, window, cx| {
+                if window.is_window_active() {
+                    this.close_quantize_sheet(false, window, cx);
+                }
+            });
+            self.quantize_sheet = Some(QuantizeSheet {
+                focus,
+                row: SheetRow::Grid,
+                draft: AppSettings::get(cx).quantize,
+                _focus_out: focus_out,
+            });
+        }
+        let Some(sheet) = &self.quantize_sheet else {
+            return;
+        };
         window.focus(&sheet.focus, cx);
         cx.notify();
     }

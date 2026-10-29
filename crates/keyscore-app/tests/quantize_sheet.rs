@@ -6,7 +6,8 @@ use std::path::PathBuf;
 
 use gpui_kit::test::TestWindowExt as _;
 use gpui_kit::{Action, AnyWindowHandle, AppContext as _, Entity, TestAppContext};
-use keyscore_app::actions::{edit, help, mode, palette};
+use keyscore_app::actions::args::Opt;
+use keyscore_app::actions::{edit, help, mode, palette, transport};
 use keyscore_app::app_state::AppSettings;
 use keyscore_app::keymap::{self, Preset};
 use keyscore_app::mode::{Mode, View};
@@ -500,6 +501,18 @@ fn reopen_while_open_keeps_draft(cx: &mut TestAppContext) {
     run(cx, handle, edit::QuantizeSettings);
     assert_eq!(sheet(cx, &view), before);
     assert!(focus_in_sheet(cx, handle));
+}
+
+/// 루트 처리기가 포커스를 옮기는 Action(템포 필드)을 받으면 시트는 취소로 닫힌다. 시트가 보이는 채 문서 키가
+/// 시트 뒤에서 동작하지 않는다(리뷰 1 제안 1).
+#[gpui_kit::test]
+fn focus_leaving_sheet_cancels_it(cx: &mut TestAppContext) {
+    let (handle, view) = setup(cx, "blur");
+    press(cx, handle, "shift-q left");
+    run(cx, handle, transport::SetTempo(Opt(None)));
+    assert!(sheet(cx, &view).is_none());
+    assert_eq!(saved(cx), QuantizeSettings::default(), "초안을 버린다");
+    assert!(!focus_in_sheet(cx, handle));
 }
 
 // ---------- 13. 마우스 ----------
