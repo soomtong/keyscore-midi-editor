@@ -148,8 +148,14 @@ pub(crate) struct StepState {
     pub(crate) composing: Option<Composing>,
     pub(crate) chord: Option<OpenChord>,
     pub(crate) last: Option<LastStep>,
+    /// 지나온 스텝(시작, 끝, 절대 틱)의 자취. `Backspace`·`Shift+Tab`은 커서가 맨 위 스텝의 끝에 있으면 그
+    /// 스텝의 시작으로 간다(절반·셋잇단으로 친 스텝도 그 길이만큼, 리뷰 1 지적 1). 아니면 현재 길이 한 스텝.
+    pub(crate) trail: Vec<(Tick, Tick)>,
     pub(crate) generation: u64,
 }
+
+/// 자취 상한. 넘으면 오래된 것부터 버린다(그 앞은 현재 길이로 돌아간다).
+const TRAIL_MAX: usize = 1024;
 
 impl StepState {
     pub(crate) fn new(default_length: LengthCode) -> Self {
@@ -162,7 +168,35 @@ impl StepState {
             composing: None,
             chord: None,
             last: None,
+            trail: Vec::new(),
             generation: 0,
+        }
+    }
+
+    /// 스텝 하나를 지나왔다.
+    pub(crate) fn push_step(&mut self, start: Tick, end: Tick) {
+        if self.trail.len() == TRAIL_MAX {
+            self.trail.remove(0);
+        }
+        self.trail.push((start, end));
+    }
+
+    /// 타이로 맨 위 스텝(끝이 `end`)이 `to`까지 늘었다.
+    pub(crate) fn extend_step(&mut self, end: Tick, to: Tick) {
+        match self.trail.last_mut() {
+            Some(top) if top.1 == end => top.1 = to,
+            _ => self.push_step(end, to),
+        }
+    }
+
+    /// 한 스텝 뒤의 틱: 커서가 맨 위 스텝의 끝이면 그 스텝을 꺼내 시작으로, 아니면 `plain`만큼(0에서 멈춤).
+    pub(crate) fn step_back_from(&mut self, cursor: Tick, plain: u64) -> Tick {
+        match self.trail.last() {
+            Some(&(start, end)) if end == cursor => {
+                self.trail.pop();
+                start
+            }
+            _ => Tick::new(cursor.get().saturating_sub(plain)),
         }
     }
 

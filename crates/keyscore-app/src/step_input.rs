@@ -101,6 +101,7 @@ impl ProjectWindow {
     fn step_close_chord(&mut self, cx: &mut Context<Self>) {
         if let Some(chord) = self.step.chord.take() {
             let end = Tick::new(chord.at.get() + chord.len);
+            self.step.push_step(chord.at, end);
             self.step_move_to(end, None, cx);
             self.step.last = Some(LastStep {
                 track: chord.track,
@@ -167,6 +168,7 @@ impl ProjectWindow {
             }
             (false, None) => {
                 let end = Tick::new(at.get() + u64::from(len));
+                self.step.push_step(at, end);
                 self.step_move_to(end, Some(pitch), cx);
                 self.step.last = Some(LastStep {
                     track: c.track,
@@ -499,7 +501,9 @@ impl ProjectWindow {
             return;
         }
         self.step.last = None;
-        self.step_move_to(Tick::new(at.get() + u64::from(len)), None, cx);
+        let end = Tick::new(at.get() + u64::from(len));
+        self.step.push_step(at, end);
+        self.step_move_to(end, None, cx);
     }
 
     /// 커서가 클립 안(끝이 아니다)에 있는가.
@@ -555,7 +559,8 @@ impl ProjectWindow {
         self.step_close_chord(cx);
         self.step.last = None;
         let old = self.pianoroll.cursor().tick.get();
-        let new = old.saturating_sub(self.plain_step());
+        let plain = self.plain_step();
+        let new = self.step.step_back_from(Tick::new(old), plain).get();
         // 지울 스텝은 커서 바로 앞 틱을 품은 클립 안이다(클립 시작에서 자른다).
         let host = self.current_track().and_then(|track| {
             let doc = self.document.read(cx);
@@ -601,8 +606,10 @@ impl ProjectWindow {
         }
         self.step_settle(cx);
         self.step.last = None;
-        let at = self.pianoroll.cursor().tick.get();
-        self.step_move_to(Tick::new(at.saturating_sub(self.plain_step())), None, cx);
+        let at = self.pianoroll.cursor().tick;
+        let plain = self.plain_step();
+        let back = self.step.step_back_from(at, plain);
+        self.step_move_to(back, None, cx);
     }
 
     fn step_confirm(&mut self, _: &step::Confirm, _: &mut Window, cx: &mut Context<Self>) {
@@ -618,8 +625,10 @@ impl ProjectWindow {
             self.step_close_chord(cx);
         } else {
             self.step.last = None;
-            let at = self.pianoroll.cursor().tick.get();
-            self.step_move_to(Tick::new(at + self.plain_step()), None, cx);
+            let at = self.pianoroll.cursor().tick;
+            let end = Tick::new(at.get() + self.plain_step());
+            self.step.push_step(at, end);
+            self.step_move_to(end, None, cx);
         }
     }
 
@@ -688,6 +697,7 @@ impl ProjectWindow {
         }
         self.step_edited(cx);
         let end = Tick::new(cursor.get() + len);
+        self.step.extend_step(cursor, end);
         self.step.last = Some(LastStep {
             notes: replace.into_iter().map(|(_, to)| to).collect(),
             end,
