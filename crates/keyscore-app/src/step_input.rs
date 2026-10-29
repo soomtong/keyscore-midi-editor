@@ -459,7 +459,8 @@ impl ProjectWindow {
         if !self.in_step() {
             return;
         }
-        self.step_commit(cx);
+        // 화음은 닫는다(결정 5절). 화음 안의 다른 옥타브는 음 뒤 숫자로 친다(리뷰 1 지적 3).
+        self.step_settle(cx);
         self.step.triplet_next = true;
         self.step.prefix.push('n');
         cx.notify();
@@ -469,7 +470,7 @@ impl ProjectWindow {
         if !self.in_step() {
             return;
         }
-        self.step_commit(cx);
+        self.step_settle(cx);
         match self.step.octave.checked_add_signed(delta) {
             Some(o) if o <= OCTAVE_MAX => self.step.octave = o,
             _ => self.say(format!("옥타브는 0–{OCTAVE_MAX}이다"), cx),
