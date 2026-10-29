@@ -1,4 +1,4 @@
-# HANDOFF: KeyScore S3 진행 중 — S3-T3d 병합, S3-T3e 다음
+# HANDOFF: KeyScore S3 진행 중 — S3-T3e 병합, S3-T4 다음
 
 ## 목표
 
@@ -6,7 +6,7 @@
 
 ## 현재 브랜치
 
-`main` — S0 완료·서명(2026-10-15), S1-T1~T7과 계이름 텍스트 주석 `//` 변경 병합(테스트 818개 통과). S1 출구 서명(YoungTaek, 2026-10-16). S2-T1~T4·S2-T5a~T5d·S2-T6a~T6f 병합(테스트 1568개). S2-T6은 T6a(설정 창·키맵 편집기)·T6b(`?` 오버레이)·T6c(입력·메트로놈·AI 탭)·T6d(가상 포트)·T6e(포트별 클럭·테스트 노트·포트 상태)·T6f(이월 줄)로 나눴다. S2-T7은 T7a(저장·열기·닫기·최근 파일, 병합 72f2845, 테스트 1645 + 리뷰 r3 18)·T7b(자동 저장본·복구, 병합 4be705a, 테스트 1728 + 리뷰 r4 5)·T7c(가져오기·내보내기 메뉴, 병합 후 테스트 1795)·T7d(OUT-8 대체 매핑 제안, 병합 87deb10, 테스트 1824 + 리뷰 r3 3)·T7e(S2-T7b 리뷰 4·S2-T7c 리뷰 2·S2-T7d 리뷰 3 이월, 병합 96aa5aa, 테스트 1876 + 리뷰 r1 20·r2 8)로 나눴다(결정 `2026-10-21-s2-t7-save-policy-and-split.md`, `2026-10-22-s2-t7c-import-export.md`, `2026-10-22-out8-port-mapping-sheet.md`). S2 출구 보고서 `docs/reports/stage-2-exit.md`를 2026-10-24에 썼다(자동 게이트 통과, UI-11 시험 확인, 이월 31줄 대조). S2 출구 서명(YoungTaek, 2026-10-24, 키보드 한 바퀴 확인. 나머지 수동 항목은 추후 점검). S3-T1 피아노롤 Element 병합(d6ccc7c, 리뷰 2회, 전체 시험 1918). S3-T2 커서·선택·수식키 체계 병합(2fdca82, 리뷰 3회 + 결정 `2026-10-25-s3-t2-review-limit.md` A의 좁은 확인 1회와 부록, 전체 시험 1988). S3-T3을 넷(T3a 삭제·클립보드·반복, T3b 노트 편집, T3c vim 오퍼레이터·비주얼, T3d 곡 끝 정지)으로 나눴다(단계 파일 「나눔(2026-10-26)」). S3-T3a 병합(1fba3ac, 리뷰 3회, 3회차 「병합 가능」, 전체 시험 2062). S3-T3b 병합(8df04ed, 리뷰 3회, 3회차 「병합 가능」, 전체 시험 약 2110). `Shift+q` 퀀타이즈 설정 시트는 S3-T3e로 뗐다. S3-T3c 병합(a9d5022, 리뷰 3회 + 결정 `2026-10-27-s3-t3c-review-limit.md` A의 좁은 확인 1회 「병합 가능」, 전체 시험 2222). S3-T3d 곡 끝 정지 병합(1925d19, 리뷰 3회, 3회차 「병합 가능」, 전체 시험 2264). 다음은 S3-T3e.
+`main` — S0 완료·서명(2026-10-15), S1-T1~T7과 계이름 텍스트 주석 `//` 변경 병합(테스트 818개 통과). S1 출구 서명(YoungTaek, 2026-10-16). S2-T1~T4·S2-T5a~T5d·S2-T6a~T6f 병합(테스트 1568개). S2-T6은 T6a(설정 창·키맵 편집기)·T6b(`?` 오버레이)·T6c(입력·메트로놈·AI 탭)·T6d(가상 포트)·T6e(포트별 클럭·테스트 노트·포트 상태)·T6f(이월 줄)로 나눴다. S2-T7은 T7a(저장·열기·닫기·최근 파일, 병합 72f2845, 테스트 1645 + 리뷰 r3 18)·T7b(자동 저장본·복구, 병합 4be705a, 테스트 1728 + 리뷰 r4 5)·T7c(가져오기·내보내기 메뉴, 병합 후 테스트 1795)·T7d(OUT-8 대체 매핑 제안, 병합 87deb10, 테스트 1824 + 리뷰 r3 3)·T7e(S2-T7b 리뷰 4·S2-T7c 리뷰 2·S2-T7d 리뷰 3 이월, 병합 96aa5aa, 테스트 1876 + 리뷰 r1 20·r2 8)로 나눴다(결정 `2026-10-21-s2-t7-save-policy-and-split.md`, `2026-10-22-s2-t7c-import-export.md`, `2026-10-22-out8-port-mapping-sheet.md`). S2 출구 보고서 `docs/reports/stage-2-exit.md`를 2026-10-24에 썼다(자동 게이트 통과, UI-11 시험 확인, 이월 31줄 대조). S2 출구 서명(YoungTaek, 2026-10-24, 키보드 한 바퀴 확인. 나머지 수동 항목은 추후 점검). S3-T1 피아노롤 Element 병합(d6ccc7c, 리뷰 2회, 전체 시험 1918). S3-T2 커서·선택·수식키 체계 병합(2fdca82, 리뷰 3회 + 결정 `2026-10-25-s3-t2-review-limit.md` A의 좁은 확인 1회와 부록, 전체 시험 1988). S3-T3을 넷(T3a 삭제·클립보드·반복, T3b 노트 편집, T3c vim 오퍼레이터·비주얼, T3d 곡 끝 정지)으로 나눴다(단계 파일 「나눔(2026-10-26)」). S3-T3a 병합(1fba3ac, 리뷰 3회, 3회차 「병합 가능」, 전체 시험 2062). S3-T3b 병합(8df04ed, 리뷰 3회, 3회차 「병합 가능」, 전체 시험 약 2110). `Shift+q` 퀀타이즈 설정 시트는 S3-T3e로 뗐다. S3-T3c 병합(a9d5022, 리뷰 3회 + 결정 `2026-10-27-s3-t3c-review-limit.md` A의 좁은 확인 1회 「병합 가능」, 전체 시험 2222). S3-T3d 곡 끝 정지 병합(1925d19, 리뷰 3회, 3회차 「병합 가능」, 전체 시험 2264). S3-T3e 퀀타이즈 설정 시트 병합(1be8c16, 리뷰 2회 모두 「병합 가능」, 전체 시험 2295). 다음은 S3-T4.
 
 ## 완료된 작업
 
@@ -90,6 +90,7 @@
 - 단계 파일 수치를 검증 없이 옮기기: S0-T3 「1시간 = 3,456,000틱」은 60 BPM 기준이었다(정정함).
 - 커밋 메시지를 `git commit -m "..."`의 큰따옴표 안에 백틱(`:a:b`)과 함께 쓰면 zsh가 명령 치환해 글자가 사라진다(S3-T2). 본문은 파일에 써서 `-F`로 넘긴다.
 - REQ에 없는 UI 세부(선택 직사각형의 기하)를 코드로 먼저 정하면 리뷰 회차마다 새 조합이 나온다(S3-T2, 3회). 처음 계획에 규칙을 글로 전부 적고(기준 칸 생명주기, 클립 우선순위, 넓히기가 좁히는가) 그 글을 시험으로 고정한다.
+- 전체 시험을 돌리는 중에 같은 `target/`로 수정분을 빌드하면 시험 바이너리가 섞인다(S3-T3e). 전체 시험 중 빌드는 `CARGO_TARGET_DIR`을 나누거나 끝난 뒤에 한다. 리뷰 뒤 수정이 있으면 전체 시험은 그 뒤에 처음부터 다시 돌린다.
 - 리뷰어 서브 에이전트가 `git worktree`에서 같은 `target/`을 쓰면 본 트리의 시험 바이너리가 옛 코드로 바뀐다(S3-T2 리뷰 3). 리뷰어 지시에 `CARGO_TARGET_DIR` 분리를 넣는다.
 
 - 계획의 「한 스텝 배수로 올림」처럼 REQ 글자(「선택의 길이만큼」)와 다른 편의 규칙을 계획 「리스크」에만 적고 구현: 리뷰가 차단했다(S3-T3a 리뷰 1). REQ와 다르면 처음부터 결정 요청을 쓰고 REQ 글자대로 구현한다.
@@ -103,6 +104,8 @@
 - 곡 끝 뒤 시작에서 클럭 맞추기를 `start_playing` 때 판정해 건너뛰면, 같은 바퀴의 루프·교체가 곡 끝을 없앨 때 장치가 어긋났다(S3-T3d 리뷰 2). 실시간 판정은 실제로 처리하는 `schedule` 시점에 한다.
 
 ## 남은 작업
+
+- [ ] 디스크 정리(사람 요청 2026-10-29): `target/review-t3b`·`target/review`·`target/alt`는 지웠다. `target/debug`(63G, `deps` 39G·`incremental` 23G)를 `cargo clean`할지 사람 답을 기다린다. 저장소에 디스크 정리 규칙 문서는 없다(사람이 「규칙이 있다」고 했으나 찾지 못함).
 
 - [ ] 원격 CI 첫 실행과 CI 러너 벤치 기준값: remote가 생기면(사람이 건너뜀)
 - [ ] 후속: `crates/keyscore-midi/tests/scheduler.rs`의 20초 지터 측정이 같은 바이너리의 루프백 테스트와 겹치면 가끔 0.5 ms를 넘는다. 타이밍 측정 테스트를 서로 직렬로 묶는다.
@@ -144,7 +147,7 @@ REQ 문구: 사람이 에이전트에게 수정을 허락한 범위(결정 문�
 
 ## 다음 에이전트에게
 
-1. 다음은 S3-T3e(`Shift+q` 퀀타이즈 설정 시트, 값은 설정 `quantize`, 단계 파일 S3-T3 「나눔」). 그 뒤 S3-T4. 결정 `2026-10-26-duplicate-offset-grid.md`가 나면 `pianoroll/edit.rs` `duplicate_offset`도. 리뷰어 지시에 `CARGO_TARGET_DIR=target/review`와 「MIDI·재생 시험과 전체 시험을 돌리지 않음」을 넣는다. S3-T3d 구조: 곡 끝은 `Snapshot::with_end`로 스케줄러가 멈추고, 창은 `engine::END_POLL`마다 `Scheduler::take_ended`로 정지(틱 0)한다. 재생 시험 픽스처는 클립이 있어야 곡 끝에서 멈추지 않는다.
+1. 다음은 S3-T4(Step 모드와 길이 코드 문법). S3-T3e 구조: 시트는 `quantize_sheet.rs`, 창 루트 자식으로 그리는 `Dialog > QuantizeSheet` 패널이고 포커스 이탈(창 활성 중)은 취소다. 창 안 시트 규칙은 결정 `2026-10-29-in-window-sheets-vs-modal-dialogs.md`. 결정 `2026-10-26-duplicate-offset-grid.md`가 나면 `pianoroll/edit.rs` `duplicate_offset`도. 리뷰어 지시에 `CARGO_TARGET_DIR=target/review`와 「MIDI·재생 시험과 전체 시험을 돌리지 않음」을 넣는다. S3-T3d 구조: 곡 끝은 `Snapshot::with_end`로 스케줄러가 멈추고, 창은 `engine::END_POLL`마다 `Scheduler::take_ended`로 정지(틱 0)한다. 재생 시험 픽스처는 클립이 있어야 곡 끝에서 멈추지 않는다.
 2. S2 출구는 서명됐다. 보고서 「사람이 확인할 항목」 가운데 「추후 점검」 항목(메뉴 키 등가물, 팔레트 첫 Esc, 크래시 복구, 가져오기·내보내기, 포트 매핑 시트, 핫플러그·서버 재시작, IME, 타이밍 시험)은 사람이 나중에 보며 S3을 막지 않는다. 사람이 결함을 알리면 Task 브랜치로 고친다.
 3. Task 루프: 브랜치 `s3/t<번호>-<slug>` → `docs/reports/s3-t<번호>/plan.md` → 테스트 먼저(뼈대 `todo!()`로 실패 확인) → 구현 → 게이트 전부(커밋 전에) → `report.md` → 새 에이전트로 적대적 리뷰(`general-purpose`, 구현 맥락 없이, 양식 `plan/templates/adversarial-review.md`, 산출물만 남기고 커밋 금지, 기존 `.proptest-regressions` 삭제 금지) → 지적마다 커밋 하나 → 재리뷰(최대 3회) → `git merge --no-ff`.
 4. 자동 게이트: `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`, `cargo deny check`, `scripts/check-deps.sh`, `scripts/check-deps.test.sh`, `scripts/bench-check.test.sh`. `core`·`text`에 외부 의존을 더하면 `scripts/check-deps.sh`의 허용 목록도 고친다.
