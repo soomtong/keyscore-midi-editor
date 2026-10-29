@@ -71,3 +71,9 @@ keyscore-app --test commands·keymap_engine·keymap_overlay·note_ops·keymap_so
 - 제안 1(포커스 이탈 뒤 시트가 남음): 받음. 창이 활성인 동안 포커스가 시트 밖으로 나가면 취소로 닫는다(`on_focus_out`, 창 비활성은 입력란처럼 취소가 아니다). 시험 `focus_leaving_sheet_cancels_it`. 커밋 ee86cb0.
 - 제안 2(마우스로 닫은 뒤 포커스 복귀 시험): 리뷰 시험 `crates/keyscore-app/tests/review_s3_t3e.rs`가 고정하고 그 파일을 커밋했다(ea1c3e6). 따로 더하지 않는다.
 - 제안 3(7절 「모달 다이얼로그」 읽기): 받음. `docs/decisions/2026-10-29-in-window-sheets-vs-modal-dialogs.md`에 에이전트 해석으로 남겼다.
+
+## 리뷰 2 대응(판정 「병합 가능」, 제안 3)
+
+- 제안 1(계획 4절에 포커스 이탈 규칙이 없음): 받음. 계획 4절에 적었다.
+- 제안 2(리뷰 1 기록 시험의 이름·설명이 낡음): 받음. `set_tempo_dispatch_while_sheet_open_cancels_sheet`로 이름을 바꾸고 「시트가 닫힌다」 단언을 더했다(시험은 지우지 않았다).
+- 제안 3(창 비활성 중 포커스가 밖으로 옮겨지면 시트가 남을 수 있음): 거절. 창이 비활성인 동안 창 안 포커스를 옮기는 사용자 경로가 없다. 생기면(예: 외부 이벤트가 창 포커스를 옮김) 그때 다시 본다.
