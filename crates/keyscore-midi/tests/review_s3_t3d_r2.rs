@@ -251,7 +251,13 @@ fn play_past_end_then_swap_extending_end_in_same_wake_resyncs_clock() {
     s.stop().unwrap();
     s.collect_garbage();
     let got = drain(&lb, Duration::from_millis(100));
-    assert_resynced(ended, &clock_msgs(&got), true);
+    // 앞 재생에서 이미 넘긴 옛 Clock이 `playing_with_clock`의 drain 뒤에 도착할 수 있다(부하에서 실패, 리뷰 3
+    // 제안 1). 맨 앞의 옛 Clock은 떼고 본다.
+    let clock: Vec<Vec<u8>> = clock_msgs(&got)
+        .into_iter()
+        .skip_while(|m| m == &vec![0xF8])
+        .collect();
+    assert_resynced(ended, &clock, true);
 }
 
 #[test]
