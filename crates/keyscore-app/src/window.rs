@@ -301,7 +301,13 @@ impl ProjectWindow {
             self.pianoroll.set_visual(None);
             let entered_piano_roll =
                 next.view() == View::PianoRoll && self.mode.view() != View::PianoRoll;
+            let sequence_changed =
+                (self.mode.mode() == Mode::Sequence) != (next.mode() == Mode::Sequence);
             self.mode = next;
+            // Sequence 모드는 곡 끝에서 멈추지 않는다(S3-T3d). 재생 중이면 곡 끝 유무를 바꾼 스냅샷을 넣는다.
+            if sequence_changed {
+                self.transport_refresh(cx);
+            }
             if entered_piano_roll {
                 self.entered_piano_roll(cx);
             }
@@ -591,6 +597,12 @@ impl ProjectWindow {
     #[must_use]
     pub const fn transport_state(&self) -> crate::engine::TransportState {
         self.transport.state
+    }
+
+    /// 표시하는 재생 위치: 재생 중이면 지금 자리, 일시정지면 그 자리, 정지면 처음(S3-T3d).
+    #[must_use]
+    pub fn transport_position(&self) -> keyscore_core::Tick {
+        self.transport.position()
     }
 
     /// 메트로놈이 켜져 있는가(TRN-2).

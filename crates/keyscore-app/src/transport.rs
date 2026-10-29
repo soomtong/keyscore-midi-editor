@@ -2,13 +2,14 @@
 
 use std::time::Duration;
 
-use gpui_kit::{BorrowAppContext as _, Context, SharedString, Window};
+use gpui_kit::{BorrowAppContext as _, Context, SharedString, Task, Window};
 use keyscore_core::{MusicTime, TempoMap, Tick};
 use keyscore_midi::{HostTime, MidiError};
 
 use crate::actions::transport;
 use crate::app_state::AppSettings;
-use crate::engine::{Engine, PortProblem, Setup, TransportState, clock_commands};
+use crate::engine::{END_POLL, Engine, PortProblem, Setup, TransportState, clock_commands};
+use crate::mode::Mode;
 use crate::settings::MetronomeSettings;
 use crate::window::ProjectWindow;
 
@@ -31,6 +32,8 @@ pub(crate) struct Transport {
     /// 지난 교체에서 메트로놈 설정이 들어가지 않았다. 다음 교체까지 클릭을 켜지 않는다.
     metronome_unset: bool,
     pub(crate) messages: Vec<SharedString>,
+    /// 곡 끝 감시(S3-T3d). 재생을 시작할 때 새로 들고, 창이 재생 중이 아니면 스스로 끝난다.
+    end_watch: Option<Task<()>>,
 }
 
 impl Transport {
@@ -241,9 +244,11 @@ impl ProjectWindow {
         let metronome = metronome_settings(cx);
         let clock_ports = clock_settings(cx);
         let button = self.transport.metronome;
+        let stop_at_end = self.stops_at_song_end();
         let result = cx.update_global::<Engine, _>(|engine, cx| {
             let project = document.read(cx).project();
-            let prepared = engine.prepare(project, true, &metronome.port, &clock_ports)?;
+            let prepared =
+                engine.prepare(project, true, stop_at_end, &metronome.port, &clock_ports)?;
             let tempo = project.tempo_map().clone();
             // 지난 클럭 상태를 꺼낸다. 이 묶음이 끝까지 성공해야 새 상태를 적는다. 중간에 실패하면 모르는 상태로
             // 남아 다음 교체가 모든 번호를 다시 맞춘다(S2-T6c 리뷰 2 제안 1 이월).
@@ -336,6 +341,7 @@ impl ProjectWindow {
         let button = self.transport.metronome;
         let metronome = metronome_settings(cx);
         let clock_ports = clock_settings(cx);
+        let stop_at_end = self.stops_at_song_end();
         // 앞 주인은 결과와 무관하게 정지 상태다. 아래 `stop`이 그 재생을 멈춘다.
         let previous = cx
             .global_mut::<Engine>()
@@ -351,7 +357,8 @@ impl ProjectWindow {
         // 트랙 수만큼 차서 재생이 실패할 수 있다(리뷰 1 지적 3).
         let result = cx.update_global::<Engine, _>(|engine, cx| {
             let project = document.read(cx).project();
-            let prepared = engine.prepare(project, false, &metronome.port, &clock_ports)?;
+            let prepared =
+                engine.prepare(project, false, stop_at_end, &metronome.port, &clock_ports)?;
             let tempo = project.tempo_map().clone();
             // 실패하면 클럭 상태는 모르는 채로 남는다(다음 재생이 모든 번호를 다시 맞춘다)
             let old_clock = engine.take_clock_state();
@@ -391,6 +398,7 @@ impl ProjectWindow {
                 self.transport.state = TransportState::Playing;
                 self.transport.anchor = Some(Anchor::new(from, swapped.tempo.clone()));
                 self.apply_swapped(swapped);
+                self.watch_song_end(cx);
             }
             Err(e) => {
                 // 실패 전에 들어간 명령(정지 등)이 있을 수 있다. 상태를 소리와 맞춘다.
@@ -400,6 +408,45 @@ impl ProjectWindow {
             }
         }
         cx.notify();
+    }
+
+    /// 곡 끝에서 멈추는가: Sequence 모드(재생 중 녹음)가 아니면(결정 `2026-10-25-playback-end-of-song.md` A).
+    fn stops_at_song_end(&self) -> bool {
+        self.mode_state().mode() != Mode::Sequence
+    }
+
+    /// 곡 끝 감시를 시작한다. 스케줄러는 곡 끝에서 스스로 멈추고, 창은 주기마다 그것을 확인해 정지 상태(틱 0)로
+    /// 간다. 앞 감시는 놓는다(취소된다).
+    fn watch_song_end(&mut self, cx: &mut Context<Self>) {
+        self.transport.end_watch = Some(cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor().timer(END_POLL).await;
+                let watching = this.update(cx, Self::check_song_end).unwrap_or(false);
+                if !watching {
+                    break;
+                }
+            }
+        }));
+    }
+
+    /// 스케줄러가 곡 끝에서 멈췄으면 창도 멈춘다. 계속 감시할지를 돌려준다(재생 중인 동안만).
+    fn check_song_end(&mut self, cx: &mut Context<Self>) -> bool {
+        let me = cx.entity().downgrade();
+        if self.transport.state != TransportState::Playing
+            || !cx.has_global::<Engine>()
+            || !cx.global::<Engine>().is_owner(&me)
+        {
+            return false;
+        }
+        let engine = cx.global_mut::<Engine>();
+        if !engine.scheduler().take_ended() {
+            return true;
+        }
+        // 스케줄러는 이미 멈췄다(울리던 노트도 껐다). 주인만 놓는다.
+        engine.take_owner(None);
+        self.transport.mark_stopped();
+        cx.notify();
+        false
     }
 
     /// 이 창의 재생을 멈춘다(정지 Action, 창 닫기).

@@ -112,8 +112,10 @@ impl ProjectWindow {
             let metronome_port = crate::transport::metronome_settings(cx).port;
             let clock_ports = crate::transport::clock_settings(cx);
             let result = cx.update_global::<Engine, _>(|engine, cx| {
+                // 재생하지 않으므로 곡 끝은 넣지 않는다. 재생 시작이 스냅샷을 다시 만든다.
                 let prepared = engine.prepare(
                     document.read(cx).project(),
+                    false,
                     false,
                     &metronome_port,
                     &clock_ports,
