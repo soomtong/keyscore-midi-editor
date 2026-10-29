@@ -153,6 +153,9 @@ pub(crate) struct StepState {
     /// 지나온 스텝(시작, 끝, 절대 틱)의 자취. `Backspace`·`Shift+Tab`은 커서가 맨 위 스텝의 끝에 있으면 그
     /// 스텝의 시작으로 간다(절반·셋잇단으로 친 스텝도 그 길이만큼, 리뷰 1 지적 1). 아니면 현재 길이 한 스텝.
     pub(crate) trail: Vec<(Tick, Tick)>,
+    /// 자취가 맞는 (트랙, 문서 revision). 다른 트랙이거나 Step 밖의 편집·undo로 문서가 바뀌면 자취는 낡아 버린다
+    /// (리뷰 2 지적 1). Step 자신의 편집은 열쇠를 이어 간다(`rekey`).
+    pub(crate) trail_key: Option<(Option<TrackId>, u64)>,
     pub(crate) generation: u64,
 }
 
@@ -171,12 +174,35 @@ impl StepState {
             chord: None,
             last: None,
             trail: Vec::new(),
+            trail_key: None,
             generation: 0,
         }
     }
 
-    /// 스텝 하나를 지나왔다.
-    pub(crate) fn push_step(&mut self, start: Tick, end: Tick) {
+    /// 열쇠가 지금(`key`)과 다르면 자취를 버린다.
+    fn check_key(&mut self, key: (Option<TrackId>, u64)) {
+        if self.trail_key != Some(key) {
+            self.trail.clear();
+            self.trail_key = Some(key);
+        }
+    }
+
+    /// 자취를 버린다(Step을 나갈 때).
+    pub(crate) fn clear_trail(&mut self) {
+        self.trail.clear();
+        self.trail_key = None;
+    }
+
+    /// Step 자신이 문서를 한 번 바꿨다(revision `before` → `after`): 맞던 자취는 그대로 맞다.
+    pub(crate) fn rekey(&mut self, track: Option<TrackId>, before: u64, after: u64) {
+        if self.trail_key == Some((track, before)) {
+            self.trail_key = Some((track, after));
+        }
+    }
+
+    /// 스텝 하나를 지나왔다. `key`는 지금 (트랙, revision).
+    pub(crate) fn push_step(&mut self, key: (Option<TrackId>, u64), start: Tick, end: Tick) {
+        self.check_key(key);
         if self.trail.len() == TRAIL_MAX {
             self.trail.remove(0);
         }
@@ -184,15 +210,22 @@ impl StepState {
     }
 
     /// 타이로 맨 위 스텝(끝이 `end`)이 `to`까지 늘었다.
-    pub(crate) fn extend_step(&mut self, end: Tick, to: Tick) {
+    pub(crate) fn extend_step(&mut self, key: (Option<TrackId>, u64), end: Tick, to: Tick) {
+        self.check_key(key);
         match self.trail.last_mut() {
             Some(top) if top.1 == end => top.1 = to,
-            _ => self.push_step(end, to),
+            _ => self.push_step(key, end, to),
         }
     }
 
     /// 한 스텝 뒤의 틱: 커서가 맨 위 스텝의 끝이면 그 스텝을 꺼내 시작으로, 아니면 `plain`만큼(0에서 멈춤).
-    pub(crate) fn step_back_from(&mut self, cursor: Tick, plain: u64) -> Tick {
+    pub(crate) fn step_back_from(
+        &mut self,
+        key: (Option<TrackId>, u64),
+        cursor: Tick,
+        plain: u64,
+    ) -> Tick {
+        self.check_key(key);
         match self.trail.last() {
             Some(&(start, end)) if end == cursor => {
                 self.trail.pop();

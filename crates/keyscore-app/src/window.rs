@@ -303,6 +303,8 @@ impl ProjectWindow {
         // 모드를 나가면 조합 중인 입력은 현재 옥타브로 확정한다(REQ 5.6, A13).
         if self.mode.mode() == Mode::Step && next.mode() != Mode::Step {
             self.step_settle(cx);
+            // 지나온 스텝의 자취는 이번 Step 입력의 것이다(리뷰 2 지적 1).
+            self.step.clear_trail();
         }
         if next != self.mode {
             // 오퍼레이터 대기와 비주얼은 Normal 피아노롤의 것이다. 모드·뷰가 바뀌면 끝낸다(S3-T3c). 비주얼만 끝내고

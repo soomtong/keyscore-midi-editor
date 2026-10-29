@@ -101,7 +101,7 @@ impl ProjectWindow {
     fn step_close_chord(&mut self, cx: &mut Context<Self>) {
         if let Some(chord) = self.step.chord.take() {
             let end = Tick::new(chord.at.get() + chord.len);
-            self.step.push_step(chord.at, end);
+            self.step.push_step(self.step_trail_key(cx), chord.at, end);
             self.step_move_to(end, None, cx);
             self.step.last = Some(LastStep {
                 track: chord.track,
@@ -168,7 +168,7 @@ impl ProjectWindow {
             }
             (false, None) => {
                 let end = Tick::new(at.get() + u64::from(len));
-                self.step.push_step(at, end);
+                self.step.push_step(self.step_trail_key(cx), at, end);
                 self.step_move_to(end, Some(pitch), cx);
                 self.step.last = Some(LastStep {
                     track: c.track,
@@ -279,8 +279,17 @@ impl ProjectWindow {
         Some((id, rel))
     }
 
-    /// Step이 문서를 바꿨다: 노트 선택을 비운다(밀린 노트를 가리키는 선택이 남지 않게).
+    /// 자취의 열쇠: (현재 트랙, 문서 revision).
+    fn step_trail_key(&self, cx: &Context<Self>) -> (Option<TrackId>, u64) {
+        (self.current_track(), self.document.read(cx).revision())
+    }
+
+    /// Step이 문서를 바꿨다(`apply` 한 번 = revision 하나): 자취의 열쇠를 잇고, 노트 선택을 비운다(밀린 노트를
+    /// 가리키는 선택이 남지 않게).
     fn step_edited(&mut self, cx: &mut Context<Self>) {
+        let after = self.document.read(cx).revision();
+        self.step
+            .rekey(self.current_track(), after.saturating_sub(1), after);
         if !self.pianoroll.selection().is_empty() || self.pianoroll.anchor().is_some() {
             self.pianoroll
                 .set_selection(crate::pianoroll::Selection::default());
@@ -513,7 +522,7 @@ impl ProjectWindow {
         }
         self.step.last = None;
         let end = Tick::new(at.get() + u64::from(len));
-        self.step.push_step(at, end);
+        self.step.push_step(self.step_trail_key(cx), at, end);
         self.step_move_to(end, None, cx);
     }
 
@@ -564,7 +573,10 @@ impl ProjectWindow {
         self.step.last = None;
         let old = self.pianoroll.cursor().tick.get();
         let plain = self.plain_step();
-        let new = self.step.step_back_from(Tick::new(old), plain).get();
+        let new = self
+            .step
+            .step_back_from(self.step_trail_key(cx), Tick::new(old), plain)
+            .get();
         // 지울 스텝은 커서 바로 앞 틱을 품은 클립 안이다(클립 시작에서 자른다).
         let host = self.current_track().and_then(|track| {
             let doc = self.document.read(cx);
@@ -612,7 +624,7 @@ impl ProjectWindow {
         self.step.last = None;
         let at = self.pianoroll.cursor().tick;
         let plain = self.plain_step();
-        let back = self.step.step_back_from(at, plain);
+        let back = self.step.step_back_from(self.step_trail_key(cx), at, plain);
         self.step_move_to(back, None, cx);
     }
 
@@ -631,7 +643,7 @@ impl ProjectWindow {
             self.step.last = None;
             let at = self.pianoroll.cursor().tick;
             let end = Tick::new(at.get() + self.plain_step());
-            self.step.push_step(at, end);
+            self.step.push_step(self.step_trail_key(cx), at, end);
             self.step_move_to(end, None, cx);
         }
     }
@@ -701,7 +713,7 @@ impl ProjectWindow {
         }
         self.step_edited(cx);
         let end = Tick::new(cursor.get() + len);
-        self.step.extend_step(cursor, end);
+        self.step.extend_step(self.step_trail_key(cx), cursor, end);
         self.step.last = Some(LastStep {
             notes: replace.into_iter().map(|(_, to)| to).collect(),
             end,
