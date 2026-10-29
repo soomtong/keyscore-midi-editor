@@ -48,6 +48,22 @@ pub enum TransportState {
     Paused(Tick),
 }
 
+/// 재생 중인 창이 스케줄러의 곡 끝 정지를 확인하는 주기(S3-T3d). 시험은 이만큼 시계를 돌린다.
+pub const END_POLL: std::time::Duration = std::time::Duration::from_millis(20);
+
+/// 곡 끝: 모든 트랙에서 가장 늦게 끝나는 클립의 끝 틱(결정 `2026-10-25-playback-end-of-song.md`). 숨김
+/// 꼬리는 세지 않는다. 클립이 없으면 틱 0.
+#[must_use]
+pub fn song_end(project: &Project) -> Tick {
+    let end = project
+        .tracks()
+        .iter()
+        .flat_map(|t| t.clips().map(|(_, c)| c.end()))
+        .max()
+        .unwrap_or(0);
+    Tick::new(end)
+}
+
 /// 앱 전역 엔진.
 pub(crate) struct Engine {
     client: MidiClient,
@@ -1054,6 +1070,7 @@ impl Engine {
         &mut self,
         project: &Project,
         live: bool,
+        stop_at_end: bool,
         metronome: &OutputPort,
         clock_ports: &[OutputPort],
     ) -> Result<Prepared, MidiError> {
@@ -1174,7 +1191,8 @@ impl Engine {
         let rendered = render(project, |i, _| track_ports.get(i).copied().flatten());
         events.extend(rendered.into_events());
         let snapshot = Snapshot::new(project.tempo_map().clone(), ports, events)?
-            .with_meter(project.meter_map().clone());
+            .with_meter(project.meter_map().clone())
+            .with_end(stop_at_end.then(|| song_end(project)));
         Ok(Prepared {
             snapshot: Arc::new(snapshot),
             setup,

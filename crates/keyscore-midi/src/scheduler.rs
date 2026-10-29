@@ -130,6 +130,8 @@ pub struct Snapshot {
     /// (시작, 개수). 교체 때 「이 노트가 이어서 울려야 하나」를 할당 없이 찾는 데 쓴다.
     note_events: Vec<(Tick, bool)>,
     note_ranges: Vec<(u32, u32)>,
+    /// 곡 끝 틱(S3-T3d). 재생이 닿으면 스스로 멈춘다.
+    end: Option<Tick>,
 }
 
 impl Snapshot {
@@ -158,6 +160,7 @@ impl Snapshot {
             ports,
             note_events,
             note_ranges,
+            end: None,
         })
     }
 
@@ -188,6 +191,17 @@ impl Snapshot {
     #[must_use]
     pub fn meter(&self) -> &MeterMap {
         &self.meter
+    }
+
+    /// 곡 끝 틱을 둔다. 재생이 이 틱에 닿으면 스케줄러가 스스로 멈춘다. `None`이면 멈추지 않는다(S3-T3d).
+    #[must_use]
+    pub fn with_end(self, end: Option<Tick>) -> Self {
+        Snapshot { end, ..self }
+    }
+
+    #[must_use]
+    pub fn end(&self) -> Option<Tick> {
+        self.end
     }
 
     /// `at` 이상인 첫 이벤트의 인덱스.
@@ -240,6 +254,9 @@ struct Signals {
     panic: AtomicBool,
     /// 패닉 요청 때까지 큐에 넣은 명령 수. 그 명령들을 먼저 처리한 뒤 패닉한다(리뷰 2 지적 4).
     panic_after: AtomicU64,
+    /// 곡 끝에서 스스로 멈춘 때까지 처리한 명령 수(`0`은 없음). 그 뒤에 넣은 재생 명령이 있으면 옛 정지다
+    /// (S3-T3d).
+    ended: AtomicU64,
 }
 
 /// 스케줄러 스레드의 손잡이. drop하면 울리는 노트를 끄고 스레드를 끝낸다.
@@ -247,6 +264,8 @@ pub struct Scheduler {
     commands: rtrb::Producer<Command>,
     /// 큐에 넣은 명령 수.
     pushed: u64,
+    /// 마지막 재생·위치 이동 명령의 번호(`pushed` 기준). 이보다 앞의 곡 끝 정지는 보고하지 않는다.
+    last_start: u64,
     garbage: rtrb::Consumer<Arc<Snapshot>>,
     beats: rtrb::Consumer<Beat>,
     /// 스레드가 끝날 때 들고 있던 스냅샷을 넘겨받는 길. 끝난 뒤에만 쓰므로 할당이 있어도 된다.
@@ -273,6 +292,7 @@ impl Scheduler {
             quit: AtomicBool::new(false),
             panic: AtomicBool::new(false),
             panic_after: AtomicU64::new(0),
+            ended: AtomicU64::new(0),
         });
         let timebase = Timebase::get();
         // 상태 표는 여기(제어 스레드)에서 할당해 넘긴다. 스케줄러 스레드는 할당하지 않는다.
@@ -300,6 +320,7 @@ impl Scheduler {
             floor: 0,
             clock_mask: 0,
             next_clock: 0,
+            clock_resync: None,
             active: vec![0; MAX_SCHEDULER_PORTS * 16 * 128].into_boxed_slice(),
             chase: vec![NONE; MAX_SCHEDULER_PORTS * 16 * CHASE_SLOTS].into_boxed_slice(),
             off_until: vec![0; MAX_SCHEDULER_PORTS * 16 * 128].into_boxed_slice(),
@@ -327,6 +348,7 @@ impl Scheduler {
         Ok(Scheduler {
             commands,
             pushed: 0,
+            last_start: 0,
             garbage,
             beats,
             leftovers,
@@ -355,7 +377,9 @@ impl Scheduler {
     ///
     /// 명령 큐가 가득이면 `QueueFull`, 스레드가 끝났으면 `Os`.
     pub fn play(&mut self, from: Tick) -> Result<(), MidiError> {
-        self.send(Command::Play(from))
+        self.send(Command::Play(from))?;
+        self.last_start = self.pushed;
+        Ok(())
     }
 
     /// 정지한다. 울리는 노트(미리듣기로 켠 노트 포함)를 끈다.
@@ -373,7 +397,9 @@ impl Scheduler {
     ///
     /// `QueueFull`, `Os`.
     pub fn locate(&mut self, to: Tick) -> Result<(), MidiError> {
-        self.send(Command::Locate(to))
+        self.send(Command::Locate(to))?;
+        self.last_start = self.pushed;
+        Ok(())
     }
 
     /// 루프 범위 `[start, end)`. `None`이면 루프를 끈다. 재생 위치가 이미 `end` 뒤면 다음 재생·위치
@@ -473,6 +499,18 @@ impl Scheduler {
     /// `QueueFull`, `Os`.
     pub fn set_metronome_forced(&mut self, on: bool) -> Result<(), MidiError> {
         self.send(Command::MetronomeForced(on))
+    }
+
+    /// 마지막 `play`·`locate` 뒤 곡 끝(`Snapshot::with_end`)에서 스스로 멈췄으면 한 번 `true`다(S3-T3d).
+    pub fn take_ended(&mut self) -> bool {
+        let ended = self.signals.ended.load(Ordering::Acquire);
+        ended != 0
+            && ended >= self.last_start
+            && self
+                .signals
+                .ended
+                .compare_exchange(ended, 0, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
     }
 
     /// 재생 중 지난 박 하나를 꺼낸다(MET-2). UI가 주기적으로 불러 비운다. 비우지 않아 큐가 차면
@@ -588,6 +626,9 @@ struct Rt {
     floor: u64,
     clock_mask: u32,
     next_clock: u64,
+    /// 곡 끝 이후에서 시작해 미룬 클럭 맞추기(시작 호스트 시각, 재생 중이었나). 같은 바퀴의 루프·교체가 곡 끝
+    /// 정지를 없앨 수 있어, 맞추기는 `schedule`이 곡 끝을 다시 본 뒤에 정한다(S3-T3d 리뷰 2 지적 1).
+    clock_resync: Option<(u64, bool)>,
     /// (포트, 채널, 음높이)마다 울리는 Note On 수.
     active: Box<[u8]>,
     /// (포트, 채널)마다 chase 값.
@@ -629,6 +670,7 @@ enum Next {
     Click,
     Clock,
     LoopEnd(Tick),
+    SongEnd,
 }
 
 impl Rt {
@@ -839,7 +881,15 @@ impl Rt {
         self.floor = host;
         self.cursor = self.snap.first_at_or_after(from);
         self.chase(from, host);
-        self.next_clock = self.resync_clock(from, host, was_playing);
+        // 곡 끝 이후에서 시작하면 곧바로 곡 끝 정리가 Stop을 보낸다. 클럭 장치에 Start·SPP·Continue를 보낸 뒤
+        // 같은 시각에 Stop을 보내지 않게 맞추기를 미룬다(S3-T3d 리뷰 1 제안 1). 정하는 것은 `schedule`이다.
+        if self.past_song_end() {
+            self.clock_resync = Some((host, was_playing));
+            self.next_clock = u64::MAX;
+        } else {
+            self.clock_resync = None;
+            self.next_clock = self.resync_clock(from, host, was_playing);
+        }
         self.next_beat = beat_at_or_after(&self.snap.meter, from);
         self.playing = true;
     }
@@ -931,6 +981,11 @@ impl Rt {
         }
     }
 
+    /// 곡 끝이 기준점 틱 이하다(루프 중이 아니면). `peek_next`가 무엇보다 먼저 곡 끝을 돌려주는 조건이다.
+    fn past_song_end(&self) -> bool {
+        self.looping.is_none() && self.snap.end.is_some_and(|end| end <= self.base_tick)
+    }
+
     /// 다음에 보낼 항목(이벤트, Clock, 루프 끝 가운데 가장 이른 것).
     fn peek_next(&self) -> Option<(Tick, Next)> {
         let event = self
@@ -942,20 +997,33 @@ impl Rt {
         let clock = (self.clock_mask != 0 && self.next_clock != u64::MAX)
             .then_some(Tick::new(self.next_clock));
         let loop_end = self.looping.filter(|&(_, end)| end > self.base_tick);
+        // 곡 끝(S3-T3d). 루프 중에는 멈추지 않는다(루프와 곡 끝의 관계는 루프 구간을 만드는 S5에서 다시 본다).
+        // 이미 지났으면(곡 끝 뒤에서 시작, 지난 곡 끝으로 교체) 무엇보다 먼저 멈춘다.
+        let song_end = self.snap.end.filter(|_| self.looping.is_none());
+        if self.past_song_end() {
+            return Some((self.base_tick, Next::SongEnd));
+        }
         let mut next: Option<(Tick, Next)> = None;
         let mut consider = |tick: Tick, what: Next| {
             if next.as_ref().is_none_or(|(t, _)| tick < *t) {
                 next = Some((tick, what));
             }
         };
+        // 같은 틱이면 곡 끝이 Clock보다 먼저다(`consider`는 더 이른 것만 바꾼다). 곡 끝 틱의 Clock은 보내지 않는다.
+        if let Some(end) = song_end {
+            consider(end, Next::SongEnd);
+        }
         if let Some((start, end)) = loop_end {
             consider(end, Next::LoopEnd(start));
         }
         if let Some(tick) = clock {
             consider(tick, Next::Clock);
         }
-        // 같은 틱이면 클릭이 Clock보다 먼저, 이벤트보다 뒤다. 루프 끝과 같은 틱의 박은 다음 바퀴의 것이다.
-        if self.next_beat != u64::MAX && loop_end.is_none_or(|(_, end)| self.next_beat < end.get())
+        // 같은 틱이면 클릭이 Clock보다 먼저, 이벤트보다 뒤다. 루프 끝과 같은 틱의 박은 다음 바퀴의 것이고, 곡 끝과
+        // 같은 틱의 박은 다음 마디의 것이라 울리지 않는다.
+        if self.next_beat != u64::MAX
+            && loop_end.is_none_or(|(_, end)| self.next_beat < end.get())
+            && song_end.is_none_or(|end| self.next_beat < end.get())
         {
             let tick = Tick::new(self.next_beat);
             if next.as_ref().is_none_or(|(t, _)| tick <= *t) {
@@ -973,6 +1041,15 @@ impl Rt {
     }
 
     fn schedule(&mut self) {
+        // 미룬 클럭 맞추기: 지금도 곧바로 곡 끝이면 곡 끝 정리를 처리할 때 버린다(Stop만 보낸다). 곡 끝 정리는
+        // 시작 여유 때문에 다음 바퀴로 밀릴 수 있으므로 그때까지 들고 있는다. 루프가 켜졌거나 교체가 곡 끝을
+        // 늘렸으면 그때 맞춘다.
+        if let Some((host, was_playing)) = self.clock_resync
+            && !self.past_song_end()
+        {
+            self.clock_resync = None;
+            self.next_clock = self.resync_clock(self.base_tick, host, was_playing);
+        }
         let horizon = now().saturating_add(self.lookahead);
         for _ in 0..MAX_ITEMS_PER_PASS {
             let Some((tick, what)) = self.peek_next() else {
@@ -1004,6 +1081,15 @@ impl Rt {
                     self.next_clock = self.resync_clock(start, host, true);
                     self.next_beat = beat_at_or_after(&self.snap.meter, start);
                 }
+                Next::SongEnd => {
+                    // 정지 명령과 같은 정리를 곡 끝 시각에 한다. 그 틱의 이벤트(Note Off)는 앞에서 보냈다.
+                    self.release_notes(host);
+                    self.send_clock_message(host, 0xFC);
+                    self.clock_resync = None;
+                    self.playing = false;
+                    self.signals.ended.store(self.popped, Ordering::Release);
+                    break;
+                }
             }
         }
         self.scheduled_until = self.scheduled_until.max(horizon);
@@ -1030,7 +1116,9 @@ impl Rt {
                 Next::Click | Next::Clock => Some(tick),
                 // 그 틱의 이벤트는 아직이다. 상한에 걸려 같은 틱 일부를 보냈다면 교체 때 그 틱을 다시
                 // 보낸다(빠뜨리기보다 겹치기). 루프 끝 틱의 이벤트는 다음 바퀴의 것이다.
-                Next::Event(_) | Next::LoopEnd(_) => {
+                // 곡 끝도 같다: 그 틱의 이벤트는 보냈어도 앞 틱까지로 친다(교체가 Note Off를 한 번 더 보낼 뿐이다).
+                // 이미 지난 곡 끝(기준점 틱)이면 기준점 틱의 이벤트를 보내지 않았다.
+                Next::Event(_) | Next::LoopEnd(_) | Next::SongEnd => {
                     (tick > self.base_tick).then(|| Tick::new(tick.get() - 1))
                 }
             };

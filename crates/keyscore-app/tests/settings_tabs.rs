@@ -50,9 +50,13 @@ fn start_with_engine(cx: &mut TestAppContext, name: &str) -> Receiver {
 
 fn project() -> Project {
     // 240 BPM이면 박이 0.25 s마다 온다.
-    ksq::from_str(r#"{"tempo": [[0, 250000]], "tracks": [{"name": "A", "channel": 1}]}"#)
-        .unwrap()
-        .0
+    // 곡 끝 정지(S3-T3d) 전에 클릭이 오도록 빈 긴 클립(100마디, 100 s)을 둔다. 클립이 없으면 곡 끝은 틱 0이다.
+    ksq::from_str(
+        r#"{"tempo": [[0, 250000]], "tracks": [{"name": "A", "channel": 1,
+            "clips": [{"start": 0, "length": 384000}]}]}"#,
+    )
+    .unwrap()
+    .0
 }
 
 fn open_project(cx: &mut TestAppContext) -> (AnyWindowHandle, Entity<ProjectWindow>) {
