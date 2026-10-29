@@ -246,13 +246,10 @@ fn q(grid: Grid, triplet: bool, strength: u8, swing: u8) -> QuantizeSettings {
 // ---------- 깨뜨리기 ----------
 
 /// 시도 1·2: 시트가 열린 채 `transport::SetTempo`(인자 없음, 템포 필드 포커스)를 디스패치한다. 처리기가 창 루트에
-/// 있어 시트 포커스에서도 닿는다. 템포 필드가 포커스를 가져가고 시트는 열린 채 남는다. 그 뒤 `Esc`(필드 취소)로
-/// 포커스가 문서로 가면 시트가 보이는 채로 `q`가 문서를 바꾼다.
-///
-/// 지금 사용자가 이 디스패치를 낼 경로는 없다(`SetTempo`는 메뉴 항목이 아니고, 키 `t`는 `Normal` 컨텍스트, 팔레트·명령줄은
-/// 열 때 시트를 닫는다). 그래서 실패로 고정하지 않고 동작을 기록한다(리뷰 1 제안 1).
+/// 있어 시트 포커스에서도 닿는다. 리뷰 1 때는 템포 필드가 포커스를 가져가고 시트가 열린 채 남았다(제안 1).
+/// 수정(ee86cb0) 뒤에는 포커스 이탈로 시트가 취소로 닫힌다. 리뷰 2 제안 2로 이름과 단언을 그 동작에 맞췄다.
 #[gpui_kit::test]
-fn set_tempo_dispatch_while_sheet_open_leaves_orphan_sheet(cx: &mut TestAppContext) {
+fn set_tempo_dispatch_while_sheet_open_cancels_sheet(cx: &mut TestAppContext) {
     let (handle, view) = setup(cx, "tempo");
     select_all_notes(cx, &view);
     set_cursor(cx, &view, 0, 60);
@@ -261,6 +258,8 @@ fn set_tempo_dispatch_while_sheet_open_leaves_orphan_sheet(cx: &mut TestAppConte
     run(cx, handle, transport::SetTempo(Opt(None)));
     let open_after_dispatch = sheet(cx, &view).is_some();
     let focus_after_dispatch = focus_in_sheet(cx, handle);
+    assert!(!open_after_dispatch, "포커스가 나가면 시트는 닫힌다");
+    assert!(!focus_after_dispatch);
     press(cx, handle, "escape");
     let open_after_escape = sheet(cx, &view).is_some();
     let doc_focus = focus_in_document(cx, handle, &view);
