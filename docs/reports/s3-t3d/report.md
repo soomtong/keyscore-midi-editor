@@ -89,3 +89,11 @@ keyscore-app --test song_end: 6 passed
 | 1(수정) | 받음. 곡 끝 이후 시작의 클럭 맞추기를 건너뛰지 않고 미룬다(`Rt::clock_resync`). `schedule`이 그 바퀴의 루프·곡 끝으로 다시 보아 곧바로 곡 끝이 아니면 그때 `resync_clock`을 하고, 곡 끝 정리를 실제로 처리할 때만 버린다. 처음 고친 판은 곡 끝 정리가 시작 여유(`START_MARGIN`) 때문에 다음 바퀴로 밀리면 대기를 먼저 버려 리뷰어 시험이 네 번 중 한 번 실패했다. 고친 뒤 `review_s3_t3d_r2` 15회 연속 통과 |
 | 제안 1 | 받음. 리뷰어 시험 `crates/keyscore-midi/tests/review_s3_t3d_r2.rs` 커밋 |
 | 제안 2 | 받음. 리뷰 1 대응 1의 보충: 재생 중이었으면 맞추기가 보내던 앞 Stop도 함께 미루므로 곡 끝 뒤로 `play`·`locate`하면 Stop은 곡 끝 정리의 한 번이다 |
+
+### 리뷰 3(커밋 6dfcc08만 좁게, 판정 「병합 가능」, 제안 3)
+
+| # | 대응 |
+| --- | --- |
+| 1 | 받음(기록). `review_s3_t3d_r2::play_past_end_then_swap_extending_end_in_same_wake_resyncs_clock`는 드물게 실패할 수 있다(리뷰어 실행 75회 중 1회). 원인은 시험 하네스로 본다: `play` 앞 바퀴에 이미 넘긴 옛 Clock이 drain 뒤 Stop보다 먼저 도착하면 「첫 0xF8 앞 구간」이 빈다. 같은 시나리오는 옛 Clock을 떼고 보는 `review_s3_t3d_r3::play_past_end_then_swap_while_playing_resyncs_repeatedly`가 고정한다 |
+| 2 | 거절. `Command::Stop`에서 `clock_resync`를 비우지 않아도 다음 `play`·`locate`가 덮어쓰고 정지 중에는 `schedule`이 돌지 않는다(리뷰 3도 해가 없다고 확인). 마지막 리뷰 뒤 코드를 바꾸지 않는다 |
+| 3 | 받음. `crates/keyscore-midi/tests/review_s3_t3d_r3.rs` 커밋 |
