@@ -65,7 +65,11 @@ keyscore-app step::tests(단위): 4 passed
 
 ## 자동 게이트
 
-GATES_PLACEHOLDER
+- [x] fmt: `cargo fmt --all -- --check` 통과(HEAD)
+- [x] clippy -D warnings: `cargo clippy --workspace --all-targets -- -D warnings` 통과(HEAD)
+- [x] test: `cargo test --workspace --no-fail-fast`를 18c88d2(구현 마지막 커밋 뒤, 리뷰 3 대응 전)에서 돌렸다. 바이너리 260개, 2364 통과, 1 실패. 실패는 `keyscore-midi` `review_s1_t4_r2::drop_with_queued_swaps_releases_all_ports_on_control_thread`로, 이 브랜치가 바꾸지 않은 crate이고 리뷰어가 같은 기계에서 시험을 돌리던 때였다. 혼자 세 번, 바이너리 전체 한 번 다시 돌려 모두 통과했다(지터로 본다). 18c88d2 뒤의 변경은 리뷰 시험·문서뿐이고, 그 시험(`review_s3_t4a_r2` 11, `review_s3_t4a_r3` 7)은 따로 통과했다
+- [x] deny: `cargo deny check` 통과(advisories·bans·licenses·sources ok)
+- [x] 추가 게이트: `scripts/check-deps.sh`, `scripts/check-deps.test.sh`, `scripts/bench-check.test.sh` 통과(새 의존성 없음)
 
 ## 알려진 한계
 
