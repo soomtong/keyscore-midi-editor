@@ -57,7 +57,7 @@ impl ProjectWindow {
             composing: s
                 .composing
                 .as_ref()
-                .map(|c| format!("{}{}_", s.prefix, semitone_name(c.semitone))),
+                .map(|c| format!("{}{}_", s.prefix, c.shown)),
             chord_open: s.chord.is_some(),
         }
     }
@@ -328,9 +328,15 @@ impl ProjectWindow {
         let triplet = std::mem::take(&mut self.step.triplet_next);
         self.step.generation += 1;
         let generation = self.step.generation;
+        // 계이름형은 친 글자, 건반형은 그 키의 음이름을 보인다(키 글자는 음이름이 아니다).
+        let shown = match self.step.layout {
+            KeyLayout::Solfege => key.to_ascii_lowercase(),
+            KeyLayout::Piano => semitone_name(semitone).to_owned(),
+        };
         self.step.composing = Some(Composing {
             track,
             semitone,
+            shown,
             octave,
             chord,
             half,
@@ -397,10 +403,12 @@ impl ProjectWindow {
             self.say("변화표는 음이름 바로 뒤에 친다", cx);
             return;
         };
-        c.semitone += match a.0 {
-            AccidentalKind::Sharp => 1,
-            AccidentalKind::Flat => -1,
+        let (delta, mark) = match a.0 {
+            AccidentalKind::Sharp => (1, '#'),
+            AccidentalKind::Flat => (-1, '-'),
         };
+        c.semitone += delta;
+        c.shown.push(mark);
         // 변화표 뒤에도 옥타브 숫자를 기다린다.
         self.step.generation += 1;
         c.generation = self.step.generation;
@@ -450,7 +458,8 @@ impl ProjectWindow {
         }
         self.step_settle(cx);
         self.step.length = length;
-        self.step.prefix.clear();
+        // 앞의 `n`(아직 쓰지 않은 셋잇단 접두)은 표시에 남긴다(리뷰 1 제안 6).
+        self.step.prefix.retain(|ch| ch == 'n');
         self.step.prefix.push(code_digit(length.code));
         cx.notify();
     }

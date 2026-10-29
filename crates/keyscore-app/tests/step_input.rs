@@ -891,3 +891,15 @@ fn first_step_edit_clears_note_selection(cx: &mut TestAppContext) {
     assert!(cx.read(|cx| view.read(cx).selection().is_empty()));
     assert!(!cx.read(|cx| view.read(cx).mode_state().has_selection()));
 }
+
+/// 리뷰 1 제안 6: 조합 표시는 친 그대로(내림표 `-`, `n` 뒤 길이 코드).
+#[gpui_kit::test]
+fn status_composition_shows_keys_as_typed(cx: &mut TestAppContext) {
+    let (handle, view) = setup(cx, "status-typed", KeyLayout::Solfege, project(&[]));
+    press(cx, handle, "c -");
+    assert_eq!(label(cx, &view), "STEP ♩ oct4 c-_");
+    press(cx, handle, "enter n 5 c");
+    assert_eq!(label(cx, &view), "STEP 1/16 oct4 n5c_");
+    press(cx, handle, "enter");
+    assert_eq!(notes(cx, &view), vec![(0, 960, 59), (960, 160, 60)]);
+}

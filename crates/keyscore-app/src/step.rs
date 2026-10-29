@@ -102,6 +102,8 @@ pub(crate) struct Composing {
     pub(crate) half: bool,
     /// `n` 접두: 셋잇단, 이 음 하나.
     pub(crate) triplet: bool,
+    /// 상태줄에 보일 음이름과 변화표(친 그대로: `c`, `c-`, 건반형은 음이름 `f#`).
+    pub(crate) shown: String,
     /// 누를 때 들려준 음높이. 확정 때 다르면 다시 들려준다.
     pub(crate) sounded: Option<Pitch>,
     /// 대기 시간 작업과 맞추는 세대 번호.
@@ -207,7 +209,7 @@ impl StepState {
         if let Some(c) = &self.composing {
             label.push(' ');
             label.push_str(&self.prefix);
-            label.push_str(semitone_name(c.semitone));
+            label.push_str(&c.shown);
             label.push('_');
         }
         label
@@ -285,6 +287,7 @@ mod tests {
             )
             .id(),
             semitone: 0,
+            shown: "c".to_owned(),
             octave: 4,
             chord: false,
             half: false,
