@@ -877,7 +877,14 @@ impl Rt {
         self.floor = host;
         self.cursor = self.snap.first_at_or_after(from);
         self.chase(from, host);
-        self.next_clock = self.resync_clock(from, host, was_playing);
+        // 곡 끝 이후에서 시작하면 곧바로 곡 끝 정리가 Stop을 보낸다. 클럭 장치에 Start·SPP·Continue를 보낸 뒤
+        // 같은 시각에 Stop을 보내지 않게 맞추기를 건너뛴다(S3-T3d 리뷰 1 제안 1).
+        let past_end = self.looping.is_none() && self.snap.end.is_some_and(|end| end <= from);
+        self.next_clock = if past_end {
+            clock_after(from.get())
+        } else {
+            self.resync_clock(from, host, was_playing)
+        };
         self.next_beat = beat_at_or_after(&self.snap.meter, from);
         self.playing = true;
     }

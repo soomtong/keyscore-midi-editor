@@ -323,3 +323,23 @@ fn song_end_in_loop_is_ignored() {
     assert!(!s.take_ended());
     s.stop().unwrap();
 }
+
+#[test]
+fn play_past_end_sends_only_stop_to_clock_devices() {
+    let lb = loopback("past-clock");
+    let mut s = start(snapshot(&lb, Vec::new(), Some(960)));
+    s.set_clock(0, true).unwrap();
+    s.play(Tick::new(1920)).unwrap();
+    assert!(wait_ended(&mut s, Duration::from_millis(300)));
+    let got = drain(&lb, Duration::from_millis(300));
+    let clock: Vec<&Vec<u8>> = got
+        .iter()
+        .map(|(_, m)| m)
+        .filter(|m| m[0] >= 0xF0)
+        .collect();
+    assert_eq!(
+        clock,
+        vec![&vec![0xFC]],
+        "곡 끝 뒤 시작은 Stop만 보낸다: {got:?}"
+    );
+}
