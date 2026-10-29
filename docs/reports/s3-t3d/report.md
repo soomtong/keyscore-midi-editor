@@ -49,7 +49,7 @@ keyscore-app --test song_end: 6 passed
 
 - [x] fmt
 - [x] clippy -D warnings
-- [ ] test(전체): 리뷰어 작업이 끝난 뒤 `--no-fail-fast`로 돌린다(타이밍 시험이 겹치면 흔들린다)
+- [x] test(전체): 두 번째 `cargo test --workspace --no-fail-fast` 2264 통과, 실패 0(첫 실행의 11 실패는 아래 「전체 시험」)
 - [x] deny
 - [x] 단계별 추가 게이트: 루프백으로 곡 끝 뒤 정지·틱 0·메트로놈 멈춤, Sequence 모드 예외(위 시험). `scripts/check-deps.sh`·`check-deps.test.sh`·`bench-check.test.sh` 통과
 
