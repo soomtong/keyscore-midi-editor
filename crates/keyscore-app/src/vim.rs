@@ -171,6 +171,9 @@ impl ProjectWindow {
     #[must_use]
     pub fn context_path(&self) -> &'static [&'static str] {
         let base = self.mode_state().context_path();
+        if self.mode_state().mode() == Mode::Step {
+            return self.step_context_path();
+        }
         if !self.in_piano_roll_normal() {
             return base;
         }
@@ -187,6 +190,9 @@ impl ProjectWindow {
     #[must_use]
     pub fn mode_label(&self) -> String {
         let base = self.mode_state().mode().label();
+        if self.mode_state().mode() == Mode::Step {
+            return self.step_label();
+        }
         if !self.in_piano_roll_normal() {
             return base.to_owned();
         }

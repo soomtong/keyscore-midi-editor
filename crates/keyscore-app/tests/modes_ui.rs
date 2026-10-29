@@ -220,7 +220,8 @@ fn status_bar_shows_mode_and_menu_switches_mode(cx: &mut TestAppContext) {
     let (handle, view) = open(cx);
     assert_eq!(label(cx, handle, "status-mode"), "NORMAL");
     press(cx, handle, "ctrl-tab");
-    assert_eq!(label(cx, handle, "status-mode"), "STEP");
+    // S3-T4a: Step 모드 표시는 길이·옥타브를 함께 보인다(REQ 5.1 `STEP ♩ oct4`).
+    assert_eq!(label(cx, handle, "status-mode"), "STEP ♩ oct4");
 
     // 클릭으로 열고 Esc로 닫는다(메뉴의 키는 gpui-component 바인딩)
     cx.update_window(handle, |_, window, cx| window.click("status-mode", cx))

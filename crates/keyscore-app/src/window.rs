@@ -109,6 +109,8 @@ pub struct ProjectWindow {
     /// 음 키 대기·레가토 기억·마지막 편집(S3-T3b).
     pub(crate) note_ops: crate::note_ops::NoteOpsState,
     pub(crate) vim: crate::vim::VimState,
+    /// Step 입력 길이·옥타브·조합(S3-T4a).
+    pub(crate) step: crate::step::StepState,
 }
 
 impl ProjectWindow {
@@ -214,6 +216,7 @@ impl ProjectWindow {
             pianoroll: crate::pianoroll::PianoRollState::new(),
             note_ops: crate::note_ops::NoteOpsState::default(),
             vim: crate::vim::VimState::default(),
+            step: crate::step::StepState::new(AppSettings::get(cx).input.step_default_length),
         };
         this.refresh_fields(window, cx);
         this.refresh_file_state(window, cx);
@@ -297,6 +300,10 @@ impl ProjectWindow {
         cx: &mut Context<Self>,
     ) {
         let next = self.mode.apply(event);
+        // 모드를 나가면 조합 중인 입력은 현재 옥타브로 확정한다(REQ 5.6, A13).
+        if self.mode.mode() == Mode::Step && next.mode() != Mode::Step {
+            self.step_settle(cx);
+        }
         if next != self.mode {
             // 오퍼레이터 대기와 비주얼은 Normal 피아노롤의 것이다. 모드·뷰가 바뀌면 끝낸다(S3-T3c). 비주얼만 끝내고
             // 선택·기준 칸은 FSM 규칙(아래)대로 둔다.
@@ -544,6 +551,8 @@ impl ProjectWindow {
             }
             return;
         }
+        // 조합 중이면 확정한 뒤 되돌린다(결정 2026-10-29-s3-t4-step-input-details 3절).
+        self.step_settle(cx);
         let before = self.current_track_snapshot(cx);
         let result = self.document.update(cx, |doc, cx| {
             let r = doc.undo();
@@ -572,6 +581,7 @@ impl ProjectWindow {
             }
             return;
         }
+        self.step_settle(cx);
         let before = self.current_track_snapshot(cx);
         let result = self.document.update(cx, |doc, cx| {
             let r = doc.redo();
@@ -847,6 +857,7 @@ impl ProjectWindow {
         let e = Self::on_mode::<ai::Dismiss>(e, LeaveAi, cx);
         let e = Self::on_mode::<ai::DismissGhost>(e, DismissGhost, cx);
         let e = Self::piano_roll_handlers(e, cx);
+        let e = Self::step_handlers(e, cx);
         e.on_action(cx.listener(Self::show_mode_menu))
             .on_action(cx.listener(Self::transport_play))
             .on_action(cx.listener(Self::transport_play_from_cursor))
@@ -1194,6 +1205,7 @@ impl Focusable for ProjectWindow {
 
 impl Render for ProjectWindow {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.refresh_step_layout(cx);
         let layout = self.layout;
         // 창이 저장된 사이드 패널 합보다 좁으면 우리가 먼저 비율로 줄여 요청한다(gpui-base가 줄이면 어느 패널을
         // 사람이 끌었는지 가릴 수 없다). 메인 영역에는 최소 크기를 남긴다.

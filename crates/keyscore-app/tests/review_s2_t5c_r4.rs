@@ -412,7 +412,7 @@ fn status_mode_left_click_opens_menu_both_presets(cx: &mut TestAppContext) {
         render(cx, handle);
         assert_eq!(
             label(cx, handle, "status-mode").as_deref(),
-            Some("STEP"),
+            Some("STEP ♩ oct4"),
             "{pn}"
         );
         cx.update_window(handle, |_, window, _| window.remove_window())

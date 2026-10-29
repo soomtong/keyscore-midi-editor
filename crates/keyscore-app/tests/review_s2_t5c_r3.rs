@@ -145,7 +145,10 @@ fn status_mode_click_with_dirty_tempo_opens_menu(cx: &mut TestAppContext) {
     .unwrap();
     cx.run_until_parked();
     render(cx, handle);
-    assert_eq!(label(cx, handle, "status-mode").as_deref(), Some("STEP"));
+    assert_eq!(
+        label(cx, handle, "status-mode").as_deref(),
+        Some("STEP ♩ oct4")
+    );
     assert_eq!(undo_len(cx, &view), len);
     assert_ne!(shown(cx, handle, "transport-tempo").as_deref(), Some("95"));
 }
