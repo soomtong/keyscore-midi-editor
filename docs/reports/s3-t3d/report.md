@@ -24,7 +24,7 @@
 ~~~
 keyscore-midi --test song_end: 8 passed
 keyscore-app --test song_end: 6 passed
-재생을 쓰는 keyscore-app 시험 바이너리 37개(--no-fail-fast): 실패 없음
+(정정) 처음 적은 「재생을 쓰는 시험 바이너리 37개 실패 없음」은 잘못이다. 그 실행은 인자 문제로 시험이 0개 돌았다(모두 filtered out). 아래 「전체 시험」 참고
 전체 cargo test --workspace: 리뷰 뒤 병합 전에 돌린다(아래 「자동 게이트」)
 ~~~
 
@@ -97,3 +97,11 @@ keyscore-app --test song_end: 6 passed
 | 1 | 받음(기록). `review_s3_t3d_r2::play_past_end_then_swap_extending_end_in_same_wake_resyncs_clock`는 드물게 실패할 수 있다(리뷰어 실행 75회 중 1회). 원인은 시험 하네스로 본다: `play` 앞 바퀴에 이미 넘긴 옛 Clock이 drain 뒤 Stop보다 먼저 도착하면 「첫 0xF8 앞 구간」이 빈다. 같은 시나리오는 옛 Clock을 떼고 보는 `review_s3_t3d_r3::play_past_end_then_swap_while_playing_resyncs_repeatedly`가 고정한다 |
 | 2 | 거절. `Command::Stop`에서 `clock_resync`를 비우지 않아도 다음 `play`·`locate`가 덮어쓰고 정지 중에는 `schedule`이 돌지 않는다(리뷰 3도 해가 없다고 확인). 마지막 리뷰 뒤 코드를 바꾸지 않는다 |
 | 3 | 받음. `crates/keyscore-midi/tests/review_s3_t3d_r3.rs` 커밋 |
+
+## 전체 시험(병합 전)
+
+첫 전체 실행(`cargo test --workspace --no-fail-fast`, 리뷰 3 뒤)에서 11개가 실패했다.
+
+- 10개(`review_s2_t6c` 4, `review_s2_t6c_r2` 3, `settings_tabs` 3): 클립 없는 프로젝트로 재생하며 메트로놈 클릭을 기다리는 시험이다. 결정 A는 「클립이 없으면 곡 끝은 틱 0」이라 곧바로 멈춘다. 시험의 대상(메트로놈 라우팅·설정)은 곡 끝과 무관하므로 픽스처에 빈 긴 클립(384000틱, 100 s)을 더했다. 단언은 바꾸지 않았다.
+- 1개(`review_s3_t3d_r2::play_past_end_then_swap_extending_end_in_same_wake_resyncs_clock`): 리뷰 3 제안 1의 하네스 경합이 부하에서 다시 났다. 맨 앞의 옛 Clock(앞 재생에서 넘긴 것)을 떼고 보도록 고쳤다. 단언은 그대로다.
+- 결과로 드러난 동작: 클립 없는 프로젝트에서 `Space`를 누르면 곧바로 정지한다(메트로놈만 듣는 재생도 멈춘다). Sequence 모드는 예외라 클릭과 함께 녹음할 수 있다. 결정 문서 「상황」의 문장 그대로이나 사람에게 알린다.
