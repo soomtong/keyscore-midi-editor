@@ -65,3 +65,9 @@ keyscore-app --test commands·keymap_engine·keymap_overlay·note_ops·keymap_so
 - 시트는 루트의 자식이라 모드 키 컨텍스트 밖이다. 문맥 없는 전역 바인딩(`ctrl-tab` 모드 순환, 표준 `cmd-…`)은 시트가 열린 동안에도 동작한다. 모드가 바뀌어도 시트는 그대로 둔다. 메뉴 `cmd-…` 명령(예: `Cmd+Z`)이 시트 뒤의 문서를 바꿀 수 있다. 시트는 문서를 보지 않으므로 상태가 어긋나지는 않는다고 봤다.
 - `close_quantize_sheet`의 포커스 복귀는 「포커스가 아직 시트에 있거나 아무 데도 없을 때만」이다(팔레트 닫기와 같은 규칙).
 - 버튼(‹ › 확인 취소)은 gpui-component `Button`이다. 누른 뒤 포커스를 시트로 다시 돌린다.
+
+## 리뷰 1 대응(판정 「병합 가능」, 제안 3)
+
+- 제안 1(포커스 이탈 뒤 시트가 남음): 받음. 창이 활성인 동안 포커스가 시트 밖으로 나가면 취소로 닫는다(`on_focus_out`, 창 비활성은 입력란처럼 취소가 아니다). 시험 `focus_leaving_sheet_cancels_it`. 커밋 ee86cb0.
+- 제안 2(마우스로 닫은 뒤 포커스 복귀 시험): 리뷰 시험 `crates/keyscore-app/tests/review_s3_t3e.rs`가 고정하고 그 파일을 커밋했다(ea1c3e6). 따로 더하지 않는다.
+- 제안 3(7절 「모달 다이얼로그」 읽기): 받음. `docs/decisions/2026-10-29-in-window-sheets-vs-modal-dialogs.md`에 에이전트 해석으로 남겼다.
