@@ -16,7 +16,7 @@ use keyscore_midi::MetronomeConfig;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-use crate::actions::args::KeyLayout;
+use crate::actions::args::{KeyLayout, LengthCode};
 
 /// 패널 크기의 허용 범위(논리 픽셀). 밖의 값은 기본값으로 되돌린다.
 pub const PANEL_SIZE_RANGE: std::ops::RangeInclusive<f32> = 120.0..=1200.0;
@@ -129,12 +129,21 @@ pub struct KeymapSettings {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct InputSettings {
     pub key_layout: KeyLayout,
+    /// Step 입력의 기본 길이(REQ 5.6 「`0`은 길이를 기본값으로 … 기본 길이 자체는 설정에서 바꿀 수 있다」).
+    pub step_default_length: LengthCode,
+    /// 음 키 뒤 옥타브 숫자를 기다리는 시간(ms, 0–2000, REQ 5.6 「기본 300 ms(설정 가능)」).
+    pub octave_wait_ms: u32,
 }
+
+/// 옥타브 대기 시간 상한(ms). 그보다 길면 입력이 멈춘 것처럼 보인다.
+pub const OCTAVE_WAIT_MAX_MS: u32 = 2000;
 
 impl Default for InputSettings {
     fn default() -> Self {
         InputSettings {
             key_layout: KeyLayout::Piano,
+            step_default_length: LengthCode::Quarter,
+            octave_wait_ms: 300,
         }
     }
 }
@@ -177,6 +186,23 @@ impl InputSettings {
                     .push("input.key_layout은 piano 또는 solfege라 기본값을 쓴다".to_string()),
             }
         }
+        if let Some(v) = map.remove("step_default_length") {
+            match serde_json::from_value(v) {
+                Ok(code) => input.step_default_length = code,
+                Err(_) => warnings.push(
+                    "input.step_default_length는 whole·half·quarter·eighth·sixteenth·thirtysecond·sixtyfourth라 기본값을 쓴다"
+                        .to_string(),
+                ),
+            }
+        }
+        if let Some(v) = map.remove("octave_wait_ms") {
+            match v.as_u64().and_then(|ms| u32::try_from(ms).ok()) {
+                Some(ms) if ms <= OCTAVE_WAIT_MAX_MS => input.octave_wait_ms = ms,
+                _ => warnings.push(format!(
+                    "input.octave_wait_ms는 0–{OCTAVE_WAIT_MAX_MS} 정수라 기본값을 쓴다"
+                )),
+            }
+        }
         (input, map)
     }
 
@@ -186,6 +212,27 @@ impl InputSettings {
             KeyLayout::Solfege => "solfege",
         };
         map.insert("key_layout".to_string(), Value::from(layout));
+        map.insert(
+            "step_default_length".to_string(),
+            Value::from(length_code_name(self.step_default_length)),
+        );
+        map.insert(
+            "octave_wait_ms".to_string(),
+            Value::from(self.octave_wait_ms),
+        );
+    }
+}
+
+/// 길이 코드의 설정 파일 표기(키맵 인자와 같다).
+const fn length_code_name(code: LengthCode) -> &'static str {
+    match code {
+        LengthCode::Whole => "whole",
+        LengthCode::Half => "half",
+        LengthCode::Quarter => "quarter",
+        LengthCode::Eighth => "eighth",
+        LengthCode::Sixteenth => "sixteenth",
+        LengthCode::ThirtySecond => "thirtysecond",
+        LengthCode::SixtyFourth => "sixtyfourth",
     }
 }
 

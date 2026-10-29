@@ -247,6 +247,143 @@ pub fn insert_notes(
     Ok(edits)
 }
 
+/// 클립 하나의 「자리 만들고 넣기」(Step 삽입, S3-T4a). 값은 무엇을 바꿀지만 담는다. 잘못된 값은 [`splice`]가
+/// 거부한다.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Splice {
+    /// 클립 기준 틱. 이 틱 이상에서 시작하는 노트(`remove`·`replace`에 든 것 빼고)를 옮긴다.
+    pub at: u64,
+    /// 옮길 틱. 양수는 뒤로 밀기, 음수는 앞으로 당기기.
+    pub by: i64,
+    /// 지울 노트(그 클립의 실제 값).
+    pub remove: Vec<Note>,
+    /// 바꿀 (원래, 새) 노트 짝. 이 노트는 옮기지 않는다.
+    pub replace: Vec<(Note, Note)>,
+    /// 넣을 노트(클립 기준 시작).
+    pub insert: Vec<Note>,
+    /// 결과 클립이 적어도 덮어야 할 끝(클립 기준). 클립 끝을 넘는 쉼표처럼 노트 없이 늘릴 때 쓴다. 0이면 없음.
+    pub reach: u64,
+}
+
+/// [`Splice`]를 클립 `clip`에 적용하는 편집 묶음(`RemoveNote`들, `ReplaceNotes` 또는 `ExtendClip` 하나,
+/// `InsertNote`들). 결과가 클립 끝을 넘으면 [`insert_notes`]와 같은 규칙으로 마디 단위로 늘린다. 꼬리였던 노트는
+/// 시작만 클립 안이면 된다. 클립은 줄이지 않는다.
+///
+/// # Errors
+///
+/// 트랙·클립이 없으면 [`ModelError::UnknownTrack`]·[`ModelError::UnknownClip`], `remove`·`replace`의 노트가 클립에
+/// 없으면 [`ModelError::NoteNotFound`], 옮긴 노트가 클립 시작 앞이면 [`ModelError::NoteBeforeClipStart`], 다음
+/// 클립과 겹치면 [`ModelError::ClipOverlap`], 틱이 넘치면 [`ModelError::TickOverflow`].
+pub fn splice(
+    project: &Project,
+    track: TrackId,
+    clip: ClipId,
+    splice: &Splice,
+) -> Result<Vec<Edit>, ModelError> {
+    let t = project.track(track).ok_or(ModelError::UnknownTrack)?;
+    let c = t.clip(clip).ok_or(ModelError::UnknownClip)?;
+    // 지울·바꿀 노트를 클립에서 하나씩 짝지어 뺀다(같은 값이 여럿이면 그 개수까지). 남은 것이 옮길 후보다.
+    let mut rest: Vec<&Note> = c.notes().iter().collect();
+    let mut take = |n: &Note| -> Result<(), ModelError> {
+        let i = rest
+            .iter()
+            .position(|r| *r == n)
+            .ok_or(ModelError::NoteNotFound)?;
+        rest.remove(i);
+        Ok(())
+    };
+    for n in &splice.remove {
+        take(n)?;
+    }
+    for (from, _) in &splice.replace {
+        take(from)?;
+    }
+    // 원래 꼬리였던 노트는 시작만 클립 안이면 된다(`plan`과 같은 규칙).
+    let need = |from: &Note, to: &Note| {
+        if from.end() > c.length() {
+            to.start().get() + 1
+        } else {
+            to.end()
+        }
+    };
+    let mut pairs = Vec::new();
+    let mut end = 0;
+    for n in rest.into_iter().filter(|n| n.start().get() >= splice.at) {
+        if splice.by == 0 {
+            continue;
+        }
+        let start = n
+            .start()
+            .get()
+            .checked_add_signed(splice.by)
+            .ok_or(if splice.by < 0 {
+                ModelError::NoteBeforeClipStart
+            } else {
+                ModelError::TickOverflow
+            })?;
+        let to = n.with_start(Tick::new(start))?;
+        end = end.max(need(n, &to));
+        pairs.push((n.clone(), to));
+    }
+    for (from, to) in &splice.replace {
+        end = end.max(need(from, to));
+        pairs.push((from.clone(), to.clone()));
+    }
+    for n in &splice.insert {
+        end = end.max(n.end());
+    }
+    end = end.max(splice.reach);
+    let length = if end > c.length() {
+        let start = c.start().get();
+        let bar_stop = start
+            .checked_add(bar_aligned_length(project, c, end)?)
+            .ok_or(ModelError::TickOverflow)?;
+        let note_end = start.checked_add(end).ok_or(ModelError::TickOverflow)?;
+        // 다음 클립이 노트 끝과 마디 끝 사이에서 시작하면 그 시작까지만 늘린다(`insert_notes`와 같다).
+        let stop = t
+            .clips()
+            .filter(|(other, _)| *other != clip)
+            .map(|(_, o)| o.start().get())
+            .filter(|&s| s >= note_end && s < bar_stop)
+            .min()
+            .unwrap_or(bar_stop);
+        if t.clips()
+            .any(|(other, o)| other != clip && o.start().get() < stop && start < o.end())
+        {
+            return Err(ModelError::ClipOverlap { start, end: stop });
+        }
+        stop - start
+    } else {
+        c.length()
+    };
+    let mut edits = Vec::with_capacity(splice.remove.len() + splice.insert.len() + 1);
+    edits.extend(splice.remove.iter().map(|n| Edit::RemoveNote {
+        track,
+        clip,
+        note: n.clone(),
+    }));
+    if !pairs.is_empty() {
+        edits.push(Edit::ReplaceNotes {
+            track,
+            clip,
+            length,
+            pairs,
+        });
+    } else if length > c.length() {
+        edits.push(Edit::ExtendClip {
+            track,
+            id: clip,
+            length,
+        });
+    }
+    edits.extend(splice.insert.iter().map(|n| Edit::InsertNote {
+        track,
+        clip,
+        note: n.clone(),
+    }));
+    Ok(edits)
+}
+
 /// 틈에 노트를 넣을 새 클립 편집(`InsertClip`, REQ 5.10 「클립 밖 입력은 마디 단위로 새 클립」). 노트 시작은 절대
 /// 틱이다. 클립 시작은 `at`이 든 마디의 시작(앞 클립이 그 마디 안 `at` 앞에서 끝나면 그 끝), 끝은 마지막 노트 끝을
 /// 품는 마디의 끝(다음 클립이 그 앞에서 시작하면 그 시작)이다. 노트가 다른 클립과 겹치면 거부한다.

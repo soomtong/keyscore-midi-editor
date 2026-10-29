@@ -293,7 +293,14 @@
       "shift-a": "step::HalfNote(a)",
       "b": "step::Note(b)",
       "ctrl-b": "step::Chord(b)",
-      "shift-b": "step::HalfNote(b)",
+      "shift-b": "step::HalfNote(b)"
+    }
+  },
+  {
+    // 변화표는 음이름 바로 뒤(조합 중)에만 받는다(REQ 5.6). 조합이 없을 때 # 은 Step 의 점4분음표다
+    // (결정 docs/decisions/2026-10-29-s3-t4-step-input-details.md 3절).
+    "context": "Step > Solfege > Pending",
+    "bindings": {
       "#": "step::Accidental(sharp)",
       "+": "step::Accidental(sharp)",
       "-": "step::Accidental(flat)"

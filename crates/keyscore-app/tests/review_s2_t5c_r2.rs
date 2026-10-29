@@ -308,7 +308,10 @@ fn mode_menu_click_with_dirty_name(cx: &mut TestAppContext) {
     click(cx, handle, "status-mode");
     assert!(cx.read(|cx| view.read(cx).mode_menu_open()));
     click_menu_item(cx, handle, 1);
-    assert_eq!(label(cx, handle, "status-mode").as_deref(), Some("STEP"));
+    assert_eq!(
+        label(cx, handle, "status-mode").as_deref(),
+        Some("STEP ♩ oct4")
+    );
     assert_eq!(shown(cx, handle, "inspector-name").as_deref(), Some("Lead"));
     assert_eq!(undo_len(cx, &view), len);
 }

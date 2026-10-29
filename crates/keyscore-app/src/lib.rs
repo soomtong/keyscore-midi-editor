@@ -34,6 +34,8 @@ pub mod settings;
 mod settings_ports;
 mod settings_tabs;
 pub mod settings_window;
+pub mod step;
+mod step_input;
 pub mod theme;
 mod track_list;
 pub mod tracks;

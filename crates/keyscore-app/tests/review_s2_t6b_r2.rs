@@ -118,7 +118,8 @@ fn assert_fresh(
 ) {
     let fresh = lines(cx, view).expect("오버레이가 닫혀 있다");
     let (page, pages) = cx.read(|cx| view.read(cx).overlay_page()).unwrap();
-    let path = cx.read(|cx| view.read(cx).mode_state().context_path().join(" > "));
+    // 창의 실제 키 컨텍스트 경로(S3-T4a부터 Step은 `Step > Piano`처럼 레이아웃을 더한다).
+    let path = cx.read(|cx| view.read(cx).context_path().join(" > "));
     let h = header(cx, handle).unwrap_or_default();
     assert!(
         h.contains(&format!("키맵 · {path} · {}/{pages} 쪽", page + 1)),
