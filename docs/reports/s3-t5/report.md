@@ -65,3 +65,14 @@ keyboard_view_ui:  test result: ok. 12 passed; 0 failed
 - 라벨 규칙 2(계이름형 둘째 옥타브 `c5`는 옥타브를 바꾸는 입력)와 3(드럼 라벨 해석)은 REQ 문장의 구체화다. REQ와 어긋나면 지적해 달라.
 - 버튼은 모드 키 컨텍스트 밖(하단 영역)에서 `run_action`으로 Action을 낸다. 포커스·컨텍스트 경로에 따라 처리기가 닿지 않거나 다른 처리기가 받는 경우가 있는지.
 - `keyboard_view`는 `self.step.layout`(그리기 전에 설정에서 읽어 둔 값)을 쓴다. Step 처리기와 같은 값이다.
+
+## 리뷰 1 대응
+
+판정 「수정 후 재리뷰」(`review-1.md`).
+
+| # | 심각도 | 대응 | 커밋 |
+| --- | --- | --- | --- |
+| 1 | 수정 | 받아들임. 건반형 뒤 8건반에 같은 키 + 옥타브 숫자(`D5`)를 단다. 계획 규칙 2와 시험 5·16, 스냅샷을 고쳤다. `piano_upper_keys_reachable_by_digit_but_unlabeled` 통과 | fb4d2e7 |
+| 2 | 수정 | 받아들임. 드럼 트랙의 표에 없는 음은 `n<번호>`. 계획 규칙 3, 스냅샷, 시험 3·14를 고쳤다. `drum_unlabeled_notes_show_number` 통과 | 55886a4 |
+| 3 | 제안 | 받아들임. 접근성 라벨 「옥타브 올리기」「옥타브 내리기」, 시험 `octave_buttons_have_action_labels` | e4b12e7 |
+| 4 | 제안 | 받아들임. 리뷰 시험 `review_s3_t5.rs`(13개)를 PR에 담았다 | 0f1e895 |
