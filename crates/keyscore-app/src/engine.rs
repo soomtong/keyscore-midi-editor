@@ -1076,7 +1076,6 @@ impl Engine {
         self.known_missing.remove(name);
     }
 
-    /// 재생 중인 창이 있는가.
     /// 미리듣기 스냅샷과 보낸 음색 기록을 잊는다(S3-T4c). 다른 스냅샷이 들어가거나(재생 준비, 포트 지우기·
     /// 복구) 포트가 오가거나 바뀔 때 부른다. 다음 미리듣기는 스냅샷을 다시 준비하고 음색을 다시 보낸다.
     pub(crate) fn forget_preview(&mut self) {
@@ -1132,6 +1131,7 @@ impl Engine {
         self.setups_sent.insert(key, messages);
     }
 
+    /// 재생 중인 창이 있는가.
     pub(crate) fn has_owner(&self) -> bool {
         self.owner.as_ref().is_some_and(|w| w.upgrade().is_some())
     }
