@@ -19,7 +19,7 @@
 keyboard_view:     test result: ok. 5 passed; 0 failed
 keyboard_view_ui:  test result: ok. 12 passed; 0 failed
 하단 영역 기존 시험(window, review_s2_t1_r2, review_s2_t1_r3, review_s2_t5c, review_s2_t6f): 모두 ok
-전체 cargo test --workspace --no-fail-fast: 아래 「자동 게이트」
+전체 cargo test --workspace --no-fail-fast: 2518 passed; 0 failed
 ~~~
 
 | 계획의 테스트 # | 실제 테스트 이름 | 상태 |
@@ -47,10 +47,10 @@ keyboard_view_ui:  test result: ok. 12 passed; 0 failed
 
 - [x] fmt
 - [x] clippy -D warnings
-- [ ] test(전체, `--no-fail-fast`): 돌리는 중
+- [x] test(전체, `cargo test --workspace --no-fail-fast`, 리뷰 2 대응 뒤 3d9f452): 2518 통과, 0 실패
 - [x] deny
 - [x] `scripts/check-deps.sh`
-- [ ] `scripts/check-deps.test.sh`, `scripts/bench-check.test.sh`: 돌리는 중
+- [x] `scripts/check-deps.test.sh`, `scripts/bench-check.test.sh`
 
 ## 알려진 한계
 
