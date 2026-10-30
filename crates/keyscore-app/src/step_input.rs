@@ -700,12 +700,18 @@ impl ProjectWindow {
 
     /// 조합·MML 접두 대기를 버린다(노트를 쓰지 않는다). 버린 것이 있으면 참.
     fn step_discard(&mut self, cx: &mut Context<Self>) -> bool {
-        let had = self.step.composing.take().is_some() | self.step.mml.take().is_some();
-        if had {
+        let composing = self.step.composing.take().is_some();
+        let mml = self.step.mml.take().is_some();
+        if composing {
             self.step.prefix.clear();
+        } else if mml {
+            // 버린 것은 MML 대기뿐이다. 아직 쓰지 않은 `n`은 다음 음에 남으니 표시에도 남긴다(리뷰 2 제안 3).
+            self.step.prefix.retain(|ch| ch == 'n');
+        }
+        if composing || mml {
             cx.notify();
         }
-        had
+        composing || mml
     }
 
     /// [`new`, `old`)(절대)에서 시작하는 노트를 지우고 뒤 노트를 그만큼 당긴다(덮어쓰기면 당기지 않는다). 지울 스텝은
@@ -816,8 +822,9 @@ impl ProjectWindow {
                 .and_then(|t| t.clip(last.clip))
                 .map(|c| c.start().get())
         };
-        // 직전 스텝의 노트가 지금도 커서에서 끝나야 한다. 레가토 뒤처럼 끝이 바뀌었으면 타이 대상이 아니다(리뷰 1 지적 1).
-        let Some(start) = start.filter(|&s| last.notes.iter().all(|n| s + n.end() == cursor.get()))
+        // 직전 스텝의 노트가 지금도 커서를 넘어 끝나지 않아야 한다. 레가토 뒤처럼 끝이 커서 뒤로 갔으면 타이 대상이
+        // 아니다(리뷰 1 지적 1). 절반 음으로 닫은 화음처럼 커서 앞에서 끝나는 노트는 그대로 늘린다(리뷰 2 지적 1).
+        let Some(start) = start.filter(|&s| last.notes.iter().all(|n| s + n.end() <= cursor.get()))
         else {
             self.say("타이: 바로 앞에 친 음이 없다", cx);
             return;
