@@ -86,3 +86,18 @@ count_non_key_paths 2 — 모두 통과
 - `step_settle_mml`을 `step_commit` 맨 앞에서 부르는 구조가 모든 경로(대기 타이머, 다른 음 키, `Tab`, 모드 나가기, undo)에서 MML 대기를 먼저 확정하는지.
 - 진입 처리기가 `mode::Step` 등을 `step_handlers`로 옮겼다. 키맵·메뉴·팔레트에서 오는 경로가 그대로 Step으로 들어가는지(다른 모드, 배치 뷰, AI 패널 중).
 - 덮어쓰기와 자취(`trail`)·직전 스텝(`last`)의 상호작용: 덮어쓰기에서 `Backspace`·타이 뒤의 자취가 맞는지.
+
+## 리뷰 1 대응(커밋 73f8ba8)
+
+| # | 심각도 | 대응 |
+| --- | --- | --- |
+| 1 | 수정 | 고침. 타이는 직전 스텝의 노트가 지금도 커서에서 끝날 때만 한다(`step_tie`). 리뷰 시험 `review_tie_after_legato_is_refused` |
+| 2 | 수정 | 고침. 건반형에서 `step::MmlOctave`·`MmlLength`는 알리기만 한다. `review_mml_palette_in_piano_layout_does_not_open_dead_wait` |
+| 3 | 수정 | 고침. 그리기 전 레이아웃을 읽을 때 건반형이면 MML 대기를 확정한다(`refresh_step_layout`). `review_mml_wait_does_not_survive_layout_switch` |
+| 4 | 수정 | 결정 문구를 고쳤다. 모드 FSM은 AI 패널을 포함해 어느 모드에서든 Step 진입을 받는다(S2-T3 이래 `mode::Step`과 같다). 리뷰 시험 기대를 그 문구에 맞췄다(`review_entry_from_ai_panel_follows_fsm`) |
+| 5 | 제안 | 받음. `n`이 `l` 대기 표시에 남는다(`nl8_`). `review_triplet_prefix_survives_mml_length` |
+| 6 | 제안 | 받음. `{` `}`도 MML 대기를 먼저 확정한다 |
+| 7 | 제안 | 받음. 지우기가 거부되면 자취를 버리지 않는다 |
+| 8 | 제안 | 거절. REQ 5.1 예는 계이름 텍스트(MML) 예로 읽으며, REQ 문구는 사람이 고친다. 「알려진 한계」와 인계에 남긴다 |
+
+이 대응은 지적별 커밋 대신 커밋 하나로 했다(같은 두 파일에 고루 걸쳐 있어서). 커밋 본문에 지적 번호별로 적었다.
