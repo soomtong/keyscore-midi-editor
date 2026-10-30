@@ -824,11 +824,15 @@ impl ProjectWindow {
         };
         // 직전 스텝의 노트가 지금도 커서를 넘어 끝나지 않아야 한다. 레가토 뒤처럼 끝이 커서 뒤로 갔으면 타이 대상이
         // 아니다(리뷰 1 지적 1). 절반 음으로 닫은 화음처럼 커서 앞에서 끝나는 노트는 그대로 늘린다(리뷰 2 지적 1).
-        let Some(start) = start.filter(|&s| last.notes.iter().all(|n| s + n.end() <= cursor.get()))
-        else {
+        let Some(start) = start else {
             self.say("타이: 바로 앞에 친 음이 없다", cx);
             return;
         };
+        // 직전 스텝은 있지만 끝이 커서 뒤인 노트가 있으면 알림을 나눈다(리뷰 3 제안 1).
+        if last.notes.iter().any(|n| start + n.end() > cursor.get()) {
+            self.say("타이: 직전 스텝에 커서 뒤에서 끝나는 노트가 있다", cx);
+            return;
+        }
         let replace: Result<Vec<(Note, Note)>, _> = last
             .notes
             .iter()
