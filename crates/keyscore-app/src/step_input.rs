@@ -54,11 +54,9 @@ impl ProjectWindow {
         StepStatus {
             length: s.length,
             octave: s.octave,
-            composing: s
-                .composing
-                .as_ref()
-                .map(|c| format!("{}{}_", s.prefix, c.shown)),
+            composing: s.composition(),
             chord_open: s.chord.is_some(),
+            overwrite: s.overwrite,
         }
     }
 
