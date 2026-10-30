@@ -125,8 +125,12 @@ impl ProjectWindow {
     }
 
     /// 그리기 전에: 설정의 레이아웃을 읽어 둔다(키 컨텍스트는 `&self`에서 고른다).
-    pub(crate) fn refresh_step_layout(&mut self, cx: &Context<Self>) {
+    pub(crate) fn refresh_step_layout(&mut self, cx: &mut Context<Self>) {
         self.step.layout = AppSettings::get(cx).input.key_layout;
+        // MML은 계이름 레이아웃의 문법이다. 대기 중 건반형으로 바뀌면 받을 바인딩이 없으니 여기서 확정한다(리뷰 1 지적 3).
+        if self.step.layout != KeyLayout::Solfege && self.step.mml.is_some() {
+            self.step_settle_mml(cx);
+        }
     }
 
     fn in_step(&self) -> bool {
@@ -684,9 +688,12 @@ impl ProjectWindow {
         self.step.last = None;
         let old = self.pianoroll.cursor().tick;
         let new = bar_back(self.document.read(cx).project().meter_map(), old);
-        // 커서 뒤가 될 지나온 스텝은 지운 자리라 버린다. 그 앞의 스텝은 위치가 그대로다.
-        self.step.drop_after(self.step_trail_key(cx), new);
+        // 커서 뒤가 될 지나온 스텝은 지운 자리라 버린다. 그 앞의 스텝은 위치가 그대로다. 지우기가 거부되면 자취도
+        // 그대로 둔다(리뷰 1 제안 7). 열쇠는 지우기 전 판으로 맞춰 둔다(지우기가 열쇠를 이어 간다).
+        let key = self.step_trail_key(cx);
+        self.step.check_trail(key);
         if self.step_delete_span(new.get(), old.get(), cx) {
+            self.step.drop_after(self.step_trail_key(cx), new);
             self.step_move_to(new, None, cx);
         }
     }
@@ -809,7 +816,9 @@ impl ProjectWindow {
                 .and_then(|t| t.clip(last.clip))
                 .map(|c| c.start().get())
         };
-        let Some(start) = start else {
+        // 직전 스텝의 노트가 지금도 커서에서 끝나야 한다. 레가토 뒤처럼 끝이 바뀌었으면 타이 대상이 아니다(리뷰 1 지적 1).
+        let Some(start) = start.filter(|&s| last.notes.iter().all(|n| s + n.end() == cursor.get()))
+        else {
             self.say("타이: 바로 앞에 친 음이 없다", cx);
             return;
         };
@@ -872,6 +881,8 @@ impl ProjectWindow {
         if !self.in_step() {
             return;
         }
+        // MML 대기는 다른 Step 동작처럼 먼저 확정한다(리뷰 1 제안 6).
+        self.step_settle_mml(cx);
         let Some(c) = &mut self.step.composing else {
             self.say("옥타브 ±1: 입력 중인 음이 없다", cx);
             return;
@@ -973,8 +984,14 @@ impl ProjectWindow {
         if !self.in_step() {
             return;
         }
+        // 건반형에는 MML 숫자 바인딩이 없다. 팔레트로 불러도 열지 않는다(리뷰 1 지적 2).
+        if self.step.layout != KeyLayout::Solfege {
+            self.say("MML(o·l)은 계이름 레이아웃에서만 쓴다", cx);
+            return;
+        }
         self.step_settle(cx);
-        self.step.prefix.clear();
+        // 아직 쓰지 않은 셋잇단 접두 `n`은 표시에 남긴다(길이 코드와 같다, 리뷰 1 제안 5).
+        self.step.prefix.retain(|ch| ch == 'n');
         self.step.mml = Some(MmlInput {
             kind,
             digits: String::new(),

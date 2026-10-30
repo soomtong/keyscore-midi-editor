@@ -234,6 +234,11 @@ impl StepState {
         }
     }
 
+    /// 열쇠가 지금(`key`)과 다르면 자취를 버린다(편집 전에 맞춰 두면 그 편집의 `rekey`가 열쇠를 잇는다).
+    pub(crate) fn check_trail(&mut self, key: (Option<TrackId>, u64)) {
+        self.check_key(key);
+    }
+
     /// 열쇠가 지금(`key`)과 다르면 자취를 버린다.
     fn check_key(&mut self, key: (Option<TrackId>, u64)) {
         if self.trail_key != Some(key) {
@@ -315,7 +320,9 @@ impl StepState {
         if let Some(c) = &self.composing {
             return Some(format!("{}{}_", self.prefix, c.shown));
         }
-        self.mml.as_ref().map(|m| format!("{}_", m.shown()))
+        self.mml
+            .as_ref()
+            .map(|m| format!("{}{}_", self.prefix, m.shown()))
     }
 }
 
