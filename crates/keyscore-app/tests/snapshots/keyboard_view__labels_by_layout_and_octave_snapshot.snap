@@ -1,0 +1,129 @@
+---
+source: crates/keyscore-app/tests/keyboard_view.rs
+expression: text
+---
+== piano oct4
+C4 white A in
+C#4 black W in
+D4 white S in
+D#4 black E in
+E4 white D in
+F4 white F in
+F#4 black T in
+G4 white G in
+G#4 black Y in
+A4 white H in
+A#4 black U in
+B4 white J in
+C5 white K in
+C#5 black O in
+D5 white L in
+D#5 black P in
+E5 white D5 in
+F5 white F5 in
+F#5 black T5 in
+G5 white G5 in
+G#5 black Y5 in
+A5 white H5 in
+A#5 black U5 in
+B5 white J5 in
+== piano oct3
+C3 white A in
+C#3 black W in
+D3 white S in
+D#3 black E in
+E3 white D in
+F3 white F in
+F#3 black T in
+G3 white G in
+G#3 black Y in
+A3 white H in
+A#3 black U in
+B3 white J in
+C4 white K in
+C#4 black O in
+D4 white L in
+D#4 black P in
+E4 white D4 in
+F4 white F4 in
+F#4 black T4 in
+G4 white G4 in
+G#4 black Y4 in
+A4 white H4 in
+A#4 black U4 in
+B4 white J4 in
+== piano oct0
+C0 white A in
+C#0 black W in
+D0 white S in
+D#0 black E in
+E0 white D in
+F0 white F in
+F#0 black T in
+G0 white G in
+G#0 black Y in
+A0 white H in
+A#0 black U in
+B0 white J in
+C1 white K in
+C#1 black O in
+D1 white L in
+D#1 black P in
+E1 white D1 in
+F1 white F1 in
+F#1 black T1 in
+G1 white G1 in
+G#1 black Y1 in
+A1 white H1 in
+A#1 black U1 in
+B1 white J1 in
+== solfege oct4
+C4 white c in
+C#4 black c# in
+D4 white d in
+D#4 black d# in
+E4 white e in
+F4 white f in
+F#4 black f# in
+G4 white g in
+G#4 black g# in
+A4 white a in
+A#4 black a# in
+B4 white b in
+C5 white c5 in
+C#5 black c#5 in
+D5 white d5 in
+D#5 black d#5 in
+E5 white e5 in
+F5 white f5 in
+F#5 black f#5 in
+G5 white g5 in
+G#5 black g#5 in
+A5 white a5 in
+A#5 black a#5 in
+B5 white b5 in
+== solfege oct8
+C8 white c in
+C#8 black c# in
+D8 white d in
+D#8 black d# in
+E8 white e in
+F8 white f in
+F#8 black f# in
+G8 white g in
+G#8 black g# in
+A8 white a in
+A#8 black a# in
+B8 white b in
+C9 white c9 in
+C#9 black c#9 in
+D9 white d9 in
+D#9 black d#9 in
+E9 white e9 in
+F9 white f9 in
+F#9 black f#9 in
+G9 white g9 in
+20 absent
+21 absent
+22 absent
+23 absent

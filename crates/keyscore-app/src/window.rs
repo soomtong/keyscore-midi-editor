@@ -43,7 +43,7 @@ enum Group {
 /// 창의 루트 뷰.
 pub struct ProjectWindow {
     pub(crate) document: Entity<ProjectDocument>,
-    layout: LayoutSettings,
+    pub(crate) layout: LayoutSettings,
     focus: FocusHandle,
     /// 가로 그룹(트랙 목록 | 메인 | 인스펙터)과 세로 그룹(위 | 하단 영역)의 크기 상태.
     horizontal: Entity<ResizableState>,
@@ -1279,7 +1279,16 @@ impl Render for ProjectWindow {
                             resizable_panel()
                                 .size(px(layout.bottom_height))
                                 .size_range(range.clone())
-                                .child(Self::region("bottom-panel", "컨트롤러 레인 / 건반 뷰", cx)),
+                                .child(match self.keyboard_view(cx) {
+                                    // 하단 영역은 Step이면 건반 뷰, 그 밖에는 컨트롤러 레인 자리(S6)다(REQ 7.1)
+                                    Some(caps) => {
+                                        self.render_keyboard_view(&caps, cx).into_any_element()
+                                    }
+                                    None => {
+                                        Self::region("bottom-panel", "컨트롤러 레인 / 건반 뷰", cx)
+                                            .into_any_element()
+                                    }
+                                }),
                         )
                     }),
             );

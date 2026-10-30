@@ -23,7 +23,7 @@ use crate::window::{PopupKind, ProjectWindow};
 pub(crate) const MARK_NAMES: &str = "abcdefghijklmnopqrstuvwxyz";
 
 /// 음이름(`C4` = 60).
-fn pitch_name(pitch: keyscore_core::Pitch) -> String {
+pub(crate) fn pitch_name(pitch: keyscore_core::Pitch) -> String {
     const NAMES: [&str; 12] = [
         "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
     ];
