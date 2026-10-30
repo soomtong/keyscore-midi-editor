@@ -32,6 +32,7 @@
 
 - 범위: REQ 5.4. `Cmd+K`, 건반 뷰 「연주」 버튼, 트랙 출력 전환(`Tab`, `F1`–`F8`, 클릭), `,`/`.` 프로그램 체인지, 서스테인 `Shift`(CC64), 옥타브, 드럼 트랙 라벨 모드(5.13: 라벨 키, `[` `]` 킷 페이지).
 - 테스트 게이트: 키 다운·업이 Note On/Off 쌍으로 루프백에 도착, 키 반복(auto-repeat) 이벤트가 중복 Note On을 내지 않음.
+- 이월(S3-T5): 건반 뷰(`keyboard_view.rs`, `keyboard_view_window.rs`)는 Step에서만 그린다. Play에서도 하단 영역에 그리고, 옥타브 버튼은 `play::OctaveDown`·`play::OctaveUp`을 내며, 「연주」 버튼을 더한다. 라벨 규칙은 `docs/reports/s3-t5/plan.md` 「끝의 정의」 2·3.
 
 ## 출구 게이트
 
