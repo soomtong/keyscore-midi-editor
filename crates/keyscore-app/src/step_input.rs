@@ -368,7 +368,14 @@ impl ProjectWindow {
             return;
         };
         let length = AppSettings::get(cx).preview.length();
-        let result = self.sound_note(&t, pitch, t.default_velocity(), length, cx);
+        let result = self.sound_note(
+            &t,
+            pitch,
+            t.default_velocity(),
+            length,
+            crate::preview::Purpose::Preview,
+            cx,
+        );
         if let Some(message) = result.failure("미리듣기")
             && !self.preview_notice_shown
         {

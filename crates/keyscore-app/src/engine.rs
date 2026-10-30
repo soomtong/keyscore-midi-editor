@@ -89,6 +89,21 @@ pub(crate) struct Engine {
     /// 지난 재생 시작 때 찾지 못한 이름 포트. 재생 중 편집(스냅샷 교체)마다 메인 스레드에서 목적지를
     /// 다시 열거하지 않도록 다음 재생 시작까지 기억한다(S2-T5a 리뷰 1 제안 3).
     known_missing: HashSet<String>,
+    /// 정지 중 미리듣기가 마지막으로 넣은 스냅샷(S3-T4c). 다른 스냅샷이 들어가거나 포트가 바뀌면 잊는다
+    /// ([`Engine::forget_preview`]).
+    preview: Option<PreviewSnapshot>,
+    /// (목적지, 채널)마다 미리듣기·테스트 노트가 마지막으로 보낸 뱅크·프로그램 묶음(S3-T4c). 같은 묶음은 다시
+    /// 보내지 않는다. 기본 가상 포트는 빈 문자열로 적는다.
+    setups_sent: HashMap<(String, u8), Vec<Midi1Message>>,
+    /// 미리듣기가 스냅샷을 새로 준비한 횟수(시험·진단용).
+    preview_prepares: u64,
+}
+
+/// 정지 중 미리듣기 스냅샷의 포트 구성(트랙 포트 차례, 메트로놈 포트, 클럭 포트)과 그 경로표. 정지 중
+/// 미리듣기는 스냅샷의 이벤트를 쓰지 않으므로 포트 구성이 같으면 다시 준비하지 않아도 된다(S3-T2 리뷰 1 제안 9).
+struct PreviewSnapshot {
+    ports: Vec<OutputPort>,
+    routes: Vec<(String, u16)>,
 }
 
 /// (목적지, 채널) 하나의 실효 음색(뱅크·프로그램). 재생 시작의 chase와 같은 규칙으로 정한다: 들리지 않는
@@ -507,6 +522,7 @@ pub fn remove_virtual_port(cx: &mut App, name: &str) -> Result<(), PortEditError
     };
     let port = engine.extras.remove(i);
     engine.retired.push(port);
+    engine.forget_preview();
     engine.mapped.retain(|m| m != name);
     AppSettings::update(cx, |s| {
         s.midi_output.virtual_ports.retain(|n| n != name);
@@ -542,6 +558,7 @@ pub fn remove_virtual_port(cx: &mut App, name: &str) -> Result<(), PortEditError
 /// 다시 읽는다.
 fn ports_edited(cx: &mut App, name: &str, refresh_owner: bool) {
     cx.global_mut::<Engine>().forget_missing(name);
+    cx.global_mut::<Engine>().forget_preview();
     if refresh_owner && let Some(owner) = cx.global::<Engine>().owner() {
         owner.update(cx, ProjectWindow::transport_refresh);
     }
@@ -626,6 +643,8 @@ pub fn send_port_test_note(cx: &mut App, name: &str) -> Result<(), String> {
             })?
     } else {
         let engine = cx.global_mut::<Engine>();
+        // 미리듣기가 넣은 스냅샷을 바꾼다
+        engine.forget_preview();
         let main: Arc<dyn MidiPort> = engine.main.clone();
         let extra: Arc<dyn MidiPort> = extra.unwrap_or_else(|| engine.main.clone());
         Snapshot::new(TempoMap::default(), vec![main, extra], Vec::new())
@@ -792,6 +811,9 @@ pub fn install(cx: &mut App, options: &EngineOptions) -> Result<(), MidiError> {
         last_test: None,
         owner: None,
         known_missing: HashSet::new(),
+        preview: None,
+        setups_sent: HashMap::new(),
+        preview_prepares: 0,
     });
     Ok(())
 }
@@ -870,6 +892,12 @@ pub(crate) fn recover(cx: &mut App, announce_failure: bool) -> Result<(), Recove
     result
 }
 
+/// 정지 중 미리듣기가 스냅샷을 새로 준비한 횟수(S3-T4c, 시험·진단용). 엔진이 없으면 0.
+#[must_use]
+pub fn preview_prepares(cx: &App) -> u64 {
+    cx.try_global::<Engine>().map_or(0, |e| e.preview_prepares)
+}
+
 /// 엔진이 설치돼 있는가.
 #[must_use]
 pub fn is_installed(cx: &App) -> bool {
@@ -891,12 +919,14 @@ impl Engine {
 
     /// 이름 포트가 사라졌다(포트 감시). 핸들을 놓고, 재생 중 편집이 다시 찾지 않게 기억한다.
     pub(crate) fn port_lost(&mut self, name: &str) {
+        self.forget_preview();
         self.opened.remove(name);
         self.known_missing.insert(name.to_owned());
     }
 
     /// 이름 포트가 돌아왔다(포트 감시). 옛 핸들을 놓고 「없음」 기억을 지워 다음 준비가 새로 연다.
     pub(crate) fn port_returned(&mut self, name: &str) {
+        self.forget_preview();
         self.opened.remove(name);
         self.known_missing.remove(name);
     }
@@ -905,6 +935,7 @@ impl Engine {
     /// 엔드포인트를 바꾸지 않도록, 빈 스냅샷을 넣고 옛 스냅샷이 돌아올 때까지 기다린다.
     fn reregister_main(&mut self) -> Result<(), RecoverError> {
         // 서버가 바뀌면 연 OS 포트도 옛 서버의 것이다
+        self.forget_preview();
         self.opened.clear();
         self.known_missing.clear();
         self.scheduler.stop()?;
@@ -987,6 +1018,7 @@ impl Engine {
         // 서버 확인에서 다시 본다.
         let lost = self.extras.iter().any(|p| !p.is_registered());
         if lost && !self.has_owner() {
+            self.forget_preview();
             let main: Arc<dyn MidiPort> = self.main.clone();
             let swapped = Snapshot::new(TempoMap::default(), vec![main], Vec::new())
                 .and_then(|snapshot| self.scheduler.swap(Arc::new(snapshot)));
@@ -1045,6 +1077,61 @@ impl Engine {
     }
 
     /// 재생 중인 창이 있는가.
+    /// 미리듣기 스냅샷과 보낸 음색 기록을 잊는다(S3-T4c). 다른 스냅샷이 들어가거나(재생 준비, 포트 지우기·
+    /// 복구) 포트가 오가거나 바뀔 때 부른다. 다음 미리듣기는 스냅샷을 다시 준비하고 음색을 다시 보낸다.
+    pub(crate) fn forget_preview(&mut self) {
+        self.preview = None;
+        self.setups_sent.clear();
+    }
+
+    /// 지금 들어 있는 미리듣기 스냅샷이 포트 구성 `ports`의 것이면, 그 스냅샷에서 `destination`의 포트 번호.
+    pub(crate) fn preview_route(&self, ports: &[OutputPort], destination: &str) -> Option<u16> {
+        let p = self.preview.as_ref().filter(|p| p.ports == ports)?;
+        p.routes
+            .iter()
+            .find(|(d, _)| d == destination)
+            .map(|(_, i)| *i)
+    }
+
+    /// 미리듣기가 포트 구성 `ports`로 준비한 스냅샷을 넣었다.
+    pub(crate) fn remember_preview(&mut self, ports: Vec<OutputPort>, routes: Vec<(String, u16)>) {
+        self.preview = Some(PreviewSnapshot { ports, routes });
+        self.preview_prepares += 1;
+    }
+
+    /// 뱅크·프로그램 기록의 열쇠. 기본 가상 포트는 이름으로 가리켜도 같은 포트라 빈 문자열로 모은다.
+    fn setup_key(&self, destination: &str, channel: u8) -> (String, u8) {
+        let destination = if destination == self.main.name() {
+            ""
+        } else {
+            destination
+        };
+        (destination.to_owned(), channel)
+    }
+
+    /// `destination`의 `channel`에 마지막으로 보낸 뱅크·프로그램 묶음이 `messages`인가.
+    pub(crate) fn setup_sent(
+        &self,
+        destination: &str,
+        channel: u8,
+        messages: &[Midi1Message],
+    ) -> bool {
+        self.setups_sent
+            .get(&self.setup_key(destination, channel))
+            .is_some_and(|m| m == messages)
+    }
+
+    /// `destination`의 `channel`에 뱅크·프로그램 묶음 `messages`를 보냈다.
+    pub(crate) fn note_setup_sent(
+        &mut self,
+        destination: &str,
+        channel: u8,
+        messages: Vec<Midi1Message>,
+    ) {
+        let key = self.setup_key(destination, channel);
+        self.setups_sent.insert(key, messages);
+    }
+
     pub(crate) fn has_owner(&self) -> bool {
         self.owner.as_ref().is_some_and(|w| w.upgrade().is_some())
     }
@@ -1074,6 +1161,8 @@ impl Engine {
         metronome: &OutputPort,
         clock_ports: &[OutputPort],
     ) -> Result<Prepared, MidiError> {
+        // 이 준비의 스냅샷이 미리듣기 스냅샷을 바꾼다. 재생은 chase로 음색을 보낸다
+        self.forget_preview();
         if !live {
             self.known_missing.clear();
         }

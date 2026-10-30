@@ -798,7 +798,14 @@ impl ProjectWindow {
         let Some(track) = self.document.read(cx).project().track(track_id).cloned() else {
             return;
         };
-        let result = self.sound_note(&track, note.pitch(), note.velocity(), settings.length(), cx);
+        let result = self.sound_note(
+            &track,
+            note.pitch(),
+            note.velocity(),
+            settings.length(),
+            crate::preview::Purpose::Preview,
+            cx,
+        );
         if let Some(message) = result.failure("미리듣기")
             && !self.preview_notice_shown
         {
@@ -817,7 +824,14 @@ impl ProjectWindow {
             return;
         };
         let length = AppSettings::get(cx).preview.length();
-        let result = self.sound_note(&track, note.pitch(), note.velocity(), length, cx);
+        let result = self.sound_note(
+            &track,
+            note.pitch(),
+            note.velocity(),
+            length,
+            crate::preview::Purpose::Preview,
+            cx,
+        );
         if let Some(message) = result.failure("미리듣기") {
             self.say(message, cx);
         }
