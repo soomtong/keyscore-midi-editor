@@ -642,8 +642,11 @@ impl ProjectWindow {
         }
         // 화음은 닫는다(결정 5절). 화음 안의 다른 옥타브는 음 뒤 숫자로 친다(리뷰 1 지적 3).
         self.step_settle(cx);
+        // `n`을 거듭 쳐도 셋잇단은 한 번이다. 표시도 한 번만(S3-T4b 리뷰 3 제안 3)
+        if !self.step.triplet_next {
+            self.step.prefix.push('n');
+        }
         self.step.triplet_next = true;
-        self.step.prefix.push('n');
         cx.notify();
     }
 

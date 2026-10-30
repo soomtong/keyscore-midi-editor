@@ -227,3 +227,28 @@ fn step_in_piano_roll_has_no_arrangement_display(cx: &mut TestAppContext) {
     assert_eq!(cursor_text(cx, handle), None);
     assert_eq!(clip_text(cx, handle), None);
 }
+
+// ---------- 18. S3-T4b 리뷰 3 제안 3 ----------
+
+#[gpui_kit::test]
+fn triplet_twice_shows_single_n(cx: &mut TestAppContext) {
+    let (handle, view) = open(cx, "nn", project(&[]));
+    event(cx, handle, &view, ModeEvent::ToggleView);
+    event(cx, handle, &view, ModeEvent::Enter(Mode::Step));
+    press(cx, handle, "n n c");
+    let composing = cx.read(|cx| view.read(cx).step_status().composing);
+    assert_eq!(composing.as_deref(), Some("nc_"));
+    press(cx, handle, "enter");
+    let notes: Vec<(u64, u32)> = cx.read(|cx| {
+        let track = &view.read(cx).document().read(cx).project().tracks()[0];
+        track
+            .clips()
+            .flat_map(|(_, c)| {
+                c.notes()
+                    .iter()
+                    .map(move |n| (c.start().get() + n.start().get(), n.length()))
+            })
+            .collect()
+    });
+    assert_eq!(notes, vec![(0, 640)]);
+}
