@@ -307,8 +307,8 @@ fn drum_track_shows_gm_labels(cx: &mut TestAppContext) {
     press(cx, handle, "[ [");
     assert_eq!(key_label(cx, handle, 0).as_deref(), Some("bd A"));
     assert_eq!(key_label(cx, handle, 2).as_deref(), Some("sd S"));
-    // 라벨 없는 음(40)은 키만
-    assert_eq!(key_label(cx, handle, 4).as_deref(), Some("D"));
+    // 표에 없는 음(40)은 `n40`
+    assert_eq!(key_label(cx, handle, 4).as_deref(), Some("n40 D"));
 }
 
 #[gpui_kit::test]

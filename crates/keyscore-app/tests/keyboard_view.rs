@@ -66,8 +66,8 @@ fn drum_track_labels_snapshot() {
     assert_eq!(caps[0].name.as_deref(), Some("bd"));
     assert_eq!(caps[2].name.as_deref(), Some("sd"));
     assert_eq!(caps[6].name.as_deref(), Some("ch"));
-    // 40(E2, Electric Snare)은 짧은 라벨 표에 없다
-    assert_eq!(caps[4].name, None);
+    // 40(E2, Electric Snare)은 짧은 라벨 표에 없어 `n40`(REQ 5.13)
+    assert_eq!(caps[4].name.as_deref(), Some("n40"));
 }
 
 // ---------- 4. 조성 ----------

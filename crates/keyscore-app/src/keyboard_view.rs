@@ -22,7 +22,7 @@ pub struct KeyCap {
     pub black: bool,
     /// Step에서 이 음을 쓰는 키 입력.
     pub key: Option<String>,
-    /// 음 이름(`C4`) 또는 드럼 트랙의 GM 라벨(`bd`).
+    /// 음 이름(`C4`) 또는 드럼 트랙의 GM 라벨(`bd`, 표에 없으면 `n40`).
     pub name: Option<String>,
     /// 조성 밖이면 `true`. 조성이 없으면 늘 `false`.
     pub out_of_key: bool,
@@ -70,7 +70,11 @@ pub fn keys(layout: KeyLayout, octave: u8, key: Key, drum: bool) -> Vec<KeyCap> 
                 KeyLayout::Solfege => Some(format!("{}{}", SOLFEGE_KEYS[i - 12], octave + 1)),
             };
             let name = if drum {
-                label_of(pitch.get()).map(str::to_owned)
+                // 표에 없는 노트는 `n<번호>`(REQ 5.13, 텍스트 내보내기와 같다, 리뷰 1 지적 2)
+                Some(
+                    label_of(pitch.get())
+                        .map_or_else(|| format!("n{}", pitch.get()), str::to_owned),
+                )
             } else {
                 Some(pitch_name(pitch))
             };
