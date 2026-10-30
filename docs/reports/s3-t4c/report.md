@@ -25,7 +25,7 @@
 keyscore-app --test preview_light: 9 passed
 keyscore-app --test arrangement_step: 9 passed
 관련 시험 묶음(미리듣기·테스트 노트·엔진·Step을 쓰는 시험 파일 72개, --no-fail-fast): 773 passed, 0 failed
-전체 cargo test --workspace --no-fail-fast: <리뷰 뒤 채움>
+전체 cargo test --workspace --no-fail-fast(리뷰 3 뒤): 2474 passed, 1 failed. 실패는 keyscore-midi review_s1_t4_r2::drop_with_queued_swaps_releases_all_ports_on_control_thread(알려진 지터, HANDOFF 교훈). 이 Task는 keyscore-midi를 바꾸지 않았고, 혼자 두 번 돌려 14 passed 둘
 ~~~
 
 실패 확인(구현 뒤 기능을 일부러 끈 상태):
@@ -60,7 +60,7 @@ keyscore-app --test arrangement_step: 9 passed
 
 - [x] fmt
 - [x] clippy -D warnings
-- [ ] test(전체는 리뷰 뒤에 처음부터 돌린다)
+- [x] test(리뷰 3 뒤 전체, 지터 1건은 혼자 다시 돌려 통과)
 - [x] deny
 - [x] 단계별 추가 게이트: `scripts/check-deps.sh`, `scripts/check-deps.test.sh`, `scripts/bench-check.test.sh` 통과
 
@@ -87,6 +87,10 @@ keyscore-app --test arrangement_step: 9 passed
 | 2 | 수정 | `next_step_write`가 `step_commit`과 같은 규칙으로 자리·밀기·길이·음높이를 고른다: 조합 중이면 그 조합의 셋잇단·절반과 같은 트랙의 열린 화음(자리 = 화음 자리, 밀기 0), 아니면 지금 길이와 대기 중인 `n`. 조합 음높이가 0–127 밖이면 그렇게 알린다 | 같은 커밋 |
 | 3 | 제안 | 받음. `has_owner`의 문서 주석을 제자리로 | `keyscore-app: Restore the has_owner doc comment` |
 | 4 | 제안 | 일부 받음. 가상 포트를 지우고 같은 이름으로 다시 만든 뒤의 미리듣기 시험을 더했다(`preview_light_ports.rs`, 잊기를 빼면 실패함을 확인). 가상 포트는 프로세스마다 16개가 상한이라 `preview_light.rs`에 넣으면 병렬 시험이 상한을 넘어 별도 파일로 했다. 서버 복구·메트로놈·두 창 시험은 리뷰 파일에 커밋돼 그대로 돈다. `port_lost`·`port_returned`·`housekeeping`은 OS 목적지의 사라짐이 필요해 헤드리스 시험으로 만들지 않았다(코드 대조만) | `keyscore-app: Test that removing a virtual port drops the preview route` |
+
+## 리뷰 3
+
+판정 「병합 가능」(`review-3.md`), 지적 없음. 리뷰 시험 `review_s3_t4c_r3.rs` 3개 통과.
 
 ## 리뷰 2 대응
 
