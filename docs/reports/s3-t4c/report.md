@@ -76,3 +76,14 @@ keyscore-app --test arrangement_step: 9 passed
 - 무효화 누락이 가장 불안하다. 엔진 밖에서 스냅샷을 넣는 길은 `prepare` 뒤뿐이라고 보았다(`transport.rs`의 두 `swap`). 엔진 안의 `Snapshot::new` 교체 다섯 곳에는 모두 `forget_preview`가 닿는지 확인해 달라. 같은 포트 구성인데 스냅샷이 바뀌는 길이 있으면 경로표 번호가 엉뚱한 포트를 가리킨다.
 - 열쇠에 문서 revision을 넣지 않았다. 정지 중 미리듣기는 스냅샷의 이벤트를 쓰지 않는다는 판단이다. 정지 중 스냅샷의 이벤트를 읽는 길(클럭·메트로놈 등)이 있으면 깨진다.
 - 음색 기록의 열쇠는 (목적지 이름, 채널)이다. 같은 장치를 다른 이름으로 가리키는 길(대체 매핑과 같은 모양 이름)에서 건너뛰기가 틀릴 수 있는지 봐 달라.
+
+## 리뷰 1 대응
+
+판정 「수정 후 재리뷰」(`review-1.md`). 리뷰 시험 `review_s3_t4c.rs` 13개는 수정 뒤 모두 통과한다.
+
+| # | 심각도 | 대응 | 커밋 |
+| --- | --- | --- | --- |
+| 1 | 수정 | 쓰기의 계획을 `plan_step_write`(순수 함수, `Project`만 읽음)로 떼어 `step_write`와 `arrangement_step`이 함께 쓴다. 표시는 그 계획이 거부되면 「클립 「A」 안: 여기서는 쓸 수 없다(…)」, 「클립 「A」 끝: …」처럼 자리와 이유를 함께 보인다. 「… 끝에 이어 쓴다」는 계획이 성공할 때만 | `keyscore-app: Plan the arrangement step display with the step write itself` |
+| 2 | 수정 | `next_step_write`가 `step_commit`과 같은 규칙으로 자리·밀기·길이·음높이를 고른다: 조합 중이면 그 조합의 셋잇단·절반과 같은 트랙의 열린 화음(자리 = 화음 자리, 밀기 0), 아니면 지금 길이와 대기 중인 `n`. 조합 음높이가 0–127 밖이면 그렇게 알린다 | 같은 커밋 |
+| 3 | 제안 | 받음. `has_owner`의 문서 주석을 제자리로 | `keyscore-app: Restore the has_owner doc comment` |
+| 4 | 제안 | 일부 받음. 가상 포트를 지우고 같은 이름으로 다시 만든 뒤의 미리듣기 시험을 더했다(`preview_light_ports.rs`, 잊기를 빼면 실패함을 확인). 가상 포트는 프로세스마다 16개가 상한이라 `preview_light.rs`에 넣으면 병렬 시험이 상한을 넘어 별도 파일로 했다. 서버 복구·메트로놈·두 창 시험은 리뷰 파일에 커밋돼 그대로 돈다. `port_lost`·`port_returned`·`housekeeping`은 OS 목적지의 사라짐이 필요해 헤드리스 시험으로 만들지 않았다(코드 대조만) | `keyscore-app: Test that removing a virtual port drops the preview route` |
