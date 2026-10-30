@@ -80,11 +80,15 @@ impl ProjectWindow {
         // 버튼은 키와 같은 Action을 낸다(처리기가 조합 확정·범위 메시지를 맡는다). 하단 영역은 모드 키
         // 컨텍스트 밖이라 누른 뒤 포커스를 문서로 돌린다(트랜스포트 바와 같다).
         let doc = self.document_focus();
-        let octave_button = |id: &'static str, label: &'static str, action: Box<dyn Action>| {
+        // 접근성 라벨은 글자(`+`)가 아니라 동작을 말한다(리뷰 1 제안 3)
+        let octave_button = |id: &'static str,
+                             label: &'static str,
+                             spoken: &'static str,
+                             action: Box<dyn Action>| {
             let doc = doc.clone();
             Button::new(id)
                 .label(label)
-                .accessibility_label(label)
+                .accessibility_label(spoken)
                 .ghost()
                 .on_click(move |_: &ClickEvent, window, cx| {
                     run_action(action.boxed_clone(), window, cx);
@@ -102,6 +106,7 @@ impl ProjectWindow {
             .child(octave_button(
                 "keyboard-octave-up",
                 "+",
+                "옥타브 올리기",
                 Box::new(step::OctaveUp),
             ))
             .child(
@@ -115,6 +120,7 @@ impl ProjectWindow {
             .child(octave_button(
                 "keyboard-octave-down",
                 "−",
+                "옥타브 내리기",
                 Box::new(step::OctaveDown),
             ))
     }

@@ -233,6 +233,19 @@ fn octave_buttons_run_step_octave_actions(cx: &mut TestAppContext) {
 }
 
 #[gpui_kit::test]
+fn octave_buttons_have_action_labels(cx: &mut TestAppContext) {
+    let (handle, _view) = step(cx, "button-labels", project(1), KeyLayout::Piano);
+    assert_eq!(
+        label(cx, handle, "keyboard-octave-up").as_deref(),
+        Some("옥타브 올리기")
+    );
+    assert_eq!(
+        label(cx, handle, "keyboard-octave-down").as_deref(),
+        Some("옥타브 내리기")
+    );
+}
+
+#[gpui_kit::test]
 fn octave_button_settles_composing_like_key(cx: &mut TestAppContext) {
     let (handle, view) = step(cx, "settle", project(1), KeyLayout::Solfege);
     press(cx, handle, "c");
