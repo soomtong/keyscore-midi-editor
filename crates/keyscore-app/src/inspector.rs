@@ -315,6 +315,7 @@ impl ProjectWindow {
             pitch,
             track.default_velocity(),
             DEFAULT_PREVIEW_LENGTH,
+            crate::preview::Purpose::TestNote,
             cx,
         );
         let virtual_name = crate::engine::virtual_port_name(cx);

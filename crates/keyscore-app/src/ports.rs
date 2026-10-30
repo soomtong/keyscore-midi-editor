@@ -322,6 +322,10 @@ fn check_server_ports(cx: &mut App, failures: u32) {
 /// 사라진다, S2-T6d).
 fn housekeeping(cx: &mut App, changed: bool) {
     if changed {
+        // 같은 이름의 더 앞선 목적지가 생겼을 수 있다. 미리듣기는 다음에 포트를 다시 연다(S3-T4c)
+        if engine::is_installed(cx) {
+            cx.global_mut::<Engine>().forget_preview();
+        }
         refresh(cx);
     }
     if engine::is_installed(cx) {

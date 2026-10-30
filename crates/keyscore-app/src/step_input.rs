@@ -6,20 +6,26 @@
 
 use std::time::Duration;
 
-use gpui_kit::{Context, Div, InteractiveElement as _, Stateful, Window};
+use gpui_kit::component::ActiveTheme as _;
+use gpui_kit::{
+    App, Context, Div, InteractiveElement as _, IntoElement, ParentElement as _, Stateful,
+    StatefulInteractiveElement as _, Styled as _, TestSupportExt as _, Window, div,
+};
 use keyscore_core::transform::{Splice, clip_for_notes, splice};
-use keyscore_core::{ClipId, MeterMap, Note, Pitch, Project, Tick, TrackId};
+use keyscore_core::{
+    Clip, ClipId, Edit, MeterMap, ModelError, Note, Pitch, Project, Tick, TrackId,
+};
 
 use crate::actions::args::{AccidentalKind, KeyLayout};
 use crate::actions::{mode, step};
 use crate::app_state::AppSettings;
-use crate::mode::{Mode, ModeEvent};
+use crate::mode::{Mode, ModeEvent, View};
 use crate::pianoroll::Cursor;
 use crate::pianoroll::edit::plan_legato;
 use crate::pianoroll::keys::semitone_of_key;
 use crate::step::{
-    Composing, LastStep, MmlInput, MmlKind, OCTAVE_MAX, OpenChord, StepLength, StepStatus,
-    code_digit, mml_length, pitch_of, semitone_name, step_ticks,
+    ArrangementStep, Composing, LastStep, MmlInput, MmlKind, OCTAVE_MAX, OpenChord, StepLength,
+    StepStatus, code_digit, mml_length, pitch_of, semitone_name, step_ticks,
 };
 use crate::window::ProjectWindow;
 
@@ -89,6 +95,23 @@ enum Host {
     Gap,
 }
 
+/// 커서가 든 클립: 시작 ≤ 커서 < 끝, 없으면 끝 = 커서(이어 쓰기). 둘 다 없으면 틈. 트랙이 없으면 `None`.
+fn step_host(project: &Project, track: TrackId, at: Tick) -> Option<Host> {
+    let t = project.track(track)?;
+    let at = at.get();
+    let inside = t
+        .clips()
+        .find(|(_, c)| c.start().get() <= at && at < c.end());
+    let ending = || t.clips().find(|(_, c)| c.end() == at);
+    Some(match inside.or_else(ending) {
+        Some((id, c)) => Host::Clip {
+            id,
+            start: c.start().get(),
+        },
+        None => Host::Gap,
+    })
+}
+
 impl ProjectWindow {
     // ---------- 상태 ----------
 
@@ -117,6 +140,111 @@ impl ProjectWindow {
         };
         let ghost = usize::from(self.mode_state().has_ghost());
         PATHS[layout][wait + 3 * ghost]
+    }
+
+    /// 배치 뷰의 Step 위치 표시(S3-T4c). 배치 뷰의 Step 모드가 아니거나 트랙이 없으면 `None`. 다음 확정이 쓸
+    /// 자리·길이(`next_step_write`)로 쓰기와 같은 계획(`plan_step_write`)을 세워, 그 클립 또는 새 클립의 마디를
+    /// 보이고 거부되면 이유를 보인다.
+    #[must_use]
+    pub fn arrangement_step(&self, cx: &App) -> Option<ArrangementStep> {
+        let mode = self.mode_state();
+        if mode.mode() != Mode::Step || mode.view() != View::Arrangement {
+            return None;
+        }
+        let track = self.current_track()?;
+        let project = self.document.read(cx).project();
+        let t = project.track(track)?;
+        let cursor = self.pianoroll.cursor();
+        let named = |c: &Clip| {
+            c.name().map_or_else(
+                || crate::tracks::format_position(project, c.start()),
+                |n| format!("「{n}」"),
+            )
+        };
+        let (write_track, at, push, len, pitch) = self.next_step_write()?;
+        let host_clip = match step_host(project, write_track, at) {
+            Some(Host::Clip { id, .. }) => project.track(write_track).and_then(|w| w.clip(id)),
+            _ => None,
+        };
+        let extends = host_clip.is_some_and(|c| c.end() == at.get());
+        let place = match host_clip {
+            Some(c) if c.end() == at.get() => format!("클립 {} 끝", named(c)),
+            Some(c) => format!("클립 {} 안", named(c)),
+            None => "클립 밖".to_owned(),
+        };
+        let planned = pitch.map(|pitch| {
+            Self::plan_step_write(
+                project,
+                write_track,
+                at,
+                push,
+                len,
+                pitch,
+                self.step.overwrite,
+            )
+        });
+        let clip = match planned {
+            // 확정이 「음높이가 0–127을 벗어나 쓰지 않았다」고 알릴 조합이다
+            None => format!("{place}: 음높이가 0–127을 벗어나 쓸 수 없다"),
+            Some(planned) => match planned {
+                Ok((edits, None, _)) => match edits.first() {
+                    Some(Edit::InsertClip { clip, .. }) => {
+                        let meter = project.meter_map();
+                        let first = meter.position(clip.start()).bar() + 1;
+                        let last = meter
+                            .position(Tick::new(clip.end().saturating_sub(1)))
+                            .bar()
+                            + 1;
+                        format!("{place}: 입력하면 마디 {first}–{last}에 새 클립")
+                    }
+                    _ => format!("{place}: 입력하면 새 클립"),
+                },
+                // 클립 끝이면 그 클립을 늘려 이어 쓴다
+                Ok(_) if extends => format!("{place}에 이어 쓴다"),
+                Ok(_) => place,
+                Err(e) => format!("{place}: 여기서는 쓸 수 없다({e})"),
+            },
+        };
+        Some(ArrangementStep {
+            cursor: format!(
+                "Step: {} {}",
+                t.name(),
+                crate::tracks::format_position(project, cursor.tick)
+            ),
+            clip,
+        })
+    }
+
+    /// 배치 뷰 자리표시 안의 Step 위치 표시(S3-T4c). 격자는 S4-T1이다.
+    pub(crate) fn render_arrangement_step(
+        shown: ArrangementStep,
+        cx: &App,
+    ) -> impl IntoElement + use<> {
+        div()
+            .id("main-view")
+            .aria_label("배치 뷰")
+            .test_support()
+            .size_full()
+            .p_2()
+            .flex()
+            .flex_col()
+            .gap_1()
+            .child(
+                div()
+                    .id("arrangement-step-cursor")
+                    .aria_label(shown.cursor.clone())
+                    .test_support()
+                    .text_color(cx.theme().foreground)
+                    .child(shown.cursor),
+            )
+            .child(
+                div()
+                    .id("arrangement-step-clip")
+                    .aria_label(shown.clip.clone())
+                    .test_support()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(shown.clip),
+            )
     }
 
     /// 상태줄 모드 표시(`STEP ♩ oct4`, 조합 중 `STEP 1/16 oct4 5c_`).
@@ -246,22 +374,74 @@ impl ProjectWindow {
         cx.notify();
     }
 
-    /// 커서가 든 클립: 시작 ≤ 커서 < 끝, 없으면 끝 = 커서(이어 쓰기). 둘 다 없으면 틈.
-    fn step_host(&self, track: TrackId, at: Tick, cx: &Context<Self>) -> Option<Host> {
-        let doc = self.document.read(cx);
-        let t = doc.project().track(track)?;
-        let at = at.get();
-        let inside = t
-            .clips()
-            .find(|(_, c)| c.start().get() <= at && at < c.end());
-        let ending = || t.clips().find(|(_, c)| c.end() == at);
-        Some(match inside.or_else(ending) {
-            Some((id, c)) => Host::Clip {
-                id,
-                start: c.start().get(),
-            },
-            None => Host::Gap,
-        })
+    /// 노트 하나를 `at`(절대)에 쓰고 커서 뒤 노트를 `push`만큼 미는 편집을 계획한다(적용하지 않는다). 쓰기
+    /// (`step_write`)와 배치 뷰 표시(`arrangement_step`)가 같은 계획을 쓴다(S3-T4c 리뷰 1 지적 1). 돌려주는 것은
+    /// (편집, 있던 클립(새 클립이면 `None`), 쓸 노트(있던 클립이면 클립 기준, 새 클립이면 절대)).
+    fn plan_step_write(
+        project: &Project,
+        track: TrackId,
+        at: Tick,
+        push: i64,
+        len: u32,
+        pitch: Pitch,
+        overwrite: bool,
+    ) -> Result<(Vec<Edit>, Option<ClipId>, Note), ModelError> {
+        let t = project.track(track).ok_or(ModelError::UnknownTrack)?;
+        let velocity = t.default_velocity();
+        if let Some(Host::Clip { id, start }) = step_host(project, track, at) {
+            let rel = at.get() - start;
+            // 덮어쓰기는 밀지 않고 스텝 범위에서 시작하는 노트를 지운다(화음의 다음 음은 `push` = 0이라 지우지
+            // 않는다, S3-T4b 결정 2절).
+            let (by, remove) = if overwrite {
+                let to = rel + u64::try_from(push).unwrap_or(0);
+                (0, starting_in(project, track, id, rel, to))
+            } else {
+                (push, Vec::new())
+            };
+            let n = Note::new(Tick::new(rel), len, pitch, velocity)?;
+            let s = Splice {
+                at: rel,
+                by,
+                remove,
+                insert: vec![n.clone()],
+                ..Splice::default()
+            };
+            splice(project, track, id, &s).map(|edits| (edits, Some(id), n))
+        } else {
+            let n = Note::new(at, len, pitch, velocity)?;
+            clip_for_notes(project, track, std::slice::from_ref(&n), at)
+                .map(|edit| (vec![edit], None, n))
+        }
+    }
+
+    /// 다음 음 키 하나(또는 조합 중이면 그 조합)의 확정이 쓸 (트랙, 자리, 밀기, 길이, 음높이). `step_key` →
+    /// `step_commit`이 쓰기 전에 거치는 차례를 그대로 따른다(리뷰 1 지적 2, 리뷰 2 지적 1): MML 길이 대기를 먼저
+    /// 확정하고(`step_settle_mml`), 다른 트랙의 화음은 닫아 커서가 화음 끝으로 가며(`step_close_chord`), 같은
+    /// 트랙의 화음이면 화음 자리에 밀지 않고 쓴다. 조합이 없으면 지금 커서 음높이의 보통 음 키로 본다.
+    fn next_step_write(&self) -> Option<(TrackId, Tick, i64, u32, Option<Pitch>)> {
+        let length = match &self.step.mml {
+            Some(m) if m.kind == MmlKind::Length => {
+                mml_length(&m.digits, m.dotted).unwrap_or(self.step.length)
+            }
+            _ => self.step.length,
+        };
+        let cursor = self.pianoroll.cursor();
+        let (track, triplet, half, pitch) = match &self.step.composing {
+            Some(c) => (c.track, c.triplet, c.half, c.pitch()),
+            None => (
+                self.current_track()?,
+                self.step.triplet_next,
+                false,
+                Some(cursor.pitch),
+            ),
+        };
+        let len = step_ticks(length, triplet, half);
+        let (at, push) = match &self.step.chord {
+            Some(ch) if ch.track == track => (ch.at, 0),
+            Some(ch) => (Tick::new(ch.at.get() + ch.len), i64::from(len)),
+            None => (cursor.tick, i64::from(len)),
+        };
+        Some((track, at, push, len, pitch))
     }
 
     /// 노트 하나를 `at`(절대)에 쓰고 커서 뒤 노트를 `push`만큼 민다. 성공하면 (클립, 쓴 노트(클립 기준)).
@@ -274,48 +454,19 @@ impl ProjectWindow {
         pitch: Pitch,
         cx: &mut Context<Self>,
     ) -> Option<(ClipId, Note)> {
-        let host = self.step_host(track, at, cx);
-        let Some(host) = host else {
+        if self.document.read(cx).project().track(track).is_none() {
             self.say("Step: 트랙이 없다", cx);
             return None;
-        };
-        let velocity = self
-            .document
-            .read(cx)
-            .project()
-            .track(track)?
-            .default_velocity();
-        let planned = {
-            let doc = self.document.read(cx);
-            let project = doc.project();
-            match host {
-                Host::Clip { id, start } => {
-                    let rel = at.get() - start;
-                    // 덮어쓰기는 밀지 않고 스텝 범위에서 시작하는 노트를 지운다(화음의 다음 음은 `push` = 0이라 지우지
-                    // 않는다, S3-T4b 결정 2절).
-                    let (by, remove) = if self.step.overwrite {
-                        let to = rel + u64::try_from(push).unwrap_or(0);
-                        (0, starting_in(project, track, id, rel, to))
-                    } else {
-                        (push, Vec::new())
-                    };
-                    Note::new(Tick::new(rel), len, pitch, velocity).and_then(|n| {
-                        let s = Splice {
-                            at: rel,
-                            by,
-                            remove,
-                            insert: vec![n.clone()],
-                            ..Splice::default()
-                        };
-                        splice(project, track, id, &s).map(|edits| (edits, Some(id), n))
-                    })
-                }
-                Host::Gap => Note::new(at, len, pitch, velocity).and_then(|n| {
-                    clip_for_notes(project, track, std::slice::from_ref(&n), at)
-                        .map(|edit| (vec![edit], None, n))
-                }),
-            }
-        };
+        }
+        let planned = Self::plan_step_write(
+            self.document.read(cx).project(),
+            track,
+            at,
+            push,
+            len,
+            pitch,
+            self.step.overwrite,
+        );
         let (edits, clip, note) = match planned {
             Ok(p) => p,
             Err(e) => {
@@ -368,7 +519,14 @@ impl ProjectWindow {
             return;
         };
         let length = AppSettings::get(cx).preview.length();
-        let result = self.sound_note(&t, pitch, t.default_velocity(), length, cx);
+        let result = self.sound_note(
+            &t,
+            pitch,
+            t.default_velocity(),
+            length,
+            crate::preview::Purpose::Preview,
+            cx,
+        );
         if let Some(message) = result.failure("미리듣기")
             && !self.preview_notice_shown
         {
@@ -543,8 +701,11 @@ impl ProjectWindow {
         }
         // 화음은 닫는다(결정 5절). 화음 안의 다른 옥타브는 음 뒤 숫자로 친다(리뷰 1 지적 3).
         self.step_settle(cx);
+        // `n`을 거듭 쳐도 셋잇단은 한 번이다. 표시도 한 번만(S3-T4b 리뷰 3 제안 3)
+        if !self.step.triplet_next {
+            self.step.prefix.push('n');
+        }
         self.step.triplet_next = true;
-        self.step.prefix.push('n');
         cx.notify();
     }
 
@@ -605,7 +766,8 @@ impl ProjectWindow {
         let Some(track) = self.current_track() else {
             return true;
         };
-        let Some(Host::Clip { id, start }) = self.step_host(track, at, cx) else {
+        let Some(Host::Clip { id, start }) = step_host(self.document.read(cx).project(), track, at)
+        else {
             return true;
         };
         let rel = at.get() - start;

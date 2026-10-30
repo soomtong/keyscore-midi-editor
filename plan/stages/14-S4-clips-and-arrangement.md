@@ -13,6 +13,7 @@
 - 테스트 게이트: 벤치(트랙 64 × 클립 200). UI 테스트 — `v`/`Enter`/`Esc` 전이.
 - 이월(S3-T1 리뷰 1 제안 7): `view::ZoomIn/ZoomOut/ZoomReset/CenterCursor` 처리기는 뷰와 무관하게 창에 걸려 있어 배치 뷰에서도 숨은 피아노롤을 줌한다. 배치 뷰가 자기 줌을 가지면 현재 뷰에 따라 나눈다(`pianoroll_window.rs`의 `piano_roll_handlers`).
 - 이월(S3-T2): 배치 뷰 Element에 피아노롤과 같은 우클릭 메뉴 「마크 설정 ▸ a–z」「마크로 이동 ▸ a–z」를 단다(`ProjectWindow::open_piano_roll_menu`와 같은 `open_popup_with`, 결정 `2026-10-17-vim-marks-visible-ui` a). `select::All`은 배치 뷰에서 클립 전부를 선택한다(지금은 아무 일도 하지 않음, `selection.rs` `select_all`). `transport::PlayFromCursor`는 배치 뷰 커서가 생기면 그 커서부터(지금은 처음부터, `transport_play_from_cursor`). `cursor::NextClip/PrevClip/ClipStart/ClipEnd`·마크는 지금 피아노롤 커서(창에 하나)를 움직인다. 배치 뷰 커서를 따로 두면 뷰에 따라 나눈다.
+- 이월(S3-T4c, 결정 `2026-10-17-mode-entry-view.md`): 배치 뷰 Step 모드의 위치 표시는 지금 자리표시 안의 글이다(`ProjectWindow::arrangement_step`, `render_arrangement_step`, 시험 `tests/arrangement_step.rs`). 격자가 생기면 Step 커서(트랙, 틱)를 격자 위에 그리고, 클립 밖이면 입력하면 생길 클립을 고스트 블록으로 그린다(마디는 `arrangement_step`과 같은 계산). 글 표시는 접근성 이름으로 남기거나 지우고, 시험의 기대를 그에 맞게 고친다.
 
 ### S4-T2 클립 조작 키
 
