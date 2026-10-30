@@ -17,6 +17,8 @@ pub mod files;
 pub mod gm;
 pub mod import_export;
 mod inspector;
+pub mod keyboard_view;
+mod keyboard_view_window;
 pub mod keymap;
 pub mod mode;
 mod note_edit;

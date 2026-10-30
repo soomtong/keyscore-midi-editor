@@ -1,0 +1,103 @@
+//! 건반 뷰(S3-T5, REQ 5.4 「화면 하단에 2옥타브 건반」, 5.13, 2 「조성 표시」). GPUI와 무관한 계산이다. 그리기는
+//! `keyboard_view_window.rs`. 규칙은 `docs/reports/s3-t5/plan.md` 「끝의 정의」.
+
+use std::fmt::Write as _;
+
+use keyscore_core::{Key, Pitch};
+use keyscore_text::drum::label_of;
+
+use crate::actions::args::KeyLayout;
+use crate::pianoroll::scene::{Shade, row_shade};
+use crate::selection::pitch_name;
+use crate::step::pitch_of;
+
+/// 건반 수(2옥타브).
+pub const KEY_COUNT: usize = 24;
+
+/// 건반 하나.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct KeyCap {
+    /// 127을 넘으면 `None`(없음).
+    pub pitch: Option<Pitch>,
+    pub black: bool,
+    /// Step에서 이 음을 쓰는 키 입력.
+    pub key: Option<String>,
+    /// 음 이름(`C4`) 또는 드럼 트랙의 GM 라벨(`bd`).
+    pub name: Option<String>,
+    /// 조성 밖이면 `true`. 조성이 없으면 늘 `false`.
+    pub out_of_key: bool,
+}
+
+/// 건반형(P3 (a))의 음 키, 옥타브의 C부터 반음 순서. `pianoroll::keys::semitone_of_key`의 표와 같다.
+const PIANO_KEYS: [&str; 16] = [
+    "A", "W", "S", "E", "D", "F", "T", "G", "Y", "H", "U", "J", "K", "O", "L", "P",
+];
+
+/// 계이름형(P3 (b))의 한 옥타브 입력. 검은건반은 올림표(REQ 5.6 예 `f#`).
+const SOLFEGE_KEYS: [&str; 12] = [
+    "c", "c#", "d", "d#", "e", "f", "f#", "g", "g#", "a", "a#", "b",
+];
+
+/// 검은건반 자리(옥타브 안 반음).
+const BLACK: [bool; 12] = [
+    false, true, false, true, false, false, true, false, true, false, true, false,
+];
+
+/// 옥타브 `octave`의 C부터 24건반.
+#[must_use]
+pub fn keys(layout: KeyLayout, octave: u8, key: Key, drum: bool) -> Vec<KeyCap> {
+    (0..KEY_COUNT)
+        .map(|i| {
+            let black = BLACK[i % 12];
+            let semitone = i16::try_from(i).unwrap_or(0);
+            let Some(pitch) = pitch_of(octave, semitone) else {
+                return KeyCap {
+                    pitch: None,
+                    black,
+                    key: None,
+                    name: None,
+                    out_of_key: false,
+                };
+            };
+            let label = match layout {
+                KeyLayout::Piano => PIANO_KEYS.get(i).map(|k| (*k).to_owned()),
+                // 둘째 옥타브는 뒤 숫자로 닿는다. 그 숫자는 옥타브를 바꾸지만(REQ 5.6 스티키) 그 음을 쓰는 입력이다.
+                KeyLayout::Solfege if i < 12 => Some(SOLFEGE_KEYS[i].to_owned()),
+                KeyLayout::Solfege => Some(format!("{}{}", SOLFEGE_KEYS[i - 12], octave + 1)),
+            };
+            let name = if drum {
+                label_of(pitch.get()).map(str::to_owned)
+            } else {
+                Some(pitch_name(pitch))
+            };
+            KeyCap {
+                pitch: Some(pitch),
+                black,
+                key: label,
+                name,
+                out_of_key: key != Key::None && row_shade(key, pitch) == Shade::Dark,
+            }
+        })
+        .collect()
+}
+
+/// 시험 스냅샷용 글. 건반마다 한 줄: `<음 이름|-> <white|black> <키|-> <in|out>`, 없음이면 `<i> absent`.
+#[must_use]
+pub fn describe(keys: &[KeyCap]) -> String {
+    let mut out = String::new();
+    for (i, cap) in keys.iter().enumerate() {
+        if cap.pitch.is_none() {
+            let _ = writeln!(out, "{i} absent");
+            continue;
+        }
+        let _ = writeln!(
+            out,
+            "{} {} {} {}",
+            cap.name.as_deref().unwrap_or("-"),
+            if cap.black { "black" } else { "white" },
+            cap.key.as_deref().unwrap_or("-"),
+            if cap.out_of_key { "out" } else { "in" },
+        );
+    }
+    out
+}
