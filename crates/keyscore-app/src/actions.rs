@@ -935,8 +935,22 @@ pub mod step {
             KitPageNext,
             /// 드럼 킷 이전 페이지
             KitPagePrev,
+            /// MML 옥타브 지정 접두(`o5`, 계이름 레이아웃)
+            MmlOctave,
+            /// MML 기본 길이 접두(`l8`, 계이름 레이아웃)
+            MmlLength,
+            /// MML 길이의 점(`l8.`)
+            MmlDot,
         ]
     );
+
+    /// MML `o`·`l` 뒤의 숫자
+    #[derive(
+        Clone, PartialEq, Debug, serde::Deserialize, schemars::JsonSchema, gpui_kit::Action,
+    )]
+    #[action(namespace = step)]
+    #[serde(deny_unknown_fields)]
+    pub struct MmlDigit(pub Int);
 
     /// 음 입력(현재 길이·옥타브, 커서 전진). 드럼 트랙은 GM 라벨
     #[derive(
@@ -1359,7 +1373,7 @@ pub mod help {
 
 /// `settings::` Action.
 pub mod settings {
-    use super::{Int, KeyLayout, Opt, SettingsSection};
+    use super::{Int, KeyLayout, LengthCode, Opt, SettingsSection};
 
     gpui_kit::actions!(
         settings,
@@ -1398,6 +1412,22 @@ pub mod settings {
     #[action(namespace = settings)]
     #[serde(deny_unknown_fields)]
     pub struct SetKeyLayout(pub KeyLayout);
+
+    /// Step 기본 길이(REQ 5.6 「기본 길이 자체는 설정에서 바꿀 수 있다」, 설정 > 입력, S3-T4b)
+    #[derive(
+        Clone, PartialEq, Debug, serde::Deserialize, schemars::JsonSchema, gpui_kit::Action,
+    )]
+    #[action(namespace = settings)]
+    #[serde(deny_unknown_fields)]
+    pub struct SetStepDefaultLength(pub LengthCode);
+
+    /// 옥타브 숫자 대기 시간(ms, 0–2000, REQ 5.6 「기본 300 ms(설정 가능)」, 설정 > 입력, S3-T4b)
+    #[derive(
+        Clone, PartialEq, Debug, serde::Deserialize, schemars::JsonSchema, gpui_kit::Action,
+    )]
+    #[action(namespace = settings)]
+    #[serde(deny_unknown_fields)]
+    pub struct SetOctaveWait(pub Int);
 }
 
 /// `dialog::` Action(대화상자·시트, A13).
@@ -1670,7 +1700,9 @@ pub const ALL_ACTION_NAMES: &[&str] = &[
     "settings::Open",
     "settings::PrevSection",
     "settings::SetKeyLayout",
+    "settings::SetOctaveWait",
     "settings::SetPreviewLength",
+    "settings::SetStepDefaultLength",
     "settings::TogglePreviewOnMove",
     "step::Accidental",
     "step::Back",
@@ -1682,6 +1714,10 @@ pub const ALL_ACTION_NAMES: &[&str] = &[
     "step::HalfRest",
     "step::KitPageNext",
     "step::KitPagePrev",
+    "step::MmlDigit",
+    "step::MmlDot",
+    "step::MmlLength",
+    "step::MmlOctave",
     "step::Note",
     "step::OctaveDown",
     "step::OctaveOnce",

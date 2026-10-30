@@ -276,6 +276,10 @@
 | `step::PreviewFromBar` | 입력을 마치고 마디 처음부터 들어보기 | - | - | `shift-enter` (Step) | - | 5.8.1 |
 | `step::KitPageNext` | 드럼 킷 다음 페이지(GM 35–81) | - | `]` (Step > Drum) | - | - | 5.13 |
 | `step::KitPagePrev` | 드럼 킷 이전 페이지 | - | `[` (Step > Drum) | - | - | 5.13 |
+| `step::MmlOctave` | MML 옥타브 지정 접두(`o5`, S3-T4b) | - | `o` (Step > Solfege) | - | - | 5.1 |
+| `step::MmlLength` | MML 기본 길이 접두(`l8`, S3-T4b) | - | `l` (Step > Solfege) | - | - | 5.1 |
+| `step::MmlDigit(n)` | MML `o`·`l` 뒤의 숫자(S3-T4b) | n | `0`–`9` (Step > Solfege > Mml) | - | - | 5.1 |
+| `step::MmlDot` | MML 길이의 점(`l8.`, S3-T4b) | - | `.` (Step > Solfege > Mml) | - | - | 5.1 |
 
 ## sequence
 
@@ -415,6 +419,8 @@ vim 프리셋 전용(5.8 「vim 프리셋에서만 산다」). 텍스트 객체�
 | `settings::Open(section)` | 설정 열기(`metronome` `midi_output` `input` `ai` `keymap`) | section(선택) | `cmd-,` (전역, 프리셋 불변) | `:set` | - (7개 메뉴에 항목 없음) | 7.5, 7.6 |
 | `settings::Calibrate` | 레이턴시 보정 마법사(설정 > 입력) | - | - | - | - (팔레트 「보정 마법사」) | 5.2, UI-10, 7.6 |
 | `settings::SetKeyLayout(layout)` | 키 레이아웃 건반형/계이름형 | layout | - | - | - (설정 > 입력) | P3, UI-10, 7.6 |
+| `settings::SetStepDefaultLength(code)` | Step 기본 길이(S3-T4b) | code | - | - | - (설정 > 입력) | 5.6 |
+| `settings::SetOctaveWait(ms)` | 옥타브 숫자 대기 시간 0–2000 ms(S3-T4b) | ms | - | - | - (설정 > 입력) | 5.6 |
 
 ## window
 

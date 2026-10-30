@@ -69,6 +69,22 @@ pub const fn code_digit(code: LengthCode) -> char {
     }
 }
 
+/// MML `l` 뒤 분모(`1` `2` `4` `8` `16` `32` `64`)와 점의 길이. 그 밖의 값이면 `None`(S3-T4b 결정 4절).
+#[must_use]
+pub fn mml_length(digits: &str, dotted: bool) -> Option<StepLength> {
+    let code = match digits {
+        "1" => LengthCode::Whole,
+        "2" => LengthCode::Half,
+        "4" => LengthCode::Quarter,
+        "8" => LengthCode::Eighth,
+        "16" => LengthCode::Sixteenth,
+        "32" => LengthCode::ThirtySecond,
+        "64" => LengthCode::SixtyFourth,
+        _ => return None,
+    };
+    Some(StepLength { code, dotted })
+}
+
 /// 옥타브 상한(과학적 음높이 표기 한 자리, REQ 5.6).
 pub const OCTAVE_MAX: u8 = 9;
 
@@ -117,6 +133,39 @@ impl Composing {
     }
 }
 
+/// MML 접두의 종류(계이름 레이아웃, S3-T4b 결정 4절).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum MmlKind {
+    /// `o<숫자>`
+    Octave,
+    /// `l<숫자>[.]`
+    Length,
+}
+
+/// 숫자를 기다리는 MML 접두(상태줄 `l16_`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct MmlInput {
+    pub(crate) kind: MmlKind,
+    pub(crate) digits: String,
+    pub(crate) dotted: bool,
+}
+
+impl MmlInput {
+    /// 상태줄 표시(`o`, `l16.`).
+    #[must_use]
+    pub(crate) fn shown(&self) -> String {
+        let mut s = String::from(match self.kind {
+            MmlKind::Octave => "o",
+            MmlKind::Length => "l",
+        });
+        s.push_str(&self.digits);
+        if self.dotted {
+            s.push('.');
+        }
+        s
+    }
+}
+
 /// 열린 화음: 첫 화음 음의 자리와 스텝 길이, 지금까지 넣은 노트(클립 기준).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct OpenChord {
@@ -148,6 +197,10 @@ pub(crate) struct StepState {
     /// 마지막 확정 뒤 누른 길이 접두(`5`, `n`). 조합 표시에만 쓴다.
     pub(crate) prefix: String,
     pub(crate) composing: Option<Composing>,
+    /// 숫자를 기다리는 MML 접두. 조합과 함께 있지 않다.
+    pub(crate) mml: Option<MmlInput>,
+    /// 덮어쓰기 Step(vim `R`): 밀지 않고 스텝 범위의 노트를 바꾼다. Step 안에서만 참이다.
+    pub(crate) overwrite: bool,
     pub(crate) chord: Option<OpenChord>,
     pub(crate) last: Option<LastStep>,
     /// 지나온 스텝(시작, 끝, 절대 틱)의 자취. `Backspace`·`Shift+Tab`은 커서가 맨 위 스텝의 끝에 있으면 그
@@ -171,12 +224,19 @@ impl StepState {
             triplet_next: false,
             prefix: String::new(),
             composing: None,
+            mml: None,
+            overwrite: false,
             chord: None,
             last: None,
             trail: Vec::new(),
             trail_key: None,
             generation: 0,
         }
+    }
+
+    /// 열쇠가 지금(`key`)과 다르면 자취를 버린다(편집 전에 맞춰 두면 그 편집의 `rekey`가 열쇠를 잇는다).
+    pub(crate) fn check_trail(&mut self, key: (Option<TrackId>, u64)) {
+        self.check_key(key);
     }
 
     /// 열쇠가 지금(`key`)과 다르면 자취를 버린다.
@@ -218,6 +278,12 @@ impl StepState {
         }
     }
 
+    /// `tick` 뒤에서 끝나는 지나온 스텝을 버린다(마디 처음까지 지울 때, S3-T4b).
+    pub(crate) fn drop_after(&mut self, key: (Option<TrackId>, u64), tick: Tick) {
+        self.check_key(key);
+        self.trail.retain(|&(_, end)| end <= tick);
+    }
+
     /// 한 스텝 뒤의 틱: 커서가 맨 위 스텝의 끝이면 그 스텝을 꺼내 시작으로, 아니면 `plain`만큼(0에서 멈춤).
     pub(crate) fn step_back_from(
         &mut self,
@@ -235,17 +301,28 @@ impl StepState {
         }
     }
 
-    /// 상태줄 모드 표시: `STEP ♩ oct4`, 조합 중이면 `STEP 1/16 oct4 5c_`.
+    /// 상태줄 모드 표시: `STEP ♩ oct4`, 조합 중이면 `STEP 1/16 oct4 5c_`, 덮어쓰기면 `STEP R ♩ oct4`, MML 대기면
+    /// `STEP ♩ oct4 l16_`.
     #[must_use]
     pub(crate) fn label(&self) -> String {
-        let mut label = format!("STEP {} oct{}", length_label(self.length), self.octave);
-        if let Some(c) = &self.composing {
+        let mode = if self.overwrite { "STEP R" } else { "STEP" };
+        let mut label = format!("{mode} {} oct{}", length_label(self.length), self.octave);
+        if let Some(shown) = self.composition() {
             label.push(' ');
-            label.push_str(&self.prefix);
-            label.push_str(&c.shown);
-            label.push('_');
+            label.push_str(&shown);
         }
         label
+    }
+
+    /// 조합 표시(`5c_`) 또는 MML 대기 표시(`l16_`).
+    #[must_use]
+    pub(crate) fn composition(&self) -> Option<String> {
+        if let Some(c) = &self.composing {
+            return Some(format!("{}{}_", self.prefix, c.shown));
+        }
+        self.mml
+            .as_ref()
+            .map(|m| format!("{}{}_", self.prefix, m.shown()))
     }
 }
 
@@ -254,9 +331,11 @@ impl StepState {
 pub struct StepStatus {
     pub length: StepLength,
     pub octave: u8,
-    /// 조합 중이면 상태줄의 조합 표시(`5c_`).
+    /// 조합 중이면 상태줄의 조합 표시(`5c_`). MML 접두 대기도 같은 자리에 보인다(`l16_`).
     pub composing: Option<String>,
     pub chord_open: bool,
+    /// 덮어쓰기 Step(vim `R`)
+    pub overwrite: bool,
 }
 
 #[cfg(test)]
@@ -280,6 +359,29 @@ mod tests {
         assert_eq!(step_ticks(dotted64, true, true), 30);
         let s64 = StepLength::plain(LengthCode::SixtyFourth);
         assert_eq!(step_ticks(s64, true, true), 20);
+    }
+
+    #[test]
+    fn mml_length_reads_denominators_and_dot() {
+        let cases = [
+            ("1", LengthCode::Whole),
+            ("2", LengthCode::Half),
+            ("4", LengthCode::Quarter),
+            ("8", LengthCode::Eighth),
+            ("16", LengthCode::Sixteenth),
+            ("32", LengthCode::ThirtySecond),
+            ("64", LengthCode::SixtyFourth),
+        ];
+        for (digits, code) in cases {
+            assert_eq!(mml_length(digits, false), Some(StepLength::plain(code)));
+            assert_eq!(
+                mml_length(digits, true),
+                Some(StepLength { code, dotted: true })
+            );
+        }
+        for bad in ["", "0", "3", "6", "12", "128", "016", "164"] {
+            assert_eq!(mml_length(bad, false), None, "{bad}");
+        }
     }
 
     #[test]

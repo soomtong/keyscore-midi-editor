@@ -329,7 +329,7 @@ impl ProjectWindow {
         cx.notify();
     }
 
-    fn play_from(&mut self, from: Tick, cx: &mut Context<Self>) {
+    pub(crate) fn play_from(&mut self, from: Tick, cx: &mut Context<Self>) {
         if !cx.has_global::<Engine>() {
             self.transport
                 .say("MIDI 엔진이 없어 재생할 수 없다(CoreMIDI를 열지 못했다)");
