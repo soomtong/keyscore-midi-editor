@@ -67,8 +67,8 @@ count_non_key_paths 2 — 모두 통과
 
 - [x] fmt
 - [x] clippy -D warnings
-- [ ] test(전체, `--no-fail-fast`): 실행 중. 결과를 이 줄에 적는다
-- [ ] deny, `scripts/check-deps.sh`, `scripts/check-deps.test.sh`, `scripts/bench-check.test.sh`: 전체 시험과 함께 실행 중
+- [x] test(전체, `--no-fail-fast`, 리뷰 3 대응 뒤 최종 커밋에서 처음부터): 2433 passed, 0 failed
+- [x] deny, `scripts/check-deps.sh`, `scripts/check-deps.test.sh`, `scripts/bench-check.test.sh`: 통과
 - 단계별 추가 게이트: 이 Task는 피아노롤 벤치·프레임 경로를 건드리지 않는다
 
 ## 알려진 한계
