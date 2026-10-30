@@ -142,9 +142,9 @@ impl ProjectWindow {
         PATHS[layout][wait + 3 * ghost]
     }
 
-    /// 배치 뷰의 Step 위치 표시(S3-T4c). 배치 뷰의 Step 모드가 아니거나 트랙이 없으면 `None`. 클립 밖이면 지금
-    /// 길이(앞의 `n` 포함)의 음 하나를 커서에 쓴다고 보고 새 클립의 마디를 `clip_for_notes`로 구한다(쓰기와 같은
-    /// 규칙). 커서가 클립 안이거나 클립 끝이면 그 클립에 쓴다(`step_host`와 같은 차례).
+    /// 배치 뷰의 Step 위치 표시(S3-T4c). 배치 뷰의 Step 모드가 아니거나 트랙이 없으면 `None`. 다음 확정이 쓸
+    /// 자리·길이(`next_step_write`)로 쓰기와 같은 계획(`plan_step_write`)을 세워, 그 클립 또는 새 클립의 마디를
+    /// 보이고 거부되면 이유를 보인다.
     #[must_use]
     pub fn arrangement_step(&self, cx: &App) -> Option<ArrangementStep> {
         let mode = self.mode_state();
@@ -161,10 +161,9 @@ impl ProjectWindow {
                 |n| format!("「{n}」"),
             )
         };
-        let (at, push, len, pitch) = self.next_step_write();
-        let host = step_host(project, track, at);
-        let host_clip = match host {
-            Some(Host::Clip { id, .. }) => t.clip(id),
+        let (write_track, at, push, len, pitch) = self.next_step_write()?;
+        let host_clip = match step_host(project, write_track, at) {
+            Some(Host::Clip { id, .. }) => project.track(write_track).and_then(|w| w.clip(id)),
             _ => None,
         };
         let extends = host_clip.is_some_and(|c| c.end() == at.get());
@@ -174,7 +173,15 @@ impl ProjectWindow {
             None => "클립 밖".to_owned(),
         };
         let planned = pitch.map(|pitch| {
-            Self::plan_step_write(project, track, at, push, len, pitch, self.step.overwrite)
+            Self::plan_step_write(
+                project,
+                write_track,
+                at,
+                push,
+                len,
+                pitch,
+                self.step.overwrite,
+            )
         });
         let clip = match planned {
             // 확정이 「음높이가 0–127을 벗어나 쓰지 않았다」고 알릴 조합이다
@@ -407,21 +414,34 @@ impl ProjectWindow {
         }
     }
 
-    /// 다음 확정이 쓸 자리·밀기·길이·음높이(`step_commit`과 같은 규칙). 조합 중이면 그 조합의 셋잇단·절반과
-    /// 열린 화음을, 아니면 지금 길이(앞의 `n` 포함)의 음 하나를 커서에 쓴다고 본다(리뷰 1 지적 2).
-    fn next_step_write(&self) -> (Tick, i64, u32, Option<Pitch>) {
-        let cursor = self.pianoroll.cursor();
-        let Some(c) = &self.step.composing else {
-            let len = step_ticks(self.step.length, self.step.triplet_next, false);
-            return (cursor.tick, i64::from(len), len, Some(cursor.pitch));
+    /// 다음 음 키 하나(또는 조합 중이면 그 조합)의 확정이 쓸 (트랙, 자리, 밀기, 길이, 음높이). `step_key` →
+    /// `step_commit`이 쓰기 전에 거치는 차례를 그대로 따른다(리뷰 1 지적 2, 리뷰 2 지적 1): MML 길이 대기를 먼저
+    /// 확정하고(`step_settle_mml`), 다른 트랙의 화음은 닫아 커서가 화음 끝으로 가며(`step_close_chord`), 같은
+    /// 트랙의 화음이면 화음 자리에 밀지 않고 쓴다. 조합이 없으면 지금 커서 음높이의 보통 음 키로 본다.
+    fn next_step_write(&self) -> Option<(TrackId, Tick, i64, u32, Option<Pitch>)> {
+        let length = match &self.step.mml {
+            Some(m) if m.kind == MmlKind::Length => {
+                mml_length(&m.digits, m.dotted).unwrap_or(self.step.length)
+            }
+            _ => self.step.length,
         };
-        let len = step_ticks(self.step.length, c.triplet, c.half);
-        let chord = self.step.chord.as_ref().filter(|ch| ch.track == c.track);
-        let (at, push) = match chord {
-            Some(ch) => (ch.at, 0),
+        let cursor = self.pianoroll.cursor();
+        let (track, triplet, half, pitch) = match &self.step.composing {
+            Some(c) => (c.track, c.triplet, c.half, c.pitch()),
+            None => (
+                self.current_track()?,
+                self.step.triplet_next,
+                false,
+                Some(cursor.pitch),
+            ),
+        };
+        let len = step_ticks(length, triplet, half);
+        let (at, push) = match &self.step.chord {
+            Some(ch) if ch.track == track => (ch.at, 0),
+            Some(ch) => (Tick::new(ch.at.get() + ch.len), i64::from(len)),
             None => (cursor.tick, i64::from(len)),
         };
-        (at, push, len, c.pitch())
+        Some((track, at, push, len, pitch))
     }
 
     /// 노트 하나를 `at`(절대)에 쓰고 커서 뒤 노트를 `push`만큼 민다. 성공하면 (클립, 쓴 노트(클립 기준)).
