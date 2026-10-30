@@ -6,20 +6,24 @@
 
 use std::time::Duration;
 
-use gpui_kit::{Context, Div, InteractiveElement as _, Stateful, Window};
+use gpui_kit::component::ActiveTheme as _;
+use gpui_kit::{
+    App, Context, Div, InteractiveElement as _, IntoElement, ParentElement as _, Stateful,
+    StatefulInteractiveElement as _, Styled as _, TestSupportExt as _, Window, div,
+};
 use keyscore_core::transform::{Splice, clip_for_notes, splice};
-use keyscore_core::{ClipId, MeterMap, Note, Pitch, Project, Tick, TrackId};
+use keyscore_core::{Clip, ClipId, Edit, MeterMap, Note, Pitch, Project, Tick, TrackId};
 
 use crate::actions::args::{AccidentalKind, KeyLayout};
 use crate::actions::{mode, step};
 use crate::app_state::AppSettings;
-use crate::mode::{Mode, ModeEvent};
+use crate::mode::{Mode, ModeEvent, View};
 use crate::pianoroll::Cursor;
 use crate::pianoroll::edit::plan_legato;
 use crate::pianoroll::keys::semitone_of_key;
 use crate::step::{
-    Composing, LastStep, MmlInput, MmlKind, OCTAVE_MAX, OpenChord, StepLength, StepStatus,
-    code_digit, mml_length, pitch_of, semitone_name, step_ticks,
+    ArrangementStep, Composing, LastStep, MmlInput, MmlKind, OCTAVE_MAX, OpenChord, StepLength,
+    StepStatus, code_digit, mml_length, pitch_of, semitone_name, step_ticks,
 };
 use crate::window::ProjectWindow;
 
@@ -117,6 +121,94 @@ impl ProjectWindow {
         };
         let ghost = usize::from(self.mode_state().has_ghost());
         PATHS[layout][wait + 3 * ghost]
+    }
+
+    /// 배치 뷰의 Step 위치 표시(S3-T4c). 배치 뷰의 Step 모드가 아니거나 트랙이 없으면 `None`. 클립 밖이면 지금
+    /// 길이(앞의 `n` 포함)의 음 하나를 커서에 쓴다고 보고 새 클립의 마디를 `clip_for_notes`로 구한다(쓰기와 같은
+    /// 규칙). 커서가 클립 안이거나 클립 끝이면 그 클립에 쓴다(`step_host`와 같은 차례).
+    #[must_use]
+    pub fn arrangement_step(&self, cx: &App) -> Option<ArrangementStep> {
+        let mode = self.mode_state();
+        if mode.mode() != Mode::Step || mode.view() != View::Arrangement {
+            return None;
+        }
+        let track = self.current_track()?;
+        let project = self.document.read(cx).project();
+        let t = project.track(track)?;
+        let cursor = self.pianoroll.cursor();
+        let at = cursor.tick.get();
+        let named = |c: &Clip| {
+            c.name().map_or_else(
+                || crate::tracks::format_position(project, c.start()),
+                |n| format!("「{n}」"),
+            )
+        };
+        let inside = t
+            .clips()
+            .find(|(_, c)| c.start().get() <= at && at < c.end());
+        let ending = t.clips().find(|(_, c)| c.end() == at);
+        let clip = match (inside, ending) {
+            (Some((_, c)), _) => format!("클립 {} 안", named(c)),
+            (None, Some((_, c))) => format!("클립 {} 끝에 이어 쓴다", named(c)),
+            (None, None) => {
+                let len = step_ticks(self.step.length, self.step.triplet_next, false);
+                let planned = Note::new(cursor.tick, len, cursor.pitch, t.default_velocity())
+                    .and_then(|n| clip_for_notes(project, track, &[n], cursor.tick));
+                match planned {
+                    Ok(Edit::InsertClip { clip, .. }) => {
+                        let meter = project.meter_map();
+                        let first = meter.position(clip.start()).bar() + 1;
+                        let last = meter
+                            .position(Tick::new(clip.end().saturating_sub(1)))
+                            .bar()
+                            + 1;
+                        format!("클립 밖: 입력하면 마디 {first}–{last}에 새 클립")
+                    }
+                    Ok(_) => "클립 밖: 입력하면 새 클립".to_owned(),
+                    Err(e) => format!("클립 밖: 여기서는 쓸 수 없다({e})"),
+                }
+            }
+        };
+        Some(ArrangementStep {
+            cursor: format!(
+                "Step: {} {}",
+                t.name(),
+                crate::tracks::format_position(project, cursor.tick)
+            ),
+            clip,
+        })
+    }
+
+    /// 배치 뷰 자리표시 안의 Step 위치 표시(S3-T4c). 격자는 S4-T1이다.
+    pub(crate) fn render_arrangement_step(
+        shown: ArrangementStep,
+        cx: &App,
+    ) -> impl IntoElement + use<> {
+        div()
+            .id("main-view")
+            .aria_label("배치 뷰")
+            .test_support()
+            .size_full()
+            .p_2()
+            .flex()
+            .flex_col()
+            .gap_1()
+            .child(
+                div()
+                    .id("arrangement-step-cursor")
+                    .aria_label(shown.cursor.clone())
+                    .test_support()
+                    .text_color(cx.theme().foreground)
+                    .child(shown.cursor),
+            )
+            .child(
+                div()
+                    .id("arrangement-step-clip")
+                    .aria_label(shown.clip.clone())
+                    .test_support()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(shown.clip),
+            )
     }
 
     /// 상태줄 모드 표시(`STEP ♩ oct4`, 조합 중 `STEP 1/16 oct4 5c_`).

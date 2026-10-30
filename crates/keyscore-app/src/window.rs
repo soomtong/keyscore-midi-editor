@@ -1226,7 +1226,10 @@ impl Render for ProjectWindow {
         // 모드 바인딩(재생 토글, vim 카운트)으로 빠지지 않는다(S2-T5b 리뷰 1 지적 1). 팔레트·팝업과 같은
         // 이유다.
         let main_view = match self.mode.view() {
-            View::Arrangement => Self::region("main-view", "배치 뷰", cx).into_any_element(),
+            View::Arrangement => match self.arrangement_step(cx) {
+                Some(shown) => Self::render_arrangement_step(shown, cx).into_any_element(),
+                None => Self::region("main-view", "배치 뷰", cx).into_any_element(),
+            },
             View::PianoRoll => self.render_piano_roll(window, cx).into_any_element(),
         };
         self.release_stale_prefix(window, cx);

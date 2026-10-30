@@ -338,6 +338,16 @@ pub struct StepStatus {
     pub overwrite: bool,
 }
 
+/// 배치 뷰의 Step 위치 표시(S3-T4c, 결정 `2026-10-17-mode-entry-view.md` 이월). 배치 뷰 Element(S4-T1)가 생기면
+/// 격자 위의 커서·고스트 클립으로 바뀐다.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ArrangementStep {
+    /// `Step: <트랙 이름> <마디.박.틱>`
+    pub cursor: String,
+    /// 커서가 든 클립, 이어 쓸 클립, 또는 입력하면 생길 클립의 마디
+    pub clip: String,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
