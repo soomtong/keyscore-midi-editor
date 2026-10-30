@@ -94,14 +94,14 @@ fn out_of_key_follows_project_key() {
 // ---------- 5. 건반형 ----------
 
 #[test]
-fn piano_layout_has_sixteen_key_labels() {
+fn piano_layout_labels_follow_p3_keys_then_octave_digit() {
     let caps = keys(KeyLayout::Piano, 4, Key::None, false);
     let expected: Vec<Option<&str>> = [
         "A", "W", "S", "E", "D", "F", "T", "G", "Y", "H", "U", "J", "K", "O", "L", "P",
     ]
     .into_iter()
+    .chain(["D5", "F5", "T5", "G5", "Y5", "H5", "U5", "J5"])
     .map(Some)
-    .chain(std::iter::repeat_n(None, 8))
     .collect();
     assert_eq!(labels(&caps), expected);
     let blacks: Vec<bool> = caps.iter().map(|c| c.black).collect();

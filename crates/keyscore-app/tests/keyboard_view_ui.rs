@@ -345,16 +345,14 @@ fn type_every_label(cx: &mut TestAppContext, name: &str, layout: KeyLayout) {
         press(cx, handle, &keys.join(" "));
         wait(cx, handle);
         expected.push(pitch.get());
-        // 계이름형 둘째 옥타브는 옥타브를 바꾼다. 다음 라벨을 위해 되돌린다
+        // 둘째 옥타브의 숫자 입력은 옥타브를 바꾼다. 다음 라벨을 위해 되돌린다
         if octave(cx, &view) != 4 {
             press(cx, handle, "[");
         }
         assert_eq!(octave(cx, &view), 4, "{key}");
     }
     assert_eq!(pitches(cx, &view), expected);
-    let labeled = caps.iter().filter(|c| c.key.is_some()).count();
-    let want = if layout == KeyLayout::Piano { 16 } else { 24 };
-    assert_eq!(labeled, want);
+    assert!(caps.iter().all(|c| c.key.is_some()));
 }
 
 #[gpui_kit::test]

@@ -60,7 +60,11 @@ pub fn keys(layout: KeyLayout, octave: u8, key: Key, drum: bool) -> Vec<KeyCap> 
                 };
             };
             let label = match layout {
-                KeyLayout::Piano => PIANO_KEYS.get(i).map(|k| (*k).to_owned()),
+                KeyLayout::Piano => Some(PIANO_KEYS.get(i).map_or_else(
+                    // 키 하나로 닿지 않는 건반은 첫 옥타브의 같은 키 + 옥타브 숫자로 닿는다(REQ 5.6, 리뷰 1 지적 1)
+                    || format!("{}{}", PIANO_KEYS[i - 12], octave + 1),
+                    |k| (*k).to_owned(),
+                )),
                 // 둘째 옥타브는 뒤 숫자로 닿는다. 그 숫자는 옥타브를 바꾸지만(REQ 5.6 스티키) 그 음을 쓰는 입력이다.
                 KeyLayout::Solfege if i < 12 => Some(SOLFEGE_KEYS[i].to_owned()),
                 KeyLayout::Solfege => Some(format!("{}{}", SOLFEGE_KEYS[i - 12], octave + 1)),
