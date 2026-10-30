@@ -16,7 +16,7 @@ use gpui_kit::{
 };
 use keyscore_core::OutputPort;
 
-use crate::actions::args::KeyLayout;
+use crate::actions::args::{KeyLayout, LengthCode};
 use crate::actions::settings;
 use crate::app_state::AppSettings;
 use crate::gm::percussion_label;
@@ -27,6 +27,18 @@ use crate::settings_window::SettingsWindow;
 const LENGTHS_MS: [u32; 10] = [10, 20, 30, 50, 80, 100, 150, 200, 300, 500];
 /// 미리듣기 길이 목록(ms, PRE-1 기본 200). 다른 값은 목록에 덧붙여 보인다.
 const PREVIEW_LENGTHS_MS: [u32; 7] = [50, 100, 150, 200, 300, 500, 1000];
+/// 옥타브 숫자 대기 시간 목록(ms, REQ 5.6 기본 300). 다른 값(0–2000)은 목록에 덧붙여 보인다.
+const OCTAVE_WAITS_MS: [u32; 9] = [100, 200, 300, 400, 500, 750, 1000, 1500, 2000];
+/// Step 기본 길이 목록(길이 코드 순).
+const STEP_LENGTHS: [LengthCode; 7] = [
+    LengthCode::Whole,
+    LengthCode::Half,
+    LengthCode::Quarter,
+    LengthCode::Eighth,
+    LengthCode::Sixteenth,
+    LengthCode::ThirtySecond,
+    LengthCode::SixtyFourth,
+];
 
 pub(crate) type Choice = SelectState<SearchableVec<SharedString>>;
 
@@ -36,6 +48,8 @@ enum Control {
     KeyLayout,
     PreviewOnMove,
     PreviewLength,
+    StepLength,
+    OctaveWait,
     Port,
     Channel,
     Accent,
@@ -44,10 +58,12 @@ enum Control {
 }
 
 impl Control {
-    const ALL: [Control; 8] = [
+    const ALL: [Control; 10] = [
         Control::KeyLayout,
         Control::PreviewOnMove,
         Control::PreviewLength,
+        Control::StepLength,
+        Control::OctaveWait,
         Control::Port,
         Control::Channel,
         Control::Accent,
@@ -60,6 +76,8 @@ impl Control {
             Control::KeyLayout => "settings-key-layout",
             Control::PreviewOnMove => "settings-preview-on-move",
             Control::PreviewLength => "settings-preview-length",
+            Control::StepLength => "settings-step-length",
+            Control::OctaveWait => "settings-octave-wait",
             Control::Port => "settings-metronome-port",
             Control::Channel => "settings-metronome-channel",
             Control::Accent => "settings-metronome-accent",
@@ -76,6 +94,10 @@ pub(crate) struct Tabs {
     preview_on_move: Entity<Choice>,
     /// 미리듣기 길이(PRE-1, S3-T2).
     preview_length: Entity<Choice>,
+    /// Step 기본 길이(REQ 5.6, S3-T4b).
+    step_length: Entity<Choice>,
+    /// 옥타브 숫자 대기 시간(REQ 5.6, S3-T4b).
+    octave_wait: Entity<Choice>,
     port: Entity<Choice>,
     channel: Entity<Choice>,
     accent: Entity<Choice>,
@@ -89,6 +111,8 @@ pub(crate) struct Tabs {
     lengths: Vec<u32>,
     /// 미리듣기 길이 선택 상자의 항목(같은 자리).
     preview_lengths: Vec<u32>,
+    /// 옥타브 대기 시간 선택 상자의 항목(같은 자리).
+    octave_waits: Vec<u32>,
     /// 포트 목록을 다시 읽어야 한다(구역을 열 때, 포트가 오갈 때).
     ports_stale: bool,
     /// 선택 상자가 지금 보이는 설정. 다르면(팔레트·파일 등 밖에서 바뀜) 선택을 맞춘다.
@@ -116,6 +140,18 @@ fn length_label(ms: u32) -> String {
     format!("{ms} ms")
 }
 
+const fn step_length_label(code: LengthCode) -> &'static str {
+    match code {
+        LengthCode::Whole => "온음표",
+        LengthCode::Half => "2분음표",
+        LengthCode::Quarter => "4분음표",
+        LengthCode::Eighth => "8분음표",
+        LengthCode::Sixteenth => "16분음표",
+        LengthCode::ThirtySecond => "32분음표",
+        LengthCode::SixtyFourth => "64분음표",
+    }
+}
+
 fn port_choice_label(port: &OutputPort, virtual_name: &str) -> String {
     match port {
         OutputPort::Virtual => format!("{virtual_name} · 가상 포트"),
@@ -137,6 +173,12 @@ impl Tabs {
         );
         let preview_on_move = make(labels(["켬".to_owned(), "끔".to_owned()]), window, cx);
         let preview_length = make(labels(PREVIEW_LENGTHS_MS.map(length_label)), window, cx);
+        let step_length = make(
+            labels(STEP_LENGTHS.map(|c| step_length_label(c).to_owned())),
+            window,
+            cx,
+        );
+        let octave_wait = make(labels(OCTAVE_WAITS_MS.map(length_label)), window, cx);
         let port = make(labels([]), window, cx);
         let channel = make(labels((1..=16u8).map(|c| c.to_string())), window, cx);
         let accent = make(labels((0..=127u8).map(percussion_label)), window, cx);
@@ -147,6 +189,8 @@ impl Tabs {
             (Control::KeyLayout, &key_layout),
             (Control::PreviewOnMove, &preview_on_move),
             (Control::PreviewLength, &preview_length),
+            (Control::StepLength, &step_length),
+            (Control::OctaveWait, &octave_wait),
             (Control::Port, &port),
             (Control::Channel, &channel),
             (Control::Accent, &accent),
@@ -171,6 +215,8 @@ impl Tabs {
             key_layout,
             preview_on_move,
             preview_length,
+            step_length,
+            octave_wait,
             port,
             channel,
             accent,
@@ -180,6 +226,7 @@ impl Tabs {
             ports: Vec::new(),
             lengths: LENGTHS_MS.to_vec(),
             preview_lengths: PREVIEW_LENGTHS_MS.to_vec(),
+            octave_waits: OCTAVE_WAITS_MS.to_vec(),
             ports_stale: true,
             shown: None,
             _subscriptions: subscriptions,
@@ -191,6 +238,8 @@ impl Tabs {
             Control::KeyLayout => &self.key_layout,
             Control::PreviewOnMove => &self.preview_on_move,
             Control::PreviewLength => &self.preview_length,
+            Control::StepLength => &self.step_length,
+            Control::OctaveWait => &self.octave_wait,
             Control::Port => &self.port,
             Control::Channel => &self.channel,
             Control::Accent => &self.accent,
@@ -286,6 +335,16 @@ impl Tabs {
             self.preview_lengths = lengths;
             force = true;
         }
+        if !self.octave_waits.contains(&now.0.octave_wait_ms) {
+            let mut waits = OCTAVE_WAITS_MS.to_vec();
+            waits.push(now.0.octave_wait_ms);
+            waits.sort_unstable();
+            let items = labels(waits.iter().map(|ms| length_label(*ms)));
+            self.octave_wait
+                .update(cx, |s, cx| s.set_items(items, window, cx));
+            self.octave_waits = waits;
+            force = true;
+        }
         if !force && self.shown.as_ref() == Some(&now) {
             return;
         }
@@ -301,6 +360,18 @@ impl Tabs {
                 self.preview_lengths
                     .iter()
                     .position(|l| *l == preview.length_ms),
+            ),
+            (
+                Control::StepLength,
+                STEP_LENGTHS
+                    .iter()
+                    .position(|c| *c == input.step_default_length),
+            ),
+            (
+                Control::OctaveWait,
+                self.octave_waits
+                    .iter()
+                    .position(|w| *w == input.octave_wait_ms),
             ),
             (Control::Port, self.ports.iter().position(|p| *p == m.port)),
             (
@@ -361,6 +432,24 @@ impl SettingsWindow {
             }
             return;
         }
+        // Step 기본 길이·옥타브 대기(S3-T4b)도 팔레트와 같은 Action으로 바꾼다(처리기는 앱 전역)
+        if control == Control::StepLength {
+            if let Some(code) = STEP_LENGTHS.get(index) {
+                window.dispatch_action(Box::new(settings::SetStepDefaultLength(*code)), cx);
+            }
+            return;
+        }
+        if control == Control::OctaveWait {
+            if let Some(ms) = self.tabs().octave_waits.get(index) {
+                window.dispatch_action(
+                    Box::new(settings::SetOctaveWait(crate::actions::args::Int(
+                        i64::from(*ms),
+                    ))),
+                    cx,
+                );
+            }
+            return;
+        }
         let tabs = self.tabs();
         let mut metronome = AppSettings::get(cx).metronome.clone();
         match control {
@@ -384,7 +473,11 @@ impl SettingsWindow {
                 Some(ms) => metronome.length_ms = *ms,
                 None => return,
             },
-            Control::KeyLayout | Control::PreviewOnMove | Control::PreviewLength => return,
+            Control::KeyLayout
+            | Control::PreviewOnMove
+            | Control::PreviewLength
+            | Control::StepLength
+            | Control::OctaveWait => return,
         }
         if metronome == AppSettings::get(cx).metronome {
             return;
@@ -403,6 +496,7 @@ impl SettingsWindow {
         self.tabs_mut().sync(window, cx);
         let layout = AppSettings::get(cx).input.key_layout;
         let preview = AppSettings::get(cx).preview.clone();
+        let input = AppSettings::get(cx).input;
         let tabs = self.tabs();
         let calibrate = tabs.calibrate.clone();
         div()
@@ -459,6 +553,32 @@ impl SettingsWindow {
                         window,
                         cx,
                     )),
+            )
+            // Step 입력(REQ 5.6, S3-T4b). 기존 Tab 순서(레이아웃 → 미리듣기 → 보정)를 바꾸지 않게 보정 뒤에 둔다.
+            .child(row(
+                "Step 기본 길이",
+                Control::StepLength.id(),
+                format!(
+                    "Step 기본 길이: {}",
+                    step_length_label(input.step_default_length)
+                ),
+                &tabs.step_length,
+                cx,
+            ))
+            .child(row(
+                "옥타브 대기 시간",
+                Control::OctaveWait.id(),
+                format!(
+                    "옥타브 대기 시간: {}",
+                    length_label(input.octave_wait_ms)
+                ),
+                &tabs.octave_wait,
+                cx,
+            ))
+            .child(
+                div()
+                    .text_color(cx.theme().muted_foreground)
+                    .child("Step 기본 길이는 0이 돌아가는 길이다. 옥타브 대기 시간은 음 키 뒤 옥타브 숫자를 기다리는 시간이다."),
             )
     }
 

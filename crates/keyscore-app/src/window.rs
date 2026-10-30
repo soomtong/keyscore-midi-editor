@@ -305,6 +305,8 @@ impl ProjectWindow {
             self.step_settle(cx);
             // 지나온 스텝의 자취는 이번 Step 입력의 것이다(리뷰 2 지적 1).
             self.step.clear_trail();
+            // 덮어쓰기는 Step 진입마다 정한다(S3-T4b 결정 1절).
+            self.step.overwrite = false;
         }
         if next != self.mode {
             // 오퍼레이터 대기와 비주얼은 Normal 피아노롤의 것이다. 모드·뷰가 바뀌면 끝낸다(S3-T3c). 비주얼만 끝내고
@@ -842,11 +844,8 @@ impl ProjectWindow {
         let e = element;
         let e = Self::on_mode::<clip::Open>(e, OpenClip, cx);
         let e = Self::on_mode::<view::Toggle>(e, ToggleView, cx);
-        let e = Self::on_mode::<mode::Step>(e, Enter(Mode::Step), cx);
-        let e = Self::on_mode::<mode::StepAfterNote>(e, Enter(Mode::Step), cx);
-        let e = Self::on_mode::<mode::StepAtBarStart>(e, Enter(Mode::Step), cx);
-        let e = Self::on_mode::<mode::StepAtBarEnd>(e, Enter(Mode::Step), cx);
-        let e = Self::on_mode::<mode::StepOverwrite>(e, Enter(Mode::Step), cx);
+        // `mode::Step`·`StepAfterNote`·`StepAtBarStart`·`StepAtBarEnd`·`StepOverwrite`는 진입 위치를 정하는
+        // 처리기가 `step_handlers`에 있다(S3-T4b).
         let e = Self::on_mode::<mode::Sequence>(e, Enter(Mode::Sequence), cx);
         let e = Self::on_mode::<mode::Play>(e, Enter(Mode::Play), cx);
         let e = Self::on_mode::<mode::Lyric>(e, Enter(Mode::Lyric), cx);

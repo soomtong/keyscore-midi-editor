@@ -178,6 +178,21 @@ pub(crate) fn register(cx: &mut App) {
         AppSettings::update(cx, |s| s.preview.length_ms = ms);
         cx.refresh_windows();
     });
+    // Step 기본 길이·옥타브 대기 시간(S3-T4b)도 설정 > 입력의 선택 상자와 팔레트가 같은 처리기를 쓴다
+    cx.on_action(|action: &settings::SetStepDefaultLength, cx| {
+        AppSettings::update(cx, |s| s.input.step_default_length = action.0);
+        cx.refresh_windows();
+    });
+    cx.on_action(|action: &settings::SetOctaveWait, cx| {
+        let Ok(ms) = u32::try_from(action.0.0) else {
+            return;
+        };
+        if ms > crate::settings::OCTAVE_WAIT_MAX_MS {
+            return;
+        }
+        AppSettings::update(cx, |s| s.input.octave_wait_ms = ms);
+        cx.refresh_windows();
+    });
     // 보정 마법사는 S5-T2가 만든다. 그때까지는 입력 구역을 열고 알린다(7.6 대응표의 자리)
     cx.on_action(|_: &settings::Calibrate, cx| {
         open(cx, Some(SettingsSection::Input));

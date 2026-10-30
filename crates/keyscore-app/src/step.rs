@@ -72,8 +72,17 @@ pub const fn code_digit(code: LengthCode) -> char {
 /// MML `l` 뒤 분모(`1` `2` `4` `8` `16` `32` `64`)와 점의 길이. 그 밖의 값이면 `None`(S3-T4b 결정 4절).
 #[must_use]
 pub fn mml_length(digits: &str, dotted: bool) -> Option<StepLength> {
-    let _ = (digits, dotted);
-    todo!()
+    let code = match digits {
+        "1" => LengthCode::Whole,
+        "2" => LengthCode::Half,
+        "4" => LengthCode::Quarter,
+        "8" => LengthCode::Eighth,
+        "16" => LengthCode::Sixteenth,
+        "32" => LengthCode::ThirtySecond,
+        "64" => LengthCode::SixtyFourth,
+        _ => return None,
+    };
+    Some(StepLength { code, dotted })
 }
 
 /// 옥타브 상한(과학적 음높이 표기 한 자리, REQ 5.6).
@@ -262,6 +271,12 @@ impl StepState {
             Some(top) if top.1 == end => top.1 = to,
             _ => self.push_step(key, end, to),
         }
+    }
+
+    /// `tick` 뒤에서 끝나는 지나온 스텝을 버린다(마디 처음까지 지울 때, S3-T4b).
+    pub(crate) fn drop_after(&mut self, key: (Option<TrackId>, u64), tick: Tick) {
+        self.check_key(key);
+        self.trail.retain(|&(_, end)| end <= tick);
     }
 
     /// 한 스텝 뒤의 틱: 커서가 맨 위 스텝의 끝이면 그 스텝을 꺼내 시작으로, 아니면 `plain`만큼(0에서 멈춤).

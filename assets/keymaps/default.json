@@ -293,7 +293,28 @@
       "shift-a": "step::HalfNote(a)",
       "b": "step::Note(b)",
       "ctrl-b": "step::Chord(b)",
-      "shift-b": "step::HalfNote(b)"
+      "shift-b": "step::HalfNote(b)",
+      // MML 호환(REQ 5.1, 결정 docs/decisions/2026-10-30-s3-t4b-vim-step-mml.md 4절): o 옥타브, l 기본 길이, r 쉼표
+      "o": "step::MmlOctave",
+      "l": "step::MmlLength",
+      "r": "step::Rest"
+    }
+  },
+  {
+    // MML o·l 뒤의 숫자와 점. 키 입력의 길이 코드·옥타브 숫자와 다른 뜻이라 이 대기에서만 받는다.
+    "context": "Step > Solfege > Mml",
+    "bindings": {
+      "0": "step::MmlDigit(0)",
+      "1": "step::MmlDigit(1)",
+      "2": "step::MmlDigit(2)",
+      "3": "step::MmlDigit(3)",
+      "4": "step::MmlDigit(4)",
+      "5": "step::MmlDigit(5)",
+      "6": "step::MmlDigit(6)",
+      "7": "step::MmlDigit(7)",
+      "8": "step::MmlDigit(8)",
+      "9": "step::MmlDigit(9)",
+      ".": "step::MmlDot"
     }
   },
   {
