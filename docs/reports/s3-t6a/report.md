@@ -84,3 +84,18 @@ vim_operators, review_s3_t3c·r2·r3·r4, keyboard_view_ui, window, modes_ui): �
 - 리뷰 초점(단계 파일): 마우스가 키와 같은 Action·상태를 쓰는가. 선택은 `replace_selection`·`set_selection`, 삭제는 `edit::Delete` 처리기, 생성은 붙여넣기의 `plan_paste`·`apply_placed`다. 마우스 전용 편집 경로가 있으면 차단 대상이다.
 - 불안한 곳: `Esc` 가로채기의 순서(마우스 → `e` 음높이 대기 → vim). `piano_roll_press`가 커서를 옮기는 `click_piano_roll_cell`(미리듣기·비주얼 재계산 포함)을 그대로 부른 뒤 선택을 바꾼다. 더블클릭 삭제는 `window.defer`로 미룬 디스패치라 그 사이 상태가 바뀌는 길이 있는지.
 - `Shift+클릭`의 「마지막 선택」과 러버밴드의 클립 순서는 결정 3절 4·5의 글이 기준이다.
+
+## 리뷰 1 대응
+
+판정 「수정 후 재리뷰」. 리뷰 초점(마우스 전용 편집 경로)은 지적 없음.
+
+| 지적 | 대응 | 커밋 |
+| --- | --- | --- |
+| 1 차단: 피아노롤·Normal을 떠나도 조작이 남음 | 수락. `apply_mode_event`가 모드·뷰가 바뀔 때 조작을 버리고(선택만 바뀐 `Select` 사건은 제외), 끌기·뗌·`Esc`는 `live_gesture`로 Normal 피아노롤인지 확인해 아니면 버린다. 결정 2절 1에 글로 적음 | d766e23 |
+| 2 수정: Step에서 끌기가 선택을 만듦 | 수락. 지적 1과 같은 원인(검사가 누를 때만)이라 같은 수정 | d766e23 |
+| 3 수정: 누른 점이 화면 px | 수락. `mouse::Anchor`(틱·행)로 기억하고 직사각형은 그릴 때 뷰포트로 바꾼다. 결정 3절 5에 적음 | d766e23 |
+| 4 수정: 빠진 시험 | 수락. `escape_during_plain_press_cancels_release_action`, `shift_click_empty_without_base_is_plain_click`, `cmd_wheel_zoom_stops_at_bounds` | 242798c |
+| 5 제안: 폭 0 러버밴드 | 수락. 폭 0이면 한 틱(`band_between`). 결정 3절 5에 적음 | d766e23 |
+| 6 제안: 시험 먼저 | 수락. 이번 수정은 리뷰 시험 6개가 실패하는 상태에서 했다 | — |
+
+리뷰 시험 `drag_from_outside_after_return_does_not_resume_stale_band`의 전제 단언(「남은 조작」)은 수정으로 거짓이 되어 「뷰 전환이 조작을 버린다」로 바꿨다. 결함을 단언하던 뒤 단언은 그대로다. 수정 뒤 `mouse_select` 26, `mouse_select_pure` 7, `review_s3_t6a` 10 통과, clippy·fmt 통과.
