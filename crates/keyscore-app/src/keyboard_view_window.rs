@@ -171,10 +171,13 @@ impl ProjectWindow {
         for (i, cap) in caps.iter().enumerate() {
             let label = accessible(cap);
             // 음 이름은 C 건반에만 그린다(좁은 건반에 글이 넘치지 않게). 드럼 라벨은 모두 그린다
+            // 검은건반(24 px)에는 세 글자까지만 그린다. 네 글자 `n100`–`n127`은 GM 퍼커션(35–81) 밖이고 작은
+            // 글씨로도 넘친다. 접근성 라벨에는 남는다(S3-T5c 리뷰 1 지적 1)
             let drawn_name = cap
                 .name
                 .clone()
-                .filter(|_| drum || cap.pitch.is_some_and(|p| p.get() % 12 == 0));
+                .filter(|_| drum || cap.pitch.is_some_and(|p| p.get() % 12 == 0))
+                .filter(|n| !cap.black || n.chars().count() <= 3);
             let body = div()
                 .id(ElementId::Name(format!("keyboard-key-{i}").into()))
                 .aria_label(label)
