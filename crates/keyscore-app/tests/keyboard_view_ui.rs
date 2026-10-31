@@ -343,6 +343,63 @@ fn key_edit_updates_shading(cx: &mut TestAppContext) {
     assert!(!caps[6].out_of_key, "F#4");
 }
 
+// ---------- S3-T5c 드럼 명암·검은건반 글(결정 2026-10-31-key-shading-off-and-drums) ----------
+
+#[gpui_kit::test]
+fn drum_key_edit_keeps_keyboard_unshaded(cx: &mut TestAppContext) {
+    let (handle, view) = step(cx, "drum-shading", project(10), KeyLayout::Piano);
+    cx.update(|cx| {
+        view.read(cx).document().clone().update(cx, |d, cx| {
+            d.apply(vec![Edit::SetKey(Key::Major(PitchClass::new(2).unwrap()))])
+                .unwrap();
+            cx.notify();
+        });
+    });
+    cx.run_until_parked();
+    render(cx, handle);
+    assert!(shown(cx, &view).unwrap().iter().all(|c| !c.out_of_key));
+}
+
+#[gpui_kit::test]
+fn black_key_names_fit_inside_keys(cx: &mut TestAppContext) {
+    let (handle, view) = step(cx, "names-fit", project(10), KeyLayout::Piano);
+    cx.simulate_window_resize(
+        handle,
+        gpui_kit::size(gpui_kit::px(2400.), gpui_kit::px(1400.)),
+    );
+    cx.run_until_parked();
+    render(cx, handle);
+    for _ in 0..2 {
+        press(cx, handle, "[");
+    }
+    for o in [2u8, 3] {
+        if o == 3 {
+            press(cx, handle, "]");
+        }
+        let caps = shown(cx, &view).unwrap();
+        for (i, cap) in caps.iter().enumerate() {
+            if cap.name.is_none() {
+                continue;
+            }
+            let key_id = gpui_kit::ElementId::Name(format!("keyboard-key-{i}").into());
+            let name_id = gpui_kit::ElementId::Name(format!("keyboard-name-{i}").into());
+            let (key, name) = cx
+                .update_window(handle, move |_, window, _| {
+                    (window.find(key_id).bounds(), window.find(name_id).bounds())
+                })
+                .unwrap();
+            // 테두리(1 px)와 글 사이에 양쪽 2 px 여백이 남아야 가장자리에 붙어 보이지 않는다
+            assert!(
+                f32::from(name.size.width) + 4.0 <= f32::from(key.size.width),
+                "oct{o} {i} {:?}: 글 {:?} > 건반 {:?}",
+                cap.name,
+                name.size.width,
+                key.size.width
+            );
+        }
+    }
+}
+
 // ---------- 16. 라벨 = 실제 입력 ----------
 
 /// 라벨이 있는 건반마다 그 라벨을 Step에 치면 그 건반 음이 써진다.

@@ -6,7 +6,7 @@ use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::{
     Action, App, ClickEvent, Context, ElementId, Hsla, InteractiveElement as _, IntoElement,
     ParentElement as _, StatefulInteractiveElement as _, Styled as _, TestSupportExt as _, div,
-    hsla, px, relative,
+    hsla, prelude::FluentBuilder as _, px, relative,
 };
 
 use crate::actions::step;
@@ -38,6 +38,12 @@ fn key_text(cap: &KeyCap) -> Hsla {
     } else {
         hsla(0., 0., 0.12, 1.)
     }
+}
+
+/// 건반 색에 조성 명암을 더하는가. 드럼은 조성이 있어도 조성 없음과 똑같이 그린다(결정
+/// `2026-10-31-key-shading-off-and-drums.md` 2).
+fn shades_key(key: keyscore_core::Key, drum: bool) -> bool {
+    !drum && key != keyscore_core::Key::None
 }
 
 /// 키 라벨의 키캡 상자. 음 이름(상자 밖 작은 글자)과 모양으로 가른다(결정
@@ -153,8 +159,8 @@ impl ProjectWindow {
         caps: &[KeyCap],
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        let has_key = self.document.read(cx).project().key() != keyscore_core::Key::None;
         let drum = self.current_track_is_drum(cx);
+        let has_key = shades_key(self.document.read(cx).project().key(), drum);
         let controls = self.render_octave_controls();
         let whites = caps.iter().filter(|c| !c.black).count().max(1);
         #[allow(clippy::cast_precision_loss)] // 건반 수는 24다
@@ -165,10 +171,13 @@ impl ProjectWindow {
         for (i, cap) in caps.iter().enumerate() {
             let label = accessible(cap);
             // 음 이름은 C 건반에만 그린다(좁은 건반에 글이 넘치지 않게). 드럼 라벨은 모두 그린다
+            // 검은건반(24 px)에는 세 글자까지만 그린다. 네 글자 `n100`–`n127`은 GM 퍼커션(35–81) 밖이고 작은
+            // 글씨로도 넘친다. 접근성 라벨에는 남는다(S3-T5c 리뷰 1 지적 1)
             let drawn_name = cap
                 .name
                 .clone()
-                .filter(|_| drum || cap.pitch.is_some_and(|p| p.get() % 12 == 0));
+                .filter(|_| drum || cap.pitch.is_some_and(|p| p.get() % 12 == 0))
+                .filter(|n| !cap.black || n.chars().count() <= 3);
             let body = div()
                 .id(ElementId::Name(format!("keyboard-key-{i}").into()))
                 .aria_label(label)
@@ -184,7 +193,15 @@ impl ProjectWindow {
                 .border_color(cx.theme().border)
                 .children(cap.key.clone().map(|k| keycap(i, k, cap)))
                 // 음 이름 자리는 이름이 없는 건반에도 비워 둔다. 키캡이 같은 높이에 줄 선다
-                .child(div().h_4().children(drawn_name));
+                .child(
+                    div()
+                        .id(ElementId::Name(format!("keyboard-name-{i}").into()))
+                        .test_support()
+                        .h_4()
+                        // 검은건반은 좁아 세 글자 드럼 라벨(`n58`)이 넘친다. 글씨를 줄인다(S3-T5c)
+                        .when(cap.black, |d| d.text_size(px(9.)))
+                        .children(drawn_name),
+                );
             let body = if cap.pitch.is_some() {
                 body.bg(key_fill(cap, has_key))
             } else {
@@ -229,5 +246,32 @@ impl ProjectWindow {
             .bg(cx.theme().background)
             .child(controls)
             .child(board.min_w(px(0.)))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use keyscore_core::{Key, PitchClass};
+
+    use super::*;
+
+    #[test]
+    fn drum_track_draws_like_no_key() {
+        let d_major = Key::Major(PitchClass::new(2).unwrap());
+        assert!(shades_key(d_major, false));
+        assert!(!shades_key(d_major, true));
+        assert!(!shades_key(Key::None, false));
+        // 드럼의 검은건반은 조성 없음과 같은 색
+        let black = KeyCap {
+            pitch: keyscore_core::Pitch::new(37).ok(),
+            black: true,
+            key: None,
+            name: None,
+            out_of_key: false,
+        };
+        assert_eq!(
+            key_fill(&black, shades_key(d_major, true)),
+            key_fill(&black, shades_key(Key::None, true))
+        );
     }
 }

@@ -106,6 +106,19 @@ fn out_of_key_follows_project_key() {
     assert!(caps.iter().all(|c| !c.out_of_key));
 }
 
+#[test]
+fn drum_track_has_no_key_shading() {
+    let d_major = Key::Major(PitchClass::new(2).unwrap());
+    // 드럼은 조성 밖 표시가 없다(결정 2026-10-31-key-shading-off-and-drums 2)
+    assert!(
+        keys(KeyLayout::Piano, 2, d_major, true)
+            .iter()
+            .all(|c| !c.out_of_key)
+    );
+    // 멜로디는 그대로: C2는 D장조 밖
+    assert!(keys(KeyLayout::Piano, 2, d_major, false)[0].out_of_key);
+}
+
 // ---------- 5. 건반형 ----------
 
 #[test]
