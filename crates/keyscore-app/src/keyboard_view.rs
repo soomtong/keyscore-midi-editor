@@ -87,7 +87,8 @@ pub fn keys(layout: KeyLayout, octave: u8, key: Key, drum: bool) -> Vec<KeyCap> 
                 black,
                 key: label,
                 name,
-                out_of_key: key != Key::None && row_shade(key, pitch) == Shade::Dark,
+                // 드럼은 조성 명암이 없다(결정 `2026-10-31-key-shading-off-and-drums.md` 2)
+                out_of_key: !drum && key != Key::None && row_shade(key, pitch) == Shade::Dark,
             }
         })
         .collect()

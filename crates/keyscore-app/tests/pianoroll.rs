@@ -298,6 +298,27 @@ fn scene_rows_shade_in_key_pitches() {
     assert_eq!(scene.rows[1].shade, Shade::Dark, "B4는 F장조 밖");
 }
 
+/// 드럼 트랙(채널 10)의 음높이는 악기 종류라 조성 명암을 그리지 않는다(결정
+/// `2026-10-31-key-shading-off-and-drums.md` 2, S3-T5c). 행은 조성 없음과 같은 흰·검은건반 명암이다.
+#[test]
+fn scene_rows_on_drum_track_ignore_key() {
+    let mut drums = Track::new("D", Channel::new(10).unwrap(), TrackColor::new(0).unwrap());
+    drums
+        .insert_clip(clip(0, BAR, &[note(0, 960, 36)]))
+        .unwrap();
+    let meter = MeterMap::default();
+    let f_major = Key::Major(PitchClass::new(5).unwrap());
+    let vp = viewport(0.0, 0.1, 100.0, 72, 144.0);
+    let drum_rows = build(&drums, Some(0), f_major, &meter, vp).rows;
+    let plain_rows = build(&drums, Some(0), Key::None, &meter, vp).rows;
+    let shades: Vec<Shade> = drum_rows.iter().map(|r| r.shade).collect();
+    let plain: Vec<Shade> = plain_rows.iter().map(|r| r.shade).collect();
+    assert_eq!(shades, plain);
+    // B4(71)는 F장조 밖이지만 흰건반이라 밝다
+    assert_eq!(drum_rows[1].pitch.get(), 71);
+    assert_eq!(drum_rows[1].shade, Shade::Light);
+}
+
 // ---------- 4. 장면: 격자 선 ----------
 
 #[test]

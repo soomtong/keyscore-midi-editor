@@ -142,6 +142,12 @@ pub fn build(input: &SceneInput<'_>, out: &mut Scene) {
 
 fn build_rows(input: &SceneInput<'_>, out: &mut Scene) {
     let vp = input.viewport;
+    // 드럼 트랙의 음높이는 악기 종류라 조성 명암을 그리지 않는다(결정 `2026-10-31-key-shading-off-and-drums.md` 2)
+    let key = if input.track.is_some_and(Track::is_drum) {
+        Key::None
+    } else {
+        input.key
+    };
     let first = row_u8(vp.first_row.floor());
     let last = row_u8((vp.first_row + vp.rows_visible()).ceil());
     for row in first..last {
@@ -156,7 +162,7 @@ fn build_rows(input: &SceneInput<'_>, out: &mut Scene) {
                 w: vp.width,
                 h: vp.row_height,
             },
-            shade: row_shade(input.key, pitch),
+            shade: row_shade(key, pitch),
         });
     }
 }
