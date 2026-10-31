@@ -940,11 +940,6 @@ impl ProjectWindow {
         element
     }
 
-    /// gpui-component `Root`의 Tab 포커스 이동(`root::Tab`, `root::TabPrev`)을 창 안에서 삼킨다. 우리
-    /// 키맵에 `tab`이 없는 모드(Lyric 등)나 팝업에서 그 바인딩이 맞으면 창 포커스가 트랜스포트 입력란으로
-    /// 넘어가 모든 모드 키가 끊긴다(S2-T3 리뷰 1 제안 2가 경고한 일). 다음 필드로의 `Tab`(5.11)은
-    /// 대화상자·설정 화면의 일이고, 그 화면은 이 창 밖(Root 레이어)에 뜬다. 타입이 공개되지 않아 이름으로
-    /// 만든다.
     /// 끄는 중 수식키만 바꿔도(`Cmd` 스냅 해제·`Shift` 한 축·`Alt` 복제) 고스트를 다시 계산한다(S3-T6b). 수식키
     /// 사건은 포커스 경로로 오므로 피아노롤이 아니라 바깥 요소에 단다.
     fn watch_modifiers(root: Stateful<Div>, cx: &mut Context<Self>) -> Stateful<Div> {
@@ -955,6 +950,11 @@ impl ProjectWindow {
         ))
     }
 
+    /// gpui-component `Root`의 Tab 포커스 이동(`root::Tab`, `root::TabPrev`)을 창 안에서 삼킨다. 우리
+    /// 키맵에 `tab`이 없는 모드(Lyric 등)나 팝업에서 그 바인딩이 맞으면 창 포커스가 트랜스포트 입력란으로
+    /// 넘어가 모든 모드 키가 끊긴다(S2-T3 리뷰 1 제안 2가 경고한 일). 다음 필드로의 `Tab`(5.11)은
+    /// 대화상자·설정 화면의 일이고, 그 화면은 이 창 밖(Root 레이어)에 뜬다. 타입이 공개되지 않아 이름으로
+    /// 만든다.
     fn swallow_root_tab(root: Stateful<Div>, cx: &App) -> Stateful<Div> {
         ["root::Tab", "root::TabPrev"]
             .iter()
