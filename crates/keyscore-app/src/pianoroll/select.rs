@@ -9,7 +9,7 @@ use keyscore_core::{Clip, ClipId, MeterMap, Note, Pitch, Tick, Track};
 use super::Cursor;
 
 /// `[lo, hi)` 절대 틱 범위와 `[low, high]` 음높이 범위에 걸치는 `clip`의 노트.
-fn notes_in(clip: &Clip, lo: u64, hi: u64, low: Pitch, high: Pitch) -> BTreeSet<Note> {
+pub(crate) fn notes_in(clip: &Clip, lo: u64, hi: u64, low: Pitch, high: Pitch) -> BTreeSet<Note> {
     let start = clip.start().get();
     // 클립 기준으로 바꾼다. 범위가 클립 앞에서 끝나면 빈 집합이다.
     let (lo, hi) = (lo.saturating_sub(start), hi.saturating_sub(start));

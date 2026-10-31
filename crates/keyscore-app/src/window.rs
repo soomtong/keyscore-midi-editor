@@ -94,6 +94,8 @@ pub struct ProjectWindow {
     _keystrokes: Subscription,
     /// 음 키 대기의 키 가로채기(S3-T3b).
     _pitch_keys: Subscription,
+    /// 누른 채 `Esc`로 마우스 조작 취소(S3-T6a). 다른 가로채기보다 먼저 단다(`Esc`는 가장 안쪽 하나만, 5.5).
+    _mouse_keys: Subscription,
     /// vim 오퍼레이터 대기·`y` 접두의 키 가로채기(S3-T3c).
     _vim_keys: Subscription,
     /// GPUI 대기 입력 관찰(붙든 키 컨텍스트 경로를 놓는다, S3-T3c 리뷰 3).
@@ -167,11 +169,10 @@ impl ProjectWindow {
             }
             this.vim_after_keystroke(event.action.as_deref(), cx);
         });
+        let mouse_keys = Self::intercept_mouse_keys(window, cx);
         let pitch_keys = Self::intercept_pitch_keys(window, cx);
         let vim_keys = Self::intercept_vim_keys(window, cx);
-        let pending_input = cx.observe_pending_input(window, |this, window, cx| {
-            this.vim_pending_input_changed(window, cx);
-        });
+        let pending_input = cx.observe_pending_input(window, Self::vim_pending_input_changed);
         let me = cx.entity().downgrade();
         if cx.has_global::<OpenWindows>() {
             let list = &mut cx.global_mut::<OpenWindows>().0;
@@ -208,6 +209,7 @@ impl ProjectWindow {
             _window_resized: window_resized,
             _keystrokes: keystrokes,
             _pitch_keys: pitch_keys,
+            _mouse_keys: mouse_keys,
             _vim_keys: vim_keys,
             _pending_input: pending_input,
             handle: window.window_handle(),

@@ -6,6 +6,7 @@
 pub mod edit;
 pub mod element;
 pub mod keys;
+pub mod mouse;
 pub mod ops;
 pub mod scene;
 pub mod select;
@@ -371,6 +372,10 @@ pub(crate) struct Inner {
     pub(crate) painted: usize,
     /// 크기를 알기 전에 온 뷰포트 요청. 처음 크기를 알 때 적용한다(리뷰 1 지적 1).
     pending: Option<Follow>,
+    /// 진행 중인 마우스 조작(S3-T6a). 누를 때 생기고 뗄 때 없어진다.
+    pub(crate) gesture: Option<mouse::Gesture>,
+    /// 「마지막 선택」: 클릭·`Cmd+클릭`으로 마지막에 선택에 넣은 노트(`Shift+클릭`의 기준, S3-T6a).
+    pub(crate) last_clicked: Option<(ClipId, Note)>,
 }
 
 /// 크기를 알기 전에 미뤄 둔 뷰포트 요청.
@@ -513,6 +518,8 @@ impl PianoRollState {
                 scene: scene::Scene::default(),
                 painted: 0,
                 pending: None,
+                gesture: None,
+                last_clicked: None,
             })),
         }
     }
@@ -633,6 +640,40 @@ impl PianoRollState {
         let mut inner = self.inner.borrow_mut();
         inner.px_per_tick = DEFAULT_PX_PER_TICK;
         inner.ensure_cursor_visible();
+    }
+
+    /// 포인터 x(뷰 기준) 아래의 틱을 제자리에 두고 가로 배율을 `factor`배 한다(상한·하한 안, S3-T6a 마우스
+    /// 줌). 커서를 따라가지 않는다.
+    pub fn zoom_at(&self, factor: f64, x: f32) {
+        let mut inner = self.inner.borrow_mut();
+        let old = inner.px_per_tick;
+        let new = (old * factor).clamp(MIN_PX_PER_TICK, MAX_PX_PER_TICK);
+        if !new.is_finite() || (new - old).abs() < f64::EPSILON {
+            return;
+        }
+        let tick = inner.first_tick + f64::from(x) / old;
+        inner.px_per_tick = new;
+        inner.first_tick = (tick - f64::from(x) / new).max(0.0);
+    }
+
+    /// 진행 중인 마우스 조작이 있는가(취소된 조작은 아니다).
+    #[must_use]
+    pub fn gesture_active(&self) -> bool {
+        self.inner
+            .borrow()
+            .gesture
+            .as_ref()
+            .is_some_and(mouse::Gesture::is_live)
+    }
+
+    /// 지금 그리는 러버밴드 직사각형(뷰 기준 px).
+    #[must_use]
+    pub fn band_rect(&self) -> Option<scene::Rect> {
+        self.inner
+            .borrow()
+            .gesture
+            .as_ref()
+            .and_then(mouse::Gesture::band_rect)
     }
 
     /// 커서 칸을 뷰포트 가운데로. 크기를 모르면 처음 크기를 알 때 한다.

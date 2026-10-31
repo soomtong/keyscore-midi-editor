@@ -139,7 +139,7 @@ impl ProjectWindow {
     }
 
     /// 넣기 결과를 적용하고 넣은 노트를 선택으로 둔다.
-    fn apply_placed(
+    pub(crate) fn apply_placed(
         &mut self,
         label: &str,
         track: TrackId,

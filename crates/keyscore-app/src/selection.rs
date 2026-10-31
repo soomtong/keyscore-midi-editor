@@ -143,6 +143,8 @@ impl ProjectWindow {
 
     /// 문서가 바뀐 뒤: 선택에서 클립에 더 없는 노트를 뺀다.
     pub(crate) fn selection_document_changed(&mut self, cx: &mut Context<Self>) {
+        // 누른 채 문서가 바뀌면(키 undo 등) 진행 중 마우스 조작은 낡은 선택을 다시 쓰지 않게 끝낸다(S3-T6a)
+        self.cancel_piano_roll_gesture(false, cx);
         let mut selection = self.pianoroll.selection();
         if !selection.is_empty() {
             let changed = {
