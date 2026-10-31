@@ -195,10 +195,11 @@ fn lead_and_drums() -> Project {
     p
 }
 
-// ---------- 1. 건반형 뒤 8건반: 음 키 + 옥타브 숫자로 닿는데 라벨이 비었다 ----------
+// ---------- 1. 건반형 뒤 8건반: 음 키 + 옥타브 숫자로 닿지만 라벨은 없다 ----------
 
-/// 계획 규칙 2: 「옥타브 숫자 없이 닿는 키가 없으면 옥타브 숫자를 붙인 입력을 보인다」. REQ 5.6: 건반 레이아웃도
-/// 뒤 숫자가 옥타브다. 건반형 oct4에서 `D` `5`는 E5(76)를 쓴다. 건반 뷰 16번(E5)은 라벨이 없다.
+/// REQ 5.6: 건반 레이아웃도 뒤 숫자가 옥타브다. 건반형 oct4에서 `D` `5`는 E5(76)를 쓴다. 이 리뷰(S3-T5 리뷰 1)는
+/// 처음 그 건반에 라벨을 요구했지만, 결정 `2026-10-31-keyboard-view-direct-labels.md` 1(S3-T5b)이 「키 하나로 닿는
+/// 건반에만 라벨」로 바꿨다. 지금은 입력이 닿는 것과 라벨이 없는 것을 함께 고정한다.
 #[gpui_kit::test]
 fn piano_upper_keys_reachable_by_digit_have_no_label(cx: &mut TestAppContext) {
     let (handle, view) = step(cx, "r-piano-upper", project(1), KeyLayout::Piano);
