@@ -99,3 +99,15 @@ vim_operators, review_s3_t3c·r2·r3·r4, keyboard_view_ui, window, modes_ui): �
 | 6 제안: 시험 먼저 | 수락. 이번 수정은 리뷰 시험 6개가 실패하는 상태에서 했다 | — |
 
 리뷰 시험 `drag_from_outside_after_return_does_not_resume_stale_band`의 전제 단언(「남은 조작」)은 수정으로 거짓이 되어 「뷰 전환이 조작을 버린다」로 바꿨다. 결함을 단언하던 뒤 단언은 그대로다. 수정 뒤 `mouse_select` 26, `mouse_select_pure` 7, `review_s3_t6a` 10 통과, clippy·fmt 통과.
+
+## 리뷰 2 대응
+
+판정 「수정 후 재리뷰」. 리뷰 1 지적 1·2·4와 제안 5는 고쳐졌다고 확인됨.
+
+| 지적 | 대응 |
+| --- | --- |
+| 1 수정: 누른 채 스크롤·줌 뒤 움직이지 않고 떼면 선택이 직사각형과 다름 | 수락. 원인은 선택을 「끌 때만」 다시 계산한 것이다. 선택은 누른 점·지금 점·뷰포트로 정해지므로 뷰포트가 바뀌는 길(Element의 새 콜백 `on_view_change`: 휠·`Cmd+휠`·핀치)과 뗌에서도 같은 `update_band`를 부른다. 결정 3절 5에 적음 |
+| 2 제안: `lo + 1` 넘침 | 수락. `saturating_add(1)` |
+| 3 제안: 빈 뷰포트 검사 | 수락. `update_band`가 크기 0 뷰포트면 아무것도 하지 않는다 |
+
+`register_mouse`가 clippy 줄 수 상한을 넘어 휠·핀치를 `register_view_input`으로 뗐다. 수정 뒤 `review_s3_t6a_r2` 8, `review_s3_t6a` 10, `mouse_select` 26, `mouse_select_pure` 7, `pianoroll` 13, `review_s3_t1`·`r2` 통과.
