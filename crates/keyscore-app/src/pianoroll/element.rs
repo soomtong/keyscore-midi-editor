@@ -50,8 +50,8 @@ pub struct Press {
 
 /// 누름 콜백.
 pub type PressHandler = Rc<dyn Fn(&Press, &mut Window, &mut App)>;
-/// 끌기·뗌 콜백: 뷰 기준 좌표(피아노롤 밖일 수 있다).
-pub type PointerHandler = Rc<dyn Fn((f32, f32), &mut Window, &mut App)>;
+/// 끌기·뗌 콜백: 뷰 기준 좌표(피아노롤 밖일 수 있다)와 그때의 수식키(S3-T6b: 스냅 해제·한 축·복제).
+pub type PointerHandler = Rc<dyn Fn((f32, f32), Modifiers, &mut Window, &mut App)>;
 /// 휠·핀치로 뷰포트(스크롤·배율)가 바뀐 뒤의 콜백.
 pub type ViewChangeHandler = Rc<dyn Fn(&mut Window, &mut App)>;
 /// 우클릭 콜백: 눌린 칸과 창 좌표(메뉴를 띄울 자리).
@@ -113,7 +113,7 @@ impl PianoRollElement {
     #[must_use]
     pub fn on_drag(
         mut self,
-        handler: impl Fn((f32, f32), &mut Window, &mut App) + 'static,
+        handler: impl Fn((f32, f32), Modifiers, &mut Window, &mut App) + 'static,
     ) -> Self {
         self.on_drag = Some(Rc::new(handler));
         self
@@ -131,7 +131,7 @@ impl PianoRollElement {
     #[must_use]
     pub fn on_release(
         mut self,
-        handler: impl Fn((f32, f32), &mut Window, &mut App) + 'static,
+        handler: impl Fn((f32, f32), Modifiers, &mut Window, &mut App) + 'static,
     ) -> Self {
         self.on_release = Some(Rc::new(handler));
         self
@@ -236,6 +236,12 @@ impl Element for PianoRollElement {
             scene,
         );
         scene.band = gesture.as_ref().and_then(|g| g.band_rect(&viewport));
+        scene.ghost_blocked = if let Some(g) = gesture {
+            g.ghost_rects(&viewport, &mut scene.ghosts)
+        } else {
+            scene.ghosts.clear();
+            false
+        };
         window.insert_hitbox(bounds, HitboxBehavior::Normal)
     }
 
@@ -326,6 +332,22 @@ impl PianoRollElement {
                         ));
                         painted += 1;
                     }
+                    // 고스트(MS-1): 결과 자리의 테두리. 거부면 재생 헤드 색
+                    let ghost = if scene.ghost_blocked {
+                        palette.playhead
+                    } else {
+                        palette.selected
+                    };
+                    for rect in &scene.ghosts {
+                        window.paint_quad(quad(
+                            Self::rect(origin, *rect),
+                            px(2.),
+                            ghost.opacity(0.3),
+                            px(1.5),
+                            ghost,
+                            BorderStyle::Dashed,
+                        ));
+                    }
                     if let Some(cursor) = scene.cursor {
                         window.paint_quad(quad(
                             Self::rect(origin, cursor),
@@ -393,7 +415,12 @@ impl PianoRollElement {
                     return;
                 }
                 let local = event.position - origin;
-                on_drag((f32::from(local.x), f32::from(local.y)), window, cx);
+                on_drag(
+                    (f32::from(local.x), f32::from(local.y)),
+                    event.modifiers,
+                    window,
+                    cx,
+                );
             });
         }
         if let Some(on_release) = self.on_release.clone() {
@@ -402,7 +429,12 @@ impl PianoRollElement {
                     return;
                 }
                 let local = event.position - origin;
-                on_release((f32::from(local.x), f32::from(local.y)), window, cx);
+                on_release(
+                    (f32::from(local.x), f32::from(local.y)),
+                    event.modifiers,
+                    window,
+                    cx,
+                );
             });
         }
         // 우클릭은 뗄 때 연다. 누를 때는 창의 겹 바깥 누름 처리기가 포커스를 문서로 돌리므로, 누를 때 메뉴를

@@ -940,6 +940,18 @@ impl ProjectWindow {
         element
     }
 
+    /// 끄는 중 수식키만 바꿔도(`Cmd` 스냅 해제·`Shift` 한 축·`Alt` 복제) 고스트를 다시 계산한다(S3-T6b). 수식키
+    /// 사건은 포커스 경로로 오므로 피아노롤이 아니라 바깥 요소에 단다.
+    /// `edit::CancelDrag`(팔레트 등)도 여기서 받는다.
+    fn watch_modifiers(root: Stateful<Div>, cx: &mut Context<Self>) -> Stateful<Div> {
+        root.on_action(cx.listener(Self::cancel_drag_action))
+            .on_modifiers_changed(cx.listener(
+                |this, e: &gpui_kit::ModifiersChangedEvent, _, cx| {
+                    this.piano_roll_modifiers(e.modifiers, cx);
+                },
+            ))
+    }
+
     /// gpui-component `Root`의 Tab 포커스 이동(`root::Tab`, `root::TabPrev`)을 창 안에서 삼킨다. 우리
     /// 키맵에 `tab`이 없는 모드(Lyric 등)나 팝업에서 그 바인딩이 맞으면 창 포커스가 트랜스포트 입력란으로
     /// 넘어가 모든 모드 키가 끊긴다(S2-T3 리뷰 1 제안 2가 경고한 일). 다음 필드로의 `Tab`(5.11)은
@@ -1310,7 +1322,7 @@ impl Render for ProjectWindow {
             .on_action(cx.listener(Self::toggle_track_list))
             .on_action(cx.listener(Self::toggle_inspector))
             .on_action(cx.listener(Self::toggle_bottom));
-        let root = Self::swallow_root_tab(root, cx);
+        let root = Self::watch_modifiers(Self::swallow_root_tab(root, cx), cx);
         Self::mode_handlers(root, cx)
             .child(top)
             .child(content)

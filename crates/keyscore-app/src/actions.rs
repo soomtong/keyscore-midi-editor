@@ -110,6 +110,24 @@ pub mod args {
         SixtyFourth,
     }
 
+    /// 마우스 드래그·더블클릭 생성의 스냅 단위(REQ 7.4 MS-3 「설정에서 스냅 단위 변경」, S3-T6b).
+    #[derive(Clone, Copy, PartialEq, Eq, Debug, Deserialize, schemars::JsonSchema)]
+    pub enum MouseSnap {
+        /// 현재 Step 길이 코드(기본).
+        #[serde(rename = "length")]
+        Length,
+        #[serde(rename = "1/4")]
+        Quarter,
+        #[serde(rename = "1/8")]
+        Eighth,
+        #[serde(rename = "1/16")]
+        Sixteenth,
+        #[serde(rename = "1/32")]
+        ThirtySecond,
+        #[serde(rename = "1/64")]
+        SixtyFourth,
+    }
+
     /// 변화표 종류(계이름 레이아웃 전용, REQ 5.6).
     #[derive(Clone, Copy, PartialEq, Eq, Debug, Deserialize, schemars::JsonSchema)]
     #[serde(rename_all = "snake_case")]
@@ -228,8 +246,8 @@ pub mod args {
 }
 
 use args::{
-    AccidentalKind, AiKind, AiPurpose, AiRole, Int, KeyLayout, LaneKind, LengthCode, LoopMode, Opt,
-    PresetName, Real, SettingsSection, ThemeKind,
+    AccidentalKind, AiKind, AiPurpose, AiRole, Int, KeyLayout, LaneKind, LengthCode, LoopMode,
+    MouseSnap, Opt, PresetName, Real, SettingsSection, ThemeKind,
 };
 
 /// `app::` Action.
@@ -1373,7 +1391,7 @@ pub mod help {
 
 /// `settings::` Action.
 pub mod settings {
-    use super::{Int, KeyLayout, LengthCode, Opt, SettingsSection};
+    use super::{Int, KeyLayout, LengthCode, MouseSnap, Opt, SettingsSection};
 
     gpui_kit::actions!(
         settings,
@@ -1428,6 +1446,14 @@ pub mod settings {
     #[action(namespace = settings)]
     #[serde(deny_unknown_fields)]
     pub struct SetOctaveWait(pub Int);
+
+    /// 마우스 스냅 단위(REQ 7.4 MS-3, 설정 > 입력, S3-T6b)
+    #[derive(
+        Clone, PartialEq, Debug, serde::Deserialize, schemars::JsonSchema, gpui_kit::Action,
+    )]
+    #[action(namespace = settings)]
+    #[serde(deny_unknown_fields)]
+    pub struct SetMouseSnap(pub MouseSnap);
 }
 
 /// `dialog::` Action(대화상자·시트, A13).
@@ -1700,6 +1726,7 @@ pub const ALL_ACTION_NAMES: &[&str] = &[
     "settings::Open",
     "settings::PrevSection",
     "settings::SetKeyLayout",
+    "settings::SetMouseSnap",
     "settings::SetOctaveWait",
     "settings::SetPreviewLength",
     "settings::SetStepDefaultLength",

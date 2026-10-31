@@ -89,10 +89,12 @@ impl ProjectWindow {
             this.piano_roll_press(press, window, cx);
         }))
         .on_drag({
-            let listener = cx.listener(|this, at: &(f32, f32), _, cx| {
-                this.piano_roll_drag(*at, cx);
-            });
-            move |at, window, cx| listener(&at, window, cx)
+            let listener = cx.listener(
+                |this, (at, modifiers): &((f32, f32), gpui_kit::Modifiers), _, cx| {
+                    this.piano_roll_drag(*at, *modifiers, cx);
+                },
+            );
+            move |at, modifiers, window, cx| listener(&(at, modifiers), window, cx)
         })
         .on_view_change({
             let listener = cx.listener(|this, (): &(), _, cx| {
@@ -101,10 +103,12 @@ impl ProjectWindow {
             move |window, cx| listener(&(), window, cx)
         })
         .on_release({
-            let listener = cx.listener(|this, at: &(f32, f32), _, cx| {
-                this.piano_roll_release(*at, cx);
-            });
-            move |at, window, cx| listener(&at, window, cx)
+            let listener = cx.listener(
+                |this, (at, modifiers): &((f32, f32), gpui_kit::Modifiers), _, cx| {
+                    this.piano_roll_release(*at, *modifiers, cx);
+                },
+            );
+            move |at, modifiers, window, cx| listener(&(at, modifiers), window, cx)
         })
         .on_right_click({
             let listener = cx.listener(

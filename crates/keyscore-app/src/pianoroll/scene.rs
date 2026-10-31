@@ -67,6 +67,10 @@ pub struct Scene {
     pub playhead: Option<f32>,
     /// 러버밴드 직사각형(S3-T6a). 장면 계산이 아니라 창의 마우스 조작이 채운다.
     pub band: Option<Rect>,
+    /// 끄는 중인 이동·조절의 고스트(S3-T6b, MS-1). 창의 마우스 조작이 채운다.
+    pub ghosts: Vec<Rect>,
+    /// 고스트의 계획이 거부됐다(거부 색으로 그린다).
+    pub ghost_blocked: bool,
 }
 
 /// 장면 입력.

@@ -421,6 +421,7 @@ vim 프리셋 전용(5.8 「vim 프리셋에서만 산다」). 텍스트 객체�
 | `settings::SetKeyLayout(layout)` | 키 레이아웃 건반형/계이름형 | layout | - | - | - (설정 > 입력) | P3, UI-10, 7.6 |
 | `settings::SetStepDefaultLength(code)` | Step 기본 길이(S3-T4b) | code | - | - | - (설정 > 입력) | 5.6 |
 | `settings::SetOctaveWait(ms)` | 옥타브 숫자 대기 시간 0–2000 ms(S3-T4b) | ms | - | - | - (설정 > 입력) | 5.6 |
+| `settings::SetMouseSnap(snap)` | 마우스 스냅 단위 `length` `1/4`–`1/64`(S3-T6b) | snap | - | - | - (설정 > 입력) | 7.4 MS-3 |
 
 ## window
 

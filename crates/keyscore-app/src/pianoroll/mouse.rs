@@ -2,12 +2,17 @@
 //! `docs/decisions/2026-10-31-s3-t6-mouse-editing.md` 3절.
 
 use std::collections::BTreeSet;
+use std::rc::Rc;
 
 use keyscore_core::{Clip, ClipId, MeterMap, Note, Pitch, Tick, Track, TrackId};
 
+use super::edit::length_ticks;
+use super::ops::{NoteShift, TimeShift};
 use super::scene::Rect;
 use super::select::notes_in;
 use super::{Cursor, ROWS, Selection, Viewport, row_u8, tick_u};
+use crate::actions::args::{LengthCode, MouseSnap};
+use crate::step::StepLength;
 
 /// 끌기로 보는 최소 이동(px). macOS 끌기 문턱과 같은 크기다.
 pub const DRAG_THRESHOLD: f32 = 3.0;
@@ -156,14 +161,227 @@ pub fn first_cell(clip: &Clip, notes: &BTreeSet<Note>) -> Option<Cursor> {
     })
 }
 
+/// 끝 드래그 영역의 폭(px, MS-6). 좁은 노트에서는 노트 화면 폭의 1/3로 줄어든다.
+pub const EDGE_PX: f32 = 6.0;
+
+/// 노트의 어느 자리를 잡았나(MS-6, 결정 6절 1).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Grip {
+    /// 본체: 시간·음높이 이동.
+    Body,
+    /// 왼쪽 끝: 시작 조절(끝 고정).
+    Start,
+    /// 오른쪽 끝: 끝 조절(길이).
+    End,
+}
+
+/// `Shift+드래그`가 고른 축(결정 6절 6).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Axis {
+    Time,
+    Pitch,
+}
+
+/// 화면 `[note_x, note_x + note_w)`의 노트에서 `x`를 누른 자리.
+#[must_use]
+pub fn grip_at(note_x: f32, note_w: f32, x: f32) -> Grip {
+    let zone = EDGE_PX.min(note_w / 3.0);
+    if x < note_x + zone {
+        Grip::Start
+    } else if x >= note_x + note_w - zone {
+        Grip::End
+    } else {
+        Grip::Body
+    }
+}
+
+/// 화면 이동 `(dx, dy)`의 큰 쪽 축. 같으면 시간이다.
+#[must_use]
+pub fn dominant_axis(dx: f32, dy: f32) -> Axis {
+    if dx.abs() >= dy.abs() {
+        Axis::Time
+    } else {
+        Axis::Pitch
+    }
+}
+
+/// `tick`을 가장 가까운 격자선으로. 격자선은 그 틱이 든 마디의 시작부터 `grid`마다이고 다음 마디의 시작도
+/// 격자선이다. 거리가 같으면 앞쪽. `grid`가 0이면 그대로.
+#[must_use]
+pub fn snap_nearest(meter: &MeterMap, tick: Tick, grid: u64) -> Tick {
+    if grid == 0 {
+        return tick;
+    }
+    let floor = snap_floor(meter, tick, grid).get();
+    let bar = meter.position(tick).bar();
+    let next_bar = meter.bar_start(bar + 1).map_or(u64::MAX, Tick::get);
+    let ceil = floor.saturating_add(grid).min(next_bar);
+    if ceil - tick.get() < tick.get() - floor {
+        Tick::new(ceil)
+    } else {
+        Tick::new(floor)
+    }
+}
+
+/// 마우스 스냅 격자 한 칸(틱). 「길이 코드」면 현재 Step 길이(점 포함, 셋잇단·절반 없음).
+#[must_use]
+pub fn snap_grid(snap: MouseSnap, length: StepLength) -> u64 {
+    let code = match snap {
+        MouseSnap::Length => return u64::from(crate::step::step_ticks(length, false, false)),
+        MouseSnap::Quarter => LengthCode::Quarter,
+        MouseSnap::Eighth => LengthCode::Eighth,
+        MouseSnap::Sixteenth => LengthCode::Sixteenth,
+        MouseSnap::ThirtySecond => LengthCode::ThirtySecond,
+        MouseSnap::SixtyFourth => LengthCode::SixtyFourth,
+    };
+    u64::from(length_ticks(code, false))
+}
+
+/// 드래그 양 계산의 입력(결정 6절 3–6). 노트는 클립 기준이다.
+#[derive(Clone, Copy, Debug)]
+pub struct DragInput<'a> {
+    pub meter: &'a MeterMap,
+    /// 클립 시작(절대 틱).
+    pub clip_start: u64,
+    /// 대상 노트 전부(잡은 노트 포함).
+    pub notes: &'a [Note],
+    pub grabbed: &'a Note,
+    pub grip: Grip,
+    /// 원시 시간 Δ(틱, 소수).
+    pub ticks: f64,
+    /// 행 Δ의 반대, 곧 반음 수(위로 끌면 양수).
+    pub semitones: i32,
+    /// 스냅 격자(틱). 0이면 스냅 없음(`Cmd`).
+    pub grid: u64,
+    /// `Shift` 한 축(본체만 뜻이 있다).
+    pub axis: Option<Axis>,
+}
+
+/// 드래그의 일반 변환: 잡은 노트를 스냅하고 클립 시작·음높이 범위로 자른다(결정 6절 3–6).
+#[must_use]
+pub fn drag_shift(input: &DragInput<'_>) -> NoteShift {
+    let at = i128::from(input.clip_start);
+    let start = at + i128::from(input.grabbed.start().get());
+    let end = at + i128::from(input.grabbed.end());
+    // 대상 가운데 가장 이른 시작(클립 기준): 시간·시작 Δ의 하한
+    let earliest = input
+        .notes
+        .iter()
+        .map(|n| i128::from(n.start().get()))
+        .min()
+        .unwrap_or(0);
+    let snap = |raw: i128| -> i128 {
+        if input.grid == 0 {
+            return raw;
+        }
+        let t = Tick::new(u64::try_from(raw.max(0)).unwrap_or(u64::MAX));
+        i128::from(snap_nearest(input.meter, t, input.grid).get())
+    };
+    // 원시 Δ는 반올림한 틱
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "끄는 거리는 곡 길이(u64) 안이다"
+    )]
+    let raw = input.ticks.round() as i128;
+    let narrow = |v: i128| i64::try_from(v).unwrap_or(if v < 0 { i64::MIN } else { i64::MAX });
+    match input.grip {
+        Grip::Body => {
+            let mut time = (snap(start + raw) - start).max(-earliest);
+            let (down, up) = input
+                .notes
+                .iter()
+                .map(pitch_room)
+                .fold((i32::MIN, i32::MAX), |(lo, hi), (d, u)| {
+                    (lo.max(d), hi.min(u))
+                });
+            let mut pitch = input.semitones.clamp(down, up.max(down));
+            match input.axis {
+                Some(Axis::Time) => pitch = 0,
+                Some(Axis::Pitch) => time = 0,
+                None => {}
+            }
+            NoteShift {
+                time: TimeShift::Ticks(narrow(time)),
+                pitch,
+                ..NoteShift::IDENTITY
+            }
+        }
+        Grip::End => {
+            let mut new_end = snap(end + raw);
+            if new_end <= start {
+                // 시작 뒤 첫 격자선. 다만 원래 끝을 넘지 않는다: 안쪽으로 끌었는데 노트가 길어지지 않게(격자 밖의
+                // 짧은 노트, S3-T6b 리뷰 1 제안 3)
+                new_end = if input.grid == 0 {
+                    start + 1
+                } else {
+                    first_line_after(input.meter, start, input.grid).min(end)
+                };
+            }
+            NoteShift {
+                end: narrow(new_end - end),
+                ..NoteShift::IDENTITY
+            }
+        }
+        Grip::Start => {
+            let mut new_start = snap(start + raw);
+            if new_start >= end {
+                // 끝 앞 마지막 격자선. 다만 원래 시작보다 앞으로 가지 않는다(끝 조절과 대칭)
+                new_start = if input.grid == 0 {
+                    end - 1
+                } else {
+                    last_line_before(input.meter, end, input.grid).max(start)
+                };
+            }
+            NoteShift {
+                start: narrow((new_start - start).max(-earliest)),
+                ..NoteShift::IDENTITY
+            }
+        }
+    }
+}
+
+/// 노트를 옮길 수 있는 반음 범위 `(아래, 위)`(아래는 0 이하, 위는 0 이상). 음높이 0–127과 피치 오프셋을 더한
+/// 절대 피치 범위(`Note::with_pitch`가 검사하는 `[0, 128)` 반음)를 함께 지킨다(S3-T6b 리뷰 2 지적 1).
+fn pitch_room(note: &Note) -> (i32, i32) {
+    let semitone = i64::from(keyscore_core::PitchOffset::SEMITONE);
+    let pitch = i64::from(note.pitch().get());
+    let absolute = pitch * semitone + i64::from(note.offset().units());
+    // (pitch + k)·S + u ∈ [0, 128·S)
+    let down = (-absolute).div_euclid(semitone) + i64::from((-absolute).rem_euclid(semitone) != 0);
+    let up = (128 * semitone - 1 - absolute).div_euclid(semitone);
+    let down = down.max(-pitch);
+    let up = up.min(127 - pitch);
+    let narrow = |v: i64| i32::try_from(v).unwrap_or(0);
+    (narrow(down), narrow(up))
+}
+
+/// `tick` 뒤(초과) 첫 격자선.
+fn first_line_after(meter: &MeterMap, tick: i128, grid: u64) -> i128 {
+    let t = Tick::new(u64::try_from(tick.max(0)).unwrap_or(u64::MAX));
+    let floor = snap_floor(meter, t, grid).get();
+    let bar = meter.position(t).bar();
+    let next_bar = meter.bar_start(bar + 1).map_or(u64::MAX, Tick::get);
+    i128::from(floor.saturating_add(grid).min(next_bar))
+}
+
+/// `tick` 앞(미만) 마지막 격자선. 0 앞은 없으므로 0.
+fn last_line_before(meter: &MeterMap, tick: i128, grid: u64) -> i128 {
+    let before = Tick::new(u64::try_from((tick - 1).max(0)).unwrap_or(u64::MAX));
+    i128::from(snap_floor(meter, before, grid).get())
+}
+
 /// 진행 중인 마우스 조작(S3-T6a). 누름 하나에 하나이고 뗄 때 없어진다.
 #[derive(Clone, Debug)]
 pub(crate) enum Gesture {
     /// 노트 위 누름. `collapse`가 있으면 끌지 않고 뗄 때 선택을 그 노트 하나로 줄인다(이미 선택된 노트를 누름).
+    /// 문턱을 넘으면 잡은 노트가 선택에 있을 때 `Move`가 된다(S3-T6b).
     Note {
         origin: (f32, f32),
         collapse: Option<(TrackId, ClipId, Note)>,
+        grab: Grab,
     },
+    /// 끌어 옮기기·끝 조절(S3-T6b). 놓을 때 한 번 적용한다.
+    Move(Box<Drag>),
     /// 빈 곳 누름(아직 끌지 않음). 끌면 러버밴드가 된다. `origin`은 문턱을 재는 화면 점, `anchor`는 그 내용 위치.
     Empty {
         origin: (f32, f32),
@@ -189,6 +407,27 @@ impl Gesture {
         !matches!(self, Gesture::Cancelled)
     }
 
+    /// 그릴 고스트 사각형(뷰 기준 px)과 거부 여부. 끄는 중이 아니면 비었다.
+    #[must_use]
+    pub(crate) fn ghost_rects(&self, viewport: &Viewport, out: &mut Vec<Rect>) -> bool {
+        out.clear();
+        let Gesture::Move(drag) = self else {
+            return false;
+        };
+        let note_h = (viewport.row_height - 1.0).max(1.0);
+        for &(start, length, pitch) in drag.ghost.iter() {
+            #[allow(clippy::cast_precision_loss, reason = "틱은 화면 좌표로만 쓴다")]
+            let (start, length) = (start as f64, f64::from(length));
+            out.push(Rect {
+                x: viewport.x_of(start),
+                y: viewport.y_of(super::Viewport::row_of(pitch)),
+                w: super::px_f32((length * viewport.px_per_tick - 1.0).max(1.0)),
+                h: note_h,
+            });
+        }
+        drag.blocked
+    }
+
     /// 그릴 러버밴드 직사각형(뷰 기준 px, 뷰포트 안으로 자름).
     #[must_use]
     pub(crate) fn band_rect(&self, viewport: &Viewport) -> Option<Rect> {
@@ -200,6 +439,34 @@ impl Gesture {
             _ => None,
         }
     }
+}
+
+/// 노트 위 누름이 잡은 것: 노트와 그 자리, 누른 내용 위치.
+#[derive(Clone, Debug)]
+pub(crate) struct Grab {
+    pub(crate) track: TrackId,
+    pub(crate) clip: ClipId,
+    pub(crate) note: Note,
+    pub(crate) grip: Grip,
+    pub(crate) anchor: Anchor,
+}
+
+/// 끄는 중인 이동·조절(결정 6절). 누른 점은 내용 위치, 지금 점은 화면 위치다(러버밴드와 같다).
+#[derive(Clone, Debug)]
+pub(crate) struct Drag {
+    pub(crate) grab: Grab,
+    /// 대상: 문턱을 넘을 때의 선택(잡은 노트 포함). 조작은 움직일 때마다 복제되므로 공유한다.
+    pub(crate) notes: Rc<[Note]>,
+    pub(crate) now: (f32, f32),
+    pub(crate) modifiers: gpui_kit::Modifiers,
+    /// 마지막으로 계산한 (변환, 복제). 같으면 다시 계산하지 않는다.
+    pub(crate) key: Option<(NoteShift, bool)>,
+    /// 고스트: (절대 시작, 길이, 음높이).
+    pub(crate) ghost: Rc<[(u64, u32, Pitch)]>,
+    /// 계획이 거부됐다(다음 클립과 겹침 등).
+    pub(crate) blocked: bool,
+    /// 마지막으로 들려준 음높이(MS-4). 처음은 잡은 노트의 음높이.
+    pub(crate) sounded: Pitch,
 }
 
 /// 두 점을 뷰포트(`width`×`height`) 안으로 자른 직사각형.

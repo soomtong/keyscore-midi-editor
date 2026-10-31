@@ -193,6 +193,11 @@ pub(crate) fn register(cx: &mut App) {
         AppSettings::update(cx, |s| s.input.octave_wait_ms = ms);
         cx.refresh_windows();
     });
+    // 마우스 스냅 단위(S3-T6b, MS-3)도 설정 > 입력의 선택 상자와 팔레트가 같은 처리기를 쓴다
+    cx.on_action(|action: &settings::SetMouseSnap, cx| {
+        AppSettings::update(cx, |s| s.input.mouse_snap = action.0);
+        cx.refresh_windows();
+    });
     // 보정 마법사는 S5-T2가 만든다. 그때까지는 입력 구역을 열고 알린다(7.6 대응표의 자리)
     cx.on_action(|_: &settings::Calibrate, cx| {
         open(cx, Some(SettingsSection::Input));
