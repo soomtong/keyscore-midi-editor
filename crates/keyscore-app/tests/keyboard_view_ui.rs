@@ -8,7 +8,7 @@ use gpui_kit::{AnyWindowHandle, AppContext as _, Entity, TestAppContext};
 use keyscore_app::actions::args::KeyLayout;
 use keyscore_app::actions::view::ToggleBottomPanel;
 use keyscore_app::app_state::AppSettings;
-use keyscore_app::keyboard_view::KeyCap;
+use keyscore_app::keyboard_view::{KEY_MAX_HEIGHT, KeyCap, WHITE_KEY_MAX_WIDTH as KEY_MAX_WIDTH};
 use keyscore_app::mode::{Mode, ModeEvent};
 use keyscore_app::pianoroll::Cursor;
 use keyscore_app::window::ProjectWindow;
@@ -311,7 +311,8 @@ fn layout_setting_change_updates_labels(cx: &mut TestAppContext) {
     set_layout(cx, handle, KeyLayout::Solfege);
     assert_eq!(key_label(cx, handle, 0).as_deref(), Some("C4 c"));
     assert_eq!(key_label(cx, handle, 1).as_deref(), Some("C#4 c#"));
-    assert_eq!(key_label(cx, handle, 12).as_deref(), Some("C5 c5"));
+    // 둘째 옥타브는 키 하나로 닿지 않아 음 이름만(결정 2026-10-31-keyboard-view-direct-labels 1)
+    assert_eq!(key_label(cx, handle, 12).as_deref(), Some("C5"));
 }
 
 #[gpui_kit::test]
@@ -358,14 +359,57 @@ fn type_every_label(cx: &mut TestAppContext, name: &str, layout: KeyLayout) {
         press(cx, handle, &keys.join(" "));
         wait(cx, handle);
         expected.push(pitch.get());
-        // 둘째 옥타브의 숫자 입력은 옥타브를 바꾼다. 다음 라벨을 위해 되돌린다
-        if octave(cx, &view) != 4 {
-            press(cx, handle, "[");
-        }
+        // 키 하나 입력은 옥타브를 바꾸지 않는다
         assert_eq!(octave(cx, &view), 4, "{key}");
     }
     assert_eq!(pitches(cx, &view), expected);
-    assert!(caps.iter().all(|c| c.key.is_some()));
+    let labeled = caps.iter().filter(|c| c.key.is_some()).count();
+    let want = if layout == KeyLayout::Piano { 16 } else { 12 };
+    assert_eq!(labeled, want);
+}
+
+// ---------- S3-T5b 키캡·크기(결정 2026-10-31-keyboard-view-direct-labels 2·3) ----------
+
+#[gpui_kit::test]
+fn keycaps_drawn_only_for_labeled_keys(cx: &mut TestAppContext) {
+    for (name, layout) in [
+        ("keycap-piano", KeyLayout::Piano),
+        ("keycap-solfege", KeyLayout::Solfege),
+    ] {
+        let (handle, view) = step(cx, name, project(1), layout);
+        let caps = shown(cx, &view).unwrap();
+        for (i, cap) in caps.iter().enumerate() {
+            let id = gpui_kit::ElementId::Name(format!("keyboard-keycap-{i}").into());
+            let found = cx
+                .update_window(handle, move |_, window, _| window.try_find(id).is_some())
+                .unwrap();
+            assert_eq!(found, cap.key.is_some(), "{layout:?} {i}");
+        }
+    }
+}
+
+#[gpui_kit::test]
+fn keyboard_size_is_capped_in_wide_window(cx: &mut TestAppContext) {
+    let (handle, _view) = step(cx, "size", project(1), KeyLayout::Piano);
+    cx.simulate_window_resize(
+        handle,
+        gpui_kit::size(gpui_kit::px(2400.), gpui_kit::px(1400.)),
+    );
+    cx.run_until_parked();
+    render(cx, handle);
+    let (white, black) = cx
+        .update_window(handle, |_, window, _| {
+            (
+                window.find("keyboard-key-0").bounds(),
+                window.find("keyboard-key-1").bounds(),
+            )
+        })
+        .unwrap();
+    let w = f32::from(white.size.width);
+    let h = f32::from(white.size.height);
+    assert!(w > 0. && w <= KEY_MAX_WIDTH + 0.5, "흰건반 너비 {w}");
+    assert!(h > 0. && h <= KEY_MAX_HEIGHT + 0.5, "건반 높이 {h}");
+    assert!(f32::from(black.size.height) < h);
 }
 
 #[gpui_kit::test]

@@ -200,9 +200,16 @@ fn type_every_label_every_octave(cx: &mut TestAppContext, name: &str, layout: Ke
     for o in 0..=9u8 {
         go_octave(cx, handle, &view, o);
         let caps = shown(cx, &view).unwrap();
-        for cap in &caps {
+        // 키 하나로 닿는 자리(건반형 16, 계이름형 12)이고 음이 있으면 라벨이 있고, 그 밖은 없다(S3-T5b 결정 1,
+        // S3-T5b 리뷰 1 지적 1)
+        let direct = if layout == KeyLayout::Piano { 16 } else { 12 };
+        for (i, cap) in caps.iter().enumerate() {
+            assert_eq!(
+                cap.key.is_some(),
+                i < direct && cap.pitch.is_some(),
+                "oct{o} {i} {cap:?}"
+            );
             let (Some(key), Some(pitch)) = (&cap.key, cap.pitch) else {
-                assert!(cap.pitch.is_none() && cap.key.is_none(), "oct{o} {cap:?}");
                 continue;
             };
             let keys: Vec<String> = key.to_lowercase().chars().map(|c| c.to_string()).collect();
@@ -237,24 +244,13 @@ fn typed_labels_write_shown_pitches_every_octave_solfege(cx: &mut TestAppContext
 // ---------- 옥타브 8·9 경계 ----------
 
 #[gpui_kit::test]
-fn piano_octave_eight_upper_labels_stop_at_127(cx: &mut TestAppContext) {
+fn piano_octave_eight_upper_keys_unlabeled_and_stop_at_127(cx: &mut TestAppContext) {
     let (handle, view) = step(cx, "r2-oct8", project(1), KeyLayout::Piano);
     go_octave(cx, handle, &view, 8);
     let caps = shown(cx, &view).unwrap();
     let keys: Vec<Option<&str>> = caps[16..].iter().map(|c| c.key.as_deref()).collect();
-    assert_eq!(
-        keys,
-        vec![
-            Some("D9"),
-            Some("F9"),
-            Some("T9"),
-            Some("G9"),
-            None,
-            None,
-            None,
-            None
-        ]
-    );
+    // S3-T5b 결정: 키 하나로 닿지 않는 건반은 라벨 없음
+    assert_eq!(keys, vec![None; 8]);
     assert_eq!(caps[19].pitch.map(Pitch::get), Some(127));
 }
 
@@ -289,10 +285,11 @@ fn accessible_labels_match_model_for_every_key(cx: &mut TestAppContext) {
 // ---------- 7. 라벨 입력 뒤 건반 뷰가 옮겨 간다 ----------
 
 #[gpui_kit::test]
-fn typed_upper_label_moves_view_and_relabels_same_key(cx: &mut TestAppContext) {
+fn typed_digit_input_moves_view_and_labels_reached_key(cx: &mut TestAppContext) {
     let (handle, view) = step(cx, "r2-move", project(1), KeyLayout::Piano);
     let before = shown(cx, &view).unwrap();
-    assert_eq!(before[16].key.as_deref(), Some("D5"));
+    // S3-T5b 결정: E5 건반에는 라벨이 없다(`D` `5`로 닿지만 키 하나가 아니다)
+    assert_eq!(before[16].key, None);
     press(cx, handle, "d 5");
     wait(cx, handle);
     assert_eq!(pitches(cx, &view), vec![76]);
@@ -390,8 +387,7 @@ fn typed_labels_under_vim_preset(cx: &mut TestAppContext) {
 // ---------- 8. 건반형 윗줄 + 숫자의 뜻 ----------
 
 /// 결정 `2026-10-29-s3-t4-step-input-details.md` 2절(사람 결정): 건반 레이아웃의 뒤 숫자는 줄 기준 옥타브다
-/// (oct4 `K` 뒤 `3` = C4). 건반 뷰 라벨 `D5`(E5)도 이 읽기와 맞아야 한다: `K` `5`는 C6이고 그 뒤 건반 뷰는
-/// oct5, C6 건반의 라벨은 `K`.
+/// (oct4 `K` 뒤 `3` = C4). `K` `5`는 C6이고 그 뒤 건반 뷰는 oct5, C6 건반의 라벨은 `K`.
 #[gpui_kit::test]
 fn piano_upper_row_key_with_digit_follows_row_octave(cx: &mut TestAppContext) {
     let (handle, view) = step(cx, "r2-k5", project(1), KeyLayout::Piano);
@@ -418,8 +414,8 @@ fn view_toggle_in_step_keeps_view_consistent_with_mode(cx: &mut TestAppContext) 
 // ---------- 옥타브 대기 0 ms(설정 파일로만 가능)에서 둘째 옥타브 라벨 ----------
 
 /// 설정 `input.octave_wait_ms`는 0–2000을 받는다(`settings.rs`). 0이면 음 키가 곧바로 확정돼 뒤 숫자가 옥타브가
-/// 되지 못한다. 그때 라벨 `D5`(E5)를 치면 E4가 써지고 `5`는 길이 코드(16분음표)가 된다. 리뷰 2 제안 2의 관찰을
-/// 지금 동작으로 적어 둔다. 제안을 받아들여 동작을 바꾸면 이 시험의 기대값도 바꾼다.
+/// 되지 못한다. 그때 `D` `5`를 치면 E4가 써지고 `5`는 길이 코드(16분음표)가 된다. S3-T5b 결정으로 E5 건반에는
+/// 라벨이 없으므로 건반 뷰가 이 입력을 약속하지 않는다(리뷰 2 제안 2는 이 결정으로 해소된다).
 #[gpui_kit::test]
 fn zero_octave_wait_upper_label_commits_before_digit(cx: &mut TestAppContext) {
     let (handle, view) = step(cx, "r2-wait0", project(1), KeyLayout::Piano);
@@ -427,9 +423,8 @@ fn zero_octave_wait_upper_label_commits_before_digit(cx: &mut TestAppContext) {
     cx.run_until_parked();
     render(cx, handle);
     let caps = shown(cx, &view).unwrap();
-    assert_eq!(caps[16].key.as_deref(), Some("D5"));
+    assert_eq!(caps[16].key, None);
     press(cx, handle, "d 5");
     wait(cx, handle);
-    // 라벨은 E5(76)를 말하지만 E4(64)가 써진다
-    assert_eq!(pitches(cx, &view), vec![64], "D5 라벨");
+    assert_eq!(pitches(cx, &view), vec![64], "D 5");
 }

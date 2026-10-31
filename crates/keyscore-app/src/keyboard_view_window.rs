@@ -11,7 +11,7 @@ use gpui_kit::{
 
 use crate::actions::step;
 use crate::dispatch::run_action;
-use crate::keyboard_view::{KeyCap, keys};
+use crate::keyboard_view::{KEY_MAX_HEIGHT, KeyCap, WHITE_KEY_MAX_WIDTH, keys};
 use crate::mode::Mode;
 use crate::window::ProjectWindow;
 
@@ -38,6 +38,28 @@ fn key_text(cap: &KeyCap) -> Hsla {
     } else {
         hsla(0., 0., 0.12, 1.)
     }
+}
+
+/// 키 라벨의 키캡 상자. 음 이름(상자 밖 작은 글자)과 모양으로 가른다(결정
+/// `2026-10-31-keyboard-view-direct-labels.md` 2).
+fn keycap(i: usize, key: String, cap: &KeyCap) -> impl IntoElement {
+    let edge = if cap.black {
+        hsla(0., 0., 0.7, 1.)
+    } else {
+        hsla(0., 0., 0.45, 1.)
+    };
+    div()
+        .id(ElementId::Name(format!("keyboard-keycap-{i}").into()))
+        .test_support()
+        .mb_0p5()
+        .px_1()
+        .min_w(px(16.))
+        .flex()
+        .justify_center()
+        .border_1()
+        .border_color(edge)
+        .rounded_sm()
+        .child(key)
 }
 
 /// 접근성 라벨: `<음 이름> <키 라벨>`, 둘 중 없는 쪽은 뺀다. 없는 건반은 `없음`.
@@ -160,8 +182,9 @@ impl ProjectWindow {
                 .text_color(key_text(cap))
                 .border_1()
                 .border_color(cx.theme().border)
-                .children(cap.key.clone())
-                .children(drawn_name);
+                .children(cap.key.clone().map(|k| keycap(i, k, cap)))
+                // 음 이름 자리는 이름이 없는 건반에도 비워 둔다. 키캡이 같은 높이에 줄 선다
+                .child(div().h_4().children(drawn_name));
             let body = if cap.pitch.is_some() {
                 body.bg(key_fill(cap, has_key))
             } else {
@@ -183,10 +206,15 @@ impl ProjectWindow {
                 white_keys.push(body.flex_1().h_full());
             }
         }
+        // 흰건반 너비·건반 높이에 상한을 둔다. 넘는 자리는 오른쪽에 비운다(결정 2026-10-31 3)
+        #[allow(clippy::cast_precision_loss)]
+        let max_width = whites as f32 * WHITE_KEY_MAX_WIDTH;
         let board = div()
             .relative()
             .flex_1()
+            .max_w(px(max_width))
             .h_full()
+            .max_h(px(KEY_MAX_HEIGHT))
             .flex()
             .children(white_keys)
             .children(black_keys);
@@ -196,6 +224,7 @@ impl ProjectWindow {
             .test_support()
             .size_full()
             .flex()
+            .items_center()
             .p_1()
             .bg(cx.theme().background)
             .child(controls)

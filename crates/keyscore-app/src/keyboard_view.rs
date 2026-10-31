@@ -14,6 +14,13 @@ use crate::step::pitch_of;
 /// 건반 수(2옥타브).
 pub const KEY_COUNT: usize = 24;
 
+/// 흰건반 최대 너비(논리 px). 넓은 창에서 건반이 지나치게 커지지 않게 한다(결정
+/// `2026-10-31-keyboard-view-direct-labels.md` 3).
+pub const WHITE_KEY_MAX_WIDTH: f32 = 40.0;
+
+/// 건반 최대 높이(논리 px).
+pub const KEY_MAX_HEIGHT: f32 = 120.0;
+
 /// 건반 하나.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct KeyCap {
@@ -59,16 +66,13 @@ pub fn keys(layout: KeyLayout, octave: u8, key: Key, drum: bool) -> Vec<KeyCap> 
                     out_of_key: false,
                 };
             };
-            let label = match layout {
-                KeyLayout::Piano => Some(PIANO_KEYS.get(i).map_or_else(
-                    // 키 하나로 닿지 않는 건반은 첫 옥타브의 같은 키 + 옥타브 숫자로 닿는다(REQ 5.6, 리뷰 1 지적 1)
-                    || format!("{}{}", PIANO_KEYS[i - 12], octave + 1),
-                    |k| (*k).to_owned(),
-                )),
-                // 둘째 옥타브는 뒤 숫자로 닿는다. 그 숫자는 옥타브를 바꾸지만(REQ 5.6 스티키) 그 음을 쓰는 입력이다.
-                KeyLayout::Solfege if i < 12 => Some(SOLFEGE_KEYS[i].to_owned()),
-                KeyLayout::Solfege => Some(format!("{}{}", SOLFEGE_KEYS[i - 12], octave + 1)),
+            // 키 하나로 닿는 건반에만 단다. 「키 + 옥타브 숫자」(`D5`)는 음 이름과 꼴이 같아 헷갈리고 Play 모드에는
+            // 그 문법이 없다(결정 `2026-10-31-keyboard-view-direct-labels.md` 1).
+            let table: &[&str] = match layout {
+                KeyLayout::Piano => &PIANO_KEYS,
+                KeyLayout::Solfege => &SOLFEGE_KEYS,
             };
+            let label = table.get(i).map(|k| (*k).to_owned());
             let name = if drum {
                 // 표에 없는 노트는 `n<번호>`(REQ 5.13, 텍스트 내보내기와 같다, 리뷰 1 지적 2)
                 Some(

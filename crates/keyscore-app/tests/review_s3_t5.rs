@@ -195,12 +195,13 @@ fn lead_and_drums() -> Project {
     p
 }
 
-// ---------- 1. 건반형 뒤 8건반: 음 키 + 옥타브 숫자로 닿는데 라벨이 비었다 ----------
+// ---------- 1. 건반형 뒤 8건반: 음 키 + 옥타브 숫자로 닿지만 라벨은 없다 ----------
 
-/// 계획 규칙 2: 「옥타브 숫자 없이 닿는 키가 없으면 옥타브 숫자를 붙인 입력을 보인다」. REQ 5.6: 건반 레이아웃도
-/// 뒤 숫자가 옥타브다. 건반형 oct4에서 `D` `5`는 E5(76)를 쓴다. 건반 뷰 16번(E5)은 라벨이 없다.
+/// REQ 5.6: 건반 레이아웃도 뒤 숫자가 옥타브다. 건반형 oct4에서 `D` `5`는 E5(76)를 쓴다. 이 리뷰(S3-T5 리뷰 1)는
+/// 처음 그 건반에 라벨을 요구했지만, 결정 `2026-10-31-keyboard-view-direct-labels.md` 1(S3-T5b)이 「키 하나로 닿는
+/// 건반에만 라벨」로 바꿨다. 지금은 입력이 닿는 것과 라벨이 없는 것을 함께 고정한다.
 #[gpui_kit::test]
-fn piano_upper_keys_reachable_by_digit_but_unlabeled(cx: &mut TestAppContext) {
+fn piano_upper_keys_reachable_by_digit_have_no_label(cx: &mut TestAppContext) {
     let (handle, view) = step(cx, "r-piano-upper", project(1), KeyLayout::Piano);
     let caps = shown(cx, &view).unwrap();
     assert_eq!(caps[16].pitch.map(Pitch::get), Some(76));
@@ -208,9 +209,10 @@ fn piano_upper_keys_reachable_by_digit_but_unlabeled(cx: &mut TestAppContext) {
     wait(cx, handle);
     // 실제 입력은 E5를 쓴다
     assert_eq!(pitches(cx, &view), vec![76]);
-    // 그 입력이 건반 뷰에 적혀 있어야 한다(계이름형 `e5`와 같은 규칙)
+    // 결정 2026-10-31-keyboard-view-direct-labels 1(S3-T5b): 키 하나로 닿지 않는 건반은 라벨 없음. 리뷰 1 지적 1의
+    // 기대(라벨 있음)를 이 결정이 바꿨다
     assert!(
-        caps[16..].iter().all(|c| c.key.is_some()),
+        caps[16..].iter().all(|c| c.key.is_none()),
         "건반형 뒤 8건반 라벨: {:?}",
         caps[16..].iter().map(|c| c.key.clone()).collect::<Vec<_>>()
     );
@@ -297,7 +299,8 @@ fn mml_octave_updates_labels(cx: &mut TestAppContext) {
     press(cx, handle, "o 6");
     assert_eq!(octave(cx, &view), 6);
     assert_eq!(key_label(cx, handle, 0).as_deref(), Some("C6 c"));
-    assert_eq!(key_label(cx, handle, 12).as_deref(), Some("C7 c7"));
+    // S3-T5b 결정: 둘째 옥타브는 키 하나로 닿지 않아 음 이름만
+    assert_eq!(key_label(cx, handle, 12).as_deref(), Some("C7"));
 }
 
 #[gpui_kit::test]
