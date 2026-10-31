@@ -119,6 +119,6 @@ step_settings 3, step_vim_mml 22): 모두 통과
 | 2 수정: 키맵의 `edit::CancelDrag`(「Dragging」)에 처리기가 없고 실제 취소는 하드코딩된 `escape` | 수락. 가로채기는 그대로 앞에서 받되(vim 시퀀스 대기보다 먼저), 키는 키맵의 `edit::CancelDrag` 바인딩과 맞춰 본다(드래그 수식키를 뺀 모양 포함). `edit::CancelDrag` 처리기(팔레트)도 단다. 새 시험 `rebound_cancel_drag_key_cancels_drag`. 결정 6절 11 문구 고침 | f7c9d7d |
 | 3 제안: 가장 가까운 격자선 스냅이 안쪽으로 끈 끝을 바깥으로 보냄 | 결정 문구만 좁혔다(대체 격자선 규칙의 목적, 스냅 자체의 성질은 그대로). 스냅 방향은 사람 확인 항목으로 남긴다 | f7c9d7d |
 
-알려진 한계 추가: 사용자 키맵이 「Dragging」의 `escape`를 `null`로 지워도 GPUI `bindings_for_action`이 가려진 바인딩을 돌려주면 `escape`가 여전히 취소할 수 있다(확인하지 않았다).
+사용자 키맵이 「Dragging」의 `escape`를 `null`이나 `zed::Unbind`로 지우면, GPUI `Keymap::bindings_for_action`이 그 바인딩을 걸러 낸다(`disabled_binding_indices` 검사). 그래서 `escape`는 더 취소하지 않는다(코드로 확인).
 
 수정 뒤 `review_s3_t6b_r2` 9, `review_s3_t6b` 8, `mouse_drag` 19, `mouse_drag_pure` 15, `mouse_select` 26, `review_s3_t6a` 10·r2 8·r3 9, `commands` 12, `keymap_engine` 11 통과, fmt·clippy 통과.
