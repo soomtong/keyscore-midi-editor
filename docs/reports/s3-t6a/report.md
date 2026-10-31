@@ -111,3 +111,14 @@ vim_operators, review_s3_t3c·r2·r3·r4, keyboard_view_ui, window, modes_ui): �
 | 3 제안: 빈 뷰포트 검사 | 수락. `update_band`가 크기 0 뷰포트면 아무것도 하지 않는다 |
 
 `register_mouse`가 clippy 줄 수 상한을 넘어 휠·핀치를 `register_view_input`으로 뗐다. 수정 뒤 `review_s3_t6a_r2` 8, `review_s3_t6a` 10, `mouse_select` 26, `mouse_select_pure` 7, `pianoroll` 13, `review_s3_t1`·`r2` 통과.
+
+## 리뷰 3 대응
+
+판정 「병합 가능」. 제안 둘 모두 수락(ac882a2).
+
+| 지적 | 대응 |
+| --- | --- |
+| 1 제안: 키 줌(`cmd-=` 등)·가운데가 `on_view_change`를 거치지 않음 | 수락. 리뷰 2와 같은 갈래라 뷰포트가 바뀌는 길을 모두 묶었다: 줌·가운데 처리기와 `cursor_moved`(커서를 따라 스크롤)가 `piano_roll_view_changed`를 부른다. 결정 3절 5 문구도 고침 |
+| 2 제안: 틱 상한의 폭 0 범위가 빔 | 수락. 상한에서는 아래로 한 틱 `[MAX−1, MAX)` |
+
+수정 뒤 `review_s3_t6a_r3` 9, `review_s3_t6a_r2` 8, `review_s3_t6a` 10, `mouse_select` 26, `mouse_select_pure` 7, `pianoroll` 13, `pianoroll_select` 14, `review_s3_t1` 19, `vim_operators` 23 통과.
