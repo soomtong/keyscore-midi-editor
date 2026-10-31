@@ -227,6 +227,7 @@ impl ProjectWindow {
         cx: &mut Context<Self>,
     ) {
         self.pianoroll.zoom(ZOOM_FACTOR);
+        self.piano_roll_view_changed(cx);
         cx.notify();
     }
 
@@ -237,6 +238,7 @@ impl ProjectWindow {
         cx: &mut Context<Self>,
     ) {
         self.pianoroll.zoom(1.0 / ZOOM_FACTOR);
+        self.piano_roll_view_changed(cx);
         cx.notify();
     }
 
@@ -247,6 +249,7 @@ impl ProjectWindow {
         cx: &mut Context<Self>,
     ) {
         self.pianoroll.zoom_reset();
+        self.piano_roll_view_changed(cx);
         cx.notify();
     }
 
@@ -257,6 +260,7 @@ impl ProjectWindow {
         cx: &mut Context<Self>,
     ) {
         self.pianoroll.center_cursor();
+        self.piano_roll_view_changed(cx);
         cx.notify();
     }
 }

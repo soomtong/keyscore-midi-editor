@@ -49,8 +49,9 @@ pub fn anchor_at(viewport: &Viewport, at: (f32, f32)) -> Anchor {
 /// (화면에서 가로지른 노트를 고르게, 리뷰 1 제안 5). 행은 양끝 포함.
 #[must_use]
 pub fn band_between(a: Anchor, b: Anchor) -> Option<Band> {
-    let lo = tick_u(a.tick.min(b.tick));
-    let hi = tick_u(a.tick.max(b.tick).ceil()).max(lo.saturating_add(1));
+    let hi = tick_u(a.tick.max(b.tick).ceil()).max(tick_u(a.tick.min(b.tick)).saturating_add(1));
+    // 틱 상한에서는 아래로 한 틱(리뷰 3 제안 2)
+    let lo = tick_u(a.tick.min(b.tick)).min(hi.saturating_sub(1));
     let row = |r: f32| r.floor().clamp(0.0, f32::from(ROWS - 1));
     let (top, bottom) = (row(a.row).min(row(b.row)), row(a.row).max(row(b.row)));
     let pitch_of = |row: f32| Pitch::new(ROWS - 1 - row_u8(row)).ok();

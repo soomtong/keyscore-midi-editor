@@ -95,6 +95,8 @@ impl ProjectWindow {
         }
         self.sync_selection_mode(cx);
         self.pianoroll.ensure_cursor_visible();
+        // 커서를 따라 뷰포트가 움직였으면 끄는 중인 러버밴드도 다시 계산한다(S3-T6a 리뷰 3 제안 1)
+        self.piano_roll_view_changed(cx);
         self.preview_cursor_note(cx);
         cx.notify();
     }
