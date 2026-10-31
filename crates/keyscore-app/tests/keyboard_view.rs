@@ -70,6 +70,21 @@ fn drum_track_labels_snapshot() {
     assert_eq!(caps[4].name.as_deref(), Some("n40"));
 }
 
+#[test]
+fn solfege_layout_labels_first_octave_only() {
+    let caps = keys(KeyLayout::Solfege, 4, Key::None, false);
+    let expected: Vec<Option<&str>> = [
+        "c", "c#", "d", "d#", "e", "f", "f#", "g", "g#", "a", "a#", "b",
+    ]
+    .into_iter()
+    .map(Some)
+    .chain(std::iter::repeat_n(None, 12))
+    .collect();
+    assert_eq!(labels(&caps), expected);
+    // 둘째 옥타브도 음 이름은 있다
+    assert_eq!(caps[12].name.as_deref(), Some("C5"));
+}
+
 // ---------- 4. 조성 ----------
 
 #[test]
@@ -94,14 +109,15 @@ fn out_of_key_follows_project_key() {
 // ---------- 5. 건반형 ----------
 
 #[test]
-fn piano_layout_labels_follow_p3_keys_then_octave_digit() {
+fn piano_layout_labels_follow_p3_keys_only() {
     let caps = keys(KeyLayout::Piano, 4, Key::None, false);
     let expected: Vec<Option<&str>> = [
         "A", "W", "S", "E", "D", "F", "T", "G", "Y", "H", "U", "J", "K", "O", "L", "P",
     ]
     .into_iter()
-    .chain(["D5", "F5", "T5", "G5", "Y5", "H5", "U5", "J5"])
     .map(Some)
+    // 키 하나로 닿지 않는 건반은 라벨 없음(결정 2026-10-31-keyboard-view-direct-labels 1)
+    .chain(std::iter::repeat_n(None, 8))
     .collect();
     assert_eq!(labels(&caps), expected);
     let blacks: Vec<bool> = caps.iter().map(|c| c.black).collect();

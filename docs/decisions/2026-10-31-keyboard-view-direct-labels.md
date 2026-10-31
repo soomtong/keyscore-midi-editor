@@ -22,4 +22,4 @@ S3-T5 계획 「끝의 정의」 규칙 2와 리뷰 1 지적 1의 대응(fb4d2e7
 
 ## 바꾸는 시험
 
-라벨이 있다고 기대하던 시험의 기대값을 이 결정에 맞춘다(지우지 않는다): `keyboard_view` 스냅샷과 `piano_layout_labels_follow_p3_keys_then_octave_digit`, `keyboard_view_ui` `layout_setting_change_updates_labels`·`type_every_label`, `review_s3_t5` `piano_upper_keys_reachable_by_digit_but_unlabeled`, `review_s3_t5_r2` `piano_octave_eight_upper_labels_stop_at_127`·`typed_upper_label_moves_view_and_relabels_same_key`·`zero_octave_wait_upper_label_commits_before_digit`.
+라벨이 있다고 기대하던 시험의 기대값을 이 결정에 맞춘다(지우지 않는다): `keyboard_view` 스냅샷과 `piano_layout_labels_follow_p3_keys_then_octave_digit`, `keyboard_view_ui` `layout_setting_change_updates_labels`·`type_every_label`, `review_s3_t5` `piano_upper_keys_reachable_by_digit_but_unlabeled`·`mml_octave_updates_labels`, `review_s3_t5_r2` `piano_octave_eight_upper_labels_stop_at_127`·`typed_upper_label_moves_view_and_relabels_same_key`·`zero_octave_wait_upper_label_commits_before_digit`.
