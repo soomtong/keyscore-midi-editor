@@ -122,3 +122,11 @@ step_settings 3, step_vim_mml 22): 모두 통과
 사용자 키맵이 「Dragging」의 `escape`를 `null`이나 `zed::Unbind`로 지우면, GPUI `Keymap::bindings_for_action`이 그 바인딩을 걸러 낸다(`disabled_binding_indices` 검사). 그래서 `escape`는 더 취소하지 않는다(코드로 확인).
 
 수정 뒤 `review_s3_t6b_r2` 9, `review_s3_t6b` 8, `mouse_drag` 19, `mouse_drag_pure` 15, `mouse_select` 26, `review_s3_t6a` 10·r2 8·r3 9, `commands` 12, `keymap_engine` 11 통과, fmt·clippy 통과.
+
+## 리뷰 3 대응
+
+판정 「병합 가능」. 리뷰 2 지적 1·2의 수정이 확인됐다(오프셋 경계 1500여 조합, 사용자 키맵 파일로 취소 키 옮기기, 조작 없을 때 가로채지 않음).
+
+| 지적 | 대응 |
+| --- | --- |
+| 1 제안: `cancels_drag`가 바인딩 컨텍스트를 보지 않음(다른 컨텍스트의 `edit::CancelDrag` 키도 취소) | 동작은 그대로 두고(드래그 중에는 해가 없다) 결정 6절 11 문구를 동작에 맞췄다 |
