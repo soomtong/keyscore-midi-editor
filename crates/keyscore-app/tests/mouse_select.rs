@@ -757,3 +757,77 @@ fn pinch_zooms_around_pointer(cx: &mut TestAppContext) {
     let still = after.first_tick + 300.0 / after.px_per_tick;
     assert!((still - tick_under).abs() < 0.5, "{tick_under} → {still}");
 }
+
+// ---------- 리뷰 1 지적 4: 빠진 시험 ----------
+
+/// 끌지 않은 누름 중 `Esc`: 선택된 노트를 누른 채 취소하면 떼어도 그 노트 하나로 줄이지 않고, 빈 곳을 누른 채
+/// 취소하면 떼어도 선택을 비우지 않는다.
+#[gpui_kit::test]
+fn escape_during_plain_press_cancels_release_action(cx: &mut TestAppContext) {
+    let (handle, view) = setup(cx, "press-esc", Preset::Default);
+    let p1 = on(cx, handle, &view, N1);
+    let p2 = on(cx, handle, &view, N2);
+    click(cx, handle, p1, none());
+    click(cx, handle, p2, cmd());
+    down(cx, handle, p2, none());
+    press(cx, handle, "escape");
+    up(cx, handle, p2, none());
+    assert_eq!(
+        selection_of(cx, &view),
+        vec![N1, N2],
+        "취소 뒤 뗌은 줄이지 않는다"
+    );
+    let empty = spot(cx, handle, &view, 2500, 70);
+    down(cx, handle, empty, none());
+    press(cx, handle, "escape");
+    up(cx, handle, empty, none());
+    assert_eq!(
+        selection_of(cx, &view),
+        vec![N1, N2],
+        "취소 뒤 뗌은 비우지 않는다"
+    );
+    assert!(has_selection(cx, &view));
+}
+
+/// 선택이 없을 때 빈 곳 `Shift+클릭`은 보통 클릭과 같다(선택 없음, 커서만). 틈에서도 같다.
+#[gpui_kit::test]
+fn shift_click_empty_without_base_is_plain_click(cx: &mut TestAppContext) {
+    let (handle, view) = setup(cx, "shift-empty", Preset::Default);
+    let empty = spot(cx, handle, &view, 2500, 70);
+    click(cx, handle, empty, shift());
+    assert_eq!(selection_of(cx, &view), vec![]);
+    assert_eq!(cursor_of(cx, &view).pitch.get(), 70);
+    let p1 = on(cx, handle, &view, N1);
+    click(cx, handle, p1, none());
+    let gap = spot(cx, handle, &view, 9000, 70);
+    click(cx, handle, gap, shift());
+    assert_eq!(
+        selection_of(cx, &view),
+        vec![],
+        "틈은 클립이 없어 보통 클릭"
+    );
+}
+
+/// `Cmd+휠` 줌은 키 줌과 같은 상·하한에서 멈춘다.
+#[gpui_kit::test]
+fn cmd_wheel_zoom_stops_at_bounds(cx: &mut TestAppContext) {
+    use keyscore_app::pianoroll::{MAX_PX_PER_TICK, MIN_PX_PER_TICK};
+    let (handle, view) = setup(cx, "zoom-bounds", Preset::Default);
+    let at = main_view_bounds(cx, handle).origin + point(px(200.0), px(100.0));
+    let wheel = |cx: &mut TestAppContext, dy: f32| {
+        VisualTestContext::from_window(handle, cx).simulate_event(ScrollWheelEvent {
+            position: at,
+            delta: ScrollDelta::Pixels(point(px(0.0), px(dy))),
+            modifiers: cmd(),
+            touch_phase: TouchPhase::Moved,
+        });
+        cx.run_until_parked();
+        render(cx, handle);
+    };
+    wheel(cx, 20_000.0);
+    assert!((viewport(cx, &view).px_per_tick - MAX_PX_PER_TICK).abs() < 1e-12);
+    wheel(cx, -100_000.0);
+    let vp = viewport(cx, &view);
+    assert!((vp.px_per_tick - MIN_PX_PER_TICK).abs() < 1e-12, "{vp:?}");
+    assert!(vp.first_tick >= 0.0);
+}

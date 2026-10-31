@@ -439,7 +439,8 @@ fn drag_from_outside_after_return_does_not_resume_stale_band(cx: &mut TestAppCon
         cx.read(|cx| view.read(cx).mode_state().view()),
         View::PianoRoll
     );
-    assert!(gesture_active(cx, &view), "전제: 남은 조작");
+    // 리뷰 1 당시의 전제(조작이 남음)는 지적 1 수정으로 거짓이 되었다. 고친 동작을 단언하고 뒤 단언은 그대로 둔다.
+    assert!(!gesture_active(cx, &view), "뷰 전환이 조작을 버린다");
     // 피아노롤 밖(위쪽 트랜스포트 쪽)에서 눌러 노트 위로 끈다. 피아노롤은 누름을 받지 않았다.
     let margin = main_view_bounds(cx, handle).origin + point(px(200.0), px(-30.0));
     let selected_before = selection_of(cx, &view);
