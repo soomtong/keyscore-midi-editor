@@ -24,15 +24,14 @@ use crate::pianoroll::{Cursor, Selection, tick_u};
 use crate::window::ProjectWindow;
 
 impl ProjectWindow {
-    /// 누른 채 `Esc`(수식키 없음)는 진행 중 마우스 조작만 취소한다(P2, 5.5 「가장 안쪽 하나만」). 이 창의 키만 본다.
+    /// 누른 채 `Esc`는 진행 중 마우스 조작만 취소한다(P2, 5.5 「가장 안쪽 하나만」). 이 창의 키만 본다. 수식키를 쥐고
+    /// 있어도 취소한다: `Alt` 복제·`Cmd` 자유·`Shift` 한 축 드래그는 수식키를 쥔 채 끈다(S3-T6b 리뷰 1 지적 2).
+    /// 진행 중 조작이 없으면 키를 그대로 흘려보내므로 수식키 붙은 `Esc` 바인딩은 그대로다.
     pub(crate) fn intercept_mouse_keys(window: &Window, cx: &mut Context<Self>) -> Subscription {
         let me = cx.entity().downgrade();
         let handle = window.window_handle();
         cx.intercept_keystrokes(move |event, window, cx| {
-            if window.window_handle() != handle
-                || event.keystroke.key != "escape"
-                || event.keystroke.modifiers.modified()
-            {
+            if window.window_handle() != handle || event.keystroke.key != "escape" {
                 return;
             }
             let taken = me
