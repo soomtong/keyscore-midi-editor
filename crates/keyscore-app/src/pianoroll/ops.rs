@@ -4,7 +4,7 @@
 //! 늘리고(다음 클립과 겹치면 거부), 클립 시작 앞은 거부, 꼬리 노트는 시작만 클립 안이면 된다. 음높이가
 //! 0–127을 벗어나면 거부한다(옥타브 접기는 쓰지 않는다). 전부 아니면 전무다.
 
-use keyscore_core::transform::{NoteRef, map_notes};
+use keyscore_core::transform::{NoteRef, insert_notes, map_notes};
 use keyscore_core::{ClipId, Edit, ModelError, Note, Pitch, Project, Tick, TrackId};
 
 /// 5.7 표의 `Alt` 조작.
@@ -79,8 +79,37 @@ impl NoteOp {
     /// 이 조작의 일반 변환. `step`은 한 스텝의 틱(0이면 1).
     #[must_use]
     pub fn shift(self, step: u64) -> NoteShift {
-        let _ = step;
-        todo!("S3-T6b")
+        let step = i64::try_from(step.max(1)).unwrap_or(i64::MAX);
+        let ticks = |time| NoteShift {
+            time: TimeShift::Ticks(time),
+            ..NoteShift::IDENTITY
+        };
+        let pitch = |pitch| NoteShift {
+            pitch,
+            ..NoteShift::IDENTITY
+        };
+        let end = |end| NoteShift {
+            end,
+            ..NoteShift::IDENTITY
+        };
+        match self {
+            NoteOp::NudgeEarlier => ticks(-step),
+            NoteOp::NudgeLater => ticks(step),
+            NoteOp::NudgeBarEarlier => NoteShift {
+                time: TimeShift::BarEarlier,
+                ..NoteShift::IDENTITY
+            },
+            NoteOp::NudgeBarLater => NoteShift {
+                time: TimeShift::BarLater,
+                ..NoteShift::IDENTITY
+            },
+            NoteOp::TransposeUp => pitch(1),
+            NoteOp::TransposeDown => pitch(-1),
+            NoteOp::OctaveUp => pitch(12),
+            NoteOp::OctaveDown => pitch(-12),
+            NoteOp::Lengthen => end(step),
+            NoteOp::Shorten => end(-step),
+        }
     }
 
     /// 시간을 옮기는 조작인가(커서 노트에 적용하면 커서 틱이 따라간다).
@@ -171,7 +200,8 @@ fn bar_length_at(project: &Project, abs: u64) -> u64 {
     next.saturating_sub(start).max(1)
 }
 
-/// `notes`(한 클립의 노트)에 `op`를 적용하는 편집. 바뀌는 노트가 없으면 `Ok(None)`.
+/// `notes`(한 클립의 노트)에 `op`를 적용하는 편집. 바뀌는 노트가 없으면 `Ok(None)`. 일반 변환
+/// [`plan_shift`]의 특수한 경우다(마우스 드래그와 같은 계산, 결정 `2026-10-31-s3-t6-mouse-editing.md` 6절).
 ///
 /// # Errors
 ///
@@ -185,91 +215,7 @@ pub fn plan_note_op(
     op: NoteOp,
     step: u64,
 ) -> Result<Option<Planned>, OpError> {
-    let step = step.max(1);
-    let clip_ref = project
-        .track(track)
-        .ok_or(ModelError::UnknownTrack)?
-        .clip(clip)
-        .ok_or(ModelError::UnknownClip)?;
-    let clip_start = clip_ref.start().get();
-    // 바뀌지 않는 노트(한 스텝 이하를 줄이기)는 뺀다. 계산 전에 걸러야 「변화 없음」을 알 수 있다.
-    let targets: Vec<&Note> = notes
-        .iter()
-        .filter(|n| op != NoteOp::Shorten || u64::from(n.length()) > step)
-        .collect();
-    if targets.is_empty() {
-        return Ok(None);
-    }
-    // 음높이는 전부 먼저 검사한다(하나라도 밖이면 전무).
-    let semitones: i32 = match op {
-        NoteOp::TransposeUp => 1,
-        NoteOp::TransposeDown => -1,
-        NoteOp::OctaveUp => 12,
-        NoteOp::OctaveDown => -12,
-        _ => 0,
-    };
-    if semitones != 0
-        && targets
-            .iter()
-            .any(|n| !(0..=127).contains(&(i32::from(n.pitch().get()) + semitones)))
-    {
-        return Err(OpError::PitchOutOfRange);
-    }
-    let refs: Vec<NoteRef> = targets
-        .iter()
-        .map(|n| NoteRef {
-            track,
-            clip,
-            note: (*n).clone(),
-        })
-        .collect();
-    let mut moved = Vec::with_capacity(refs.len());
-    let edits = map_notes(project, &refs, |_, _, note| {
-        let abs = clip_start.saturating_add(note.start().get());
-        let new = match op {
-            NoteOp::NudgeEarlier => shift_start(note, abs, clip_start, -i128::from(step))?,
-            NoteOp::NudgeLater => shift_start(note, abs, clip_start, i128::from(step))?,
-            NoteOp::NudgeBarEarlier => {
-                // 앞 마디로: 시작 직전 틱이 든 마디의 길이만큼
-                let len = bar_length_at(project, abs.saturating_sub(1));
-                shift_start(note, abs, clip_start, -i128::from(len))?
-            }
-            NoteOp::NudgeBarLater => {
-                let len = bar_length_at(project, abs);
-                shift_start(note, abs, clip_start, i128::from(len))?
-            }
-            NoteOp::TransposeUp | NoteOp::TransposeDown | NoteOp::OctaveUp | NoteOp::OctaveDown => {
-                let p = u8::try_from(i32::from(note.pitch().get()) + semitones)
-                    .map_err(|_| ModelError::PitchOutOfRange(u8::MAX))?;
-                note.with_pitch(Pitch::new(p)?)?
-            }
-            NoteOp::Lengthen => {
-                let len = u64::from(note.length())
-                    .checked_add(step)
-                    .and_then(|l| u32::try_from(l).ok())
-                    .ok_or(ModelError::TickOverflow)?;
-                note.with_length(len)?
-            }
-            NoteOp::Shorten => {
-                let len = u32::try_from(u64::from(note.length()) - step)
-                    .map_err(|_| ModelError::TickOverflow)?;
-                note.with_length(len)?
-            }
-        };
-        moved.push((note.clone(), new.clone()));
-        Ok(new)
-    })?;
-    Ok(Some(Planned { edits, moved }))
-}
-
-/// 절대 시작 `abs`를 `delta`만큼 옮긴 노트. 클립 시작 앞이면 거부.
-fn shift_start(note: &Note, abs: u64, clip_start: u64, delta: i128) -> Result<Note, ModelError> {
-    let rel = i128::from(abs) + delta - i128::from(clip_start);
-    if rel < 0 {
-        return Err(ModelError::NoteBeforeClipStart);
-    }
-    let rel = u64::try_from(rel).map_err(|_| ModelError::TickOverflow)?;
-    note.with_start(Tick::new(rel))
+    plan_shift(project, track, clip, notes, op.shift(step))
 }
 
 /// `notes`(한 클립의 노트)에 일반 변환 `shift`를 적용하는 편집(5.7 `Alt` 조작, 마우스 드래그). 바뀌는 노트가
@@ -285,8 +231,25 @@ pub fn plan_shift(
     notes: &[Note],
     shift: NoteShift,
 ) -> Result<Option<Planned>, OpError> {
-    let _ = (project, track, clip, notes, shift);
-    todo!("S3-T6b")
+    // 바뀌지 않는 노트(1틱 미만이 되는 길이 조절)는 뺀다. 계산 전에 걸러야 「변화 없음」을 알 수 있다.
+    let moved = shifted(project, track, clip, notes, shift)?;
+    if moved.is_empty() {
+        return Ok(None);
+    }
+    let refs: Vec<NoteRef> = moved
+        .iter()
+        .map(|(n, _)| NoteRef {
+            track,
+            clip,
+            note: n.clone(),
+        })
+        .collect();
+    // `map_notes`는 고른 순서대로 부른다. 같은 노트가 여럿이어도 결과가 같으므로 차례로 꺼낸다.
+    let mut results = moved.iter().map(|(_, new)| new.clone());
+    let edits = map_notes(project, &refs, |_, _, _| {
+        results.next().ok_or(ModelError::NoteNotFound)
+    })?;
+    Ok(Some(Planned { edits, moved }))
 }
 
 /// `notes`를 그대로 두고 `shift`를 적용한 사본을 넣는 편집(`Alt+드래그` 복제). 사본은 붙여넣기·`Cmd+D`와 같은
@@ -302,6 +265,86 @@ pub fn plan_shift_copy(
     notes: &[Note],
     shift: NoteShift,
 ) -> Result<Option<Planned>, OpError> {
-    let _ = (project, track, clip, notes, shift);
-    todo!("S3-T6b")
+    let moved = shifted(project, track, clip, notes, shift)?;
+    if moved.is_empty() {
+        return Ok(None);
+    }
+    let copies: Vec<Note> = moved.iter().map(|(_, to)| to.clone()).collect();
+    let edits = insert_notes(project, track, clip, &copies)?;
+    Ok(Some(Planned { edits, moved }))
+}
+
+/// 노트마다 `shift`를 적용한 (원래, 바뀐) 짝. 바뀌지 않는 노트(1틱 미만이 되는 길이 조절, 항등)는 뺀다.
+/// [`plan_shift`]·[`plan_shift_copy`]의 노트 계산이고, 마우스 고스트가 편집 묶음 단계에서 거부된 계획(다음
+/// 클립과 겹침)의 자리를 보일 때도 쓴다.
+///
+/// # Errors
+///
+/// 클립 시작 앞, 음높이 범위 밖.
+pub fn shifted(
+    project: &Project,
+    track: TrackId,
+    clip: ClipId,
+    notes: &[Note],
+    shift: NoteShift,
+) -> Result<Vec<(Note, Note)>, OpError> {
+    let clip_start = clip_start(project, track, clip)?;
+    let mut moved = Vec::with_capacity(notes.len());
+    for note in notes {
+        if let Some(new) = shift_note(project, clip_start, note, shift)? {
+            moved.push((note.clone(), new));
+        }
+    }
+    Ok(moved)
+}
+
+fn clip_start(project: &Project, track: TrackId, clip: ClipId) -> Result<u64, ModelError> {
+    Ok(project
+        .track(track)
+        .ok_or(ModelError::UnknownTrack)?
+        .clip(clip)
+        .ok_or(ModelError::UnknownClip)?
+        .start()
+        .get())
+}
+
+/// 노트 하나에 `shift`를 적용한 노트. 결과 길이가 1틱 미만이거나 바뀌지 않으면 `None`(그대로 둔다).
+///
+/// # Errors
+///
+/// 클립 시작 앞이면 [`ModelError::NoteBeforeClipStart`], 음높이가 0–127 밖이면 [`OpError::PitchOutOfRange`].
+fn shift_note(
+    project: &Project,
+    clip_start: u64,
+    note: &Note,
+    shift: NoteShift,
+) -> Result<Option<Note>, OpError> {
+    let abs = i128::from(clip_start) + i128::from(note.start().get());
+    let time = match shift.time {
+        TimeShift::Ticks(t) => i128::from(t),
+        // 앞 마디로: 시작 직전 틱이 든 마디의 길이만큼
+        TimeShift::BarEarlier => -i128::from(bar_length_at(
+            project,
+            u64::try_from(abs).unwrap_or(0).saturating_sub(1),
+        )),
+        TimeShift::BarLater => i128::from(bar_length_at(project, u64::try_from(abs).unwrap_or(0))),
+    };
+    let start = abs + time + i128::from(shift.start);
+    let end = abs + i128::from(note.length()) + time + i128::from(shift.end);
+    if end - start < 1 {
+        return Ok(None);
+    }
+    let pitch = i32::from(note.pitch().get()) + shift.pitch;
+    if !(0..=127).contains(&pitch) {
+        return Err(OpError::PitchOutOfRange);
+    }
+    let rel = start - i128::from(clip_start);
+    if rel < 0 {
+        return Err(ModelError::NoteBeforeClipStart.into());
+    }
+    let rel = u64::try_from(rel).map_err(|_| ModelError::TickOverflow)?;
+    let length = u32::try_from(end - start).map_err(|_| ModelError::TickOverflow)?;
+    let pitch = Pitch::new(u8::try_from(pitch).map_err(|_| OpError::PitchOutOfRange)?)?;
+    let new = Note::new(Tick::new(rel), length, pitch, note.velocity())?;
+    Ok((new != *note).then_some(new))
 }

@@ -88,6 +88,12 @@ impl ProjectWindow {
     ///
     /// vim 비주얼 중이면 기준 칸을 지우지 않고 선택을 기준 칸 ↔ 커서 칸으로 다시 계산한다(S3-T3c).
     pub(crate) fn cursor_moved(&mut self, keep_anchor: bool, cx: &mut Context<Self>) {
+        self.cursor_moved_quietly(keep_anchor, cx);
+        self.preview_cursor_note(cx);
+    }
+
+    /// [`Self::cursor_moved`]에서 미리듣기만 뺀 것. 마우스 드래그는 끄는 동안 이미 들려줬다(MS-4, S3-T6b).
+    pub(crate) fn cursor_moved_quietly(&mut self, keep_anchor: bool, cx: &mut Context<Self>) {
         if self.pianoroll.visual().is_some() {
             self.recompute_visual(cx);
         } else if !keep_anchor {
@@ -97,7 +103,6 @@ impl ProjectWindow {
         self.pianoroll.ensure_cursor_visible();
         // 커서를 따라 뷰포트가 움직였으면 끄는 중인 러버밴드도 다시 계산한다(S3-T6a 리뷰 3 제안 1)
         self.piano_roll_view_changed(cx);
-        self.preview_cursor_note(cx);
         cx.notify();
     }
 
@@ -799,13 +804,26 @@ impl ProjectWindow {
         let Some((track_id, _, note)) = self.note_under_cursor(cx) else {
             return;
         };
+        self.preview_note(track_id, note.pitch(), note.velocity(), cx);
+    }
+
+    /// `track_id`의 포트·채널로 미리듣기(PRE-1, 설정 길이). 설정 「이동 시 미리듣기」는 부르는 쪽이 본다.
+    /// 마우스 드래그(MS-4)도 이 길을 쓴다.
+    pub(crate) fn preview_note(
+        &mut self,
+        track_id: keyscore_core::TrackId,
+        pitch: keyscore_core::Pitch,
+        velocity: keyscore_core::Velocity,
+        cx: &mut Context<Self>,
+    ) {
+        let settings = AppSettings::get(cx).preview.clone();
         let Some(track) = self.document.read(cx).project().track(track_id).cloned() else {
             return;
         };
         let result = self.sound_note(
             &track,
-            note.pitch(),
-            note.velocity(),
+            pitch,
+            velocity,
             settings.length(),
             crate::preview::Purpose::Preview,
             cx,

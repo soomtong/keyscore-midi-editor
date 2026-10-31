@@ -13,12 +13,13 @@ use gpui_kit::{
     MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, ScrollDelta,
     ScrollWheelEvent, TestAppContext, TouchPhase, VisualTestContext, point, px,
 };
-use keyscore_app::actions::args::{LengthCode, MouseSnap};
+use keyscore_app::actions::args::{LengthCode, MouseSnap, Opt, SettingsSection};
 use keyscore_app::actions::settings;
 use keyscore_app::app_state::AppSettings;
 use keyscore_app::clipboard;
 use keyscore_app::mode::{Mode, View};
 use keyscore_app::pianoroll::{Cursor, Viewport};
+use keyscore_app::settings_window;
 use keyscore_app::window::ProjectWindow;
 use keyscore_app::{init, open_project_window};
 use keyscore_core::{Channel, Clip, Note, Pitch, Project, Tick, Track, TrackColor, Velocity};
@@ -743,4 +744,54 @@ fn drag_in_step_mode_does_nothing(cx: &mut TestAppContext) {
     assert!(ghosts(cx, &view).is_empty());
     assert_eq!(a_notes(cx, &view), sorted(A_NOTES.to_vec()));
     assert_eq!(undo_len(cx, &view), undo_before);
+}
+
+#[gpui_kit::test]
+fn settings_input_has_mouse_snap_choice(cx: &mut TestAppContext) {
+    let (handle, _view) = setup(cx, "settings-ui");
+    run(
+        cx,
+        handle,
+        settings::Open(Opt(Some(SettingsSection::Input))),
+    );
+    let (sh, sv) = cx
+        .update(|cx| settings_window::current(cx))
+        .expect("설정 창");
+    cx.update_window(sh, |_, window, _| window.activate_window())
+        .unwrap();
+    cx.run_until_parked();
+    render(cx, sh);
+    let label = |cx: &mut TestAppContext| {
+        cx.update_window(sh, |_, window, _| {
+            window
+                .try_find("settings-mouse-snap")
+                .and_then(|e| e.label().map(str::to_owned))
+        })
+        .unwrap()
+    };
+    assert!(
+        label(cx).is_some_and(|l| l.contains("길이 코드")),
+        "{:?}",
+        label(cx)
+    );
+    // 레이턴시 보정·Step 입력의 두 상자 뒤
+    for key in "tab tab tab tab tab tab".split_whitespace() {
+        press(cx, sh, key);
+    }
+    let focused = cx
+        .update_window(sh, |_, window, cx| sv.read(cx).focused_control(window, cx))
+        .unwrap();
+    assert_eq!(focused.as_deref(), Some("settings-mouse-snap"));
+    for key in "enter down down down enter".split_whitespace() {
+        press(cx, sh, key);
+    }
+    assert_eq!(
+        cx.read(|cx| AppSettings::get(cx).input.mouse_snap),
+        MouseSnap::Sixteenth
+    );
+    assert!(
+        label(cx).is_some_and(|l| l.contains("1/16")),
+        "{:?}",
+        label(cx)
+    );
 }

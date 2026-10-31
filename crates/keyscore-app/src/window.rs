@@ -945,6 +945,16 @@ impl ProjectWindow {
     /// 넘어가 모든 모드 키가 끊긴다(S2-T3 리뷰 1 제안 2가 경고한 일). 다음 필드로의 `Tab`(5.11)은
     /// 대화상자·설정 화면의 일이고, 그 화면은 이 창 밖(Root 레이어)에 뜬다. 타입이 공개되지 않아 이름으로
     /// 만든다.
+    /// 끄는 중 수식키만 바꿔도(`Cmd` 스냅 해제·`Shift` 한 축·`Alt` 복제) 고스트를 다시 계산한다(S3-T6b). 수식키
+    /// 사건은 포커스 경로로 오므로 피아노롤이 아니라 바깥 요소에 단다.
+    fn watch_modifiers(root: Stateful<Div>, cx: &mut Context<Self>) -> Stateful<Div> {
+        root.on_modifiers_changed(cx.listener(
+            |this, e: &gpui_kit::ModifiersChangedEvent, _, cx| {
+                this.piano_roll_modifiers(e.modifiers, cx);
+            },
+        ))
+    }
+
     fn swallow_root_tab(root: Stateful<Div>, cx: &App) -> Stateful<Div> {
         ["root::Tab", "root::TabPrev"]
             .iter()
@@ -1310,7 +1320,7 @@ impl Render for ProjectWindow {
             .on_action(cx.listener(Self::toggle_track_list))
             .on_action(cx.listener(Self::toggle_inspector))
             .on_action(cx.listener(Self::toggle_bottom));
-        let root = Self::swallow_root_tab(root, cx);
+        let root = Self::watch_modifiers(Self::swallow_root_tab(root, cx), cx);
         Self::mode_handlers(root, cx)
             .child(top)
             .child(content)

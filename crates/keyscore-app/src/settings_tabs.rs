@@ -16,7 +16,7 @@ use gpui_kit::{
 };
 use keyscore_core::OutputPort;
 
-use crate::actions::args::{KeyLayout, LengthCode};
+use crate::actions::args::{KeyLayout, LengthCode, MouseSnap};
 use crate::actions::settings;
 use crate::app_state::AppSettings;
 use crate::gm::percussion_label;
@@ -29,6 +29,15 @@ const LENGTHS_MS: [u32; 10] = [10, 20, 30, 50, 80, 100, 150, 200, 300, 500];
 const PREVIEW_LENGTHS_MS: [u32; 7] = [50, 100, 150, 200, 300, 500, 1000];
 /// 옥타브 숫자 대기 시간 목록(ms, REQ 5.6 기본 300). 다른 값(0–2000)은 목록에 덧붙여 보인다.
 const OCTAVE_WAITS_MS: [u32; 9] = [100, 200, 300, 400, 500, 750, 1000, 1500, 2000];
+/// 마우스 스냅 단위 목록(REQ 7.4 MS-3, S3-T6b). 「길이 코드」가 먼저(기본)이고 나머지는 거친 것부터.
+const MOUSE_SNAPS: [MouseSnap; 6] = [
+    MouseSnap::Length,
+    MouseSnap::Quarter,
+    MouseSnap::Eighth,
+    MouseSnap::Sixteenth,
+    MouseSnap::ThirtySecond,
+    MouseSnap::SixtyFourth,
+];
 /// Step 기본 길이 목록(길이 코드 순).
 const STEP_LENGTHS: [LengthCode; 7] = [
     LengthCode::Whole,
@@ -50,6 +59,7 @@ enum Control {
     PreviewLength,
     StepLength,
     OctaveWait,
+    MouseSnap,
     Port,
     Channel,
     Accent,
@@ -58,12 +68,13 @@ enum Control {
 }
 
 impl Control {
-    const ALL: [Control; 10] = [
+    const ALL: [Control; 11] = [
         Control::KeyLayout,
         Control::PreviewOnMove,
         Control::PreviewLength,
         Control::StepLength,
         Control::OctaveWait,
+        Control::MouseSnap,
         Control::Port,
         Control::Channel,
         Control::Accent,
@@ -78,6 +89,7 @@ impl Control {
             Control::PreviewLength => "settings-preview-length",
             Control::StepLength => "settings-step-length",
             Control::OctaveWait => "settings-octave-wait",
+            Control::MouseSnap => "settings-mouse-snap",
             Control::Port => "settings-metronome-port",
             Control::Channel => "settings-metronome-channel",
             Control::Accent => "settings-metronome-accent",
@@ -98,6 +110,8 @@ pub(crate) struct Tabs {
     step_length: Entity<Choice>,
     /// 옥타브 숫자 대기 시간(REQ 5.6, S3-T4b).
     octave_wait: Entity<Choice>,
+    /// 마우스 스냅 단위(REQ 7.4 MS-3, S3-T6b).
+    mouse_snap: Entity<Choice>,
     port: Entity<Choice>,
     channel: Entity<Choice>,
     accent: Entity<Choice>,
@@ -140,6 +154,18 @@ fn length_label(ms: u32) -> String {
     format!("{ms} ms")
 }
 
+/// 마우스 스냅 단위의 표시.
+const fn mouse_snap_label(snap: MouseSnap) -> &'static str {
+    match snap {
+        MouseSnap::Length => "길이 코드",
+        MouseSnap::Quarter => "1/4",
+        MouseSnap::Eighth => "1/8",
+        MouseSnap::Sixteenth => "1/16",
+        MouseSnap::ThirtySecond => "1/32",
+        MouseSnap::SixtyFourth => "1/64",
+    }
+}
+
 const fn step_length_label(code: LengthCode) -> &'static str {
     match code {
         LengthCode::Whole => "온음표",
@@ -179,6 +205,11 @@ impl Tabs {
             cx,
         );
         let octave_wait = make(labels(OCTAVE_WAITS_MS.map(length_label)), window, cx);
+        let mouse_snap = make(
+            labels(MOUSE_SNAPS.map(|s| mouse_snap_label(s).to_owned())),
+            window,
+            cx,
+        );
         let port = make(labels([]), window, cx);
         let channel = make(labels((1..=16u8).map(|c| c.to_string())), window, cx);
         let accent = make(labels((0..=127u8).map(percussion_label)), window, cx);
@@ -191,6 +222,7 @@ impl Tabs {
             (Control::PreviewLength, &preview_length),
             (Control::StepLength, &step_length),
             (Control::OctaveWait, &octave_wait),
+            (Control::MouseSnap, &mouse_snap),
             (Control::Port, &port),
             (Control::Channel, &channel),
             (Control::Accent, &accent),
@@ -217,6 +249,7 @@ impl Tabs {
             preview_length,
             step_length,
             octave_wait,
+            mouse_snap,
             port,
             channel,
             accent,
@@ -240,6 +273,7 @@ impl Tabs {
             Control::PreviewLength => &self.preview_length,
             Control::StepLength => &self.step_length,
             Control::OctaveWait => &self.octave_wait,
+            Control::MouseSnap => &self.mouse_snap,
             Control::Port => &self.port,
             Control::Channel => &self.channel,
             Control::Accent => &self.accent,
@@ -348,8 +382,20 @@ impl Tabs {
         if !force && self.shown.as_ref() == Some(&now) {
             return;
         }
-        let (input, m, preview) = &now;
-        let rows = [
+        for (control, row) in self.selected_rows(&now) {
+            self.state(control).update(cx, |s, cx| {
+                s.set_selected_index(row.map(IndexPath::new), window, cx);
+            });
+        }
+        self.shown = Some(now);
+    }
+
+    /// 선택 상자마다 지금 설정의 줄(목록에 없으면 `None`).
+    fn selected_rows(
+        &self,
+        (input, m, preview): &(InputSettings, MetronomeSettings, PreviewSettings),
+    ) -> [(Control, Option<usize>); 11] {
+        [
             (
                 Control::KeyLayout,
                 Some(usize::from(input.key_layout == KeyLayout::Solfege)),
@@ -373,6 +419,10 @@ impl Tabs {
                     .iter()
                     .position(|w| *w == input.octave_wait_ms),
             ),
+            (
+                Control::MouseSnap,
+                MOUSE_SNAPS.iter().position(|s| *s == input.mouse_snap),
+            ),
             (Control::Port, self.ports.iter().position(|p| *p == m.port)),
             (
                 Control::Channel,
@@ -384,13 +434,7 @@ impl Tabs {
                 Control::Length,
                 self.lengths.iter().position(|l| *l == m.length_ms),
             ),
-        ];
-        for (control, row) in rows {
-            self.state(control).update(cx, |s, cx| {
-                s.set_selected_index(row.map(IndexPath::new), window, cx);
-            });
-        }
-        self.shown = Some(now);
+        ]
     }
 }
 
@@ -439,6 +483,12 @@ impl SettingsWindow {
             }
             return;
         }
+        if control == Control::MouseSnap {
+            if let Some(snap) = MOUSE_SNAPS.get(index) {
+                window.dispatch_action(Box::new(settings::SetMouseSnap(*snap)), cx);
+            }
+            return;
+        }
         if control == Control::OctaveWait {
             if let Some(ms) = self.tabs().octave_waits.get(index) {
                 window.dispatch_action(
@@ -477,7 +527,8 @@ impl SettingsWindow {
             | Control::PreviewOnMove
             | Control::PreviewLength
             | Control::StepLength
-            | Control::OctaveWait => return,
+            | Control::OctaveWait
+            | Control::MouseSnap => return,
         }
         if metronome == AppSettings::get(cx).metronome {
             return;
@@ -580,6 +631,14 @@ impl SettingsWindow {
                     .text_color(cx.theme().muted_foreground)
                     .child("Step 기본 길이는 0이 돌아가는 길이다. 옥타브 대기 시간은 음 키 뒤 옥타브 숫자를 기다리는 시간이다."),
             )
+            // 마우스 스냅(MS-3, S3-T6b). 기존 Tab 순서를 바꾸지 않게 맨 뒤에 둔다.
+            .child(row(
+                "마우스 스냅 단위",
+                Control::MouseSnap.id(),
+                format!("마우스 스냅 단위: {}", mouse_snap_label(input.mouse_snap)),
+                &tabs.mouse_snap,
+                cx,
+            ))
     }
 
     /// 메트로놈 구역(MET-1).
