@@ -10,6 +10,7 @@
 
 ## 완료된 작업
 
+- [x] S3-T5c 드럼 트랙 조성 명암 제외·검은건반 이름 글(리뷰 2회, 2회차 「병합 가능」, 병합 72d5f01, 전체 시험 2670 통과 + 무관한 재생 지터 1(혼자 3회 통과))
 - [x] S3-T5b 건반 뷰 키 라벨 고침(사람이 스크린샷을 보고 승인한 결정 `2026-10-31-keyboard-view-direct-labels.md`, 리뷰 2회, 2회차 「병합 가능」, 병합 aae349e, 전체 시험 2652 통과 + 무관한 재생 지터 1(혼자 3회 통과))
 - [x] S3-T6b 드래그 이동·조절(리뷰 3회: 1회차 차단 1(노트 변환이 가사·오프셋·모르는 키를 지움, 키 `Alt` 조작 회귀)·수정 1(수식키 쥔 `Esc`)·제안 2, 2회차 수정 2(오프셋 노트 음높이 자르기, 취소 키 하드코딩)·제안 1, 3회차 「병합 가능」 제안 1, 병합 1470715). 결정 `2026-10-31-s3-t6-mouse-editing.md` 6절(에이전트 해석). `pianoroll/ops.rs`: `NoteShift{time: TimeShift, pitch, start, end}`, `NoteOp::shift`, `shift_note`(원래 노트를 `with_length`→`with_start`→`with_pitch`로 고침, 1틱 미만이면 그대로), `shifted`·`plan_shift`(`map_notes`)·`plan_shift_copy`(`insert_notes`), `plan_note_op`은 `plan_shift(op.shift(step))`. `pianoroll/mouse.rs`: `Grip`·`grip_at`(min(6 px, 폭/3)), `snap_nearest`, `snap_grid`(`MouseSnap`), `drag_shift`(가장 가까운 격자선, 클립 시작·`pitch_room` 절대 피치로 자르기, 대체 격자선은 원래 끝·시작을 넘지 않음), `Gesture::Move(Box<Drag>)`. `pianoroll_mouse.rs`: `update_move`(움직임·수식키·뷰포트 변화) → `plan_move`(변환이 같으면 생략) → 고스트, `finish_move`(뗌, undo 하나, 본체면 커서 따라감), 미리듣기 `preview_note`(이동 시 미리듣기 설정). 취소 키는 키맵의 `edit::CancelDrag`(`cancels_drag`, 수식키 뺀 모양도), 처리기 `cancel_drag_action`. `window.rs` `watch_modifiers`(루트의 `on_modifiers_changed`). 설정 `input.mouse_snap`, `settings::SetMouseSnap`(Action 1 증가), 설정 > 입력 「마우스 스냅 단위」
 - [x] 저장소 구조: 계획은 `plan/`, REQ 원문은 `docs/REQ.md`
@@ -117,14 +118,15 @@
 - 공유 계산으로 묶을 때 노트를 `Note::new`로 새로 만들면 가사·오프셋·모르는 키가 사라진다(S3-T6b 리뷰 1 차단, 키 조작까지 회귀). 모델 값은 `with_*`로 고친다. 고친 뒤 되살아난 검사(`with_pitch`의 절대 피치)를 앞단 자르기도 따라야 한다(리뷰 2).
 - 화면 표시가 「다음 동작이 무엇을 할지」를 말하면, 그 동작의 계획 함수를 떼어 둘이 함께 쓴다. 표시만 따로 계산하면 리뷰마다 어긋나는 상태가 나온다(S3-T4c 리뷰 1·2).
 
-- 에이전트가 실제 창을 찍을 때는 앱을 직접 띄우고 `screencapture -l <창 ID>`(창 ID는 `CGWindowListCopyWindowInfo`로 PID에서 찾음)로 그 창만 찍는다. 키가 필요하면 System Events로 그 PID를 맨 앞으로 올린 뒤 맨 앞 프로세스가 그 PID일 때만 키 하나를 보낸다(S3-T5b, 사람 요청). 헤드리스 시험이 통과해도 실제 화면에서 라벨 꼴이 헷갈리는 문제(`D5`)가 드러났다.
+- 에이전트가 실제 창을 찍을 때는 앱을 직접 띄우고 `screencapture -l <창 ID>`(창 ID는 `CGWindowListCopyWindowInfo`로 PID에서 찾음)로 그 창만 찍는다. 키가 필요하면 System Events로 그 PID를 맨 앞으로 올린 뒤 맨 앞 프로세스가 그 PID일 때만 키 하나를 보낸다(S3-T5b, 사람 요청). 앱을 `kill`로 끝내면 다음 실행에 크래시 복구 창이 뜬다. Cmd+Q → 「저장 안 함」으로 끝낸다(S3-T5c). 헤드리스 시험이 통과해도 실제 화면에서 라벨 꼴이 헷갈리는 문제(`D5`)가 드러났다.
 
 ## 남은 작업
 
 - [ ] 사람 확인(S3-T6b): 결정 6절의 에이전트 해석(가장 가까운 격자선 스냅 — 안쪽으로 끈 끝이 바깥 격자선으로 갈 수 있음(리뷰 2 제안 3), 클립 시작·음높이 범위에서 자르기, 마우스 편집은 `.`이 기억하지 않음, 미리듣기는 이동 시 미리듣기 설정을 따름). 실제 창의 끝 영역 6 px·고스트 점선 감각
 - [ ] 사람 확인(S3-T6a): 결정 `2026-10-31-s3-t6-mouse-editing.md`의 에이전트 해석, 특히 「마우스 편집은 Normal 모드에서만」(2절 1)과 「더블클릭 생성은 뒤 노트를 밀지 않음」(3절 6). 실제 트랙패드 핀치·탭-드래그 감각
-- [ ] 사람 확인(S3-T5·T5b): 건반 뷰는 사람 확인으로 결정 `2026-10-31-keyboard-view-direct-labels.md`(키 하나로 닿는 건반에만 키캡 라벨, 크기 상한)를 거쳐 S3-T5b로 고쳤다(병합 aae349e). 남은 확인: 조성이 있는 프로젝트의 조성 명암, 드럼 트랙 라벨(실제로 쓰는 음의 GM 라벨, 표 배치는 S6-T4)
-- [ ] 사람 답 대기(S3-T5): REQ 2 「조성 표시」의 「끌 수 있음」 설정을 어느 Task에 넣을지(피아노롤·건반 뷰 모두 미구현, S3 단계 파일 S3-T5 「남은 일」)
+- [x] 사람 확인(S3-T5·T5b·T5c): 에이전트가 실제 창에서 조성 명암(D장조)과 드럼 라벨을 확인했다. 사람이 결정을 모두 맡겼다(2026-10-31): 결정 `2026-10-31-keyboard-view-direct-labels.md`, `2026-10-31-key-shading-off-and-drums.md`
+- [x] REQ 2 「조성 표시」 「끌 수 있음」: 「조성 없음」으로 충족(결정 `2026-10-31-key-shading-off-and-drums.md`). 명암만 끄는 토글은 S7 이월
+- [ ] 후속: `review_s2_t5a_r2::pause_position_does_not_drift_with_many_live_edits`가 전체 시험에서 연달아 두 번(S3-T5b, S3-T5c) 같은 모양으로 실패했다(일시정지 자리가 들은 박보다 9–13틱 앞, 혼자 돌리면 통과). 부하 아래 일시정지 자리 계산의 여유를 다시 본다
 
 - [ ] 사람 확인(S3-T4c): 실제 신디로 Step 음 키를 빠르게 칠 때 끊김·음색 재설정이 줄었는지. 신디에서 음색을 손으로 바꾸면 다음 미리듣기는 프로그램을 다시 보내지 않는다(재생 시작·테스트 노트는 보냄)
 
