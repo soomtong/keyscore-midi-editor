@@ -307,10 +307,12 @@ pub fn drag_shift(input: &DragInput<'_>) -> NoteShift {
         Grip::End => {
             let mut new_end = snap(end + raw);
             if new_end <= start {
+                // 시작 뒤 첫 격자선. 다만 원래 끝을 넘지 않는다: 안쪽으로 끌었는데 노트가 길어지지 않게(격자 밖의
+                // 짧은 노트, S3-T6b 리뷰 1 제안 3)
                 new_end = if input.grid == 0 {
                     start + 1
                 } else {
-                    first_line_after(input.meter, start, input.grid)
+                    first_line_after(input.meter, start, input.grid).min(end)
                 };
             }
             NoteShift {
@@ -321,10 +323,11 @@ pub fn drag_shift(input: &DragInput<'_>) -> NoteShift {
         Grip::Start => {
             let mut new_start = snap(start + raw);
             if new_start >= end {
+                // 끝 앞 마지막 격자선. 다만 원래 시작보다 앞으로 가지 않는다(끝 조절과 대칭)
                 new_start = if input.grid == 0 {
                     end - 1
                 } else {
-                    last_line_before(input.meter, end, input.grid)
+                    last_line_before(input.meter, end, input.grid).max(start)
                 };
             }
             NoteShift {

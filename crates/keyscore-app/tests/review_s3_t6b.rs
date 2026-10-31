@@ -540,6 +540,7 @@ fn review_end_grip_left_drag_on_short_offgrid_note_lengthens() {
         grid: 480,
         axis: None,
     });
-    // 끝을 20틱 왼쪽으로 끌었는데 끝 Δ가 +370(끝 480)이다
-    assert_eq!(shift.end, 370);
+    // 끝을 20틱 왼쪽으로 끌었는데 끝 Δ가 +370(끝 480)이었다. 제안 3 수락 뒤(구현자 대응): 원래 끝을 넘지 않아
+    // 그대로다
+    assert_eq!(shift.end, 0);
 }

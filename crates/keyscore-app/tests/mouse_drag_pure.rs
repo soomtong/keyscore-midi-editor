@@ -442,6 +442,21 @@ fn drag_shift_start_keeps_end_and_clamps() {
     // 끝(5280) 이상이면 끝 앞 마지막 격자선(4800)
     assert_eq!(f.shift(Grip::Start, 1200.0, 0, 480, None), resized(480, 0));
     assert_eq!(f.shift(Grip::Start, 1200.0, 0, 0, None), resized(959, 0));
+    // 격자 밖 짧은 노트를 안쪽으로 끌어도 길어지지 않는다(리뷰 1 제안 3)
+    let short = note(10, 100, 60);
+    let input = |grip, ticks| DragInput {
+        meter: &f.meter,
+        clip_start: 0,
+        notes: std::slice::from_ref(&short),
+        grabbed: &short,
+        grip,
+        ticks,
+        semitones: 0,
+        grid: 480,
+        axis: None,
+    };
+    assert_eq!(drag_shift(&input(Grip::Start, 300.0)), resized(0, 0));
+    assert_eq!(drag_shift(&input(Grip::End, -20.0)), resized(0, 0));
     // 클립 시작 앞으로는 가지 않는다(가장 이른 노트 480)
     assert_eq!(
         f.shift(Grip::Start, -1000.0, 0, 480, None),
