@@ -75,7 +75,7 @@ step_settings 3, step_vim_mml 22): 모두 통과
 - [ ] test(전체): 리뷰 뒤에 `cargo test --workspace --no-fail-fast`
 - [x] deny
 - [x] `scripts/check-deps.sh`
-- [ ] `scripts/check-deps.test.sh`, `scripts/bench-check.test.sh`: 결과는 아래에 덧붙인다
+- [x] `scripts/check-deps.test.sh`, `scripts/bench-check.test.sh`(둘 다 종료 코드 0)
 
 ## 알려진 한계
 
