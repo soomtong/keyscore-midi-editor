@@ -200,10 +200,16 @@ fn type_every_label_every_octave(cx: &mut TestAppContext, name: &str, layout: Ke
     for o in 0..=9u8 {
         go_octave(cx, handle, &view, o);
         let caps = shown(cx, &view).unwrap();
-        for cap in &caps {
+        // 키 하나로 닿는 자리(건반형 16, 계이름형 12)이고 음이 있으면 라벨이 있고, 그 밖은 없다(S3-T5b 결정 1,
+        // S3-T5b 리뷰 1 지적 1)
+        let direct = if layout == KeyLayout::Piano { 16 } else { 12 };
+        for (i, cap) in caps.iter().enumerate() {
+            assert_eq!(
+                cap.key.is_some(),
+                i < direct && cap.pitch.is_some(),
+                "oct{o} {i} {cap:?}"
+            );
             let (Some(key), Some(pitch)) = (&cap.key, cap.pitch) else {
-                // 없는 건반에는 라벨이 없다. 있는 건반도 키 하나로 닿지 않으면 라벨이 없다(S3-T5b 결정)
-                assert!(cap.pitch.is_some() || cap.key.is_none(), "oct{o} {cap:?}");
                 continue;
             };
             let keys: Vec<String> = key.to_lowercase().chars().map(|c| c.to_string()).collect();
