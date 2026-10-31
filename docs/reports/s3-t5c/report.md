@@ -34,8 +34,8 @@ keyscore-app lib keyboard_view_window::tests 1 통과
 
 - [x] fmt
 - [x] clippy -D warnings
-- [ ] test(전체): 리뷰 뒤 돌린다
-- [ ] deny, scripts: 의존 변화 없음. 병합 전 함께 돌린다
+- [x] test(전체, `cargo test --workspace --no-fail-fast`, 리뷰 2 대응 뒤): 2670 통과, 1 실패. 실패는 무관한 재생 타이밍 시험 `review_s2_t5a_r2::pause_position_does_not_drift_with_many_live_edits`(일시정지 자리 6231 < 들은 박 6240)이고, 혼자 세 번 다시 돌려 모두 통과(13 passed). S3-T5b 전체 시험에서도 같은 시험이 같은 모양으로 실패했다(HANDOFF 후속 항목)
+- [x] deny, `scripts/check-deps.sh`, `scripts/check-deps.test.sh`, `scripts/bench-check.test.sh`
 
 ## 알려진 한계
 
