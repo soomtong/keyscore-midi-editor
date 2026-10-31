@@ -50,7 +50,7 @@ pub fn anchor_at(viewport: &Viewport, at: (f32, f32)) -> Anchor {
 #[must_use]
 pub fn band_between(a: Anchor, b: Anchor) -> Option<Band> {
     let lo = tick_u(a.tick.min(b.tick));
-    let hi = tick_u(a.tick.max(b.tick).ceil()).max(lo + 1);
+    let hi = tick_u(a.tick.max(b.tick).ceil()).max(lo.saturating_add(1));
     let row = |r: f32| r.floor().clamp(0.0, f32::from(ROWS - 1));
     let (top, bottom) = (row(a.row).min(row(b.row)), row(a.row).max(row(b.row)));
     let pitch_of = |row: f32| Pitch::new(ROWS - 1 - row_u8(row)).ok();

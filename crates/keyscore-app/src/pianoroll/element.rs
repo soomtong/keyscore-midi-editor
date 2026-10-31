@@ -52,6 +52,8 @@ pub struct Press {
 pub type PressHandler = Rc<dyn Fn(&Press, &mut Window, &mut App)>;
 /// 끌기·뗌 콜백: 뷰 기준 좌표(피아노롤 밖일 수 있다).
 pub type PointerHandler = Rc<dyn Fn((f32, f32), &mut Window, &mut App)>;
+/// 휠·핀치로 뷰포트(스크롤·배율)가 바뀐 뒤의 콜백.
+pub type ViewChangeHandler = Rc<dyn Fn(&mut Window, &mut App)>;
 /// 우클릭 콜백: 눌린 칸과 창 좌표(메뉴를 띄울 자리).
 pub type RightClickHandler = Rc<dyn Fn(Cursor, gpui_kit::Point<Pixels>, &mut Window, &mut App)>;
 
@@ -66,6 +68,7 @@ pub struct PianoRollElement {
     pub(crate) on_press: Option<PressHandler>,
     pub(crate) on_drag: Option<PointerHandler>,
     pub(crate) on_release: Option<PointerHandler>,
+    pub(crate) on_view_change: Option<ViewChangeHandler>,
     pub(crate) on_right_click: Option<RightClickHandler>,
 }
 
@@ -87,6 +90,7 @@ impl PianoRollElement {
             on_press: None,
             on_drag: None,
             on_release: None,
+            on_view_change: None,
             on_right_click: None,
         }
     }
@@ -112,6 +116,14 @@ impl PianoRollElement {
         handler: impl Fn((f32, f32), &mut Window, &mut App) + 'static,
     ) -> Self {
         self.on_drag = Some(Rc::new(handler));
+        self
+    }
+
+    /// 휠·핀치가 뷰포트를 바꾼 뒤. 러버밴드처럼 뷰포트에 따라 결과가 바뀌는 조작이 다시 계산한다(S3-T6a 리뷰 2
+    /// 지적 1).
+    #[must_use]
+    pub fn on_view_change(mut self, handler: impl Fn(&mut Window, &mut App) + 'static) -> Self {
+        self.on_view_change = Some(Rc::new(handler));
         self
     }
 
@@ -349,12 +361,11 @@ impl PianoRollElement {
         painted
     }
 
-    /// 클릭: 그 칸으로 커서. 휠: 스크롤(Shift+휠은 가로).
+    /// 누름·끌기·뗌·우클릭, 그리고 휠·핀치(`register_view_input`).
     fn register_mouse(&self, bounds: Bounds<Pixels>, hitbox: &Hitbox, window: &mut Window) {
         let origin = bounds.origin;
         let state = self.state.clone();
         let hit = hitbox.clone();
-        let wheel_hit = hitbox.clone();
         if let Some(on_press) = self.on_press.clone() {
             let press_state = state.clone();
             window.on_mouse_event(move |event: &MouseDownEvent, phase, window, cx| {
@@ -415,21 +426,38 @@ impl PianoRollElement {
                 }
             });
         }
+        self.register_view_input(origin, hitbox, window);
+    }
+
+    /// 휠(스크롤, `Cmd+휠` 줌)과 핀치(줌). 바뀐 뒤 `on_view_change`를 부른다.
+    fn register_view_input(
+        &self,
+        origin: gpui_kit::Point<Pixels>,
+        hitbox: &Hitbox,
+        window: &mut Window,
+    ) {
+        let state = self.state.clone();
+        let wheel_hit = hitbox.clone();
         // `is_hovered`는 마지막 입력이 키보드면 거짓이고 휠은 입력 종류를 바꾸지 않는다. 키를 친 뒤 포인터를
         // 움직이지 않고 굴리는 흔한 순서가 모두 무시되므로 GPUI `Div`처럼 `should_handle_scroll`을 쓴다
         // (리뷰 1 지적 2).
         let pinch_hit = hitbox.clone();
         let pinch_state = state.clone();
-        window.on_mouse_event(move |event: &PinchEvent, phase, window, _| {
+        let pinch_changed = self.on_view_change.clone();
+        let wheel_changed = self.on_view_change.clone();
+        window.on_mouse_event(move |event: &PinchEvent, phase, window, cx| {
             if phase != DispatchPhase::Bubble || !pinch_hit.should_handle_scroll(window) {
                 return;
             }
             // 핀치는 가로 줌이다(MS-7). 포인터 아래 틱을 제자리에 둔다.
             let x = f32::from((event.position - origin).x);
             pinch_state.zoom_at(1.0 + f64::from(event.delta.max(-0.9)), x);
+            if let Some(f) = &pinch_changed {
+                f(window, cx);
+            }
             window.refresh();
         });
-        window.on_mouse_event(move |event: &ScrollWheelEvent, phase, window, _| {
+        window.on_mouse_event(move |event: &ScrollWheelEvent, phase, window, cx| {
             if phase != DispatchPhase::Bubble || !wheel_hit.should_handle_scroll(window) {
                 return;
             }
@@ -441,16 +469,18 @@ impl PianoRollElement {
                 // `Cmd+휠`은 가로 줌(7.4). 한 줄마다 한 단계, 위로 굴리면(내용이 아래로) 확대다.
                 let x = f32::from((event.position - origin).x);
                 state.zoom_at(ZOOM_FACTOR.powf(f64::from(dy / LINE_PX)), x);
-                window.refresh();
-                return;
-            }
-            // 휠 델타는 내용이 움직이는 방향(자연 스크롤)이라 뷰포트는 반대로 간다.
-            let (dx, dy) = if event.modifiers.shift && dx == 0.0 {
-                (-dy, 0.0)
             } else {
-                (-dx, -dy)
-            };
-            state.scroll_by(dx, dy);
+                // 휠 델타는 내용이 움직이는 방향(자연 스크롤)이라 뷰포트는 반대로 간다.
+                let (dx, dy) = if event.modifiers.shift && dx == 0.0 {
+                    (-dy, 0.0)
+                } else {
+                    (-dx, -dy)
+                };
+                state.scroll_by(dx, dy);
+            }
+            if let Some(f) = &wheel_changed {
+                f(window, cx);
+            }
             window.refresh();
         });
     }

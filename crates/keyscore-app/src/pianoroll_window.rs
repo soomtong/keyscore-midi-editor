@@ -94,6 +94,12 @@ impl ProjectWindow {
             });
             move |at, window, cx| listener(&at, window, cx)
         })
+        .on_view_change({
+            let listener = cx.listener(|this, (): &(), _, cx| {
+                this.piano_roll_view_changed(cx);
+            });
+            move |window, cx| listener(&(), window, cx)
+        })
         .on_release({
             let listener = cx.listener(|this, at: &(f32, f32), _, cx| {
                 this.piano_roll_release(*at, cx);

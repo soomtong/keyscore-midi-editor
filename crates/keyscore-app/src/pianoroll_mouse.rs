@@ -200,10 +200,34 @@ impl ProjectWindow {
             Some(Gesture::Empty { add: false, .. }) => {
                 self.set_selection(Selection::default(), cx);
             }
-            Some(Gesture::Band { .. }) => self.pull_cursor_into_selection(cx),
+            Some(Gesture::Band {
+                anchor,
+                now,
+                add,
+                before,
+            }) => {
+                // 마지막 움직임 뒤 스크롤·줌이 있었어도 그린 직사각형과 같은 선택으로 끝낸다(리뷰 2 지적 1)
+                self.update_band(anchor, now, add, before, cx);
+                self.pianoroll.drop_gesture();
+                self.pull_cursor_into_selection(cx);
+            }
             _ => return,
         }
         cx.notify();
+    }
+
+    /// 휠·핀치로 뷰포트가 바뀐 뒤: 러버밴드면 포인터 자리(`now`)의 새 내용 위치로 선택을 다시 계산한다. 선택은
+    /// 누른 점·지금 점·뷰포트로 정해지므로 뷰포트가 바뀌는 길에서도 같은 계산을 한다(리뷰 2 지적 1).
+    pub fn piano_roll_view_changed(&mut self, cx: &mut Context<Self>) {
+        if let Some(Gesture::Band {
+            anchor,
+            now,
+            add,
+            before,
+        }) = self.live_gesture()
+        {
+            self.update_band(anchor, now, add, before, cx);
+        }
     }
 
     /// 러버밴드를 `at`까지로 다시 계산한다(끄는 동안 선택이 바뀐다, MS-1).
@@ -216,6 +240,10 @@ impl ProjectWindow {
         cx: &mut Context<Self>,
     ) {
         let viewport = self.pianoroll.viewport();
+        // 그리기 전(크기 0)에는 지금 점의 내용 위치를 알 수 없다(리뷰 2 제안 3)
+        if viewport.width <= 0.0 || viewport.height <= 0.0 || viewport.row_height <= 0.0 {
+            return;
+        }
         let now = m::anchor_at(&viewport, at);
         let current_track = self.current_track();
         // `Cmd+드래그`는 지금 트랙의 선택 클립이 먼저다(그 선택에 더한다)
