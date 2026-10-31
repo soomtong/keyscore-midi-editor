@@ -25,8 +25,8 @@ review_s3_t5_r2:  12 passed; 0 failed
 
 - [x] fmt
 - [x] clippy -D warnings
-- [ ] test(전체): 리뷰 뒤 돌린다
-- [ ] deny, scripts: 의존 변화 없음. 병합 전 함께 돌린다
+- [x] test(전체, `cargo test --workspace --no-fail-fast`, 7e43788): 2652 통과, 1 실패. 실패는 무관한 재생 타이밍 시험 `review_s2_t5a_r2::pause_position_does_not_drift_with_many_live_edits`(일시정지 자리 6227 < 들은 박 6240, HANDOFF의 알려진 지터)이고, 혼자 세 번 다시 돌려 모두 통과(13 passed)
+- [x] deny, `scripts/check-deps.sh`, `scripts/check-deps.test.sh`, `scripts/bench-check.test.sh`
 
 ## 알려진 한계
 
