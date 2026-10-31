@@ -679,6 +679,18 @@ impl PianoRollState {
         inner.gesture.as_ref().and_then(|g| g.band_rect(&viewport))
     }
 
+    /// 끄는 동안의 고스트 사각형(뷰 기준 px, MS-1). 시험용.
+    #[must_use]
+    pub fn ghost_rects(&self) -> Vec<scene::Rect> {
+        todo!("S3-T6b")
+    }
+
+    /// 고스트의 계획이 거부됐는가(놓아도 편집하지 않는다).
+    #[must_use]
+    pub fn ghost_blocked(&self) -> bool {
+        todo!("S3-T6b")
+    }
+
     /// 커서 칸을 뷰포트 가운데로. 크기를 모르면 처음 크기를 알 때 한다.
     pub fn center_cursor(&self) {
         self.inner.borrow_mut().center_cursor();

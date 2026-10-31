@@ -5,9 +5,12 @@ use std::collections::BTreeSet;
 
 use keyscore_core::{Clip, ClipId, MeterMap, Note, Pitch, Tick, Track, TrackId};
 
+use super::ops::NoteShift;
 use super::scene::Rect;
 use super::select::notes_in;
 use super::{Cursor, ROWS, Selection, Viewport, row_u8, tick_u};
+use crate::actions::args::MouseSnap;
+use crate::step::StepLength;
 
 /// 끌기로 보는 최소 이동(px). macOS 끌기 문턱과 같은 크기다.
 pub const DRAG_THRESHOLD: f32 = 3.0;
@@ -154,6 +157,83 @@ pub fn first_cell(clip: &Clip, notes: &BTreeSet<Note>) -> Option<Cursor> {
         tick: Tick::new(clip.start().get().saturating_add(first.start().get())),
         pitch: first.pitch(),
     })
+}
+
+/// 끝 드래그 영역의 폭(px, MS-6). 좁은 노트에서는 노트 화면 폭의 1/3로 줄어든다.
+pub const EDGE_PX: f32 = 6.0;
+
+/// 노트의 어느 자리를 잡았나(MS-6, 결정 6절 1).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Grip {
+    /// 본체: 시간·음높이 이동.
+    Body,
+    /// 왼쪽 끝: 시작 조절(끝 고정).
+    Start,
+    /// 오른쪽 끝: 끝 조절(길이).
+    End,
+}
+
+/// `Shift+드래그`가 고른 축(결정 6절 6).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Axis {
+    Time,
+    Pitch,
+}
+
+/// 화면 `[note_x, note_x + note_w)`의 노트에서 `x`를 누른 자리.
+#[must_use]
+pub fn grip_at(note_x: f32, note_w: f32, x: f32) -> Grip {
+    let _ = (note_x, note_w, x);
+    todo!("S3-T6b")
+}
+
+/// 화면 이동 `(dx, dy)`의 큰 쪽 축. 같으면 시간이다.
+#[must_use]
+pub fn dominant_axis(dx: f32, dy: f32) -> Axis {
+    let _ = (dx, dy);
+    todo!("S3-T6b")
+}
+
+/// `tick`을 가장 가까운 격자선으로. 격자선은 그 틱이 든 마디의 시작부터 `grid`마다이고 다음 마디의 시작도
+/// 격자선이다. 거리가 같으면 앞쪽. `grid`가 0이면 그대로.
+#[must_use]
+pub fn snap_nearest(meter: &MeterMap, tick: Tick, grid: u64) -> Tick {
+    let _ = (meter, tick, grid);
+    todo!("S3-T6b")
+}
+
+/// 마우스 스냅 격자 한 칸(틱). 「길이 코드」면 현재 Step 길이(점 포함, 셋잇단·절반 없음).
+#[must_use]
+pub fn snap_grid(snap: MouseSnap, length: StepLength) -> u64 {
+    let _ = (snap, length);
+    todo!("S3-T6b")
+}
+
+/// 드래그 양 계산의 입력(결정 6절 3–6). 노트는 클립 기준이다.
+#[derive(Clone, Copy, Debug)]
+pub struct DragInput<'a> {
+    pub meter: &'a MeterMap,
+    /// 클립 시작(절대 틱).
+    pub clip_start: u64,
+    /// 대상 노트 전부(잡은 노트 포함).
+    pub notes: &'a [Note],
+    pub grabbed: &'a Note,
+    pub grip: Grip,
+    /// 원시 시간 Δ(틱, 소수).
+    pub ticks: f64,
+    /// 행 Δ의 반대, 곧 반음 수(위로 끌면 양수).
+    pub semitones: i32,
+    /// 스냅 격자(틱). 0이면 스냅 없음(`Cmd`).
+    pub grid: u64,
+    /// `Shift` 한 축(본체만 뜻이 있다).
+    pub axis: Option<Axis>,
+}
+
+/// 드래그의 일반 변환: 잡은 노트를 스냅하고 클립 시작·음높이 범위로 자른다(결정 6절 3–6).
+#[must_use]
+pub fn drag_shift(input: &DragInput<'_>) -> NoteShift {
+    let _ = input;
+    todo!("S3-T6b")
 }
 
 /// 진행 중인 마우스 조작(S3-T6a). 누름 하나에 하나이고 뗄 때 없어진다.

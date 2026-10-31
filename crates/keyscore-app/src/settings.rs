@@ -16,7 +16,7 @@ use keyscore_midi::MetronomeConfig;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-use crate::actions::args::{KeyLayout, LengthCode};
+use crate::actions::args::{KeyLayout, LengthCode, MouseSnap};
 
 /// 패널 크기의 허용 범위(논리 픽셀). 밖의 값은 기본값으로 되돌린다.
 pub const PANEL_SIZE_RANGE: std::ops::RangeInclusive<f32> = 120.0..=1200.0;
@@ -133,6 +133,8 @@ pub struct InputSettings {
     pub step_default_length: LengthCode,
     /// 음 키 뒤 옥타브 숫자를 기다리는 시간(ms, 0–2000, REQ 5.6 「기본 300 ms(설정 가능)」).
     pub octave_wait_ms: u32,
+    /// 마우스 드래그·더블클릭 생성의 스냅 단위(REQ 7.4 MS-3, S3-T6b).
+    pub mouse_snap: MouseSnap,
 }
 
 /// 옥타브 대기 시간 상한(ms). 그보다 길면 입력이 멈춘 것처럼 보인다.
@@ -144,6 +146,7 @@ impl Default for InputSettings {
             key_layout: KeyLayout::Piano,
             step_default_length: LengthCode::Quarter,
             octave_wait_ms: 300,
+            mouse_snap: MouseSnap::Length,
         }
     }
 }
@@ -203,6 +206,14 @@ impl InputSettings {
                 )),
             }
         }
+        if let Some(v) = map.remove("mouse_snap") {
+            match serde_json::from_value(v) {
+                Ok(snap) => input.mouse_snap = snap,
+                Err(_) => warnings.push(
+                    "input.mouse_snap은 length·1/4·1/8·1/16·1/32·1/64라 기본값을 쓴다".to_string(),
+                ),
+            }
+        }
         (input, map)
     }
 
@@ -220,6 +231,23 @@ impl InputSettings {
             "octave_wait_ms".to_string(),
             Value::from(self.octave_wait_ms),
         );
+        map.insert(
+            "mouse_snap".to_string(),
+            Value::from(mouse_snap_name(self.mouse_snap)),
+        );
+    }
+}
+
+/// 마우스 스냅 단위의 설정 파일 표기(Action 인자와 같다).
+#[must_use]
+pub const fn mouse_snap_name(snap: MouseSnap) -> &'static str {
+    match snap {
+        MouseSnap::Length => "length",
+        MouseSnap::Quarter => "1/4",
+        MouseSnap::Eighth => "1/8",
+        MouseSnap::Sixteenth => "1/16",
+        MouseSnap::ThirtySecond => "1/32",
+        MouseSnap::SixtyFourth => "1/64",
     }
 }
 

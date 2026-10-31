@@ -1457,6 +1457,20 @@ pub(super) const SPECS: &[CommandSpec] = &[
         ],
     ),
     CommandSpec::elsewhere(
+        "settings::SetMouseSnap",
+        "마우스 스냅 단위",
+        Surface::Settings,
+        "설정 > 입력 > 마우스 스냅 단위 선택 상자",
+        &[
+            Variant::new("마우스 스냅 길이 코드", "\"length\""),
+            Variant::new("마우스 스냅 1/4", "\"1/4\""),
+            Variant::new("마우스 스냅 1/8", "\"1/8\""),
+            Variant::new("마우스 스냅 1/16", "\"1/16\""),
+            Variant::new("마우스 스냅 1/32", "\"1/32\""),
+            Variant::new("마우스 스냅 1/64", "\"1/64\""),
+        ],
+    ),
+    CommandSpec::elsewhere(
         "settings::SetOctaveWait",
         "옥타브 숫자 대기 시간",
         Surface::Settings,
