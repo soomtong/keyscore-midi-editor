@@ -23,15 +23,31 @@ use crate::pianoroll::ops::{plan_shift, plan_shift_copy};
 use crate::pianoroll::{Cursor, Selection, tick_u};
 use crate::window::ProjectWindow;
 
+/// `keystroke`가 키맵에서 `edit::CancelDrag`에 묶인 키인가. 드래그 수식키(`Cmd`·`Alt`·`Shift`)를 뺀 모양도 본다.
+fn cancels_drag(keystroke: &gpui_kit::Keystroke, cx: &gpui_kit::App) -> bool {
+    let mut bare = keystroke.clone();
+    bare.modifiers.platform = false;
+    bare.modifiers.alt = false;
+    bare.modifiers.shift = false;
+    let keymap = cx.key_bindings();
+    let keymap = keymap.borrow();
+    keymap.bindings_for_action(&edit::CancelDrag).any(|b| {
+        b.match_keystrokes(std::slice::from_ref(keystroke)) == Some(false)
+            || b.match_keystrokes(std::slice::from_ref(&bare)) == Some(false)
+    })
+}
+
 impl ProjectWindow {
-    /// 누른 채 `Esc`는 진행 중 마우스 조작만 취소한다(P2, 5.5 「가장 안쪽 하나만」). 이 창의 키만 본다. 수식키를 쥐고
-    /// 있어도 취소한다: `Alt` 복제·`Cmd` 자유·`Shift` 한 축 드래그는 수식키를 쥔 채 끈다(S3-T6b 리뷰 1 지적 2).
-    /// 진행 중 조작이 없으면 키를 그대로 흘려보내므로 수식키 붙은 `Esc` 바인딩은 그대로다.
+    /// 누른 채 `edit::CancelDrag`의 키(기본 `escape`, 키맵 컨텍스트 「Dragging」)는 진행 중 마우스 조작만 취소한다
+    /// (P2, 5.5 「가장 안쪽 하나만」). 이 창의 키만 본다. 키맵 엔진에 맡기지 않고 앞에서 가로채는 것은 vim 시퀀스
+    /// 대기 등 다른 바인딩보다 먼저 받기 위해서다. 다만 키는 키맵에서 읽어 사용자가 바꿔 묶을 수 있다(KM-1, S3-T6b
+    /// 리뷰 2 지적 2). 수식키를 쥐고 있어도 취소한다: `Alt` 복제·`Cmd` 자유·`Shift` 한 축 드래그는 수식키를 쥔 채
+    /// 끈다(리뷰 1 지적 2). 진행 중 조작이 없으면 키를 그대로 흘려보낸다.
     pub(crate) fn intercept_mouse_keys(window: &Window, cx: &mut Context<Self>) -> Subscription {
         let me = cx.entity().downgrade();
         let handle = window.window_handle();
         cx.intercept_keystrokes(move |event, window, cx| {
-            if window.window_handle() != handle || event.keystroke.key != "escape" {
+            if window.window_handle() != handle || !cancels_drag(&event.keystroke, cx) {
                 return;
             }
             let taken = me
@@ -41,6 +57,16 @@ impl ProjectWindow {
                 cx.stop_propagation();
             }
         })
+    }
+
+    /// `edit::CancelDrag`(팔레트 등 키 밖의 디스패치): 진행 중 마우스 조작을 취소한다.
+    pub(crate) fn cancel_drag_action(
+        &mut self,
+        _: &edit::CancelDrag,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.cancel_piano_roll_gesture(true, cx);
     }
 
     /// 진행 중 마우스 조작을 취소한다. `restore`면 러버밴드가 누르기 전 선택으로 돌아간다(`Esc`). 문서가 바뀌어

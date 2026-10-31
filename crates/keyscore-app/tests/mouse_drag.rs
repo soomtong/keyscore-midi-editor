@@ -795,3 +795,26 @@ fn settings_input_has_mouse_snap_choice(cx: &mut TestAppContext) {
         label(cx)
     );
 }
+
+/// 취소 키는 키맵의 `edit::CancelDrag` 바인딩을 따른다(KM-1, 리뷰 2 지적 2). 다른 키로 묶으면 그 키가 취소한다.
+#[gpui_kit::test]
+fn rebound_cancel_drag_key_cancels_drag(cx: &mut TestAppContext) {
+    let (handle, view) = setup(cx, "rebound-cancel");
+    cx.update(|cx| {
+        cx.bind_keys([gpui_kit::KeyBinding::new(
+            "f9",
+            keyscore_app::actions::edit::CancelDrag,
+            Some("Dragging"),
+        )]);
+    });
+    let undo_before = undo_len(cx, &view);
+    let from = mid(cx, handle, &view, N2);
+    let to = moved_by(cx, &view, from, 960, 0);
+    down(cx, handle, from, none());
+    drag_to(cx, handle, to, none());
+    press(cx, handle, "f9");
+    assert!(!gesture_active(cx, &view));
+    up(cx, handle, to, none());
+    assert_eq!(a_notes(cx, &view), sorted(A_NOTES.to_vec()));
+    assert_eq!(undo_len(cx, &view), undo_before);
+}

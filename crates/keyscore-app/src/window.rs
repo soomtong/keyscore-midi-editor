@@ -942,12 +942,14 @@ impl ProjectWindow {
 
     /// 끄는 중 수식키만 바꿔도(`Cmd` 스냅 해제·`Shift` 한 축·`Alt` 복제) 고스트를 다시 계산한다(S3-T6b). 수식키
     /// 사건은 포커스 경로로 오므로 피아노롤이 아니라 바깥 요소에 단다.
+    /// `edit::CancelDrag`(팔레트 등)도 여기서 받는다.
     fn watch_modifiers(root: Stateful<Div>, cx: &mut Context<Self>) -> Stateful<Div> {
-        root.on_modifiers_changed(cx.listener(
-            |this, e: &gpui_kit::ModifiersChangedEvent, _, cx| {
-                this.piano_roll_modifiers(e.modifiers, cx);
-            },
-        ))
+        root.on_action(cx.listener(Self::cancel_drag_action))
+            .on_modifiers_changed(cx.listener(
+                |this, e: &gpui_kit::ModifiersChangedEvent, _, cx| {
+                    this.piano_roll_modifiers(e.modifiers, cx);
+                },
+            ))
     }
 
     /// gpui-component `Root`의 Tab 포커스 이동(`root::Tab`, `root::TabPrev`)을 창 안에서 삼킨다. 우리
