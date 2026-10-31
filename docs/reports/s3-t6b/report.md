@@ -72,7 +72,7 @@ step_settings 3, step_vim_mml 22): 모두 통과
 
 - [x] fmt
 - [x] clippy -D warnings
-- [ ] test(전체): 리뷰 뒤에 `cargo test --workspace --no-fail-fast`
+- [x] test(전체): 리뷰 3 대응 뒤 `cargo test --workspace --no-fail-fast` 286 바이너리, 2641 통과, 0 실패
 - [x] deny
 - [x] `scripts/check-deps.sh`
 - [x] `scripts/check-deps.test.sh`, `scripts/bench-check.test.sh`(둘 다 종료 코드 0)
