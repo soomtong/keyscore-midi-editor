@@ -8,7 +8,7 @@ use gpui_kit::{
 
 use crate::actions::{cursor, view};
 use crate::engine::TransportState;
-use crate::pianoroll::element::{Palette, PianoRollElement};
+use crate::pianoroll::element::{Palette, PianoRollElement, Press};
 use crate::pianoroll::vim::Motion;
 use crate::pianoroll::{Cursor, ZOOM_FACTOR};
 use crate::window::ProjectWindow;
@@ -85,12 +85,26 @@ impl ProjectWindow {
             palette,
         )
         .playhead(playhead, animating)
-        .on_click({
-            let listener = cx.listener(|this, cell: &Cursor, window, cx| {
-                this.click_piano_roll_cell(*cell, cx);
-                this.focus_document(window, cx);
+        .on_press(cx.listener(|this, press: &Press, window, cx| {
+            this.piano_roll_press(press, window, cx);
+        }))
+        .on_drag({
+            let listener = cx.listener(|this, at: &(f32, f32), _, cx| {
+                this.piano_roll_drag(*at, cx);
             });
-            move |cell, window, cx| listener(&cell, window, cx)
+            move |at, window, cx| listener(&at, window, cx)
+        })
+        .on_view_change({
+            let listener = cx.listener(|this, (): &(), _, cx| {
+                this.piano_roll_view_changed(cx);
+            });
+            move |window, cx| listener(&(), window, cx)
+        })
+        .on_release({
+            let listener = cx.listener(|this, at: &(f32, f32), _, cx| {
+                this.piano_roll_release(*at, cx);
+            });
+            move |at, window, cx| listener(&at, window, cx)
         })
         .on_right_click({
             let listener = cx.listener(
@@ -100,14 +114,18 @@ impl ProjectWindow {
             );
             move |cell, at, window, cx| listener(&(cell, at), window, cx)
         });
-        // 자리표시자와 같은 id·라벨을 쓴다(창 시험이 「main-view」로 찾는다).
-        gpui_kit::div()
-            .id("main-view")
-            .aria_label("피아노롤")
-            .test_support()
-            .size_full()
-            .overflow_hidden()
-            .child(element)
+        // 자리표시자와 같은 id·라벨을 쓴다(창 시험이 「main-view」로 찾는다). 둘레 4 px 여백은 패널 분할 손잡이
+        // 히트박스가 놓일 자리다. 여백 없이는 손잡이가 맨 위 행·왼쪽 끝을 가려 누를 수 없었다(S3-T1 리뷰 1 제안 4).
+        // `main-view`는 여백 안쪽이라 Element와 같은 크기다(창 시험이 이 경계로 좌표를 잡는다).
+        gpui_kit::div().size_full().p(gpui_kit::px(4.)).child(
+            gpui_kit::div()
+                .id("main-view")
+                .aria_label("피아노롤")
+                .test_support()
+                .size_full()
+                .overflow_hidden()
+                .child(element),
+        )
     }
 
     /// 피아노롤 칸을 눌렀을 때(포커스 옮기기 전까지): 커서를 그 칸으로. 비주얼 중이면 선택을 다시 계산하고,
@@ -209,6 +227,7 @@ impl ProjectWindow {
         cx: &mut Context<Self>,
     ) {
         self.pianoroll.zoom(ZOOM_FACTOR);
+        self.piano_roll_view_changed(cx);
         cx.notify();
     }
 
@@ -219,6 +238,7 @@ impl ProjectWindow {
         cx: &mut Context<Self>,
     ) {
         self.pianoroll.zoom(1.0 / ZOOM_FACTOR);
+        self.piano_roll_view_changed(cx);
         cx.notify();
     }
 
@@ -229,6 +249,7 @@ impl ProjectWindow {
         cx: &mut Context<Self>,
     ) {
         self.pianoroll.zoom_reset();
+        self.piano_roll_view_changed(cx);
         cx.notify();
     }
 
@@ -239,6 +260,7 @@ impl ProjectWindow {
         cx: &mut Context<Self>,
     ) {
         self.pianoroll.center_cursor();
+        self.piano_roll_view_changed(cx);
         cx.notify();
     }
 }

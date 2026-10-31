@@ -208,7 +208,11 @@ impl ProjectWindow {
 
     /// 대기 입력이 바뀔 때(창의 `observe_pending_input`): 대기 입력이 없어졌으면 붙들기를 놓고 다시 그린다.
     /// 수식키 단독 입력처럼 가로채기를 거치지 않고 비워지는 길도 여기서 잡는다(리뷰 3 지적 1 가).
-    pub(crate) fn vim_pending_input_changed(&mut self, window: &Window, cx: &mut Context<Self>) {
+    pub(crate) fn vim_pending_input_changed(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.vim.held.is_some() && !window.has_pending_keystrokes() {
             self.vim.held = None;
             cx.notify();

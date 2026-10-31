@@ -26,6 +26,7 @@ mod note_ops;
 mod overlay;
 pub mod palette;
 pub mod pianoroll;
+mod pianoroll_mouse;
 mod pianoroll_window;
 pub mod port_mapping;
 pub mod ports;

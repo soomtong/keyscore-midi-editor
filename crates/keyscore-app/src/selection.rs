@@ -95,6 +95,8 @@ impl ProjectWindow {
         }
         self.sync_selection_mode(cx);
         self.pianoroll.ensure_cursor_visible();
+        // 커서를 따라 뷰포트가 움직였으면 끄는 중인 러버밴드도 다시 계산한다(S3-T6a 리뷰 3 제안 1)
+        self.piano_roll_view_changed(cx);
         self.preview_cursor_note(cx);
         cx.notify();
     }
@@ -143,6 +145,8 @@ impl ProjectWindow {
 
     /// 문서가 바뀐 뒤: 선택에서 클립에 더 없는 노트를 뺀다.
     pub(crate) fn selection_document_changed(&mut self, cx: &mut Context<Self>) {
+        // 누른 채 문서가 바뀌면(키 undo 등) 진행 중 마우스 조작은 낡은 선택을 다시 쓰지 않게 끝낸다(S3-T6a)
+        self.cancel_piano_roll_gesture(false, cx);
         let mut selection = self.pianoroll.selection();
         if !selection.is_empty() {
             let changed = {

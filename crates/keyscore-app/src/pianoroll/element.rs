@@ -7,14 +7,14 @@ use std::rc::Rc;
 
 use gpui_kit::{
     App, BorderStyle, Bounds, ContentMask, DispatchPhase, Element, ElementId, GlobalElementId,
-    Hitbox, HitboxBehavior, Hsla, InspectorElementId, IntoElement, LayoutId, MouseButton,
-    MouseDownEvent, MouseUpEvent, Pixels, ScrollDelta, ScrollWheelEvent, Style, Window, fill,
-    point, px, quad, relative, size,
+    Hitbox, HitboxBehavior, Hsla, InspectorElementId, IntoElement, LayoutId, Modifiers,
+    MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PinchEvent, Pixels, ScrollDelta,
+    ScrollWheelEvent, Style, Window, fill, point, px, quad, relative, size,
 };
 use keyscore_core::{Tick, TrackId};
 
 use super::scene::{self, LineKind, Rect, SceneInput, Shade};
-use super::{Cursor, PianoRollState};
+use super::{Cursor, PianoRollState, ZOOM_FACTOR};
 use crate::document::ProjectDocument;
 
 /// 휠의 「줄」 단위를 픽셀로.
@@ -35,8 +35,25 @@ pub struct Palette {
     pub playhead: Hsla,
 }
 
-/// 클릭 콜백: 눌린 칸.
-pub type ClickHandler = Rc<dyn Fn(Cursor, &mut Window, &mut App)>;
+/// 왼쪽 단추 누름(S3-T6a).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Press {
+    /// 뷰 기준 좌표.
+    pub x: f32,
+    pub y: f32,
+    /// 눌린 칸. 뷰포트 밖이면 `None`.
+    pub cell: Option<Cursor>,
+    pub modifiers: Modifiers,
+    /// 누른 횟수(더블클릭이면 2).
+    pub click_count: usize,
+}
+
+/// 누름 콜백.
+pub type PressHandler = Rc<dyn Fn(&Press, &mut Window, &mut App)>;
+/// 끌기·뗌 콜백: 뷰 기준 좌표(피아노롤 밖일 수 있다).
+pub type PointerHandler = Rc<dyn Fn((f32, f32), &mut Window, &mut App)>;
+/// 휠·핀치로 뷰포트(스크롤·배율)가 바뀐 뒤의 콜백.
+pub type ViewChangeHandler = Rc<dyn Fn(&mut Window, &mut App)>;
 /// 우클릭 콜백: 눌린 칸과 창 좌표(메뉴를 띄울 자리).
 pub type RightClickHandler = Rc<dyn Fn(Cursor, gpui_kit::Point<Pixels>, &mut Window, &mut App)>;
 
@@ -48,7 +65,10 @@ pub struct PianoRollElement {
     /// 재생 중이면 매 프레임 다시 그린다(UI-4).
     pub(crate) animating: bool,
     pub(crate) palette: Palette,
-    pub(crate) on_click: Option<ClickHandler>,
+    pub(crate) on_press: Option<PressHandler>,
+    pub(crate) on_drag: Option<PointerHandler>,
+    pub(crate) on_release: Option<PointerHandler>,
+    pub(crate) on_view_change: Option<ViewChangeHandler>,
     pub(crate) on_right_click: Option<RightClickHandler>,
 }
 
@@ -67,7 +87,10 @@ impl PianoRollElement {
             playhead: None,
             animating: false,
             palette,
-            on_click: None,
+            on_press: None,
+            on_drag: None,
+            on_release: None,
+            on_view_change: None,
             on_right_click: None,
         }
     }
@@ -79,9 +102,38 @@ impl PianoRollElement {
         self
     }
 
+    /// 왼쪽 단추 누름(피아노롤 위에서만).
     #[must_use]
-    pub fn on_click(mut self, handler: impl Fn(Cursor, &mut Window, &mut App) + 'static) -> Self {
-        self.on_click = Some(Rc::new(handler));
+    pub fn on_press(mut self, handler: impl Fn(&Press, &mut Window, &mut App) + 'static) -> Self {
+        self.on_press = Some(Rc::new(handler));
+        self
+    }
+
+    /// 왼쪽 단추를 누른 채 움직임. 포인터가 피아노롤 밖이어도 부른다(러버밴드가 가장자리에서 멈추게).
+    #[must_use]
+    pub fn on_drag(
+        mut self,
+        handler: impl Fn((f32, f32), &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.on_drag = Some(Rc::new(handler));
+        self
+    }
+
+    /// 휠·핀치가 뷰포트를 바꾼 뒤. 러버밴드처럼 뷰포트에 따라 결과가 바뀌는 조작이 다시 계산한다(S3-T6a 리뷰 2
+    /// 지적 1).
+    #[must_use]
+    pub fn on_view_change(mut self, handler: impl Fn(&mut Window, &mut App) + 'static) -> Self {
+        self.on_view_change = Some(Rc::new(handler));
+        self
+    }
+
+    /// 왼쪽 단추 뗌. 피아노롤 밖에서 떼어도 부른다(조작이 끝나지 않은 채 남지 않게).
+    #[must_use]
+    pub fn on_release(
+        mut self,
+        handler: impl Fn((f32, f32), &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.on_release = Some(Rc::new(handler));
         self
     }
 
@@ -165,6 +217,7 @@ impl Element for PianoRollElement {
             selection,
             cursor,
             step_ticks,
+            gesture,
             ..
         } = inner;
         scene::build(
@@ -182,6 +235,7 @@ impl Element for PianoRollElement {
             },
             scene,
         );
+        scene.band = gesture.as_ref().and_then(|g| g.band_rect(&viewport));
         window.insert_hitbox(bounds, HitboxBehavior::Normal)
     }
 
@@ -282,6 +336,16 @@ impl PianoRollElement {
                             BorderStyle::Solid,
                         ));
                     }
+                    if let Some(band) = scene.band {
+                        window.paint_quad(quad(
+                            Self::rect(origin, band),
+                            px(0.),
+                            palette.selected.opacity(0.15),
+                            px(1.),
+                            palette.selected,
+                            BorderStyle::Solid,
+                        ));
+                    }
                     if let Some(x) = scene.playhead {
                         let r = Rect {
                             x,
@@ -297,14 +361,13 @@ impl PianoRollElement {
         painted
     }
 
-    /// 클릭: 그 칸으로 커서. 휠: 스크롤(Shift+휠은 가로).
+    /// 누름·끌기·뗌·우클릭, 그리고 휠·핀치(`register_view_input`).
     fn register_mouse(&self, bounds: Bounds<Pixels>, hitbox: &Hitbox, window: &mut Window) {
         let origin = bounds.origin;
         let state = self.state.clone();
         let hit = hitbox.clone();
-        let wheel_hit = hitbox.clone();
-        if let Some(on_click) = self.on_click.clone() {
-            let click_state = state.clone();
+        if let Some(on_press) = self.on_press.clone() {
+            let press_state = state.clone();
             window.on_mouse_event(move |event: &MouseDownEvent, phase, window, cx| {
                 if phase != DispatchPhase::Bubble
                     || event.button != MouseButton::Left
@@ -313,12 +376,33 @@ impl PianoRollElement {
                     return;
                 }
                 let local = event.position - origin;
-                if let Some(cell) = click_state
-                    .viewport()
-                    .cell_at(f32::from(local.x), f32::from(local.y))
-                {
-                    on_click(cell, window, cx);
+                let (x, y) = (f32::from(local.x), f32::from(local.y));
+                let press = Press {
+                    x,
+                    y,
+                    cell: press_state.viewport().cell_at(x, y),
+                    modifiers: event.modifiers,
+                    click_count: event.click_count,
+                };
+                on_press(&press, window, cx);
+            });
+        }
+        if let Some(on_drag) = self.on_drag.clone() {
+            window.on_mouse_event(move |event: &MouseMoveEvent, phase, window, cx| {
+                if phase != DispatchPhase::Bubble || !event.dragging() {
+                    return;
                 }
+                let local = event.position - origin;
+                on_drag((f32::from(local.x), f32::from(local.y)), window, cx);
+            });
+        }
+        if let Some(on_release) = self.on_release.clone() {
+            window.on_mouse_event(move |event: &MouseUpEvent, phase, window, cx| {
+                if phase != DispatchPhase::Bubble || event.button != MouseButton::Left {
+                    return;
+                }
+                let local = event.position - origin;
+                on_release((f32::from(local.x), f32::from(local.y)), window, cx);
             });
         }
         // 우클릭은 뗄 때 연다. 누를 때는 창의 겹 바깥 누름 처리기가 포커스를 문서로 돌리므로, 누를 때 메뉴를
@@ -342,10 +426,38 @@ impl PianoRollElement {
                 }
             });
         }
+        self.register_view_input(origin, hitbox, window);
+    }
+
+    /// 휠(스크롤, `Cmd+휠` 줌)과 핀치(줌). 바뀐 뒤 `on_view_change`를 부른다.
+    fn register_view_input(
+        &self,
+        origin: gpui_kit::Point<Pixels>,
+        hitbox: &Hitbox,
+        window: &mut Window,
+    ) {
+        let state = self.state.clone();
+        let wheel_hit = hitbox.clone();
         // `is_hovered`는 마지막 입력이 키보드면 거짓이고 휠은 입력 종류를 바꾸지 않는다. 키를 친 뒤 포인터를
         // 움직이지 않고 굴리는 흔한 순서가 모두 무시되므로 GPUI `Div`처럼 `should_handle_scroll`을 쓴다
         // (리뷰 1 지적 2).
-        window.on_mouse_event(move |event: &ScrollWheelEvent, phase, window, _| {
+        let pinch_hit = hitbox.clone();
+        let pinch_state = state.clone();
+        let pinch_changed = self.on_view_change.clone();
+        let wheel_changed = self.on_view_change.clone();
+        window.on_mouse_event(move |event: &PinchEvent, phase, window, cx| {
+            if phase != DispatchPhase::Bubble || !pinch_hit.should_handle_scroll(window) {
+                return;
+            }
+            // 핀치는 가로 줌이다(MS-7). 포인터 아래 틱을 제자리에 둔다.
+            let x = f32::from((event.position - origin).x);
+            pinch_state.zoom_at(1.0 + f64::from(event.delta.max(-0.9)), x);
+            if let Some(f) = &pinch_changed {
+                f(window, cx);
+            }
+            window.refresh();
+        });
+        window.on_mouse_event(move |event: &ScrollWheelEvent, phase, window, cx| {
             if phase != DispatchPhase::Bubble || !wheel_hit.should_handle_scroll(window) {
                 return;
             }
@@ -353,13 +465,22 @@ impl PianoRollElement {
                 ScrollDelta::Pixels(p) => (f32::from(p.x), f32::from(p.y)),
                 ScrollDelta::Lines(l) => (l.x * LINE_PX, l.y * LINE_PX),
             };
-            // 휠 델타는 내용이 움직이는 방향(자연 스크롤)이라 뷰포트는 반대로 간다.
-            let (dx, dy) = if event.modifiers.shift && dx == 0.0 {
-                (-dy, 0.0)
+            if event.modifiers.platform {
+                // `Cmd+휠`은 가로 줌(7.4). 한 줄마다 한 단계, 위로 굴리면(내용이 아래로) 확대다.
+                let x = f32::from((event.position - origin).x);
+                state.zoom_at(ZOOM_FACTOR.powf(f64::from(dy / LINE_PX)), x);
             } else {
-                (-dx, -dy)
-            };
-            state.scroll_by(dx, dy);
+                // 휠 델타는 내용이 움직이는 방향(자연 스크롤)이라 뷰포트는 반대로 간다.
+                let (dx, dy) = if event.modifiers.shift && dx == 0.0 {
+                    (-dy, 0.0)
+                } else {
+                    (-dx, -dy)
+                };
+                state.scroll_by(dx, dy);
+            }
+            if let Some(f) = &wheel_changed {
+                f(window, cx);
+            }
             window.refresh();
         });
     }

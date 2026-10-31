@@ -65,6 +65,8 @@ pub struct Scene {
     pub cursor: Option<Rect>,
     /// 재생 헤드의 x. 뷰포트 밖이면 `None`.
     pub playhead: Option<f32>,
+    /// 러버밴드 직사각형(S3-T6a). 장면 계산이 아니라 창의 마우스 조작이 채운다.
+    pub band: Option<Rect>,
 }
 
 /// 장면 입력.
