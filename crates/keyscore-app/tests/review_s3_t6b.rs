@@ -51,7 +51,10 @@ fn start(cx: &mut TestAppContext, name: &str) {
     std::fs::create_dir_all(&dir).unwrap();
     cx.update(|cx| {
         init(cx, dir.join("settings.json"));
-        clipboard::use_named_pasteboard(cx, &format!("ks-test-{}-review-t6b-{name}", std::process::id()));
+        clipboard::use_named_pasteboard(
+            cx,
+            &format!("ks-test-{}-review-t6b-{name}", std::process::id()),
+        );
         // 스냅 격자(길이 코드): 8분. 미리듣기는 MIDI 없이 돈다.
         AppSettings::update(cx, |s| s.input.step_default_length = LengthCode::Eighth);
     });
@@ -390,9 +393,13 @@ fn review_key_alt_ops_keep_lyric_and_pitch_offset() {
     let t = &p.tracks()[0];
     let (tid, cid) = (t.id(), t.clips().next().unwrap().0);
     for op in NoteOp::ALL {
-        let planned = plan_note_op(&p, tid, cid, std::slice::from_ref(&sung), op, 480)
-            .unwrap()
-            .unwrap();
+        let planned = plan_note_op(&p, tid, cid, std::slice::from_ref(&sung), op, 480);
+        // 틱 960의 노트를 한 마디 앞당기면 클립 시작 앞이라 main에서도 거부된다(구현자 대응: 시험 전제 정정)
+        if op == NoteOp::NudgeBarEarlier {
+            assert!(planned.is_err(), "{op:?}");
+            continue;
+        }
+        let planned = planned.unwrap().unwrap();
         let to = &planned.moved[0].1;
         assert_eq!(to.lyric(), Some("라"), "{op:?}: 가사가 사라졌다");
         assert_eq!(to.offset(), sung.offset(), "{op:?}: 피치 오프셋이 사라졌다");

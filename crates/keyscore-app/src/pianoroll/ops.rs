@@ -345,6 +345,11 @@ fn shift_note(
     let rel = u64::try_from(rel).map_err(|_| ModelError::TickOverflow)?;
     let length = u32::try_from(end - start).map_err(|_| ModelError::TickOverflow)?;
     let pitch = Pitch::new(u8::try_from(pitch).map_err(|_| OpError::PitchOutOfRange)?)?;
-    let new = Note::new(Tick::new(rel), length, pitch, note.velocity())?;
+    // 새로 만들지 않고 고친다. 가사·피치 오프셋·모르는 키(LYR-1, IO-1)를 지키고, `with_pitch`가 오프셋을 더한
+    // 절대 피치 범위를 검사한다(S3-T6b 리뷰 1 지적 1). 길이를 먼저 바꿔 시작을 옮길 때 넘침 검사가 새 길이로 한다.
+    let new = note
+        .with_length(length)?
+        .with_start(Tick::new(rel))?
+        .with_pitch(pitch)?;
     Ok((new != *note).then_some(new))
 }
