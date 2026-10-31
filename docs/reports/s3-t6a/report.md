@@ -66,10 +66,10 @@ vim_operators, review_s3_t3c·r2·r3·r4, keyboard_view_ui, window, modes_ui): �
 
 - [x] fmt
 - [x] clippy -D warnings
-- [ ] test(전체): 리뷰 뒤 `--no-fail-fast`로 돌린다(리뷰어 시험과 겹치면 지터 시험이 흔들린다)
+- [x] test(전체): 리뷰 3 대응 뒤 `cargo test --workspace --no-fail-fast` 280 바이너리, 2578 통과, 0 실패
 - [x] deny
 - [x] `scripts/check-deps.sh`
-- [ ] `scripts/check-deps.test.sh`, `scripts/bench-check.test.sh`: 리뷰 뒤 전체 시험과 함께 기록
+- [x] `scripts/check-deps.test.sh`(16 통과), `scripts/bench-check.test.sh`(8 통과)
 
 ## 알려진 한계
 
