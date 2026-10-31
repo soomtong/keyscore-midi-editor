@@ -287,12 +287,14 @@ pub fn drag_shift(input: &DragInput<'_>) -> NoteShift {
     match input.grip {
         Grip::Body => {
             let mut time = (snap(start + raw) - start).max(-earliest);
-            let (low, high) = input
+            let (down, up) = input
                 .notes
                 .iter()
-                .map(|n| i32::from(n.pitch().get()))
-                .fold((127, 0), |(lo, hi), p| (lo.min(p), hi.max(p)));
-            let mut pitch = input.semitones.clamp(-low, 127 - high);
+                .map(pitch_room)
+                .fold((i32::MIN, i32::MAX), |(lo, hi), (d, u)| {
+                    (lo.max(d), hi.min(u))
+                });
+            let mut pitch = input.semitones.clamp(down, up.max(down));
             match input.axis {
                 Some(Axis::Time) => pitch = 0,
                 Some(Axis::Pitch) => time = 0,
@@ -336,6 +338,21 @@ pub fn drag_shift(input: &DragInput<'_>) -> NoteShift {
             }
         }
     }
+}
+
+/// 노트를 옮길 수 있는 반음 범위 `(아래, 위)`(아래는 0 이하, 위는 0 이상). 음높이 0–127과 피치 오프셋을 더한
+/// 절대 피치 범위(`Note::with_pitch`가 검사하는 `[0, 128)` 반음)를 함께 지킨다(S3-T6b 리뷰 2 지적 1).
+fn pitch_room(note: &Note) -> (i32, i32) {
+    let semitone = i64::from(keyscore_core::PitchOffset::SEMITONE);
+    let pitch = i64::from(note.pitch().get());
+    let absolute = pitch * semitone + i64::from(note.offset().units());
+    // (pitch + k)·S + u ∈ [0, 128·S)
+    let down = (-absolute).div_euclid(semitone) + i64::from((-absolute).rem_euclid(semitone) != 0);
+    let up = (128 * semitone - 1 - absolute).div_euclid(semitone);
+    let down = down.max(-pitch);
+    let up = up.min(127 - pitch);
+    let narrow = |v: i64| i32::try_from(v).unwrap_or(0);
+    (narrow(down), narrow(up))
 }
 
 /// `tick` 뒤(초과) 첫 격자선.
