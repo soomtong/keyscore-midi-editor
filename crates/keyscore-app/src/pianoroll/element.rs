@@ -223,7 +223,7 @@ impl Element for PianoRollElement {
             },
             scene,
         );
-        scene.band = gesture.as_ref().and_then(super::mouse::Gesture::band_rect);
+        scene.band = gesture.as_ref().and_then(|g| g.band_rect(&viewport));
         window.insert_hitbox(bounds, HitboxBehavior::Normal)
     }
 

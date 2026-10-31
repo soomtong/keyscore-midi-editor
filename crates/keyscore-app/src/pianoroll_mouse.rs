@@ -12,11 +12,11 @@ use keyscore_core::{ClipId, Note, Tick, TrackId};
 use crate::actions::edit;
 use crate::clipboard::ClipNotes;
 use crate::dispatch::run_action;
-use crate::mode::Mode;
+use crate::mode::{Mode, View};
 use crate::pianoroll::edit::plan_paste;
 use crate::pianoroll::element::Press;
 use crate::pianoroll::mouse::{self as m, Gesture};
-use crate::pianoroll::{Cursor, Selection};
+use crate::pianoroll::{Cursor, Selection, tick_u};
 use crate::window::ProjectWindow;
 
 impl ProjectWindow {
@@ -47,6 +47,9 @@ impl ProjectWindow {
         restore: bool,
         cx: &mut Context<Self>,
     ) -> bool {
+        if self.live_gesture().is_none() {
+            return false;
+        }
         let gesture = {
             let mut inner = self.pianoroll.inner().borrow_mut();
             match inner.gesture.take() {
@@ -67,9 +70,22 @@ impl ProjectWindow {
         true
     }
 
-    /// 마우스 편집(선택·러버밴드·더블클릭)을 하는가: Normal 모드이고 트랙이 있다(결정 2절 1).
+    /// 마우스 편집(선택·러버밴드·더블클릭)을 하는가: Normal 모드의 피아노롤이고 트랙이 있다(결정 2절 1).
     fn mouse_edits(&self) -> bool {
-        self.mode_state().mode() == Mode::Normal && self.current_track().is_some()
+        self.mode_state().mode() == Mode::Normal
+            && self.mode_state().view() == View::PianoRoll
+            && self.current_track().is_some()
+    }
+
+    /// 진행 중 조작. 마우스 편집을 할 수 없는 자리(다른 모드·뷰, 트랙 없음)면 조작을 버리고 `None`이다. 뗌은
+    /// 피아노롤을 떠난 뒤 오지 않을 수 있어(배치 뷰에는 이 처리기가 없다) 끌기·뗌·`Esc` 모두 여기서 확인한다
+    /// (리뷰 1 지적 1·2). 모드·뷰 전환(`apply_mode_event`)도 조작을 버린다.
+    fn live_gesture(&mut self) -> Option<Gesture> {
+        if !self.mouse_edits() {
+            self.pianoroll.drop_gesture();
+            return None;
+        }
+        self.pianoroll.inner().borrow().gesture.clone()
     }
 
     /// 왼쪽 단추 누름.
@@ -131,7 +147,7 @@ impl ProjectWindow {
             }
             None => Some(Gesture::Empty {
                 origin,
-                press: cell.tick,
+                anchor: m::anchor_at(&self.pianoroll.viewport(), origin),
                 add: mods.platform,
                 before: self.pianoroll.selection(),
             }),
@@ -142,7 +158,7 @@ impl ProjectWindow {
 
     /// 왼쪽 단추를 누른 채 움직임.
     pub fn piano_roll_drag(&mut self, at: (f32, f32), cx: &mut Context<Self>) {
-        let gesture = self.pianoroll.inner().borrow().gesture.clone();
+        let gesture = self.live_gesture();
         match gesture {
             Some(Gesture::Note {
                 origin,
@@ -156,26 +172,26 @@ impl ProjectWindow {
             }
             Some(Gesture::Empty {
                 origin,
-                press,
+                anchor,
                 add,
                 before,
             }) if m::past_threshold(origin, at) => {
-                self.update_band(origin, at, press, add, before, cx);
+                self.update_band(anchor, at, add, before, cx);
             }
             Some(Gesture::Band {
-                origin,
-                press,
+                anchor,
                 add,
                 before,
                 ..
-            }) => self.update_band(origin, at, press, add, before, cx),
+            }) => self.update_band(anchor, at, add, before, cx),
             _ => {}
         }
     }
 
     /// 왼쪽 단추 뗌.
     pub fn piano_roll_release(&mut self, _at: (f32, f32), cx: &mut Context<Self>) {
-        let gesture = self.pianoroll.inner().borrow_mut().gesture.take();
+        let gesture = self.live_gesture();
+        self.pianoroll.inner().borrow_mut().gesture = None;
         match gesture {
             Some(Gesture::Note {
                 collapse: Some((track, clip, note)),
@@ -193,23 +209,22 @@ impl ProjectWindow {
     /// 러버밴드를 `at`까지로 다시 계산한다(끄는 동안 선택이 바뀐다, MS-1).
     fn update_band(
         &mut self,
-        origin: (f32, f32),
+        anchor: m::Anchor,
         at: (f32, f32),
-        press: Tick,
         add: bool,
         before: Selection,
         cx: &mut Context<Self>,
     ) {
         let viewport = self.pianoroll.viewport();
-        let rect = m::clipped_rect(origin, at, viewport.width, viewport.height);
+        let now = m::anchor_at(&viewport, at);
         let current_track = self.current_track();
         // `Cmd+드래그`는 지금 트랙의 선택 클립이 먼저다(그 선택에 더한다)
         let preferred = before
             .clip()
             .filter(|_| add && before.track().is_some() && before.track() == current_track);
-        let picked = m::band(&viewport, origin, at).and_then(|band| {
+        let picked = m::band_between(anchor, now).and_then(|band| {
             let track_id = current_track?;
-            let now = m::tick_at_x(&viewport, at.0);
+            let (press, now) = (Tick::new(tick_u(anchor.tick)), Tick::new(tick_u(now.tick)));
             self.with_track(cx, |track| {
                 let clip_id = m::band_clip(track, press, now, band, preferred)?;
                 Some((track_id, clip_id, m::band_notes(track.clip(clip_id)?, band)))
@@ -229,11 +244,10 @@ impl ProjectWindow {
             None => Selection::default(),
         };
         self.pianoroll.inner().borrow_mut().gesture = Some(Gesture::Band {
-            origin,
-            press,
+            anchor,
+            now: at,
             add,
             before,
-            rect,
         });
         self.set_selection(selection, cx);
         cx.notify();

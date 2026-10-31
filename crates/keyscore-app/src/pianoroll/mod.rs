@@ -656,6 +656,11 @@ impl PianoRollState {
         inner.first_tick = (tick - f64::from(x) / new).max(0.0);
     }
 
+    /// 진행 중 마우스 조작을 버린다(모드·뷰 전환).
+    pub fn drop_gesture(&self) {
+        self.inner.borrow_mut().gesture = None;
+    }
+
     /// 진행 중인 마우스 조작이 있는가(취소된 조작은 아니다).
     #[must_use]
     pub fn gesture_active(&self) -> bool {
@@ -669,11 +674,9 @@ impl PianoRollState {
     /// 지금 그리는 러버밴드 직사각형(뷰 기준 px).
     #[must_use]
     pub fn band_rect(&self) -> Option<scene::Rect> {
-        self.inner
-            .borrow()
-            .gesture
-            .as_ref()
-            .and_then(mouse::Gesture::band_rect)
+        let inner = self.inner.borrow();
+        let viewport = inner.viewport();
+        inner.gesture.as_ref().and_then(|g| g.band_rect(&viewport))
     }
 
     /// 커서 칸을 뷰포트 가운데로. 크기를 모르면 처음 크기를 알 때 한다.

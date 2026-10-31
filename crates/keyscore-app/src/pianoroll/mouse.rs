@@ -21,34 +21,54 @@ pub struct Band {
     pub high: Pitch,
 }
 
+/// 내용 위의 한 점: 절대 틱(소수)과 행(소수, 위가 0). 러버밴드의 누른 점은 이렇게 들어 스크롤·줌 뒤에도
+/// 같은 내용에 붙어 있다(리뷰 1 지적 3).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Anchor {
+    pub tick: f64,
+    pub row: f32,
+}
+
+/// 뷰 기준 점의 내용 위치. 점은 뷰포트 안으로 자른다(아래·오른쪽 끝은 보이는 마지막 칸 안).
+#[must_use]
+pub fn anchor_at(viewport: &Viewport, at: (f32, f32)) -> Anchor {
+    let x = at.0.clamp(0.0, viewport.width.max(0.0));
+    let last_row = (viewport.first_row + viewport.rows_visible()).ceil() - 1.0;
+    let row = if viewport.row_height > 0.0 {
+        viewport.first_row + at.1.clamp(0.0, viewport.height.max(0.0)) / viewport.row_height
+    } else {
+        viewport.first_row
+    };
+    Anchor {
+        tick: viewport.first_tick + f64::from(x) / viewport.px_per_tick,
+        row: row.min(last_row + 0.999),
+    }
+}
+
+/// 두 내용 위치의 러버밴드 범위. 틱은 `[내림, 올림)`이고 폭이 0이면(세로로만 끈 경우) 한 틱으로 넓힌다
+/// (화면에서 가로지른 노트를 고르게, 리뷰 1 제안 5). 행은 양끝 포함.
+#[must_use]
+pub fn band_between(a: Anchor, b: Anchor) -> Option<Band> {
+    let lo = tick_u(a.tick.min(b.tick));
+    let hi = tick_u(a.tick.max(b.tick).ceil()).max(lo + 1);
+    let row = |r: f32| r.floor().clamp(0.0, f32::from(ROWS - 1));
+    let (top, bottom) = (row(a.row).min(row(b.row)), row(a.row).max(row(b.row)));
+    let pitch_of = |row: f32| Pitch::new(ROWS - 1 - row_u8(row)).ok();
+    Some(Band {
+        lo: Tick::new(lo),
+        hi: Tick::new(hi),
+        low: pitch_of(bottom)?,
+        high: pitch_of(top)?,
+    })
+}
+
 /// 뷰 기준 두 점의 러버밴드 범위. 점은 뷰포트 안으로 자른다. 뷰포트가 비었으면 `None`.
 #[must_use]
 pub fn band(viewport: &Viewport, a: (f32, f32), b: (f32, f32)) -> Option<Band> {
     if viewport.width <= 0.0 || viewport.height <= 0.0 || viewport.row_height <= 0.0 {
         return None;
     }
-    let clamp_x = |x: f32| x.clamp(0.0, viewport.width);
-    let tick_at = |x: f32| viewport.first_tick + f64::from(clamp_x(x)) / viewport.px_per_tick;
-    let (x0, x1) = (
-        tick_at(a.0).min(tick_at(b.0)),
-        tick_at(a.0).max(tick_at(b.0)),
-    );
-    // 아래 끝은 보이는 마지막 행이다(높이와 같은 y는 다음 행이라 한 행 안으로 당긴다).
-    let last_row = (viewport.first_row + viewport.rows_visible()).ceil() - 1.0;
-    let row_at = |y: f32| {
-        (viewport.first_row + y.clamp(0.0, viewport.height) / viewport.row_height)
-            .floor()
-            .min(last_row)
-            .clamp(0.0, f32::from(ROWS - 1))
-    };
-    let (top, bottom) = (row_at(a.1).min(row_at(b.1)), row_at(a.1).max(row_at(b.1)));
-    let pitch_of = |row: f32| Pitch::new(ROWS - 1 - row_u8(row)).ok();
-    Some(Band {
-        lo: Tick::new(tick_u(x0)),
-        hi: Tick::new(tick_u(x1.ceil())),
-        low: pitch_of(bottom)?,
-        high: pitch_of(top)?,
-    })
+    band_between(anchor_at(viewport, a), anchor_at(viewport, b))
 }
 
 /// `clip`에서 `band` 안의 노트.
@@ -143,20 +163,19 @@ pub(crate) enum Gesture {
         origin: (f32, f32),
         collapse: Option<(TrackId, ClipId, Note)>,
     },
-    /// 빈 곳 누름(아직 끌지 않음). 끌면 러버밴드가 된다.
+    /// 빈 곳 누름(아직 끌지 않음). 끌면 러버밴드가 된다. `origin`은 문턱을 재는 화면 점, `anchor`는 그 내용 위치.
     Empty {
         origin: (f32, f32),
-        press: Tick,
+        anchor: Anchor,
         add: bool,
         before: Selection,
     },
-    /// 러버밴드. `rect`는 그리는 직사각형(뷰 기준 px, 뷰포트 안으로 자름).
+    /// 러버밴드. 누른 점은 내용 위치(`anchor`), 지금 점은 화면 점(`now`, 포인터는 스크롤해도 화면에 머문다).
     Band {
-        origin: (f32, f32),
-        press: Tick,
+        anchor: Anchor,
+        now: (f32, f32),
         add: bool,
         before: Selection,
-        rect: Rect,
     },
     /// `Esc`나 문서 변경으로 취소됨. 뗄 때까지 움직임을 무시한다.
     Cancelled,
@@ -169,10 +188,14 @@ impl Gesture {
         !matches!(self, Gesture::Cancelled)
     }
 
+    /// 그릴 러버밴드 직사각형(뷰 기준 px, 뷰포트 안으로 자름).
     #[must_use]
-    pub(crate) fn band_rect(&self) -> Option<Rect> {
+    pub(crate) fn band_rect(&self, viewport: &Viewport) -> Option<Rect> {
         match self {
-            Gesture::Band { rect, .. } => Some(*rect),
+            Gesture::Band { anchor, now, .. } => {
+                let origin = (viewport.x_of(anchor.tick), viewport.y_of(anchor.row));
+                Some(clipped_rect(origin, *now, viewport.width, viewport.height))
+            }
             _ => None,
         }
     }
@@ -191,13 +214,4 @@ pub(crate) fn clipped_rect(a: (f32, f32), b: (f32, f32), width: f32, height: f32
         w: x1 - x0,
         h: y1 - y0,
     }
-}
-
-/// 뷰 기준 x의 틱(뷰포트 안으로 자름).
-#[must_use]
-pub(crate) fn tick_at_x(viewport: &Viewport, x: f32) -> Tick {
-    let x = x.clamp(0.0, viewport.width.max(0.0));
-    Tick::new(tick_u(
-        viewport.first_tick + f64::from(x) / viewport.px_per_tick,
-    ))
 }

@@ -315,6 +315,11 @@ impl ProjectWindow {
             // 선택·기준 칸은 FSM 규칙(아래)대로 둔다.
             self.clear_operator(cx);
             self.pianoroll.set_visual(None);
+            // 마우스 조작도 Normal 피아노롤의 것이다. 모드·뷰가 바뀌면 버린다(뗌이 오지 않을 수 있다, S3-T6a 리뷰 1
+            // 지적 1). 선택만 바뀐 FSM 사건(`Select`)은 러버밴드 자신이 내므로 버리지 않는다.
+            if next.mode() != self.mode.mode() || next.view() != self.mode.view() {
+                self.pianoroll.drop_gesture();
+            }
             let entered_piano_roll =
                 next.view() == View::PianoRoll && self.mode.view() != View::PianoRoll;
             let sequence_changed =
