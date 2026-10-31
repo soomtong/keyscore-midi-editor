@@ -108,3 +108,17 @@ step_settings 3, step_vim_mml 22): 모두 통과
 - `review_end_grip_left_drag_on_short_offgrid_note_lengthens`: 제안 3을 받아들여 기대를 끝 Δ 0으로 바꿨다(이름은 그대로).
 
 수정 뒤 `review_s3_t6b` 8, `mouse_drag` 18, `mouse_drag_pure` 15, `mouse_select` 26, `review_s3_t6a` 10, `pianoroll_select` 14 통과, fmt·clippy 통과.
+
+## 리뷰 2 대응
+
+판정 「수정 후 재리뷰」. 리뷰 1 지적 1–4는 고쳐졌다고 확인됨. 단계 게이트 셋과 리뷰 초점도 확인됨.
+
+| 지적 | 대응 | 커밋 |
+| --- | --- | --- |
+| 1 수정: 피치 오프셋이 있는 노트를 위로 끌면 가장자리에서 멈추지 않고 전체 거부(고스트도 사라짐) | 수락. `drag_shift`의 음높이 자르기가 노트마다 `pitch_room`(음높이 0–127과 오프셋을 더한 절대 피치 `[0, 128)` 반음)을 본다. 결정 6절 5 문구 고침 | 4c63b6f |
+| 2 수정: 키맵의 `edit::CancelDrag`(「Dragging」)에 처리기가 없고 실제 취소는 하드코딩된 `escape` | 수락. 가로채기는 그대로 앞에서 받되(vim 시퀀스 대기보다 먼저), 키는 키맵의 `edit::CancelDrag` 바인딩과 맞춰 본다(드래그 수식키를 뺀 모양 포함). `edit::CancelDrag` 처리기(팔레트)도 단다. 새 시험 `rebound_cancel_drag_key_cancels_drag`. 결정 6절 11 문구 고침 | f7c9d7d |
+| 3 제안: 가장 가까운 격자선 스냅이 안쪽으로 끈 끝을 바깥으로 보냄 | 결정 문구만 좁혔다(대체 격자선 규칙의 목적, 스냅 자체의 성질은 그대로). 스냅 방향은 사람 확인 항목으로 남긴다 | f7c9d7d |
+
+알려진 한계 추가: 사용자 키맵이 「Dragging」의 `escape`를 `null`로 지워도 GPUI `bindings_for_action`이 가려진 바인딩을 돌려주면 `escape`가 여전히 취소할 수 있다(확인하지 않았다).
+
+수정 뒤 `review_s3_t6b_r2` 9, `review_s3_t6b` 8, `mouse_drag` 19, `mouse_drag_pure` 15, `mouse_select` 26, `review_s3_t6a` 10·r2 8·r3 9, `commands` 12, `keymap_engine` 11 통과, fmt·clippy 통과.
