@@ -1,7 +1,8 @@
 //! 트랜스포트 바(S2-T5b, 7.1 상단, TRN-1·2·4, 7.6).
 //!
 //! 버튼은 해당 Action을 실행 함수로 낸다(결정 C). 템포·박자표 필드와 조성·포트 선택은 문서 편집이고 각각
-//! undo 한 단위다. TRN-4에 따라 템포·박자표·조성은 곡 전체에 하나(틱 0)다.
+//! undo 한 단위다. TRN-4에 따라 템포·박자표·조성은 곡 전체에 하나(틱 0)다. 템포·박자표 필드는 세로로 끌어
+//! 조정한다(S3-T6c, `transport_drag.rs`).
 
 use std::time::Duration;
 
@@ -10,8 +11,8 @@ use gpui_kit::component::input::Input;
 use gpui_kit::component::{ActiveTheme as _, Disableable as _};
 use gpui_kit::{
     Action, ClickEvent, Context, InteractiveElement as _, IntoElement, KeyDownEvent,
-    ParentElement as _, Pixels, Point, StatefulInteractiveElement as _, Styled as _,
-    TestSupportExt as _, Window, div, px,
+    MouseDownEvent, ParentElement as _, Pixels, Point, StatefulInteractiveElement as _,
+    Styled as _, TestSupportExt as _, Window, div, px,
 };
 use keyscore_core::{Edit, OutputPort, Tempo, Tick, TrackProp};
 use keyscore_midi::HostTime;
@@ -23,6 +24,7 @@ use crate::fields::Field;
 use crate::tracks::{
     format_position, key_choices, key_label, parse_meter, parse_tempo, port_label,
 };
+use crate::transport_drag::{FieldBox, FieldDrag, field_box_recorder};
 use crate::window::{PopupKind, ProjectWindow};
 
 /// 탭 템포: 이만큼 쉬면 새로 센다.
@@ -36,6 +38,11 @@ pub(crate) struct TransportBar {
     taps: Vec<HostTime>,
     /// 마지막으로 연 포트 드롭다운의 선택지.
     pub(crate) port_choices: Vec<OutputPort>,
+    /// 진행 중 필드 끌기(S3-T6c).
+    pub(crate) drag: Option<FieldDrag>,
+    /// 템포·박자표 필드 상자(그리기 때 기록).
+    pub(crate) tempo_box: FieldBox,
+    pub(crate) meter_box: FieldBox,
 }
 
 impl TransportBar {
@@ -43,6 +50,9 @@ impl TransportBar {
         TransportBar {
             taps: Vec::new(),
             port_choices: Vec::new(),
+            drag: None,
+            tempo_box: FieldBox::default(),
+            meter_box: FieldBox::default(),
         }
     }
 }
@@ -281,6 +291,7 @@ impl ProjectWindow {
         div()
             .id("transport")
             .test_support()
+            .relative()
             .size_full()
             .px_2()
             .flex()
@@ -308,21 +319,32 @@ impl ProjectWindow {
                 action_button("transport-record", "⏺", Box::new(mode::Sequence)).disabled(true),
             )
             .child(
+                // 누르고 세로로 끌면 값 조정, 그대로 떼면 입력(7.6, S3-T6c)
                 div()
+                    .relative()
                     .w(px(72.))
+                    .capture_any_mouse_down(cx.listener(|this, e: &MouseDownEvent, window, cx| {
+                        this.transport_field_press(Field::Tempo, e, window, cx);
+                    }))
                     .capture_key_down(cx.listener(|this, e: &KeyDownEvent, window, cx| {
                         this.field_key_down(Field::Tempo, e, window, cx);
                     }))
-                    .child(Input::new(self.field_state(Field::Tempo)).id("transport-tempo")),
+                    .child(Input::new(self.field_state(Field::Tempo)).id("transport-tempo"))
+                    .child(field_box_recorder(&self.transport_bar.tempo_box)),
             )
             .child("BPM")
             .child(
                 div()
+                    .relative()
                     .w(px(56.))
+                    .capture_any_mouse_down(cx.listener(|this, e: &MouseDownEvent, window, cx| {
+                        this.transport_field_press(Field::Meter, e, window, cx);
+                    }))
                     .capture_key_down(cx.listener(|this, e: &KeyDownEvent, window, cx| {
                         this.field_key_down(Field::Meter, e, window, cx);
                     }))
-                    .child(Input::new(self.field_state(Field::Meter)).id("transport-meter")),
+                    .child(Input::new(self.field_state(Field::Meter)).id("transport-meter"))
+                    .child(field_box_recorder(&self.transport_bar.meter_box)),
             )
             .child(
                 Button::new("transport-key")
@@ -374,5 +396,6 @@ impl ProjectWindow {
                         this.open_port_menu(event.position(), window, cx);
                     })),
             )
+            .child(Self::transport_drag_listener(cx))
     }
 }

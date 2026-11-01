@@ -50,8 +50,12 @@ impl ProjectWindow {
             if window.window_handle() != handle || !cancels_drag(&event.keystroke, cx) {
                 return;
             }
+            // 트랜스포트 필드 끌기(S3-T6c, 결정 7절 7)도 같은 키로 취소한다
             let taken = me
-                .update(cx, |this, cx| this.cancel_piano_roll_gesture(true, cx))
+                .update(cx, |this, cx| {
+                    let gesture = this.cancel_piano_roll_gesture(true, cx);
+                    this.cancel_transport_drag(window, cx) || gesture
+                })
                 .unwrap_or(false);
             if taken {
                 cx.stop_propagation();
@@ -63,10 +67,11 @@ impl ProjectWindow {
     pub(crate) fn cancel_drag_action(
         &mut self,
         _: &edit::CancelDrag,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         self.cancel_piano_roll_gesture(true, cx);
+        self.cancel_transport_drag(window, cx);
     }
 
     /// 진행 중 마우스 조작을 취소한다. `restore`면 러버밴드가 누르기 전 선택으로 돌아간다(`Esc`). 문서가 바뀌어
