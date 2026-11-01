@@ -443,6 +443,15 @@ fn info_lines_show_pitch_start_length_channel() {
         line(&info_lines(&p2, i2[0], c2[0], &down), "음높이"),
         "D3 (50) -12.5 cent"
     );
+    // 0.05 cent 미만: 부호를 지키고 0이라 하지 않는다(리뷰 3 지적 3)
+    for (units, want) in [(1, "D3 (50) +<0.1 cent"), (-1, "D3 (50) -<0.1 cent")] {
+        let n = note(3200, 10, 50)
+            .with_offset(PitchOffset::new(units).unwrap())
+            .unwrap();
+        let (t3, c3) = track("T", 1, vec![(0, BAR, vec![n.clone()])]);
+        let (p3, i3) = self::project(vec![t3]);
+        assert_eq!(line(&info_lines(&p3, i3[0], c3[0], &n), "음높이"), want);
+    }
 
     let lines = info_lines(&project, ids[0], clips[0], &odd);
     assert_eq!(line(&lines, "음높이"), "G9 (127)");

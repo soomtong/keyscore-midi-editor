@@ -80,9 +80,12 @@ fn pitch_text(note: &Note) -> String {
     // 가장 가까운 0.1 cent(절반은 0에서 먼 쪽). 정수 cent로 반올림하면 작은 오프셋이 「+0 cent」로 보인다
     // (S3-T7 리뷰 2 제안 4)
     let tenths = (units * 2000 + units.signum() * semitone) / (2 * semitone);
-    let sign = if tenths < 0 { '-' } else { '+' };
+    // 부호는 반올림 전 값에서 정한다. 0.05 cent 미만은 0이 아니라 「0.1 cent 미만」이다(리뷰 3 지적 3)
+    let sign = if units < 0 { '-' } else { '+' };
     let (whole, frac) = (tenths.abs() / 10, tenths.abs() % 10);
-    if frac == 0 {
+    if tenths == 0 {
+        format!("{text} {sign}<0.1 cent")
+    } else if frac == 0 {
         format!("{text} {sign}{whole} cent")
     } else {
         format!("{text} {sign}{whole}.{frac} cent")
