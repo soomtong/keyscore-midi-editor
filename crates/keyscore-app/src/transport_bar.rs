@@ -396,6 +396,6 @@ impl ProjectWindow {
                         this.open_port_menu(event.position(), window, cx);
                     })),
             )
-            .child(self.transport_drag_listener(cx))
+            .child(Self::transport_drag_listener(cx))
     }
 }

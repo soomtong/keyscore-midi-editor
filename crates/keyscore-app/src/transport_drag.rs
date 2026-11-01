@@ -165,6 +165,8 @@ pub(crate) struct FieldDrag {
     base: DragValue,
     /// 마지막 움직임의 y.
     last_y: Pixels,
+    /// 이 누름 사건으로 막 만들었는가. 창 전체 누름 처리기가 남은 끌기와 가른다.
+    fresh: bool,
     /// 미세 조정(`Cmd`, 템포만).
     fine: bool,
     value: DragValue,
@@ -192,27 +194,26 @@ impl ProjectWindow {
     /// 사건을 그리기 때마다 등록한다(div의 움직임 처리기는 포인터가 그 위에 있을 때만 불린다).
     ///
     /// 뗌 사건을 놓친 끌기(창 밖에서 놓음 등)가 다음 클릭의 뗌을 자기 뗌으로 받지 않게, 단추를 쥐지 않은 움직임이나
-    /// 필드 밖의 새 누름이 오면 남은 끌기를 취소한다(리뷰 2 지적 1). 필드 안의 누름은 `transport_field_press`가
-    /// 남은 끌기를 먼저 끝낸다.
-    pub(crate) fn transport_drag_listener(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    /// 새 누름이 오면 남은 끌기를 취소한다(리뷰 2 지적 1). 필드 누름(캡처 단계, 이 처리기보다 먼저 그려져 먼저
+    /// 불린다)이 막 만든 끌기는 `fresh`로 알아보고 남긴다. 필드 상자의 좌표로 가르지 않는 것은, 겹(시트 바탕 등)이
+    /// 필드를 가리면 필드 누름이 불리지 않아 남은 끌기가 끝나지 않기 때문이다(리뷰 3 제안 2).
+    pub(crate) fn transport_drag_listener(cx: &mut Context<Self>) -> impl IntoElement {
         let me = cx.entity().downgrade();
-        let boxes = [
-            self.transport_bar.tempo_box.clone(),
-            self.transport_bar.meter_box.clone(),
-        ];
         canvas(
             |_, _, _| (),
             move |_, (), window, _| {
                 let on_down = me.clone();
-                window.on_mouse_event(move |event: &MouseDownEvent, phase, window, cx| {
-                    if phase != DispatchPhase::Capture
-                        || boxes
-                            .iter()
-                            .any(|b| b.get().is_some_and(|b| b.contains(&event.position)))
-                    {
+                window.on_mouse_event(move |_: &MouseDownEvent, phase, window, cx| {
+                    if phase != DispatchPhase::Capture {
                         return;
                     }
-                    let _ = on_down.update(cx, |this, cx| this.cancel_transport_drag(window, cx));
+                    let _ = on_down.update(cx, |this, cx| match this.transport_bar.drag.as_mut() {
+                        Some(drag) if drag.fresh => drag.fresh = false,
+                        Some(_) => {
+                            this.cancel_transport_drag(window, cx);
+                        }
+                        None => {}
+                    });
                 });
                 let on_move = me.clone();
                 window.on_mouse_event(move |event: &MouseMoveEvent, phase, window, cx| {
@@ -297,6 +298,7 @@ impl ProjectWindow {
             base_y: event.position.y,
             base,
             last_y: event.position.y,
+            fresh: true,
             fine: event.modifiers.platform,
             value: base,
         });
