@@ -185,11 +185,18 @@ impl ProjectWindow {
             return;
         }
         self.last_search = Some(text.clone());
-        self.search_jump(&text, direction, cx);
+        self.search_jump(&text, direction, 1, cx);
     }
 
     /// `text`로 찾아 `direction`의 결과로 커서를 옮긴다(결정 3·4절).
-    fn search_jump(&mut self, text: &str, direction: Direction, cx: &mut Context<Self>) {
+    /// `count`번 걷는다(vim `3 n`, REQ 5.8.1 「반복은 숫자 카운트 접두」). 결과 수보다 크면 돌아 이어 간다.
+    fn search_jump(
+        &mut self,
+        text: &str,
+        direction: Direction,
+        count: u32,
+        cx: &mut Context<Self>,
+    ) {
         // 검색 이동은 오퍼레이터의 모션이 아니다. 어느 길로 끝나든 먼저 대기를 끝낸다(결정 4절 4, 리뷰 1 지적 4)
         self.clear_operator(cx);
         let query = match Query::parse(text) {
@@ -212,7 +219,28 @@ impl ProjectWindow {
                 tick: cursor.tick,
                 pitch: cursor.pitch,
             };
-            let found = step(project, &hits, at, direction);
+            // 결과를 다 돌면 같은 자리로 오므로 결과 수 안으로 줄인다. 그보다 많으면 반드시 돌았다
+            let n = u32::try_from(hits.len()).unwrap_or(u32::MAX).max(1);
+            let walks = (count.max(1) - 1) % n + 1;
+            let mut at = at;
+            let mut found = None;
+            let mut wrapped = count > n;
+            for _ in 0..walks {
+                let Some(f) = step(project, &hits, at, direction) else {
+                    break;
+                };
+                wrapped |= f.wrapped;
+                let h = hits[f.index];
+                at = Position {
+                    track_index: project.track_index(h.track).unwrap_or(0),
+                    tick: h.tick,
+                    pitch: h.pitch,
+                };
+                found = Some(crate::search::Found {
+                    index: f.index,
+                    wrapped,
+                });
+            }
             (hits, found)
         };
         let Some(found) = found else {
@@ -248,6 +276,8 @@ impl ProjectWindow {
 
     /// `search::Next`·`search::Prev`: 지난 검색어로 이동한다(결정 5절).
     fn search_repeat(&mut self, direction: Direction, cx: &mut Context<Self>) {
+        // 카운트는 어느 길로 끝나든 먼저 비운다(다음 키로 새지 않게)
+        let count = crate::keymap::take_count(cx).unwrap_or(1);
         if !self.search_allowed(cx) {
             return;
         }
@@ -256,7 +286,7 @@ impl ProjectWindow {
             self.say("검색어가 없다", cx);
             return;
         };
-        self.search_jump(&text, direction, cx);
+        self.search_jump(&text, direction, count, cx);
     }
 
     pub(crate) fn search_next(&mut self, _: &search::Next, _: &mut Window, cx: &mut Context<Self>) {

@@ -594,3 +594,23 @@ fn bar_recounts_when_document_changes(cx: &mut TestAppContext) {
     render(cx, handle);
     assert_eq!(status(cx, &view).as_deref(), Some("결과 2개"));
 }
+
+/// 리뷰 2 지적 2: 카운트만큼 걷고, 결과 수보다 크면 돌아 이어 간다.
+#[gpui_kit::test]
+fn vim_count_beyond_hits_wraps(cx: &mut TestAppContext) {
+    let (handle, view) = setup_with(cx, "countwrap", Preset::Vim);
+    set_cursor(cx, &view, 0, 60);
+    press(cx, handle, "/");
+    type_text(cx, handle, "c#4");
+    press(cx, handle, "enter");
+    assert_eq!(cursor(cx, &view), (0, 61));
+    // 결과 둘: 5번 걸으면 다음 하나(BAR)와 같다
+    press(cx, handle, "5 n");
+    assert_eq!(cursor(cx, &view), (BAR, 61));
+    assert_eq!(
+        last_message(cx, &view),
+        "검색 c#4: 2/2 · 끝에서 처음으로 돌아왔다"
+    );
+    press(cx, handle, "2 shift-n");
+    assert_eq!(cursor(cx, &view), (BAR, 61), "두 번 뒤로 걸으면 제자리");
+}
