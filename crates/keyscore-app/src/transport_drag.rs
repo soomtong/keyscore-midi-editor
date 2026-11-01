@@ -180,25 +180,51 @@ pub(crate) fn field_box_recorder(field_box: &FieldBox) -> impl IntoElement {
         |_, _, _| (),
         move |bounds, (), _, _| field_box.set(Some(bounds)),
     )
+    // `top_0`·`left_0`이 없으면 절대 위치 요소가 정적 자리(입력란 아래)에 놓여 상자가 어긋난다
     .absolute()
+    .top_0()
+    .left_0()
     .size_full()
 }
 
 impl ProjectWindow {
     /// 끄는 동안 포인터가 필드·창 어디에 있든 움직임과 뗌을 받는 빈 그림. 피아노롤 Element처럼 창 전체 마우스
     /// 사건을 그리기 때마다 등록한다(div의 움직임 처리기는 포인터가 그 위에 있을 때만 불린다).
-    pub(crate) fn transport_drag_listener(cx: &mut Context<Self>) -> impl IntoElement {
+    ///
+    /// 뗌 사건을 놓친 끌기(창 밖에서 놓음 등)가 다음 클릭의 뗌을 자기 뗌으로 받지 않게, 단추를 쥐지 않은 움직임이나
+    /// 필드 밖의 새 누름이 오면 남은 끌기를 취소한다(리뷰 2 지적 1). 필드 안의 누름은 `transport_field_press`가
+    /// 남은 끌기를 먼저 끝낸다.
+    pub(crate) fn transport_drag_listener(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let me = cx.entity().downgrade();
+        let boxes = [
+            self.transport_bar.tempo_box.clone(),
+            self.transport_bar.meter_box.clone(),
+        ];
         canvas(
             |_, _, _| (),
             move |_, (), window, _| {
+                let on_down = me.clone();
+                window.on_mouse_event(move |event: &MouseDownEvent, phase, window, cx| {
+                    if phase != DispatchPhase::Capture
+                        || boxes
+                            .iter()
+                            .any(|b| b.get().is_some_and(|b| b.contains(&event.position)))
+                    {
+                        return;
+                    }
+                    let _ = on_down.update(cx, |this, cx| this.cancel_transport_drag(window, cx));
+                });
                 let on_move = me.clone();
                 window.on_mouse_event(move |event: &MouseMoveEvent, phase, window, cx| {
-                    if phase != DispatchPhase::Bubble || !event.dragging() {
+                    if phase != DispatchPhase::Bubble {
                         return;
                     }
                     let _ = on_move.update(cx, |this, cx| {
-                        this.transport_drag_move(event.position, event.modifiers, window, cx);
+                        if event.dragging() {
+                            this.transport_drag_move(event.position, event.modifiers, window, cx);
+                        } else {
+                            this.cancel_transport_drag(window, cx);
+                        }
                     });
                 });
                 let on_up = me.clone();
@@ -215,11 +241,13 @@ impl ProjectWindow {
             },
         )
         .absolute()
+        .top_0()
+        .left_0()
         .size_full()
     }
 
     /// 필드 상자의 캡처 단계 누름(7절 2). 그 필드를 고치는 중이 아니면 끌기 후보를 만들고 입력란이 누름을 받지
-    /// 않게 전파를 멈춘다.
+    /// 않게 기본 동작을 막는다.
     pub(crate) fn transport_field_press(
         &mut self,
         field: Field,
@@ -227,6 +255,8 @@ impl ProjectWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // 뗌을 놓친 남은 끌기는 새 누름으로 끝난다(리뷰 2 지적 1)
+        self.cancel_transport_drag(window, cx);
         if event.button != MouseButton::Left {
             return;
         }
