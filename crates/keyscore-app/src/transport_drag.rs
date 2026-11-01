@@ -402,7 +402,13 @@ impl ProjectWindow {
             }
         }
         self.reset_field(drag.field, window, cx);
-        self.focus_document(window, cx);
+        // 누름에서 문서로 옮긴 포커스를 끄는 동안 키로 다른 곳(다른 필드, 시트)에 옮겼으면 뺏지 않는다(리뷰 3 제안 1)
+        if window
+            .focused(cx)
+            .is_none_or(|f| f == self.document_focus())
+        {
+            self.focus_document(window, cx);
+        }
         cx.notify();
     }
 
