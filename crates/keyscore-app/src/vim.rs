@@ -135,7 +135,10 @@ fn allowed_while_pending(action: &dyn Action, op: Operator) -> bool {
         || a.is::<object::AroundClip>();
     // `y`로 시작하는 `y y`(복사)·`y y p`(반복)는 `y` 대기에서만(`y` 뒤 대기 시간을 넘긴 `y y`)
     let yank_sequence = op == Operator::Yank && (a.is::<edit::Copy>() || a.is::<edit::Repeat>());
-    motion || own || yank_sequence
+    // 검색 이동은 모션이 아니지만 키를 삼키지 않는다. 처리기가 대기를 끝내고 이동만 한다(S3-T7 결정 4절 4,
+    // 리뷰 1 지적 2)
+    let search = a.is::<crate::actions::search::Next>() || a.is::<crate::actions::search::Prev>();
+    motion || own || yank_sequence || search
 }
 
 /// 오퍼레이터 대기를 시작하는 Action인가(대기 입력의 접두 판단).

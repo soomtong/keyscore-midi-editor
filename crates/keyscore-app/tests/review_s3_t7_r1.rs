@@ -110,11 +110,7 @@ fn project_with_empty_track() -> Project {
     clip.insert_note(note(0, 480, 61)).unwrap();
     lead.insert_clip(clip).unwrap();
     project.push_track(lead).unwrap();
-    let mut pad = Track::new(
-        "Pad",
-        Channel::new(2).unwrap(),
-        TrackColor::new(1).unwrap(),
-    );
+    let mut pad = Track::new("Pad", Channel::new(2).unwrap(), TrackColor::new(1).unwrap());
     pad.insert_clip(Clip::new(Tick::new(BAR), BAR).unwrap())
         .unwrap();
     project.push_track(pad).unwrap();
@@ -235,11 +231,21 @@ fn search_for(cx: &mut TestAppContext, handle: AnyWindowHandle, text: &str) {
 /// 다시 골라 커서가 그 자리에 갇힌다.
 #[gpui_kit::test]
 fn search_prev_from_empty_track_hit_moves_to_earlier_hit(cx: &mut TestAppContext) {
-    let (handle, view) = open(cx, "emptyprev", Preset::Default, project_with_empty_track(), true);
+    let (handle, view) = open(
+        cx,
+        "emptyprev",
+        Preset::Default,
+        project_with_empty_track(),
+        true,
+    );
     let ids = track_ids(cx, &view);
     search_for(cx, handle, "\"a\"");
     assert_eq!(current_track(cx, &view), Some(ids[1]), "다음 결과는 Pad");
-    assert_eq!(cursor(cx, &view), (BAR, 72), "노트 없는 트랙: 커서 음높이 그대로");
+    assert_eq!(
+        cursor(cx, &view),
+        (BAR, 72),
+        "노트 없는 트랙: 커서 음높이 그대로"
+    );
     press(cx, handle, "cmd-shift-g");
     assert_eq!(
         (current_track(cx, &view), cursor(cx, &view)),
@@ -252,7 +258,13 @@ fn search_prev_from_empty_track_hit_moves_to_earlier_hit(cx: &mut TestAppContext
 /// 같은 원인: 노트 없는 트랙 결과가 유일한 결과일 때 「이전」은 돎 문구를 남겨야 한다(결정 3절 5).
 #[gpui_kit::test]
 fn search_prev_on_sole_empty_track_hit_says_wrapped(cx: &mut TestAppContext) {
-    let (handle, view) = open(cx, "emptysole", Preset::Default, project_with_empty_track(), true);
+    let (handle, view) = open(
+        cx,
+        "emptysole",
+        Preset::Default,
+        project_with_empty_track(),
+        true,
+    );
     search_for(cx, handle, "pad");
     assert_eq!(cursor(cx, &view), (BAR, 72));
     press(cx, handle, "cmd-shift-g");
@@ -379,7 +391,9 @@ fn parse_edge_forms_follow_decision_grammar() {
     assert_eq!(Query::parse("  \tC-1\u{3000}"), pitch(0));
     assert_eq!(Query::parse("bb"), Ok(Query::PitchClass(10)));
     // 음높이 꼴이 아닌 것은 글자다(공황 없이)
-    for text in ["c##4", "c#10", "c4x", "c가", "가", "é", "c#٤", "h", "-1", "\"", "\"a"] {
+    for text in [
+        "c##4", "c#10", "c4x", "c가", "가", "é", "c#٤", "h", "-1", "\"", "\"a",
+    ] {
         assert!(
             matches!(Query::parse(text), Ok(Query::Text(_))),
             "{text:?} → {:?}",
@@ -432,7 +446,11 @@ fn note_info_opens_in_step_mode_and_returns_focus(cx: &mut TestAppContext) {
     assert!(cx.read(|cx| view.read(cx).note_info().is_some()));
     press(cx, handle, "escape");
     assert!(cx.read(|cx| view.read(cx).note_info().is_none()));
-    assert_eq!(current_mode(cx, &view), Mode::Step, "팝업의 Esc는 모드를 바꾸지 않는다");
+    assert_eq!(
+        current_mode(cx, &view),
+        Mode::Step,
+        "팝업의 Esc는 모드를 바꾸지 않는다"
+    );
     assert!(focus_in_document(cx, handle, &view));
 }
 
