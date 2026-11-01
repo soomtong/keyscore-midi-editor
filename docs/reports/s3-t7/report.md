@@ -22,8 +22,8 @@
 ## 테스트 결과
 
 ~~~
-keyscore-app --test search_pure: 10 passed
-keyscore-app --test review_s3_t7_r1: 13 passed, review_s3_t7_r2: 8 passed(리뷰 대응 뒤)
+keyscore-app --test search_pure: 11 passed(리뷰 3 대응에서 `walk_equals_repeated_steps` 추가)
+keyscore-app --test review_s3_t7_r1: 13, review_s3_t7_r2: 8, review_s3_t7_r3: 9, review_s3_t7_r4: 5 passed(리뷰 대응 뒤)
 keyscore-app --test search: 18 passed(리뷰 대응 뒤)
 keyscore-app --test note_info: 5 passed
 keymap_engine·keymap_overlay·keymap_source·keymap_user·commands·carry_overs·quantize_sheet: 실패 없음
@@ -67,7 +67,13 @@ keymap_engine·keymap_overlay·keymap_source·keymap_user·commands·carry_overs
 
 ## 자동 게이트
 
-GATES_PLACEHOLDER
+커밋 60f092b(리뷰 3 대응 끝, 그 뒤는 문서와 리뷰 시험 `review_s3_t7_r4.rs`만 더함)에서 돌렸다.
+
+- [x] fmt: `cargo fmt --all -- --check` 통과
+- [x] clippy -D warnings: `cargo clippy --workspace --all-targets -- -D warnings` 통과
+- [x] test: `cargo test --workspace --no-fail-fast` 2801 passed, 0 failed. 뒤에 더한 `review_s3_t7_r4` 5 passed
+- [x] deny: advisories·bans·licenses·sources ok
+- [x] 단계별 추가 게이트: `scripts/check-deps.sh` ok, `scripts/check-deps.test.sh` 16 passed, `scripts/bench-check.test.sh` 8 passed
 
 ## 알려진 한계
 
@@ -109,3 +115,26 @@ GATES_PLACEHOLDER
 | 3 제안: 검색 모션 넘김·`Cmd+G`가 단계 파일에 없음 | 받아들임. 단계 파일 S3-T7에 결정 줄을 더했다(검색 모션은 REQ 표에 없어 하지 않음) | 4b17275 |
 | 4 제안: 작은 오프셋이 「+0 cent」 | 받아들임. 0.1 cent로 반올림한다. 결정 6절 2, 시험 `info_lines_show_pitch_start_length_channel` | 9ef3b94 |
 | 5 제안: 배치 뷰의 `i` | 받아들임(동작 유지). 결정 6절 1에 「배치 뷰도 같은 커서」를 적었다 | 4b17275 |
+
+## 리뷰 3 대응
+
+리뷰 3 판정 「수정 후 재리뷰」(수정 1, 제안 3, 차단 없음). 재리뷰 상한(3회)에 닿아 결정 요청 `docs/decisions/2026-11-01-s3-t7-review-limit.md`를 썼고, 사람이 A(좁은 확인 1회)를 골랐다.
+
+| 지적 | 대응 | 커밋 |
+| --- | --- | --- |
+| 1 수정: 카운트 걷기가 이차 비용 | `search::walk`: 첫 걸음만 `step`, 나머지는 순번 산술(O(n)). 속성 시험 `walk_equals_repeated_steps` | 카운트 걷기 커밋 |
+| 2 제안: 노트 없는 결과에서 끝나는 카운트 걷기의 음높이 | 받아들임. 걸은 길에서 마지막으로 지난 노트의 음높이(키 반복과 같다). 결정 5절 4 | 같은 커밋 |
+| 3 제안: 아주 작은 오프셋 표시 | 받아들임. 부호를 지키고 `±<0.1 cent`. 결정 6절 2 | 오프셋 부호 커밋 |
+| 4 제안: 결정 5절 번호 | 받아들임 | 결정 번호 커밋 |
+
+리뷰 시험 `review_s3_t7_r3.rs`의 `48 * ((1 + 9999) % 10_000)`은 clippy `erasing_op`에 걸려 같은 값 `0`으로 바꿨다(좁은 확인이 맞다고 확인).
+
+## 좁은 확인(리뷰 4) 대응
+
+판정 「병합 가능」(차단·수정 없음, 제안 2).
+
+| 지적 | 대응 |
+| --- | --- |
+| 1 제안: `walk_equals_repeated_steps` 생성기가 약함(노트 결과가 적고 트랙이 늘 0번) | 거절. 리뷰 시험 `walk_equals_repeated_steps_on_mixed_track_orders`(review_s3_t7_r4)가 가사 노트 결과와 섞인 트랙 순서를 덮고 함께 커밋되어 늘 돈다 |
+| 2 제안: `walk`의 전제(`hits`가 지금 프로젝트의 `find_hits` 결과)를 문서로만 둠 | 거절. 통합 시험(`tests/`)이 `walk`·`step`을 공개 API로 써서 `pub(crate)`로 줄일 수 없고, 제품 경로(`search_jump`)는 늘 막 찾은 결과를 넘긴다. 전제는 함수 문서에 있다 |
+| 3 확인: 보고서 게이트 칸 | 아래 「자동 게이트」를 채웠다 |
