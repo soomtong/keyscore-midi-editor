@@ -349,6 +349,29 @@ impl ProjectWindow {
         cx.notify();
     }
 
+    /// 문서가 바뀌었다. 끄는 값(틱 0의 템포·박자표)이 누를 때와 달라졌으면 끌기를 취소한다(결정 7절 7). 기준이
+    /// 낡은 끌기가 뗄 때 그 변경을 덮지 않게 하기 위해서다. 다른 편집이나 되돌릴 것이 없는 `Cmd+Z`는 끌기를
+    /// 끊지 않는다(리뷰 1 제안 2).
+    pub(crate) fn transport_drag_document_changed(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(drag) = self.transport_bar.drag.as_ref() else {
+            return;
+        };
+        let project = self.document.read(cx).project();
+        let now = match drag.start {
+            DragValue::Tempo(_) => {
+                DragValue::Tempo(tempo_tenths(project.tempo_map().tempo_at(Tick::ZERO)))
+            }
+            DragValue::Meter(_) => DragValue::Meter(project.meter_map().signature_at(Tick::ZERO)),
+        };
+        if now != drag.start {
+            self.cancel_transport_drag(window, cx);
+        }
+    }
+
     /// 진행 중 트랜스포트 끌기를 취소한다(`edit::CancelDrag`, 문서 변경, 7절 7). 필드는 문서 값으로 돌아간다.
     /// 취소했으면 참.
     pub(crate) fn cancel_transport_drag(

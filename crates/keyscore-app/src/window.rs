@@ -132,8 +132,8 @@ impl ProjectWindow {
         let document_changed = cx.observe_in(&document, window, |this, _, window, cx| {
             this.keep_current_track(cx);
             this.selection_document_changed(cx);
-            // 끄는 중 문서가 바뀌면 트랜스포트 끌기는 취소다(결정 7절 7). 필드를 맞추기 전에 끝낸다.
-            this.cancel_transport_drag(window, cx);
+            // 끄는 값이 바뀌면 트랜스포트 끌기는 취소다(결정 7절 7). 필드를 맞추기 전에 끝낸다.
+            this.transport_drag_document_changed(window, cx);
             this.sync_fields(window, cx);
             this.transport_document_changed(cx);
             this.notice_history_limit(cx);
