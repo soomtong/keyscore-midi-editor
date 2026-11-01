@@ -289,3 +289,53 @@ pub fn step(project: &Project, hits: &[Hit], at: Position, direction: Direction)
         },
     })
 }
+
+/// 카운트 걷기의 끝.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Walk {
+    /// 마지막에 고른 결과의 순번.
+    pub index: usize,
+    /// 걷는 동안 한 번이라도 돌았다.
+    pub wrapped: bool,
+    /// 커서 음높이를 가져올 결과: 걸은 길에서 마지막으로 지난 노트 있는 결과. 없으면 `None`(지금 커서 음높이를
+    /// 둔다). 같은 키를 `count`번 누른 것과 같다(노트 없는 결과는 음높이를 두기 때문이다, 결정 4절 1).
+    pub pitch_from: Option<usize>,
+}
+
+/// `at`에서 `direction`으로 `count`번 걷는다(결정 5절 4). 첫 걸음만 [`step`]으로 찾고 나머지는 순번
+/// 산술이다. `hits`는 [`find_hits`]의 결과(정렬되어 있고 모두 지금 프로젝트의 트랙)여야 한다. 결과를 다 돌면
+/// 같은 자리로 오므로 걸음 수는 결과 수 안으로 줄인다(S3-T7 리뷰 3 지적 1: 걸음마다 `step`을 부르면 이차 비용).
+#[must_use]
+pub fn walk(
+    project: &Project,
+    hits: &[Hit],
+    at: Position,
+    direction: Direction,
+    count: u32,
+) -> Option<Walk> {
+    let first = step(project, hits, at, direction)?;
+    let n = hits.len();
+    let count = usize::try_from(count.max(1)).unwrap_or(usize::MAX);
+    let extra = (count - 1) % n;
+    let (index, crossed) = match direction {
+        Direction::Forward => {
+            let end = first.index + extra;
+            (end % n, end >= n)
+        }
+        Direction::Backward => ((first.index + n - extra) % n, first.index < extra),
+    };
+    // 길: 첫 결과부터 끝까지 `extra + 1`칸. 한 바퀴 넘게 걸었으면 모든 결과를 지났다. 끝에서 거꾸로 노트 있는
+    // 결과를 찾는다
+    let path = if count > n { n } else { extra + 1 };
+    let pitch_from = (0..path)
+        .map(|back| match direction {
+            Direction::Forward => (index + n - back) % n,
+            Direction::Backward => (index + back) % n,
+        })
+        .find(|&i| hits[i].has_note);
+    Some(Walk {
+        index,
+        wrapped: first.wrapped || crossed || count > n,
+        pitch_from,
+    })
+}

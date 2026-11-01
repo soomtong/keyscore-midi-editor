@@ -343,7 +343,8 @@ fn large_count_walk_is_not_quadratic(cx: &mut TestAppContext) {
     press(cx, handle, "9 9 9 9 n");
     let many = t.elapsed();
     eprintln!("n 한 번: {one:?}, 9999 n: {many:?}");
-    assert_eq!(place(cx, &view).1, 48 * ((1 + 9999) % 10_000));
+    // 1 + 9999 = 10000걸음은 결과 10,000개를 한 바퀴 돌아 첫 결과(틱 0)로 온다(구현자가 clippy erasing_op 때문에 상수로 고침)
+    assert_eq!(place(cx, &view).1, 0);
     assert!(
         many < one * 20 + Duration::from_millis(50),
         "9999 n이 {many:?}(n 한 번 {one:?})"

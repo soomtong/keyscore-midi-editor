@@ -17,7 +17,7 @@ use gpui_kit::{
 use crate::actions::{mode, search};
 use crate::mode::Mode;
 use crate::pianoroll::Cursor;
-use crate::search::{Direction, Position, Query, find_hits, step};
+use crate::search::{Direction, Position, Query, find_hits, walk};
 use crate::window::ProjectWindow;
 
 /// 열린 검색 막대.
@@ -219,28 +219,7 @@ impl ProjectWindow {
                 tick: cursor.tick,
                 pitch: cursor.pitch,
             };
-            // 결과를 다 돌면 같은 자리로 오므로 결과 수 안으로 줄인다. 그보다 많으면 반드시 돌았다
-            let n = u32::try_from(hits.len()).unwrap_or(u32::MAX).max(1);
-            let walks = (count.max(1) - 1) % n + 1;
-            let mut at = at;
-            let mut found = None;
-            let mut wrapped = count > n;
-            for _ in 0..walks {
-                let Some(f) = step(project, &hits, at, direction) else {
-                    break;
-                };
-                wrapped |= f.wrapped;
-                let h = hits[f.index];
-                at = Position {
-                    track_index: project.track_index(h.track).unwrap_or(0),
-                    tick: h.tick,
-                    pitch: h.pitch,
-                };
-                found = Some(crate::search::Found {
-                    index: f.index,
-                    wrapped,
-                });
-            }
+            let found = walk(project, &hits, at, direction, count);
             (hits, found)
         };
         let Some(found) = found else {
@@ -252,11 +231,9 @@ impl ProjectWindow {
         if self.current_track() != Some(hit.track) {
             self.set_current_track(Some(hit.track), cx);
         }
-        let pitch = if hit.has_note {
-            hit.pitch
-        } else {
-            self.pianoroll.cursor().pitch
-        };
+        let pitch = found
+            .pitch_from
+            .map_or(self.pianoroll.cursor().pitch, |i| hits[i].pitch);
         self.jump_cursor(
             Cursor {
                 tick: hit.tick,

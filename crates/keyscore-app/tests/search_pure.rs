@@ -2,7 +2,9 @@
 //! 2·3·6절.
 
 use keyscore_app::note_info::info_lines;
-use keyscore_app::search::{Direction, Found, Hit, Position, Query, QueryError, find_hits, step};
+use keyscore_app::search::{
+    Direction, Found, Hit, Position, Query, QueryError, find_hits, step, walk,
+};
 use keyscore_core::{
     Channel, Clip, ClipId, Note, Pitch, PitchOffset, Project, Tick, Track, TrackColor, TrackId,
     Velocity,
@@ -454,4 +456,50 @@ fn info_lines_show_pitch_start_length_channel() {
     // 없는 트랙·클립
     let (other, other_clips) = track("X", 1, vec![(0, BAR, vec![])]);
     assert!(info_lines(&project, other.id(), other_clips[0], &lyric).is_empty());
+}
+
+proptest! {
+    /// 리뷰 3 지적 1·2: `walk`(카운트 걷기)는 `step`을 `count`번 부른 것과 같은 결과·돎·커서 음높이를 낸다.
+    /// 노트 없는 결과는 커서 음높이를 둔다(결정 4절 1).
+    #[test]
+    fn walk_equals_repeated_steps(
+        notes in proptest::collection::btree_set((0u64..3 * BAR, 58u8..63), 0..12),
+        empty_starts in proptest::collection::vec(0u64..3 * BAR, 0..3),
+        count in 1u32..30,
+        start_tick in 0u64..4 * BAR,
+        start_pitch in 50u8..70,
+        start_track in 0usize..4,
+        forward in any::<bool>(),
+    ) {
+        let lead_notes = notes.into_iter().map(|(t, p)| note(t, 1, p)).collect();
+        let (lead, _) = track("Pad lead", 1, vec![(0, 4 * BAR, lead_notes)]);
+        let mut tracks = vec![lead];
+        for start in empty_starts {
+            tracks.push(track("pad empty", 2, vec![(start, BAR, vec![])]).0);
+        }
+        let (project, ids) = project(tracks);
+        let hits = find_hits(&project, &Query::Text("pad".into()));
+        let direction = if forward { Direction::Forward } else { Direction::Backward };
+        let at0 = at(start_track.min(ids.len() - 1), start_tick, start_pitch);
+        let walked = walk(&project, &hits, at0, direction, count).unwrap();
+        // 키를 count번 누른 흉내: 노트 없는 결과는 커서 음높이를 둔다
+        let mut pos = at0;
+        let mut wrapped = false;
+        let mut index = 0;
+        for _ in 0..count {
+            let f = step(&project, &hits, pos, direction).unwrap();
+            wrapped |= f.wrapped;
+            index = f.index;
+            let h = hits[index];
+            pos = Position {
+                track_index: project.track_index(h.track).unwrap(),
+                tick: h.tick,
+                pitch: if h.has_note { h.pitch } else { pos.pitch },
+            };
+        }
+        prop_assert_eq!(walked.index, index);
+        prop_assert_eq!(walked.wrapped, wrapped);
+        let pitch = walked.pitch_from.map_or(at0.pitch, |i| hits[i].pitch);
+        prop_assert_eq!(pitch, pos.pitch);
+    }
 }
