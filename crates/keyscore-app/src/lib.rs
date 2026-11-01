@@ -34,6 +34,7 @@ pub mod ports;
 mod preview;
 pub mod quantize_sheet;
 pub mod search;
+mod search_bar;
 mod selection;
 pub mod settings;
 mod settings_ports;

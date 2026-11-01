@@ -109,3 +109,158 @@ fn length_name(ticks: u32) -> Option<String> {
 
 /// 온음표 틱(PPQ 960).
 const WHOLE: u32 = 3840;
+
+// ---------- 창 쪽 ----------
+
+use gpui_kit::component::ActiveTheme as _;
+use gpui_kit::{
+    Context, FocusHandle, InteractiveElement as _, IntoElement, MouseButton, ParentElement as _,
+    SharedString, StatefulInteractiveElement as _, Styled as _, Subscription, TestSupportExt as _,
+    Window, deferred, div, px,
+};
+
+use crate::actions::{dialog, note};
+use crate::window::ProjectWindow;
+
+/// 열린 노트 정보 팝업. 내용은 연 때의 사본이다. 문서가 바뀌면 닫는다(결정 6절 4).
+pub(crate) struct NoteInfoPopup {
+    focus: FocusHandle,
+    lines: Vec<InfoLine>,
+    /// 창이 활성인 동안 포커스가 팝업 밖으로 나가면 닫는다(시트와 같다).
+    _focus_out: Subscription,
+}
+
+impl ProjectWindow {
+    /// 열린 노트 정보 팝업의 줄. 닫혀 있으면 `None`.
+    #[must_use]
+    pub fn note_info(&self) -> Option<Vec<InfoLine>> {
+        self.note_info.as_ref().map(|p| p.lines.clone())
+    }
+
+    /// `note::ShowInfo`: 커서 노트의 정보 팝업을 연다(결정 6절). 모든 모드에서 연다.
+    pub(crate) fn show_note_info(
+        &mut self,
+        _: &note::ShowInfo,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some((track, clip, n)) = self.note_under_cursor(cx) else {
+            self.say("커서에 노트가 없다", cx);
+            return;
+        };
+        let lines = info_lines(self.document.read(cx).project(), track, clip, &n);
+        // 팝업은 하나만 띄운다
+        self.palette = None;
+        self.overlay = None;
+        self.popup = None;
+        self.quantize_sheet = None;
+        self.search_bar = None;
+        let focus = cx.focus_handle();
+        let focus_out = cx.on_focus_out(&focus, window, |this, _, window, cx| {
+            if window.is_window_active() {
+                this.close_note_info(window, cx);
+            }
+        });
+        window.focus(&focus, cx);
+        self.note_info = Some(NoteInfoPopup {
+            focus,
+            lines,
+            _focus_out: focus_out,
+        });
+        cx.notify();
+    }
+
+    /// 팝업을 닫는다. 포커스가 팝업에 있었으면 문서로 돌린다.
+    pub(crate) fn close_note_info(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(popup) = self.note_info.take() else {
+            return;
+        };
+        if popup.focus.contains_focused(window, cx) || window.focused(cx).is_none() {
+            self.focus_document(window, cx);
+        }
+        cx.notify();
+    }
+
+    /// 문서가 바뀌면 내용이 낡으므로 닫는다(결정 6절 4).
+    pub(crate) fn note_info_document_changed(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.close_note_info(window, cx);
+    }
+
+    /// 열린 팝업. 창 루트의 자식으로 그린다.
+    pub(crate) fn render_note_info(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
+        let popup = self.note_info.as_ref()?;
+        let rows = popup.lines.iter().enumerate().map(|(i, line)| {
+            let text = format!("{}: {}", line.label, line.value);
+            div()
+                .id(SharedString::from(format!("note-info-{i}")))
+                .aria_label(text)
+                .test_support()
+                .flex()
+                .gap_2()
+                .child(
+                    div()
+                        .w(px(64.))
+                        .text_color(cx.theme().muted_foreground)
+                        .child(line.label),
+                )
+                .child(line.value.clone())
+        });
+        let rows: Vec<_> = rows.collect();
+        Some(deferred(
+            div()
+                .id("note-info-backdrop")
+                // 바깥 클릭은 닫기만 하고 아래 요소에 닿지 않는다(시트와 같다)
+                .occlude()
+                .absolute()
+                .inset_0()
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(|this, _, window, cx| this.close_note_info(window, cx)),
+                )
+                .child(
+                    div()
+                        .id("note-info-dialog")
+                        .key_context("Dialog")
+                        .absolute()
+                        .top(px(44.))
+                        .right(px(16.))
+                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                        .child(
+                            div()
+                                .id("note-info")
+                                .aria_label("노트 정보")
+                                .test_support()
+                                .key_context("NoteInfo")
+                                .track_focus(&popup.focus)
+                                .on_action(cx.listener(|this, _: &dialog::Confirm, window, cx| {
+                                    this.close_note_info(window, cx);
+                                }))
+                                .on_action(cx.listener(|this, _: &dialog::Cancel, window, cx| {
+                                    this.close_note_info(window, cx);
+                                }))
+                                .w(px(260.))
+                                .p_3()
+                                .flex()
+                                .flex_col()
+                                .gap_1()
+                                .text_sm()
+                                .bg(cx.theme().popover)
+                                .border_1()
+                                .border_color(cx.theme().border)
+                                .child(div().pb_1().child("노트 정보"))
+                                .children(rows)
+                                .child(
+                                    div()
+                                        .pt_1()
+                                        .text_color(cx.theme().muted_foreground)
+                                        .child("Esc·Enter 닫기"),
+                                ),
+                        ),
+                ),
+        ))
+    }
+}

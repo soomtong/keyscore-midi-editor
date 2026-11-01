@@ -75,6 +75,11 @@ pub struct ProjectWindow {
     pub(crate) palette: Option<(Entity<CommandPalette>, Subscription)>,
     /// 열린 퀀타이즈 설정 시트(S3-T3e).
     pub(crate) quantize_sheet: Option<crate::quantize_sheet::QuantizeSheet>,
+    /// 열린 검색 막대와 지난 검색어(S3-T7).
+    pub(crate) search_bar: Option<crate::search_bar::SearchBar>,
+    pub(crate) last_search: Option<String>,
+    /// 열린 노트 정보 팝업(S3-T7).
+    pub(crate) note_info: Option<crate::note_info::NoteInfoPopup>,
     /// 트랜스포트 상태(S2-T5a).
     pub(crate) transport: Transport,
     /// undo 상한 알림을 이미 냈는가(창마다 한 번, EDT-1 결정 A).
@@ -130,15 +135,7 @@ impl ProjectWindow {
         });
         let focus = cx.focus_handle();
         let document_changed = cx.observe_in(&document, window, |this, _, window, cx| {
-            this.keep_current_track(cx);
-            this.selection_document_changed(cx);
-            // 끄는 값이 바뀌면 트랜스포트 끌기는 취소다(결정 7절 7). 필드를 맞추기 전에 끝낸다.
-            this.transport_drag_document_changed(window, cx);
-            this.sync_fields(window, cx);
-            this.transport_document_changed(cx);
-            this.notice_history_limit(cx);
-            this.refresh_file_state(window, cx);
-            this.autosave_document_changed(cx);
+            this.document_changed(window, cx);
         });
         let current_track = document
             .read(cx)
@@ -201,6 +198,9 @@ impl ProjectWindow {
             inspector,
             overlay: None,
             quantize_sheet: None,
+            search_bar: None,
+            last_search: None,
+            note_info: None,
             palette: None,
             transport: Transport::default(),
             history_notice_shown: false,
@@ -494,6 +494,22 @@ impl ProjectWindow {
         );
     }
 
+    /// 문서가 바뀐 뒤 창 상태를 맞춘다(문서 관찰자).
+    fn document_changed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.keep_current_track(cx);
+        self.selection_document_changed(cx);
+        // 정보 팝업의 내용이 낡고 검색 막대의 결과 수가 바뀐다(S3-T7)
+        self.note_info_document_changed(window, cx);
+        self.search_document_changed(cx);
+        // 끄는 값이 바뀌면 트랜스포트 끌기는 취소다(결정 7절 7). 필드를 맞추기 전에 끝낸다.
+        self.transport_drag_document_changed(window, cx);
+        self.sync_fields(window, cx);
+        self.transport_document_changed(cx);
+        self.notice_history_limit(cx);
+        self.refresh_file_state(window, cx);
+        self.autosave_document_changed(cx);
+    }
+
     /// 창 메시지를 남긴다(상태줄 표시는 S2-T5c).
     pub(crate) fn say(
         &mut self,
@@ -696,6 +712,8 @@ impl ProjectWindow {
         self.popup = None;
         self.overlay = None;
         self.quantize_sheet = None;
+        self.search_bar = None;
+        self.note_info = None;
         let target = self.focus.clone();
         let palette = cx.new(|cx| CommandPalette::new(target, window, cx));
         let events = cx.subscribe_in(&palette, window, |this, _, event, window, cx| {
@@ -794,6 +812,8 @@ impl ProjectWindow {
         self.palette = None;
         self.overlay = None;
         self.quantize_sheet = None;
+        self.search_bar = None;
+        self.note_info = None;
         let menu = PopupMenu::build(window, cx, build);
         let dismissed = cx.subscribe_in(&menu, window, |this, _, _: &DismissEvent, window, cx| {
             this.popup = None;
@@ -905,6 +925,10 @@ impl ProjectWindow {
             .on_action(cx.listener(Self::open_command_line))
             .on_action(cx.listener(Self::help_keymap_overlay))
             .on_action(cx.listener(Self::open_quantize_sheet))
+            .on_action(cx.listener(Self::search_open))
+            .on_action(cx.listener(Self::search_next))
+            .on_action(cx.listener(Self::search_prev))
+            .on_action(cx.listener(Self::show_note_info))
             .on_action(cx.listener(Self::file_save))
             .on_action(cx.listener(Self::file_save_as))
             .on_action(cx.listener(Self::window_close))
@@ -1333,6 +1357,8 @@ impl Render for ProjectWindow {
             .children(self.palette_overlay(window))
             .children(self.render_overlay(cx))
             .children(self.render_quantize_sheet(cx))
+            .children(self.render_search_bar(cx))
+            .children(self.render_note_info(cx))
     }
 }
 

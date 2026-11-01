@@ -233,6 +233,8 @@ impl ProjectWindow {
         self.palette = None;
         self.popup = None;
         self.quantize_sheet = None;
+        self.search_bar = None;
+        self.note_info = None;
         let focus = cx.focus_handle();
         window.focus(&focus, cx);
         self.overlay = Some(KeymapOverlay {
