@@ -14,7 +14,7 @@ use gpui_kit::{
     deferred, div, px,
 };
 
-use crate::actions::search;
+use crate::actions::{mode, search};
 use crate::mode::Mode;
 use crate::pianoroll::Cursor;
 use crate::search::{Direction, Position, Query, find_hits, step};
@@ -171,6 +171,12 @@ impl ProjectWindow {
         let Some(bar) = &self.search_bar else {
             return;
         };
+        // 막대가 열린 채 메뉴 등으로 모드가 바뀌었으면 이동하지 않고 닫는다(결정 1절 2, 리뷰 1 지적 3)
+        if self.mode_state().mode() != Mode::Normal {
+            self.close_search_bar(window, cx);
+            self.say("검색은 Normal 모드에서 한다", cx);
+            return;
+        }
         let text = bar.input.read(cx).value().trim().to_owned();
         if close {
             self.close_search_bar(window, cx);
@@ -323,6 +329,10 @@ impl ProjectWindow {
                 .capture_key_down(cx.listener(|this, e: &KeyDownEvent, window, cx| {
                     this.search_key_down(e, window, cx);
                 }))
+                // 막대가 열린 동안 막대 뒤의 모드를 바꾸지 않는다(팔레트와 같다, 리뷰 1 지적 3). 처리기가 전파를
+                // 멈추므로 창의 모드 처리기에 닿지 않는다.
+                .on_action(|_: &mode::Cycle, _, _| {})
+                .on_action(|_: &mode::CycleBack, _, _| {})
                 .child(
                     div()
                         .flex_1()

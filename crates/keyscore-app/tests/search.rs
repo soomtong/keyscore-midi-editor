@@ -519,3 +519,26 @@ fn search_does_not_touch_undo_or_selection(cx: &mut TestAppContext) {
     });
     assert_eq!(selected, notes, "검색은 선택을 바꾸지 않는다");
 }
+
+/// 리뷰 1 지적 3: 막대가 열린 동안 `ctrl-tab`은 모드를 바꾸지 않고, 다른 길(메뉴)로 모드가 바뀌면 `Enter`가
+/// 커서를 옮기지 않고 막대를 닫는다.
+#[gpui_kit::test]
+fn bar_does_not_search_after_mode_change(cx: &mut TestAppContext) {
+    let (handle, view) = setup(cx, "modechange");
+    press(cx, handle, "cmd-f");
+    type_text(cx, handle, "c#4");
+    press(cx, handle, "ctrl-tab");
+    assert_eq!(
+        cx.read(|cx| view.read(cx).mode_state().mode()),
+        Mode::Normal
+    );
+    assert!(bar_open(cx, &view));
+    run(cx, handle, mode::Step);
+    assert_eq!(cx.read(|cx| view.read(cx).mode_state().mode()), Mode::Step);
+    let before = cursor(cx, &view);
+    press(cx, handle, "enter");
+    assert_eq!(cursor(cx, &view), before);
+    assert!(!bar_open(cx, &view));
+    assert_eq!(last_message(cx, &view), "검색은 Normal 모드에서 한다");
+    assert_eq!(last_search(cx, &view), None);
+}
