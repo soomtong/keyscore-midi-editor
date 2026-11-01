@@ -51,8 +51,8 @@ impl ProjectWindow {
 | # | 테스트 이름 | 종류 | 검사하는 것 |
 | --- | --- | --- | --- |
 | 1 | `drag_steps_counts_four_px_toward_zero` | 단위 | 0·3·4·7·8 px, 음수 대칭 |
-| 2 | `dragged_tempo_adds_steps_and_clamps` | 단위 | 1 BPM·0.1 BPM 단계, 소수 유지, 10.0·999.9에서 멈춤 |
-| 3 | `tempo_tenths_round_trips_with_field_format` | 속성 | 100–9999 모든 값이 `tempo_from_tenths` → `tempo_tenths`로 돌아오고 `format_tempo`와 같다 |
+| 2 | `dragged_tempo_adds_steps_and_clamps` | 단위 | 1 BPM·0.1 BPM 단계, 소수 유지, 10.0·999.9에서 멈춤, 범위 밖 기준(5.0·1200.0 BPM)은 바깥으로 안 감 |
+| 3 | `tempo_tenths_round_trips_with_field_format` | 전수 | 100–9999 모든 값이 `tempo_from_tenths` → `tempo_tenths`로 돌아오고 `format_tempo`와 같다 |
 | 4 | `dragged_meter_changes_numerator_and_denominator` | 단위 | 분자 ±, 1·99에서 멈춤. 분모 두 배·절반, 1·32에서 멈춤. 범위 밖 기준(분자 120, 분모 128)은 바깥으로 안 가고 안쪽 한 단계에 범위 끝 |
 | 5 | `meter_part_splits_at_middle` | 단위 | 왼쪽 절반 분자, 가운데·오른쪽 분모 |
 | 6 | `dragging_tempo_up_sets_tempo_with_one_undo` | UI | 위로 40 px → +10 BPM, 끄는 중 문서 그대로·필드 글자 바뀜, 뗀 뒤 undo 하나로 원래대로 |
@@ -68,6 +68,7 @@ impl ProjectWindow {
 | 16 | `pressing_focused_field_does_not_drag` | UI | 고치는 중인 템포 필드를 위로 끌어도 값 조정 없음(입력란 동작) |
 | 17 | `drag_continues_outside_field` | UI | 필드 밖(피아노롤 위)까지 끌고 떼도 값이 바뀌고 피아노롤은 아무 일 없음 |
 | 18 | `drag_works_in_step_mode` | UI | Step 모드에서도 같다(7절 8) |
+| 19 | `release_away_without_move_uses_release_position` | UI | 움직임 사건 없이 다른 자리에서 떼면 그 자리로 계산(구현 중 더함) |
 
 기존 `transport_bar.rs`·`review_s2_t5b*.rs`의 필드 시험(클릭 → `cmd-a` → 입력 → Enter)은 그대로 통과해야 한다.
 

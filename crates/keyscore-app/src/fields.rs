@@ -113,7 +113,12 @@ impl ProjectWindow {
     }
 
     /// 필드를 문서 값으로 되돌리고 「고치지 않음」으로 둔다.
-    fn reset_field(&mut self, field: Field, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn reset_field(
+        &mut self,
+        field: Field,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let text = self.field_document_text(field, cx);
         self.field_state(field)
             .clone()

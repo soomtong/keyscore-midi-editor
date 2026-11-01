@@ -39,6 +39,14 @@ fn dragged_tempo_adds_steps_and_clamps() {
     assert_eq!(dragged_tempo(9990, 5, false), 9999);
     assert_eq!(dragged_tempo(1200, i32::MAX, false), 9999);
     assert_eq!(dragged_tempo(1200, i32::MIN, true), 100);
+    // 필드 범위 밖의 기준(SMF에서 온 5.0 BPM 등): 바깥으로는 움직이지 않고, 안쪽 한 단계에 범위 끝
+    assert_eq!(dragged_tempo(50, 0, false), 50);
+    assert_eq!(dragged_tempo(50, -1, false), 50);
+    assert_eq!(dragged_tempo(50, 1, false), 100);
+    assert_eq!(dragged_tempo(50, 2, false), 110);
+    assert_eq!(dragged_tempo(50, 2, true), 101);
+    assert_eq!(dragged_tempo(12_000, 1, false), 12_000);
+    assert_eq!(dragged_tempo(12_000, -1, false), 9999);
 }
 
 /// 10.0–999.9 모든 값이 필드 표기와 같은 반올림으로 왕복한다(전수).

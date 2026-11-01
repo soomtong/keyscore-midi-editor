@@ -399,3 +399,15 @@ fn drag_works_in_step_mode(cx: &mut TestAppContext) {
     assert_eq!(tempo(cx, &view), bpm(1220));
     assert_eq!(cx.read(|cx| view.read(cx).mode_state().mode()), Mode::Step);
 }
+
+/// 움직임 사건 없이 먼 자리에서 떼도 그 자리로 계산한다(뗀 자리가 마지막 움직임과 다를 수 있다).
+#[gpui_kit::test]
+fn release_away_without_move_uses_release_position(cx: &mut TestAppContext) {
+    let (handle, view) = setup(cx, "release-only");
+    let from = in_field(cx, handle, "transport-tempo", 0.5);
+    down(cx, handle, from);
+    move_to(cx, handle, up_by(from, 8.0), Modifiers::default());
+    assert_eq!(tempo_text(cx, &view), "122.0");
+    up(cx, handle, up_by(from, 20.0));
+    assert_eq!(tempo(cx, &view), bpm(1250));
+}
