@@ -190,6 +190,8 @@ impl ProjectWindow {
 
     /// `text`로 찾아 `direction`의 결과로 커서를 옮긴다(결정 3·4절).
     fn search_jump(&mut self, text: &str, direction: Direction, cx: &mut Context<Self>) {
+        // 검색 이동은 오퍼레이터의 모션이 아니다. 어느 길로 끝나든 먼저 대기를 끝낸다(결정 4절 4, 리뷰 1 지적 4)
+        self.clear_operator(cx);
         let query = match Query::parse(text) {
             Ok(query) => query,
             Err(e) => {
@@ -213,8 +215,6 @@ impl ProjectWindow {
             let found = step(project, &hits, at, direction);
             (hits, found)
         };
-        // 검색 이동은 오퍼레이터의 모션이 아니다. 대기를 끝내고 이동만 한다(결정 4절 4)
-        self.clear_operator(cx);
         let Some(found) = found else {
             self.say(format!("검색 {text}: 결과 없음"), cx);
             return;
