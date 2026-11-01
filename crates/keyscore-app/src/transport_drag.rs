@@ -234,7 +234,9 @@ impl ProjectWindow {
         if focus.is_focused(window) {
             return;
         }
-        cx.stop_propagation();
+        // 입력란(글자 커서·포커스)과 GPUI의 누름 포커스는 기본 동작이 막힌 누름을 받지 않는다. 전파는 멈추지
+        // 않는다: 열린 팔레트·메뉴의 바깥 누름 닫기(캡처 단계)가 이 누름을 받아야 한다(리뷰 1 지적 1).
+        window.prevent_default();
         // 클릭은 키 입력이 아니므로 되돌리기 묶음을 끊는다. 다른 입력란을 고치던 중이면 포커스를 잃어 취소된다.
         self.seal_history(cx);
         self.focus_document(window, cx);
