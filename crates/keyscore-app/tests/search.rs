@@ -542,3 +542,55 @@ fn bar_does_not_search_after_mode_change(cx: &mut TestAppContext) {
     assert_eq!(last_message(cx, &view), "검색은 Normal 모드에서 한다");
     assert_eq!(last_search(cx, &view), None);
 }
+
+/// 리뷰 1 지적 4: 지난 검색어가 잘못된 것이어도 오퍼레이터 대기를 끝낸다.
+#[gpui_kit::test]
+fn invalid_last_query_still_ends_operator_wait(cx: &mut TestAppContext) {
+    let (handle, view) = setup_with(cx, "badquery", Preset::Vim);
+    press(cx, handle, "/");
+    type_text(cx, handle, "b9");
+    press(cx, handle, "enter");
+    assert_eq!(last_message(cx, &view), "검색 b9: 음높이 범위 밖");
+    press(cx, handle, "d");
+    assert!(cx.read(|cx| view.read(cx).pending_operator().is_some()));
+    press(cx, handle, "n");
+    assert!(cx.read(|cx| view.read(cx).pending_operator().is_none()));
+    assert_eq!(last_message(cx, &view), "검색 b9: 음높이 범위 밖");
+}
+
+/// 리뷰 1 지적 5: 팝업 메뉴와 막대는 하나만 열린다.
+#[gpui_kit::test]
+fn bar_and_popup_menu_close_each_other(cx: &mut TestAppContext) {
+    let (handle, view) = setup(cx, "menu");
+    press(cx, handle, "cmd-f");
+    run(cx, handle, keyscore_app::actions::mode::ShowMenu);
+    assert!(!bar_open(cx, &view), "모드 메뉴를 열면 막대가 닫힌다");
+    run(cx, handle, search::Open);
+    assert!(bar_open(cx, &view));
+    assert!(
+        focus_in_bar(cx, handle),
+        "막대를 열면 메뉴가 닫히고 포커스는 막대"
+    );
+}
+
+/// 리뷰 1 지적 5: 막대가 열린 채 문서가 바뀌면 결과 수를 다시 센다.
+#[gpui_kit::test]
+fn bar_recounts_when_document_changes(cx: &mut TestAppContext) {
+    let (handle, view) = setup(cx, "recount");
+    set_cursor(cx, &view, 0, 61);
+    press(cx, handle, "x");
+    assert_eq!(lead_notes(cx, &view), 2);
+    press(cx, handle, "cmd-f");
+    type_text(cx, handle, "c#4");
+    assert_eq!(status(cx, &view).as_deref(), Some("결과 1개"));
+    // 막대 입력란이 포커스를 가진 채 다른 길(재생 중 편집 등)로 문서가 바뀐다
+    view.update(cx, |this, cx| {
+        this.document().update(cx, |doc, cx| {
+            doc.undo().unwrap();
+            cx.notify();
+        });
+    });
+    cx.run_until_parked();
+    render(cx, handle);
+    assert_eq!(status(cx, &view).as_deref(), Some("결과 2개"));
+}
