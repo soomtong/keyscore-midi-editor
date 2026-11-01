@@ -309,6 +309,9 @@ impl ProjectWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.transport_field_entered(window, cx) {
+            return;
+        }
         let Some(drag) = self.transport_bar.drag.as_mut() else {
             return;
         };
@@ -340,7 +343,29 @@ impl ProjectWindow {
         cx.notify();
     }
 
+    /// 끄는 중 그 필드가 포커스를 받았으면(`transport::SetTempo` 값 없음 등) 끌기를 놓는다. 포커스가 있는 필드는
+    /// 고치는 중이라(7절 2) 친 글자를 움직임·뗌이 덮거나 버리지 않는다(리뷰 2 제안 2). 놓았으면 참.
+    fn transport_field_entered(&mut self, window: &Window, cx: &mut Context<Self>) -> bool {
+        let Some(field) = self.transport_bar.drag.as_ref().map(|d| d.field) else {
+            return false;
+        };
+        if !self
+            .field_state(field)
+            .read(cx)
+            .focus_handle(cx)
+            .is_focused(window)
+        {
+            return false;
+        }
+        self.transport_bar.drag = None;
+        cx.notify();
+        true
+    }
+
     fn transport_drag_release(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.transport_field_entered(window, cx) {
+            return;
+        }
         let Some(drag) = self.transport_bar.drag.take() else {
             return;
         };
