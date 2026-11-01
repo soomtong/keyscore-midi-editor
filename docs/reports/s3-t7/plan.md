@@ -89,4 +89,4 @@ pub fn note_info(&self) -> Option<Vec<InfoLine>>;
 
 - 세부는 모두 결정 `2026-11-01-s3-t7-search-and-note-info.md`(에이전트 해석)에 적었다. REQ 뜻을 바꾸지 않는 읽기다. 사람이 다르게 보면 그 문서를 고친다.
 - 기본 프리셋 `Cmd+G`·`Cmd+Shift+G`는 REQ 표에 없는 키다. 7.5 전역 표는 건드리지 않고 기본 프리셋 `Normal`에 둔다(사용자 키맵으로 바꿀 수 있다).
-- gpui-component 한 줄 입력란은 `Enter`·`Shift+Enter`를 `InputEvent::PressEnter { shift }`로 알린다. 그 사건으로 처리한다.
+- gpui-component 한 줄 입력란은 `Enter`·`Shift+Enter`를 `InputEvent::PressEnter { shift }`로 알리지만, 사건을 낸 뒤 키를 전파해 「처리 안 된 키」로 남기므로 줄바꿈 글자가 입력으로 들어가 골라 둔 글자를 지운다(구현 중 발견). 그래서 막대의 키 가로채기(`capture_key_down`)가 `Enter`·`Shift+Enter`·`Esc`를 입력란보다 먼저 받는다. IME 조합 중에는 건드리지 않는다.
