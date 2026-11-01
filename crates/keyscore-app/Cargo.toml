@@ -24,6 +24,7 @@ objc2-app-kit.workspace = true
 objc2-foundation.workspace = true
 
 [dev-dependencies]
+proptest.workspace = true
 gpui-kit = { workspace = true, features = ["test-support"] }
 coremidi.workspace = true
 insta.workspace = true
