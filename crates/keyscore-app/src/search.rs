@@ -235,28 +235,44 @@ pub struct Found {
 #[must_use]
 pub fn step(project: &Project, hits: &[Hit], at: Position, direction: Direction) -> Option<Found> {
     // 결과의 트랙 순서는 지금 프로젝트의 순서로 본다. 트랙이 없어졌으면 그 결과는 고르지 않는다
-    let keyed: Vec<(usize, (Tick, usize, Pitch))> = hits
+    let keyed: Vec<(usize, (Tick, usize, Pitch), bool)> = hits
         .iter()
         .enumerate()
         .filter_map(|(i, h)| {
             let track_index = project.track_index(h.track)?;
-            Some((i, (h.tick, track_index, h.pitch)))
+            Some((i, (h.tick, track_index, h.pitch), h.has_note))
         })
         .collect();
     let here = (at.tick, at.track_index, at.pitch);
-    let first = keyed.iter().min_by_key(|(_, k)| *k).map(|(i, _)| *i)?;
-    let last = keyed.iter().max_by_key(|(_, k)| *k).map(|(i, _)| *i)?;
+    // 지금 자리에 대한 결과의 앞뒤. 노트 없는 트랙 결과는 이동해도 커서 음높이를 그대로 두므로(결정 4절 1)
+    // 음높이를 보지 않는다: (틱, 트랙)이 같으면 그 결과 위에 있는 것이다(리뷰 1 지적 1). 그 트랙에는 노트가
+    // 없어 같은 (틱, 트랙)의 다른 결과가 없으므로 결과 사이의 순서는 그대로다.
+    let relation = |key: (Tick, usize, Pitch), has_note: bool| {
+        if has_note {
+            key.cmp(&here)
+        } else {
+            (key.0, key.1).cmp(&(here.0, here.1))
+        }
+    };
+    let first = keyed
+        .iter()
+        .min_by_key(|(_, k, _)| *k)
+        .map(|(i, _, _)| *i)?;
+    let last = keyed
+        .iter()
+        .max_by_key(|(_, k, _)| *k)
+        .map(|(i, _, _)| *i)?;
     let found = match direction {
         Direction::Forward => keyed
             .iter()
-            .filter(|(_, k)| *k > here)
-            .min_by_key(|(_, k)| *k)
-            .map(|(i, _)| *i),
+            .filter(|(_, k, n)| relation(*k, *n).is_gt())
+            .min_by_key(|(_, k, _)| *k)
+            .map(|(i, _, _)| *i),
         Direction::Backward => keyed
             .iter()
-            .filter(|(_, k)| *k < here)
-            .max_by_key(|(_, k)| *k)
-            .map(|(i, _)| *i),
+            .filter(|(_, k, n)| relation(*k, *n).is_lt())
+            .max_by_key(|(_, k, _)| *k)
+            .map(|(i, _, _)| *i),
     };
     Some(match (found, direction) {
         (Some(index), _) => Found {
