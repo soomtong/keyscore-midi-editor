@@ -44,6 +44,7 @@ mod track_list;
 pub mod tracks;
 mod transport;
 mod transport_bar;
+pub mod transport_drag;
 mod vim;
 pub mod window;
 
