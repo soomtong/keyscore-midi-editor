@@ -101,3 +101,10 @@ cargo test --workspace --no-fail-fast: 2689 passed, 1 failed(아래 고침 전�
 | 2 제안: 겹이 필드를 가리면 그 자리 누름이 남은 끌기를 끝내지 않음 | 받아들임. 창 전체 누름 처리기가 상자 좌표 대신 「이 누름으로 막 만든 끌기」 표시(`fresh`)로 가른다. 필드 누름은 캡처 단계에서 이 처리기보다 먼저 불린다(필드가 먼저 그려진다) | `e215fb6` |
 
 리뷰 시험 세 파일(22·13·12)과 구현 시험(14·5), 트랜스포트 바 시험(6)이 모두 통과한다. 리뷰 3의 범위 밖 관찰(고치는 중인 필드를 가장자리에서 누르면 포커스를 잃음)은 `main`에서도 같아 이 Task 밖이다. 사람이 실제 앱에서 확인할 항목으로 인계 문서에 남긴다.
+
+## 최종 게이트(병합 전)
+
+- fmt, clippy `-D warnings`, deny: 통과
+- `cargo test -p keyscore-app --no-fail-fast`(최종 코드): 1765 통과, 0 실패
+- `cargo test --workspace --no-fail-fast`(리뷰 2 수정 시점, 그 뒤로 앱 crate만 바뀜): 2725 통과, 0 실패
+- `scripts/check-deps.sh`·`check-deps.test.sh`·`bench-check.test.sh`: 통과(의존성 변경 없음)
