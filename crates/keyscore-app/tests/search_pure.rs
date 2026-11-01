@@ -2,9 +2,7 @@
 //! 2·3·6절.
 
 use keyscore_app::note_info::info_lines;
-use keyscore_app::search::{
-    Direction, Found, Hit, Position, Query, QueryError, find_hits, step,
-};
+use keyscore_app::search::{Direction, Found, Hit, Position, Query, QueryError, find_hits, step};
 use keyscore_core::{
     Channel, Clip, ClipId, Note, Pitch, PitchOffset, Project, Tick, Track, TrackColor, TrackId,
     Velocity,
@@ -196,7 +194,11 @@ fn find_hits_text_matches_track_names_and_lyrics() {
     assert_eq!(la, vec![hit(ids[0], BAR, 62)], "대소문자 무시");
 
     // 트랙 이름과 첫 노트 가사가 같은 자리면 하나로 센다
-    let (both, _) = track("la la", 1, vec![(0, BAR, vec![note(0, 240, 60).with_lyric("la")])]);
+    let (both, _) = track(
+        "la la",
+        1,
+        vec![(0, BAR, vec![note(0, 240, 60).with_lyric("la")])],
+    );
     let (project, ids) = self::project(vec![both]);
     assert_eq!(
         find_hits(&project, &Query::Text("la".into())),
@@ -210,9 +212,17 @@ fn find_hits_are_ordered_by_tick_track_pitch() {
     let (a, _) = track(
         "A",
         1,
-        vec![(0, BAR, vec![note(480, 240, 72), note(480, 240, 60), note(0, 240, 84)])],
+        vec![(
+            0,
+            BAR,
+            vec![note(480, 240, 72), note(480, 240, 60), note(0, 240, 84)],
+        )],
     );
-    let (b, _) = track("B", 2, vec![(0, BAR, vec![note(480, 240, 48), note(0, 240, 36)])]);
+    let (b, _) = track(
+        "B",
+        2,
+        vec![(0, BAR, vec![note(480, 240, 48), note(0, 240, 36)])],
+    );
     let (project, ids) = project(vec![a, b]);
     let hits = find_hits(&project, &Query::PitchClass(0));
     assert_eq!(
@@ -230,7 +240,11 @@ fn find_hits_are_ordered_by_tick_track_pitch() {
 // ---------- 다음·이전 ----------
 
 fn three_hits() -> (Project, Vec<TrackId>, Vec<Hit>) {
-    let (a, _) = track("A", 1, vec![(0, 2 * BAR, vec![note(0, 240, 60), note(BAR, 240, 60)])]);
+    let (a, _) = track(
+        "A",
+        1,
+        vec![(0, 2 * BAR, vec![note(0, 240, 60), note(BAR, 240, 60)])],
+    );
     let (b, _) = track("B", 2, vec![(0, BAR, vec![note(480, 240, 60)])]);
     let (project, ids) = project(vec![a, b]);
     let hits = find_hits(&project, &Query::Pitch(p(60)));
@@ -246,6 +260,8 @@ fn at(track_index: usize, tick: u64, pitch: u8) -> Position {
     }
 }
 
+// 비교 대상이 `Option<Found>`라 감싼 채로 돌려준다
+#[allow(clippy::unnecessary_wraps)]
 fn found(index: usize, wrapped: bool) -> Option<Found> {
     Some(Found { index, wrapped })
 }
@@ -258,15 +274,27 @@ fn step_forward_backward_and_wrap() {
     let back = |pos| step(&project, &hits, pos, Direction::Backward);
 
     assert_eq!(fwd(at(0, 0, 60)), found(1, false), "결과 위면 다음 것");
-    assert_eq!(fwd(at(0, 0, 59)), found(0, false), "같은 틱·트랙의 낮은 음이면 그 결과가 뒤다");
+    assert_eq!(
+        fwd(at(0, 0, 59)),
+        found(0, false),
+        "같은 틱·트랙의 낮은 음이면 그 결과가 뒤다"
+    );
     assert_eq!(fwd(at(1, 0, 60)), found(1, false));
-    assert_eq!(fwd(at(0, 480, 60)), found(1, false), "같은 틱, 트랙 A가 B보다 앞");
+    assert_eq!(
+        fwd(at(0, 480, 60)),
+        found(1, false),
+        "같은 틱, 트랙 A가 B보다 앞"
+    );
     assert_eq!(fwd(at(1, 480, 60)), found(2, false));
     assert_eq!(fwd(at(0, BAR, 60)), found(0, true), "끝에서 처음으로");
     assert_eq!(fwd(at(1, 5 * BAR, 0)), found(0, true));
 
     assert_eq!(back(at(0, BAR, 60)), found(1, false));
-    assert_eq!(back(at(0, BAR, 61)), found(2, false), "같은 자리 위의 음이면 그 결과가 앞");
+    assert_eq!(
+        back(at(0, BAR, 61)),
+        found(2, false),
+        "같은 자리 위의 음이면 그 결과가 앞"
+    );
     assert_eq!(back(at(0, 0, 60)), found(2, true), "처음에서 끝으로");
     assert_eq!(back(at(0, 100, 0)), found(0, false));
 
@@ -289,8 +317,12 @@ fn step_uses_current_track_order() {
     let (project, ids, hits) = three_hits();
     let (b, a) = (ids[1], ids[0]);
     let mut swapped = Project::new();
-    swapped.push_track(project.track(b).unwrap().clone()).unwrap();
-    swapped.push_track(project.track(a).unwrap().clone()).unwrap();
+    swapped
+        .push_track(project.track(b).unwrap().clone())
+        .unwrap();
+    swapped
+        .push_track(project.track(a).unwrap().clone())
+        .unwrap();
     // 같은 틱 480: 이제 B가 0번이라 (0, 480)에서의 다음은 A의 BAR가 아니라 B 480 뒤
     assert_eq!(
         step(&swapped, &hits, at(0, 480, 60), Direction::Forward),
@@ -358,7 +390,15 @@ fn info_lines_show_pitch_start_length_channel() {
         .unwrap();
     let odd = note(1000, 100, 127);
     let triplet = note(2000, 320, 0);
-    let (t, clips) = track("Lead", 10, vec![(BAR, BAR, vec![lyric.clone(), bent.clone(), odd.clone(), triplet.clone()])]);
+    let (t, clips) = track(
+        "Lead",
+        10,
+        vec![(
+            BAR,
+            BAR,
+            vec![lyric.clone(), bent.clone(), odd.clone(), triplet.clone()],
+        )],
+    );
     let (project, ids) = project(vec![t]);
 
     let lines = info_lines(&project, ids[0], clips[0], &lyric);
@@ -379,7 +419,10 @@ fn info_lines_show_pitch_start_length_channel() {
     assert_eq!(line(&lines, "음높이"), "C4 (60) +25 cent");
     assert_eq!(line(&lines, "시작"), "2.1.0 (3840틱)");
     assert_eq!(line(&lines, "길이"), "1440틱 (점4분음표)");
-    assert!(lines.iter().all(|l| l.label != "가사"), "가사 없으면 줄 없음");
+    assert!(
+        lines.iter().all(|l| l.label != "가사"),
+        "가사 없으면 줄 없음"
+    );
 
     let lines = info_lines(&project, ids[0], clips[0], &odd);
     assert_eq!(line(&lines, "음높이"), "G9 (127)");
