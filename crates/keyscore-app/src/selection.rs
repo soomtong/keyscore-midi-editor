@@ -107,7 +107,7 @@ impl ProjectWindow {
     }
 
     /// 커서를 `to`로 옮기고 뒤처리를 한다.
-    fn jump_cursor(&mut self, to: Cursor, cx: &mut Context<Self>) {
+    pub(crate) fn jump_cursor(&mut self, to: Cursor, cx: &mut Context<Self>) {
         self.pianoroll.set_cursor(to);
         self.cursor_moved(false, cx);
     }

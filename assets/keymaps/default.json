@@ -50,6 +50,9 @@
       "cmd-up": "cursor::FirstTrack",
       "cmd-down": "cursor::LastTrack",
       "i": "note::ShowInfo",
+      // 검색 다음·이전 결과(S3-T7, 결정 2026-11-01-s3-t7-search-and-note-info 5절): n 은 다음 노트라 macOS 관례 키
+      "cmd-g": "search::Next",
+      "cmd-shift-g": "search::Prev",
       "tab": "track::Next",
       "shift-tab": "track::Prev",
       "m": "track::ToggleMute",

@@ -159,6 +159,8 @@ impl ProjectWindow {
         self.palette = None;
         self.overlay = None;
         self.popup = None;
+        self.search_bar = None;
+        self.note_info = None;
         if self.quantize_sheet.is_none() {
             let focus = cx.focus_handle();
             // 창이 비활성이 되어 잃는 포커스는 취소가 아니다(입력란과 같은 macOS 관례, `fields.rs`)
