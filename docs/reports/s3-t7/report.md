@@ -23,7 +23,8 @@
 
 ~~~
 keyscore-app --test search_pure: 10 passed
-keyscore-app --test search: 13 passed
+keyscore-app --test review_s3_t7_r1: 13 passed, review_s3_t7_r2: 8 passed(리뷰 대응 뒤)
+keyscore-app --test search: 18 passed(리뷰 대응 뒤)
 keyscore-app --test note_info: 5 passed
 keymap_engine·keymap_overlay·keymap_source·keymap_user·commands·carry_overs·quantize_sheet: 실패 없음
 전체 cargo test --workspace --no-fail-fast: 아래 「자동 게이트」
@@ -96,3 +97,15 @@ GATES_PLACEHOLDER
 | 5 수정: 빠진 시험 | 리뷰 시험이 포커스 이탈·오버레이·배치 뷰·비주얼 `n`·Step 정보 팝업을 덮는다. 팝업 메뉴(`bar_and_popup_menu_close_each_other`)와 결과 수 다시 세기(`bar_recounts_when_document_changes`)를 더했다 | 0455693 |
 | 6 제안: 트랙을 넘는 비주얼 | 받아들임. 결정 4절 2에 「기준 칸은 그대로」를 적었다 | 이 문서 커밋 |
 | 7 제안: `"  "` | 받아들임. 결정 2절 2에 「감싼 안은 다듬지 않는다」를 적었다 | 이 문서 커밋 |
+
+## 리뷰 2 대응
+
+리뷰 2 판정 「수정 후 재리뷰」(수정 2, 제안 3). 리뷰 1 지적은 모두 고쳐졌다고 확인받았다. 리뷰 시험 `review_s3_t7_r2.rs` 8개는 고친 뒤 모두 통과한다.
+
+| 지적 | 대응 | 커밋 |
+| --- | --- | --- |
+| 1 수정: 보고서의 게이트 칸이 비어 있음 | 마지막 HEAD에서 게이트 전부를 다시 돌려 「자동 게이트」를 채운다(병합 전) | 이 문서 |
+| 2 수정: vim `3 n`이 카운트를 버림 | `search_repeat`가 카운트를 먼저 비우고 그만큼 걷는다. 결과 수보다 크면 돌아 이어 가며 돎 문구. 결정 5절 4. 시험 `vim_count_beyond_hits_wraps` | 9d47ebf |
+| 3 제안: 검색 모션 넘김·`Cmd+G`가 단계 파일에 없음 | 받아들임. 단계 파일 S3-T7에 결정 줄을 더했다(검색 모션은 REQ 표에 없어 하지 않음) | 4b17275 |
+| 4 제안: 작은 오프셋이 「+0 cent」 | 받아들임. 0.1 cent로 반올림한다. 결정 6절 2, 시험 `info_lines_show_pitch_start_length_channel` | 9ef3b94 |
+| 5 제안: 배치 뷰의 `i` | 받아들임(동작 유지). 결정 6절 1에 「배치 뷰도 같은 커서」를 적었다 | 4b17275 |
