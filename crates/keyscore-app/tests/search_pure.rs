@@ -424,6 +424,24 @@ fn info_lines_show_pitch_start_length_channel() {
         "가사 없으면 줄 없음"
     );
 
+    // 작은 오프셋은 0.1 cent로(리뷰 2 제안 4): 반음의 1/400(정수 나눗셈으로 0.25 cent보다 조금 작다) → 0.2, 음수
+    let tiny = note(3000, 10, 50)
+        .with_offset(PitchOffset::new(PitchOffset::SEMITONE / 400).unwrap())
+        .unwrap();
+    let down = note(3100, 10, 50)
+        .with_offset(PitchOffset::new(-PitchOffset::SEMITONE / 8).unwrap())
+        .unwrap();
+    let (t2, c2) = track("T", 1, vec![(0, BAR, vec![tiny.clone(), down.clone()])]);
+    let (p2, i2) = self::project(vec![t2]);
+    assert_eq!(
+        line(&info_lines(&p2, i2[0], c2[0], &tiny), "음높이"),
+        "D3 (50) +0.2 cent"
+    );
+    assert_eq!(
+        line(&info_lines(&p2, i2[0], c2[0], &down), "음높이"),
+        "D3 (50) -12.5 cent"
+    );
+
     let lines = info_lines(&project, ids[0], clips[0], &odd);
     assert_eq!(line(&lines, "음높이"), "G9 (127)");
     assert_eq!(line(&lines, "시작"), "2.2.40 (4840틱)");

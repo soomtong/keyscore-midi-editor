@@ -77,9 +77,16 @@ fn pitch_text(note: &Note) -> String {
         return text;
     }
     let semitone = i64::from(PitchOffset::SEMITONE);
-    // 가장 가까운 정수 cent(절반은 0에서 먼 쪽)
-    let cents = (units * 200 + units.signum() * semitone) / (2 * semitone);
-    format!("{text} {cents:+} cent")
+    // 가장 가까운 0.1 cent(절반은 0에서 먼 쪽). 정수 cent로 반올림하면 작은 오프셋이 「+0 cent」로 보인다
+    // (S3-T7 리뷰 2 제안 4)
+    let tenths = (units * 2000 + units.signum() * semitone) / (2 * semitone);
+    let sign = if tenths < 0 { '-' } else { '+' };
+    let (whole, frac) = (tenths.abs() / 10, tenths.abs() % 10);
+    if frac == 0 {
+        format!("{text} {sign}{whole} cent")
+    } else {
+        format!("{text} {sign}{whole}.{frac} cent")
+    }
 }
 
 /// 길이 코드(온음표–64분음표, 점, 셋잇단)와 같은 틱이면 그 이름.
