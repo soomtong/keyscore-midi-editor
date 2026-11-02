@@ -138,7 +138,8 @@
 
 - [x] 디스크 정리(사람 답 2026-10-29): `target/debug/incremental`(23G)만 지웠다. `target/review`·`target/alt`는 S3-T4a 동안 다시 생겼다(필요하면 지운다).
 
-- [ ] 원격 CI 첫 실행과 CI 러너 벤치 기준값: remote가 생기면(사람이 건너뜀)
+- [ ] 원격 CI(macos-15): 첫 네 번이 모두 시험에서 실패했다. 대응은 PR https://github.com/soomtong/keyscore-midi-editor/pull/1 (보고 `docs/reports/ci/first-run.md`). PR의 CI 결과와 `midi-keepalive` 로그 줄을 보고 녹색이면 병합한다. 러너 벤치 기준값은 S8 이월 그대로
+- [ ] 후속(CI 보고 「알려진 한계」): MIDI 서버 재기동이 10초 재시도를 넘기면 앱이 OUT-1 포트 없이 뜰 수 있다는 가설. CI keepalive가 이 경로를 가리므로, 사람 Mac에서 재현되거나 CI에서 keepalive가 살아 있는데도 `-50`이 다시 나면 제품 쪽 Task(재시도 시간, 늦은 포트 재등록)를 연다
 - [x] 후속(S3-T8에서 직렬로 묶음): `crates/keyscore-midi/tests/scheduler.rs`의 20초 지터 측정이 같은 바이너리의 루프백 테스트와 겹치면 가끔 0.5 ms를 넘는다. 타이밍 측정 테스트를 서로 직렬로 묶는다.
 - [x] `2026-10-17-keymap-conflicts.md` A1–A12·B24·B25 모두 권고안으로 결정(YoungTaek, 2026-10-24). 반영은 S3·S5·S6·S7 단계 파일의 이월 줄(프리셋 자리 채우기 + REQ 문구)
 - [x] REQ 9.2 문구(시각 대기 예외) 반영, 옛 `#` 주석은 레거시 지원 모드(`ParseOptions::legacy_hash_comments`, `txt2ksq --legacy`)
