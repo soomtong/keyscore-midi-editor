@@ -300,8 +300,9 @@ fn output_error(options: &Options, path: &Path, was_missing: bool, cause: CliErr
     };
     // `/dev`(devfs)에 새 이름을 만들 때 사람 Mac은 EPERM(1)을, macOS 15(원격 CI 러너)는 EACCES(13)를
     // 돌려준다. 어느 쪽이든 특수 파일 자리라 같은 안내를 한다. 그 밖의 EACCES는 쓰기 권한 문제라 셸
-    // 리다이렉션도 같이 실패하므로 일반 안내로 둔다. 경로 글자(`/dev/..`로 시작해 밖으로 나가는 경로)가
-    // 아니라 부모 디렉터리가 실제로 devfs인지로 가른다(리뷰 1 지적 1).
+    // 리다이렉션도 같이 실패하므로 일반 안내로 둔다. EACCES는 아래 경로 글자(`special_place`)에 더해
+    // 부모 디렉터리가 실제로 devfs인지도 본다. `/dev/..`로 시작해 밖으로 나가는 경로를 거르려는 것이다
+    // (리뷰 1 지적 1). EPERM은 경로 글자만 본다(알려진 한계).
     let special_kind = io.is_some_and(|e| {
         matches!(e.kind(), ErrorKind::NotFound | ErrorKind::NotADirectory)
             || e.raw_os_error() == Some(1)
@@ -342,7 +343,15 @@ fn on_devfs(meta: &fs::Metadata) -> bool {
 
 /// `path`의 부모 디렉터리(커널이 푼 것)가 `/dev`와 같은 장치인가. 부모를 `stat`하지 못하면 아니다.
 fn parent_on_devfs(path: &Path) -> bool {
+    // 한 구성 요소짜리 상대 경로(`x/`)의 부모는 빈 경로다. 작업 디렉터리로 본다(리뷰 2 제안 1).
     path.parent()
+        .map(|p| {
+            if p.as_os_str().is_empty() {
+                Path::new(".")
+            } else {
+                p
+            }
+        })
         .and_then(|p| fs::metadata(p).ok())
         .is_some_and(|m| on_devfs(&m))
 }
