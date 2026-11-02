@@ -5,14 +5,14 @@
 //!
 //! 긴 판: `KS_LONG_TESTS=1`이면 지터·드리프트를 10분, `KS_LONG_TESTS=hour`이면 1시간 잰다.
 
-use std::sync::Arc;
 use std::sync::mpsc;
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
 use keyscore_core::{Bank, Channel, Pitch, Program, Tempo, TempoMap, Tick, Velocity};
 use keyscore_midi::{
-    HostTime, Midi1Message, MidiClient, MidiPort, ScheduledEvent, Scheduler, SchedulerConfig,
-    Snapshot, bank_select, control_change, note_off, note_on, program_change,
+    HostTime, Midi1Message, MidiClient, MidiPort, PauseReply, ScheduledEvent, Scheduler,
+    SchedulerConfig, Snapshot, bank_select, control_change, note_off, note_on, program_change,
 };
 
 /// 받은 메시지: (도착 호스트 시각, 패킷 타임스탬프, 바이트).
@@ -24,6 +24,15 @@ struct Loopback {
     // 수신 포트와 클라이언트는 테스트가 끝날 때까지 살아 있어야 한다.
     _input: coremidi::InputPort,
     _client: coremidi::Client,
+}
+
+/// 이 바이너리의 시험은 서로 직렬로 돈다. 20초 지터·드리프트 측정이 다른 루프백 시험과 겹치면 같은
+/// 프로세스의 CoreMIDI 수신 스레드가 바빠져 p99가 0.5 ms를 넘곤 했다(HANDOFF 후속, S3-T8). 앞 시험이
+/// 실패해도 다음 시험은 돌아야 하므로 독(poison)은 무시한다.
+static SERIAL: Mutex<()> = Mutex::new(());
+
+fn serial() -> MutexGuard<'static, ()> {
+    SERIAL.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 /// 이 바이너리의 첫 CoreMIDI 클라이언트를 `keyscore-midi`가 만든다(알림 조건, S1-T2).
@@ -162,6 +171,7 @@ fn sixteenths(count: u64) -> Vec<ScheduledEvent> {
 
 #[test]
 fn play_sends_events_at_scheduled_host_times() {
+    let _serial = serial();
     let lb = loopback("times");
     let mut s = Scheduler::start(snapshot(&lb, sixteenths(8)), SchedulerConfig::default()).unwrap();
     s.play(Tick::ZERO).unwrap();
@@ -184,6 +194,7 @@ fn play_sends_events_at_scheduled_host_times() {
 
 #[test]
 fn send_now_latency_p99_within_3ms() {
+    let _serial = serial();
     let lb = loopback("nf1");
     let mut s = Scheduler::start(snapshot(&lb, vec![]), SchedulerConfig::default()).unwrap();
     let mut lat = Vec::new();
@@ -241,6 +252,7 @@ fn jitter_and_drift(name: &str) -> (f64, f64, usize) {
 
 #[test]
 fn playback_jitter_p99_within_half_ms_short() {
+    let _serial = serial();
     let (jitter, drift, n) = jitter_and_drift("nf3");
     println!("NF-3 간격 편차 p99: {jitter:.4} ms (노트 {n}개), NF-4 드리프트: {drift:.4} ms");
     assert!(jitter <= 0.5, "{jitter}");
@@ -248,6 +260,7 @@ fn playback_jitter_p99_within_half_ms_short() {
 
 #[test]
 fn playback_drift_within_1ms_short() {
+    let _serial = serial();
     let (_, drift, n) = jitter_and_drift("nf4");
     println!("NF-4 드리프트: {drift:.4} ms (노트 {n}개)");
     assert!(drift <= 1.0, "{drift}");
@@ -255,6 +268,7 @@ fn playback_drift_within_1ms_short() {
 
 #[test]
 fn swap_during_play_stops_old_events_and_releases_notes() {
+    let _serial = serial();
     let lb = loopback("swap");
     // 옛 스냅샷: 0틱에 긴 노트(울리는 채로 둔다), 그 뒤 960마다 음 62.
     let mut old = vec![ev(0, note_on(ch(1), pitch(48), vel()))];
@@ -279,6 +293,7 @@ fn swap_during_play_stops_old_events_and_releases_notes() {
 
 #[test]
 fn stop_locate_and_loop_release_sounding_notes() {
+    let _serial = serial();
     let lb = loopback("release");
     let events = vec![
         ev(0, note_on(ch(2), pitch(50), vel())),
@@ -318,6 +333,7 @@ fn stop_locate_and_loop_release_sounding_notes() {
 
 #[test]
 fn play_from_middle_chases_program_bank_and_cc() {
+    let _serial = serial();
     let lb = loopback("chase");
     let [msb, lsb] = bank_select(ch(3), Bank::new(130).unwrap());
     let events = vec![
@@ -350,6 +366,7 @@ fn play_from_middle_chases_program_bank_and_cc() {
 
 #[test]
 fn panic_sends_all_sound_off_notes_off_sustain_to_every_port_channel() {
+    let _serial = serial();
     let lb = loopback("panic");
     let mut s = Scheduler::start(snapshot(&lb, vec![]), SchedulerConfig::default()).unwrap();
     s.panic().unwrap();
@@ -364,6 +381,7 @@ fn panic_sends_all_sound_off_notes_off_sustain_to_every_port_channel() {
 
 #[test]
 fn clock_sends_24_ppqn_with_start_spp_continue_stop() {
+    let _serial = serial();
     let lb = loopback("clock");
     let mut s = Scheduler::start(snapshot(&lb, vec![]), SchedulerConfig::default()).unwrap();
     s.set_clock(0, true).unwrap();
@@ -389,6 +407,7 @@ fn clock_sends_24_ppqn_with_start_spp_continue_stop() {
 
 #[test]
 fn garbage_snapshots_are_returned_not_dropped_on_scheduler_thread() {
+    let _serial = serial();
     let lb = loopback("garbage");
     let first = snapshot(&lb, vec![]);
     let weak = Arc::downgrade(&first);
@@ -404,4 +423,113 @@ fn garbage_snapshots_are_returned_not_dropped_on_scheduler_thread() {
     }
     assert_eq!(returned, 1);
     assert!(weak.upgrade().is_none());
+}
+
+/// 음 번호가 노트마다 다른 열: `i`번째 노트는 틱 `i × gap`, 음 `20 + i`, 길이 `gap / 2`.
+fn numbered(count: u8, gap: u64) -> Vec<ScheduledEvent> {
+    (0..count)
+        .flat_map(|i| {
+            let t = u64::from(i) * gap;
+            [
+                ev(t, note_on(ch(1), pitch(20 + i), vel())),
+                ev(
+                    t + gap / 2,
+                    note_off(ch(1), pitch(20 + i), Velocity::new(0)),
+                ),
+            ]
+        })
+        .collect()
+}
+
+/// 받은 Note On의 음 번호.
+fn note_ons(got: &[Received]) -> Vec<u8> {
+    got.iter()
+        .filter(|(_, _, b)| b[0] & 0xF0 == 0x90 && b[2] > 0)
+        .map(|(_, _, b)| b[1])
+        .collect()
+}
+
+/// 호스트 시각 `start`에서 `after`가 지날 때까지 잔다(지났으면 곧바로 돌아온다).
+fn sleep_until(start: u64, after: Duration) {
+    let since = HostTime::now().duration_since(HostTime::from_ticks(start));
+    std::thread::sleep(after.saturating_sub(since));
+}
+
+/// 일시정지가 돌려준 틱은 「OS에 아직 넘기지 않은 첫 틱」이다. lookahead(10 ms)로 이미 넘긴 노트 직전에
+/// 눌러도 그 노트는 틱 앞쪽에 있고, 틱 이상의 노트는 하나도 오지 않는다(S3-T8).
+#[test]
+fn pause_returns_first_unsent_tick_after_lookahead() {
+    let _serial = serial();
+    let lb = loopback("pause-tick");
+    // 120 BPM에서 480틱 = 250 ms. 넷째 노트(틱 1440)의 5 ms 앞에서 누른다.
+    let mut s =
+        Scheduler::start(snapshot(&lb, numbered(8, 480)), SchedulerConfig::default()).unwrap();
+    for round in 0..5 {
+        s.play(Tick::ZERO).unwrap();
+        let first = collect(&lb.rx, 1, Duration::from_secs(1));
+        assert_eq!(note_ons(&first), vec![20], "{round}회차 첫 노트");
+        sleep_until(first[0].1, Duration::from_millis(3 * 250 - 5));
+        let at = s
+            .pause(Duration::from_millis(50))
+            .unwrap()
+            .tick()
+            .expect("재생 중이었다");
+        let got = collect(&lb.rx, 64, Duration::from_millis(60));
+        let heard = note_ons(&got);
+        // 넷째 노트(틱 1440, 음 23)는 lookahead로 이미 넘겼다.
+        assert_eq!(
+            heard.last(),
+            Some(&23),
+            "{round}회차 들은 노트 {heard:?}, 자리 {at:?}"
+        );
+        assert!(
+            at.get() > 1440,
+            "{round}회차 자리 {at:?}가 이미 넘긴 노트(틱 1440) 앞이다"
+        );
+        assert!(
+            at.get() < 1920,
+            "{round}회차 자리 {at:?}가 넘기지 않은 노트(틱 1920) 뒤다"
+        );
+    }
+}
+
+/// 일시정지와 이어서 재생을 거듭해도 노트가 겹치거나 빠지지 않는다.
+#[test]
+fn pause_resume_neither_repeats_nor_drops_notes() {
+    let _serial = serial();
+    let lb = loopback("pause-resume");
+    // 60틱(31.25 ms)마다 음 번호가 다른 노트 64개, 2초.
+    let mut s =
+        Scheduler::start(snapshot(&lb, numbered(64, 60)), SchedulerConfig::default()).unwrap();
+    let mut from = Tick::ZERO;
+    let mut heard = Vec::new();
+    for i in 0..12u64 {
+        s.play(from).unwrap();
+        // 자리마다 노트 경계와 다른 곳에 떨어지도록 재생 길이를 바꾼다.
+        std::thread::sleep(Duration::from_millis(97 + i * 7));
+        from = s
+            .pause(Duration::from_millis(50))
+            .unwrap()
+            .tick()
+            .expect("재생 중이었다");
+        heard.extend(note_ons(&collect(&lb.rx, 256, Duration::from_millis(40))));
+    }
+    s.play(from).unwrap();
+    heard.extend(note_ons(&collect(&lb.rx, 256, Duration::from_secs(3))));
+    let expected: Vec<u8> = (20..84).collect();
+    assert_eq!(heard, expected, "겹치거나 빠졌다");
+}
+
+/// 정지 중의 일시정지는 정지와 같고 이어서 재생할 자리가 없다.
+#[test]
+fn pause_when_stopped_returns_none() {
+    let _serial = serial();
+    let lb = loopback("pause-stopped");
+    let mut s =
+        Scheduler::start(snapshot(&lb, numbered(4, 480)), SchedulerConfig::default()).unwrap();
+    assert_eq!(
+        s.pause(Duration::from_millis(50)).unwrap(),
+        PauseReply::NotPlaying
+    );
+    assert!(collect(&lb.rx, 1, Duration::from_millis(50)).is_empty());
 }

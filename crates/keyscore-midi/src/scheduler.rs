@@ -257,6 +257,36 @@ struct Signals {
     /// 곡 끝에서 스스로 멈춘 때까지 처리한 명령 수(`0`은 없음). 그 뒤에 넣은 재생 명령이 있으면 옛 정지다
     /// (S3-T3d).
     ended: AtomicU64,
+    /// 마지막으로 처리한 정지 명령의 번호(`popped` 기준, `0`은 없음). `paused_tick`·`paused_playing`을 쓴 뒤
+    /// Release로 쓴다.
+    paused: AtomicU64,
+    /// 그 정지에서 이어서 재생할 틱(아직 OS에 넘기지 않은 첫 틱). `paused_playing`이 거짓이면 뜻이 없다.
+    paused_tick: AtomicU64,
+    /// 그 정지를 처리할 때 재생 중이었나. 틱 값 하나를 표식으로 쓰면 `u64::MAX` 자리의 재생과 겹친다(리뷰 2
+    /// 지적 1).
+    paused_playing: AtomicBool,
+}
+
+/// [`Scheduler::pause`]의 답.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PauseReply {
+    /// 재생 중이었다. 이어서 재생할 틱(아직 OS에 넘기지 않은 첫 틱).
+    At(Tick),
+    /// 정지를 처리할 때 이미 재생 중이 아니었다(곡 끝에서 스스로 멈춤, 정지 뒤 다시 정지 등).
+    NotPlaying,
+    /// 기다리는 동안 스레드가 정지를 처리하지 않았다. 정지 명령은 큐에 들어 있다.
+    NoAnswer,
+}
+
+impl PauseReply {
+    /// 재생 중이었으면 이어서 재생할 틱.
+    #[must_use]
+    pub const fn tick(self) -> Option<Tick> {
+        match self {
+            PauseReply::At(t) => Some(t),
+            PauseReply::NotPlaying | PauseReply::NoAnswer => None,
+        }
+    }
 }
 
 /// 스케줄러 스레드의 손잡이. drop하면 울리는 노트를 끄고 스레드를 끝낸다.
@@ -293,6 +323,9 @@ impl Scheduler {
             panic: AtomicBool::new(false),
             panic_after: AtomicU64::new(0),
             ended: AtomicU64::new(0),
+            paused: AtomicU64::new(0),
+            paused_tick: AtomicU64::new(0),
+            paused_playing: AtomicBool::new(false),
         });
         let timebase = Timebase::get();
         // 상태 표는 여기(제어 스레드)에서 할당해 넘긴다. 스케줄러 스레드는 할당하지 않는다.
@@ -389,6 +422,42 @@ impl Scheduler {
     /// `QueueFull`, `Os`.
     pub fn stop(&mut self) -> Result<(), MidiError> {
         self.send(Command::Stop)
+    }
+
+    /// 정지하고, 재생 중이었으면 이어서 재생할 틱을 돌려준다(S3-T8).
+    ///
+    /// 그 틱은 OS에 아직 넘기지 않은 첫 틱이다. lookahead 안의 이벤트는 이미 넘겨 취소할 수 없으므로,
+    /// 「지금」의 틱에서 이으면 넘긴 노트가 한 번 더 울린다. 규칙은 교체와 같아서, 한 틱의 이벤트가 바퀴당
+    /// 항목 상한을 넘어 그 틱을 나눠 보내는 중이면 그 틱을 돌려준다. 이어서 재생하면 그 틱에서 이미 넘긴
+    /// 이벤트를 다시 넘긴다(빠뜨리기보다 겹치기, 리뷰 1 지적 1). 클릭·Clock은 반대로, 같은 틱의 이벤트는
+    /// 넘기고 클릭·Clock만 남은 바퀴에서 멈추면 이어서 재생할 때 그 틱의 클릭·Clock을 건너뛴다(리뷰 2 제안 3).
+    /// 스레드가 `wait` 안에 정지를 처리하지 않았으면 [`PauseReply::NoAnswer`]다(부르는 쪽이 추정 자리를 쓴다).
+    ///
+    /// # Errors
+    ///
+    /// `QueueFull`(정지 명령이 들어가지 않아 재생은 계속된다), `Os`.
+    pub fn pause(&mut self, wait: Duration) -> Result<PauseReply, MidiError> {
+        self.send(Command::Stop)?;
+        let mine = self.pushed;
+        let deadline = std::time::Instant::now() + wait;
+        loop {
+            // 교체가 큐 머리를 막고 있으면 옛 스냅샷을 받아 줘야 정지까지 닿는다.
+            self.collect_garbage();
+            // `&mut self`라 기다리는 동안 다른 정지가 끼지 않는다. 번호가 내 것 이상이면 틱은 내 정지의 값이다.
+            if self.signals.paused.load(Ordering::Acquire) >= mine {
+                let playing = self.signals.paused_playing.load(Ordering::Relaxed);
+                let tick = self.signals.paused_tick.load(Ordering::Relaxed);
+                return Ok(if playing {
+                    PauseReply::At(Tick::new(tick))
+                } else {
+                    PauseReply::NotPlaying
+                });
+            }
+            if std::time::Instant::now() >= deadline {
+                return Ok(PauseReply::NoAnswer);
+            }
+            std::thread::sleep(Duration::from_micros(200));
+        }
     }
 
     /// 재생 위치를 옮긴다. 재생 중이면 그 위치에서 이어서 재생한다.
@@ -817,6 +886,16 @@ impl Rt {
                 self.start_playing(from, was_playing);
             }
             Command::Stop => {
+                // 이어서 재생할 틱은 정리 전에 구한다. 교체와 같은 규칙: 보낸 마지막 틱의 다음, 아무것도
+                // 보내지 않았으면 기준점 틱(S3-T8).
+                let resume = self
+                    .sent_through
+                    .map_or(self.base_tick.get(), |t| t.get().saturating_add(1));
+                self.signals.paused_tick.store(resume, Ordering::Relaxed);
+                self.signals
+                    .paused_playing
+                    .store(self.playing, Ordering::Relaxed);
+                self.signals.paused.store(self.popped, Ordering::Release);
                 let at = self.release_time();
                 // 정지 중이어도 미리듣기로 켠 노트를 끈다(리뷰 1 제안 18).
                 self.release_notes(at);
