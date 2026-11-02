@@ -272,12 +272,14 @@ fn pause_with_swaps_blocking_queue_head_still_answers() {
 }
 
 /// 같은 틱에 항목 상한(4096)을 넘는 이벤트가 있으면 한 틱을 여러 바퀴에 나눠 넘긴다. 그 사이에 일시정지하면
-/// 자리는 그 틱이 되어, 이어서 재생할 때 이미 넘긴 같은 틱의 노트를 다시 넘긴다.
+/// 자리는 그 틱이다. 이어서 재생하면 그 틱에서 이미 넘긴 이벤트를 다시 넘긴다(교체와 같은 「빠뜨리기보다
+/// 겹치기」, 리뷰 1 지적 1을 보고서가 받아들임). 2회차에서 기대를 그 규칙에 맞췄다: 겹침은 상한에 걸린 그 틱
+/// 안의, 일시정지 전에 넘긴 이벤트뿐이고, 다른 틱의 이벤트는 겹치지도 빠지지도 않으며, 그 틱의 이벤트도 빠지지 않는다.
 #[test]
 fn pause_inside_capped_tick_does_not_resend_its_events() {
     let _serial = serial();
     let rec = Recorder::new();
-    // 틱 480에 서로 다른 (채널, 음, 벨로시티) Note On 12288개.
+    // 틱 480에 서로 다른 (채널, 음, 벨로시티) Note On 12288개. 벨로시티는 20의 배수.
     let mut events = Vec::new();
     for c in 1..=16u8 {
         for p in 0..128u8 {
@@ -294,12 +296,35 @@ fn pause_inside_capped_tick_does_not_resend_its_events() {
         }
     }
     let total = events.len();
+    // 앞뒤 틱의 노트: 채널 1, 벨로시티 127(틱 480의 것과 겹치지 않는 워드). 음 `i`는 틱 `i × 20`(480 제외).
+    let others: Vec<u64> = (0..48u64).map(|i| i * 20).filter(|&t| t != 480).collect();
+    for &t in &others {
+        let p = u8::try_from(t / 20).unwrap();
+        events.push(ev(
+            t,
+            note_on(
+                ch(1),
+                Pitch::new(p).unwrap(),
+                Velocity::from_midi1(127).unwrap(),
+            ),
+        ));
+    }
+    events.sort_by_key(ScheduledEvent::tick);
     let mut s = Scheduler::start(snapshot(&rec, events), SchedulerConfig::default()).unwrap();
     s.play(Tick::ZERO).unwrap();
-    // 틱 480의 첫 바퀴가 넘어가는 순간을 기다린다(약 240 ms 뒤).
+    // 틱 480의 첫 바퀴가 넘어가는 순간을 기다린다(약 250 ms 뒤). 벨로시티가 127이 아닌 첫 워드.
     let deadline = Instant::now() + Duration::from_secs(2);
-    while rec.len() == 0 {
-        assert!(Instant::now() < deadline, "넘긴 것이 없다");
+    let mut seen_len = 0;
+    'wait: loop {
+        assert!(Instant::now() < deadline, "틱 480을 넘기지 않았다");
+        let len = rec.len();
+        for i in seen_len..len {
+            let w = rec.words[i].load(Ordering::Relaxed);
+            if is_note_on(w) && d2(w) != 127 {
+                break 'wait;
+            }
+        }
+        seen_len = len;
         std::hint::spin_loop();
     }
     let at = s
@@ -308,22 +333,55 @@ fn pause_inside_capped_tick_does_not_resend_its_events() {
         .tick()
         .expect("재생 중이었다");
     settle();
-    let sent_before = rec.words().into_iter().filter(|&w| is_note_on(w)).count();
+    let before: Vec<u32> = rec.words().into_iter().filter(|&w| is_note_on(w)).collect();
+    let capped_before: std::collections::HashSet<u32> =
+        before.iter().copied().filter(|&w| d2(w) != 127).collect();
     s.play(at).unwrap();
-    std::thread::sleep(Duration::from_millis(300));
+    std::thread::sleep(Duration::from_millis(600));
+    s.stop().unwrap();
     let mut seen: HashMap<u32, usize> = HashMap::new();
     for w in rec.words().into_iter().filter(|&w| is_note_on(w)) {
         *seen.entry(w).or_default() += 1;
     }
     let repeated = seen.values().filter(|&&n| n > 1).count();
-    assert!(
-        sent_before == 0 || sent_before == total || at.get() > 480,
-        "틱 480의 {sent_before}/{total}개를 넘긴 뒤 자리 {at:?}"
+    println!(
+        "자리 {at:?}, 일시정지 전 틱 480 {}/{total}개, 겹친 노트 {repeated}개",
+        capped_before.len()
     );
-    assert_eq!(
-        repeated, 0,
-        "자리 {at:?}, 앞서 넘긴 {sent_before}개, 다시 넘긴 노트 {repeated}개"
-    );
+    // 그 틱을 나눠 넘기는 중이었으면 자리는 그 틱이다.
+    if !capped_before.is_empty() && capped_before.len() < total {
+        assert_eq!(
+            at,
+            Tick::new(480),
+            "틱 480의 {}/{total}개를 넘긴 뒤 자리",
+            capped_before.len()
+        );
+    }
+    // 다른 틱: 정확히 한 번씩.
+    for &t in &others {
+        let p = u8::try_from(t / 20).unwrap();
+        let w = rec
+            .words()
+            .into_iter()
+            .find(|&w| is_note_on(w) && d2(w) == 127 && d1(w) == p);
+        let n = w.map_or(0, |w| seen[&w]);
+        assert_eq!(n, 1, "틱 {t}의 노트를 {n}번 넘겼다(자리 {at:?})");
+    }
+    // 틱 480: 빠짐 없음, 겹침은 일시정지 전에 넘긴 것만, 많아야 한 번 더.
+    let capped: Vec<(&u32, &usize)> = seen.iter().filter(|(w, _)| d2(**w) != 127).collect();
+    assert_eq!(capped.len(), total, "틱 480의 노트가 빠졌다(자리 {at:?})");
+    for (w, &n) in capped {
+        let allowed = if capped_before.contains(w) && at == Tick::new(480) {
+            2
+        } else {
+            1
+        };
+        assert!(
+            n == 1 || n == allowed,
+            "틱 480의 {w:08x}을 {n}번 넘겼다(일시정지 전 {}, 자리 {at:?})",
+            capped_before.contains(w)
+        );
+    }
 }
 
 /// 큐가 가득이면 `pause`는 `QueueFull`이고 정지는 들어가지 않는다(재생이 계속된다). 앱은 이때 주인을 놓고
