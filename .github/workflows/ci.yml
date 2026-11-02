@@ -29,6 +29,11 @@ on:
       - ".claude/**"
       - "spikes/**"
 
+# 같은 PR(또는 같은 브랜치)에 새 커밋이 오면 앞선 실행을 멈춘다. 한 실행이 30분쯤 걸려 겹치면 러너가 밀린다.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -60,8 +65,29 @@ jobs:
           done
           echo "midi-keepalive: ready before tests=$ready"
           cat "$RUNNER_TEMP/midi-keepalive.log"
+          # 공유 VM 러너에서 뜻이 없거나 재현되지 않는 시험만 이름으로 건너뛴다. 사람 Mac의 자동 게이트에서는
+          # 그대로 돈다. 목록과 근거는 docs/decisions/2026-11-02-ci-runner-scope.md 「반영」.
+          skip=(
+            # 실시간 기준 측정(REQ 9.2, NF)
+            playback_jitter_p99_within_half_ms_short
+            playback_drift_within_1ms_short
+            send_now_latency_p99_within_3ms
+            # 벽시계 타이밍
+            many_swaps_do_not_accumulate_rounding_drift
+            click_longer_than_beat_stays_on_grid
+            pause_just_before_loop_end_can_return_loop_end
+            many_metronome_toggles_while_playing_stay_in_sync
+            pause_with_full_queue_keeps_playing_and_a_later_pause_works
+            tap_tempo_sets_tempo_from_intervals
+            # CoreMIDI 환경
+            create_virtual_output_long_names_are_enumerated_verbatim
+            brk_metronome_port_vanish_and_return_while_playing
+            brk_port_list_refreshes_on_hotplug
+          )
+          args=()
+          for name in "${skip[@]}"; do args+=(--skip "$name"); done
           status=0
-          cargo test --workspace --no-fail-fast || status=$?
+          cargo test --workspace --no-fail-fast -- --exact "${args[@]}" || status=$?
           # 실패가 「가설이 틀림」인지 「keepalive가 없었음」인지 가르려고 시험 뒤 생존을 남긴다(리뷰 1 지적 1).
           if kill -0 "$keepalive" 2>/dev/null; then
             echo "midi-keepalive: alive after tests (ready before tests=$ready)"
