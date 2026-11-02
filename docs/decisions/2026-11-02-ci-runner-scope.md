@@ -1,7 +1,7 @@
 # 결정: 원격 CI(GitHub macOS 러너)에서 돌릴 시험의 범위
 
 - 날짜: 2026-11-02
-- 상태: 결정 대기
+- 상태: 결정됨(A, YoungTaek, 2026-11-02)
 - 관련: PR https://github.com/soomtong/keyscore-midi-editor/pull/1, `docs/reports/ci/first-run.md`, `.github/workflows/ci.yml`
 
 ## 상황
@@ -34,4 +34,13 @@ PR 1은 그 범위(두 시험의 벽시계 여유, MIDI 서버 keepalive, `--no-
 
 ## 결정
 
-(사람)
+A(YoungTaek, 2026-11-02). `ksq-cli`은 새 브랜치·PR의 별도 Task로 고친다(사람이 새 브랜치 푸시를 허락함).
+
+## 반영
+
+- 원격 CI는 아래 시험을 이름으로 건너뛴다(`.github/workflows/ci.yml`의 `--skip` 목록). 사람 Mac의 자동 게이트(`cargo test --workspace`)에서는 그대로 돈다.
+  - 실시간 기준 측정(REQ 9.2, NF): `playback_jitter_p99_within_half_ms_short`, `playback_drift_within_1ms_short`, `send_now_latency_p99_within_3ms`. 지터만 실패했지만 셋 모두 VM에서 뜻이 없는 하드웨어 기준이라 함께 뺀다.
+  - 벽시계 타이밍(이 PR 실행에서 실패한 것만): `many_swaps_do_not_accumulate_rounding_drift`, `click_longer_than_beat_stays_on_grid`, `pause_just_before_loop_end_can_return_loop_end`, `many_metronome_toggles_while_playing_stay_in_sync`, `pause_with_full_queue_keeps_playing_and_a_later_pause_works`, `tap_tempo_sets_tempo_from_intervals`.
+  - CoreMIDI 환경: `create_virtual_output_long_names_are_enumerated_verbatim`, `brk_metronome_port_vanish_and_return_while_playing`, `brk_port_list_refreshes_on_hotplug`.
+- 고쳐서 CI에서 돌리는 것: `pause_position_follows_tempo_change_in_song`, `pause_after_several_tempo_edits_matches_elapsed_time`(PR 1).
+- 다른 시험이 러너에서 흔들리면 먼저 경과 시간 기준 등으로 고칠 수 있는지 본다. 고칠 수 없을 때만 이 문서 「반영」에 근거를 적고 목록에 더한다(A의 범위 안, 사람이 고른 분류 1·2에 드는 시험만).
