@@ -79,6 +79,11 @@ jobs:
             many_metronome_toggles_while_playing_stay_in_sync
             pause_with_full_queue_keeps_playing_and_a_later_pause_works
             tap_tempo_sets_tempo_from_intervals
+            # 스케줄러 시각 정확도(호스트 시각·시간 창 안 개수). 실행 7·8에서 더함
+            play_sends_events_at_scheduled_host_times
+            clock_sends_24_ppqn_with_start_spp_continue_stop
+            swap_after_pass_capped_mid_tick_with_clock_keeps_clock_grid
+            swap_to_new_meter_keeps_click_grid_and_follows_new_accents
             # CoreMIDI 환경
             create_virtual_output_long_names_are_enumerated_verbatim
             brk_metronome_port_vanish_and_return_while_playing
