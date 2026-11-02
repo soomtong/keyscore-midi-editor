@@ -372,17 +372,23 @@ fn cached_render_is_cheap_with_big_keymap(cx: &mut TestAppContext) {
     big.push_str("}}]");
     start(cx, "perf", Some(&big));
     let (handle, _view) = open(cx);
-    let t = Instant::now();
-    render(cx, handle);
-    let closed = t.elapsed();
+    // 한 번 잰 값은 느린 CI 러너에서 멈춤 하나로 몇 배가 된다(원격 CI, 55.7 ms 대 11.6 ms). 양쪽 다
+    // 다섯 번 재서 가장 짧은 값을 비교한다. 캐시가 듣지 않으면 가장 짧은 값도 크게 벌어진다.
+    let fastest = |cx: &mut TestAppContext| {
+        (0..5)
+            .map(|_| {
+                let t = Instant::now();
+                render(cx, handle);
+                t.elapsed()
+            })
+            .min()
+            .unwrap()
+    };
+    let closed = fastest(cx);
     let t = Instant::now();
     press(cx, handle, "?");
     let opened = t.elapsed();
-    let t = Instant::now();
-    for _ in 0..5 {
-        render(cx, handle);
-    }
-    let cached = t.elapsed() / 5;
+    let cached = fastest(cx);
     let t = Instant::now();
     press(cx, handle, "ctrl-tab");
     let after_mode = t.elapsed();
