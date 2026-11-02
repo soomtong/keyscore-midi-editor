@@ -177,6 +177,9 @@ fn other_window_plays_between_pause_and_resume(cx: &mut TestAppContext) {
     let lb = start(cx, "other");
     let (ha, va) = open(cx, notes(FIRST, 24, 240));
     let (hb, vb) = open(cx, notes(90, 8, 120));
+    // A의 음(40–63)만 모은다. 느린 CI 러너에서는 B의 음(90–97)이 20 ms 창보다 늦게 와 다음 회차 A의
+    // 창에 섞였다(원격 CI, `[.., 45, 93, 46, ..]`). B 쪽 단언은 아래에서 따로 한다.
+    let only_a = |p: Vec<u8>| p.into_iter().filter(|&p| p < 90).collect::<Vec<_>>();
     let mut heard_a = Vec::new();
     for round in 0..4 {
         run(cx, ha, transport::Play);
@@ -185,7 +188,10 @@ fn other_window_plays_between_pause_and_resume(cx: &mut TestAppContext) {
         let TransportState::Paused(at) = state(cx, &va) else {
             panic!("{round}회차 A {:?}", state(cx, &va));
         };
-        heard_a.extend(pitches(&heard_for(&lb.rx, Duration::from_millis(20))));
+        heard_a.extend(only_a(pitches(&heard_for(
+            &lb.rx,
+            Duration::from_millis(20),
+        ))));
         run(cx, hb, transport::Play);
         std::thread::sleep(Duration::from_millis(100));
         if round % 2 == 0 {
@@ -206,7 +212,10 @@ fn other_window_plays_between_pause_and_resume(cx: &mut TestAppContext) {
         TransportState::Playing,
         "B가 재생 중으로 남았다"
     );
-    heard_a.extend(pitches(&heard_for(&lb.rx, Duration::from_millis(400))));
+    heard_a.extend(only_a(pitches(&heard_for(
+        &lb.rx,
+        Duration::from_millis(400),
+    ))));
     run(cx, ha, transport::Stop);
     let n = u8::try_from(heard_a.len()).unwrap();
     let expected: Vec<u8> = (FIRST..FIRST + n).collect();
