@@ -226,6 +226,10 @@ fn txt2ksq_output_dev_null_with_trailing_dot_fails_not_a_directory() {
 
 /// 사슬 중간의 링크 대상이 `/`로 끝나면(`l3 -> …/l2/`, `l2 -> /dev/null` 또는 일반 파일) 커널은
 /// ENOTDIR로 거부하고, 판정도 `Slash`로 가 같은 오류를 낸다. 일반 파일은 바뀌지 않는다.
+///
+/// macOS 15(원격 CI 러너)의 `stat`은 `/dev/null` 쪽 사슬을 끝 `/`를 무시하고 문자 장치로 푼다.
+/// 그때는 「일반 파일만 받는다(이 경로는 문자 장치)」 거부로 실패한다. 종료 1이고 아무것도 건드리지
+/// 않는 것은 같으므로 둘 다 받는다.
 #[test]
 fn ksq2txt_output_link_chain_with_slash_in_middle_fails_not_a_directory() {
     let dir = temp_dir("chain-slash");
@@ -242,7 +246,12 @@ fn ksq2txt_output_link_chain_with_slash_in_middle_fails_not_a_directory() {
         let r = ksq2txt_o(&first);
 
         assert_eq!(r.code, Some(1), "{name}: {}", r.stderr);
-        assert!(r.stderr.contains("Not a directory"), "{name}: {}", r.stderr);
+        let not_regular = name == "dev" && r.stderr.contains("이 경로는 문자 장치");
+        assert!(
+            r.stderr.contains("Not a directory") || not_regular,
+            "{name}: {}",
+            r.stderr
+        );
     }
     assert_eq!(fs::read(&kept).unwrap(), b"keep");
     assert!(temp_leftovers(&dir).is_empty());
