@@ -1,5 +1,5 @@
 //! ksq-cli macOS 15 출력 경로 수정(`fix/ksq-cli-macos15-output-paths`) 적대적 리뷰 1회차의 테스트.
-//! 커밋하지 않는 리뷰 산출물이다(`docs/reports/ksq-cli-macos15/review-1.md`).
+//! 리뷰 산출물이다(`docs/reports/ksq-cli-macos15/review-1.md`).
 //!
 //! - 링크 대상 문자열이 `/`로 끝나고 그 뒤가 끊긴 링크·없는 이름인 사슬은 새 `refuse_directory_form`만
 //!   막는다(일반 파일 쪽 사슬은 `guard_output`이 먼저 막는다). macOS 15 CI에서 확인하려고 둔다.
@@ -96,7 +96,10 @@ fn binaries_output_link_with_slashed_target_to_missing_fails_without_creating() 
 
     assert_eq!(names(&dir), before);
     for n in ["l2", "l3", "ls", "ld", "l4"] {
-        assert!(fs::symlink_metadata(dir.join(n)).unwrap().is_symlink(), "{n}");
+        assert!(
+            fs::symlink_metadata(dir.join(n)).unwrap().is_symlink(),
+            "{n}"
+        );
     }
     fs::remove_dir_all(&dir).unwrap();
 }
