@@ -257,7 +257,14 @@ struct Signals {
     /// 곡 끝에서 스스로 멈춘 때까지 처리한 명령 수(`0`은 없음). 그 뒤에 넣은 재생 명령이 있으면 옛 정지다
     /// (S3-T3d).
     ended: AtomicU64,
+    /// 마지막으로 처리한 정지 명령의 번호(`popped` 기준, `0`은 없음). `paused_tick`을 쓴 뒤 Release로 쓴다.
+    paused: AtomicU64,
+    /// 그 정지에서 이어서 재생할 틱(아직 OS에 넘기지 않은 첫 틱). 재생 중이 아니었으면 `NOT_PLAYING`.
+    paused_tick: AtomicU64,
 }
+
+/// `Signals::paused_tick`의 「재생 중이 아니었다」.
+const NOT_PLAYING: u64 = u64::MAX;
 
 /// 스케줄러 스레드의 손잡이. drop하면 울리는 노트를 끄고 스레드를 끝낸다.
 pub struct Scheduler {
@@ -293,6 +300,8 @@ impl Scheduler {
             panic: AtomicBool::new(false),
             panic_after: AtomicU64::new(0),
             ended: AtomicU64::new(0),
+            paused: AtomicU64::new(0),
+            paused_tick: AtomicU64::new(NOT_PLAYING),
         });
         let timebase = Timebase::get();
         // 상태 표는 여기(제어 스레드)에서 할당해 넘긴다. 스케줄러 스레드는 할당하지 않는다.
@@ -393,12 +402,30 @@ impl Scheduler {
 
     /// 정지하고, 재생 중이었으면 이어서 재생할 틱을 돌려준다(S3-T8).
     ///
+    /// 그 틱은 OS에 아직 넘기지 않은 첫 틱이다. lookahead 안의 이벤트는 이미 넘겨 취소할 수 없으므로,
+    /// 「지금」의 틱에서 이으면 넘긴 노트가 한 번 더 울린다. 재생 중이 아니었거나 `wait` 안에 스레드가
+    /// 정지를 처리하지 않았으면 `None`이다(부르는 쪽이 추정 자리를 쓴다).
+    ///
     /// # Errors
     ///
     /// `QueueFull`, `Os`.
     pub fn pause(&mut self, wait: Duration) -> Result<Option<Tick>, MidiError> {
-        let _ = wait;
-        todo!()
+        self.send(Command::Stop)?;
+        let mine = self.pushed;
+        let deadline = std::time::Instant::now() + wait;
+        loop {
+            // 교체가 큐 머리를 막고 있으면 옛 스냅샷을 받아 줘야 정지까지 닿는다.
+            self.collect_garbage();
+            // `&mut self`라 기다리는 동안 다른 정지가 끼지 않는다. 번호가 내 것 이상이면 틱은 내 정지의 값이다.
+            if self.signals.paused.load(Ordering::Acquire) >= mine {
+                let tick = self.signals.paused_tick.load(Ordering::Relaxed);
+                return Ok((tick != NOT_PLAYING).then(|| Tick::new(tick)));
+            }
+            if std::time::Instant::now() >= deadline {
+                return Ok(None);
+            }
+            std::thread::sleep(Duration::from_micros(200));
+        }
     }
 
     /// 재생 위치를 옮긴다. 재생 중이면 그 위치에서 이어서 재생한다.
@@ -827,6 +854,16 @@ impl Rt {
                 self.start_playing(from, was_playing);
             }
             Command::Stop => {
+                // 이어서 재생할 틱은 정리 전에 구한다. 교체와 같은 규칙: 보낸 마지막 틱의 다음, 아무것도
+                // 보내지 않았으면 기준점 틱(S3-T8).
+                let resume = if self.playing {
+                    self.sent_through
+                        .map_or(self.base_tick.get(), |t| t.get().saturating_add(1))
+                } else {
+                    NOT_PLAYING
+                };
+                self.signals.paused_tick.store(resume, Ordering::Relaxed);
+                self.signals.paused.store(self.popped, Ordering::Release);
                 let at = self.release_time();
                 // 정지 중이어도 미리듣기로 켠 노트를 끈다(리뷰 1 제안 18).
                 self.release_notes(at);

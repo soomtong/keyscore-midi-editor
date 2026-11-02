@@ -13,6 +13,10 @@ use crate::mode::Mode;
 use crate::settings::MetronomeSettings;
 use crate::window::ProjectWindow;
 
+/// 일시정지가 스케줄러의 답(이어서 재생할 틱)을 기다리는 상한. 스케줄러는 1 ms마다 깨므로 보통 1–2 ms에
+/// 답한다. 스레드가 굶으면 이만큼 뒤에 추정 자리를 쓴다(S3-T8).
+const PAUSE_WAIT: Duration = Duration::from_millis(50);
+
 /// 메시지를 몇 개까지 남기는가. 오래된 것부터 버린다.
 const MAX_MESSAGES: usize = 32;
 
@@ -176,12 +180,25 @@ impl ProjectWindow {
         if self.transport.state != TransportState::Playing {
             return;
         }
-        let at = self
+        let estimate = self
             .transport
             .anchor
             .as_ref()
             .map_or(Tick::ZERO, Anchor::position);
-        self.stop(cx);
+        // 스케줄러는 lookahead 안의 노트를 이미 OS에 넘겼다. 이어서 재생할 자리는 스케줄러가 아는 「넘기지
+        // 않은 첫 틱」이어야 들린 노트가 다시 울리지 않는다(S3-T8). 답이 없으면 추정 자리를 쓴다.
+        let me = cx.entity().downgrade();
+        let mut at = estimate;
+        if cx.has_global::<Engine>() && cx.global::<Engine>().is_owner(&me) {
+            let engine = cx.global_mut::<Engine>();
+            engine.take_owner(None);
+            match engine.scheduler().pause(PAUSE_WAIT) {
+                Ok(Some(resume)) => at = resume,
+                Ok(None) => {}
+                Err(e) => self.report(Err(e), cx),
+            }
+        }
+        self.transport.mark_stopped();
         self.transport.state = TransportState::Paused(at);
         cx.notify();
     }
