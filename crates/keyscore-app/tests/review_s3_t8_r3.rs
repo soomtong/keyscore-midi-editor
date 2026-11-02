@@ -177,9 +177,10 @@ fn other_window_plays_between_pause_and_resume(cx: &mut TestAppContext) {
     let lb = start(cx, "other");
     let (ha, va) = open(cx, notes(FIRST, 24, 240));
     let (hb, vb) = open(cx, notes(90, 8, 120));
-    // A의 음(40–63)만 모은다. 느린 CI 러너에서는 B의 음(90–97)이 20 ms 창보다 늦게 와 다음 회차 A의
-    // 창에 섞였다(원격 CI, `[.., 45, 93, 46, ..]`). B 쪽 단언은 아래에서 따로 한다.
-    let only_a = |p: Vec<u8>| p.into_iter().filter(|&p| p < 90).collect::<Vec<_>>();
+    // 느린 CI 러너에서는 앞 회차 B의 음(90–97)이 B 쪽 20 ms 창에 다 닿지 못하고 다음 회차 A의 창 맨
+    // 앞에 섞였다(원격 CI 실행 9, `[.., 45, 93, 46, ..]`). A의 첫 음 앞에 온 B 음만 버린다. A의 음
+    // 사이나 뒤에 B 음이 오면(주인이 A로 넘어간 뒤에도 B가 보냄) 그대로 남아 아래 단언에서 실패한다.
+    let only_a = |p: Vec<u8>| p.into_iter().skip_while(|&p| p >= 90).collect::<Vec<_>>();
     let mut heard_a = Vec::new();
     for round in 0..4 {
         run(cx, ha, transport::Play);

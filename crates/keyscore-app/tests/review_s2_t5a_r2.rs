@@ -234,7 +234,8 @@ fn many_tracks(n: usize, notes: &str) -> Project {
 
 // ---------- 기준점: 템포 편집 여러 번 ----------
 
-/// 120 → 60 → 240 BPM으로 0.3 s마다 바꾼 뒤 일시정지. 기대 자리 약 576 + 288 + 1152 = 2016틱.
+/// 120 → 60 BPM으로 0.3 s마다 바꾸고 240 BPM으로 0.9 s 간 뒤 일시정지. 기대 자리 약
+/// 576 + 288 + 3456 = 4320틱.
 #[gpui_kit::test]
 fn pause_after_several_tempo_edits_matches_elapsed_time(cx: &mut TestAppContext) {
     let _lb = start(cx, "tempo-multi");
@@ -260,7 +261,7 @@ fn pause_after_several_tempo_edits_matches_elapsed_time(cx: &mut TestAppContext)
         }]
     });
     let after_240 = Instant::now();
-    std::thread::sleep(Duration::from_millis(300));
+    std::thread::sleep(Duration::from_millis(900));
     let before_pause = Instant::now();
     run(cx, handle, transport::Pause);
     let after_pause = Instant::now();
@@ -273,8 +274,9 @@ fn pause_after_several_tempo_edits_matches_elapsed_time(cx: &mut TestAppContext)
     // 시작), 아래 끝은 가장 적게 가게 잡는다.
     // lookahead(`SchedulerConfig::default()`, 엔진이 쓰는 값)는 위 끝에 더한다. 교체는 보낸 구간 뒤부터
     // 새 템포를 쓰므로 바뀌는 순간이 lookahead만큼 늦을 수 있다. 그 몫과 내림은 여유 `slack`이 덮는다.
-    // 템포 편집을 기준점에 반영하지 않는 구현(0.9 s를 120 또는 240 BPM 하나로 셈)은 약 1730 또는 3460틱이라
-    // 이 범위를 벗어난다.
+    // 템포 편집을 기준점에 반영하지 않는 구현(1.5 s를 120 또는 240 BPM 하나로 셈)은 약 2880 또는
+    // 5760틱이라 이 범위를 벗어난다. 마지막 240 BPM 구간을 0.9 s로 둔 것은, 편집 호출이 느린 러너에서
+    // (호출마다 0.2 s 남짓) 범위가 넓어져도 120 BPM만 세는 구현과 겹치지 않게 하려는 것이다(리뷰 3 지적 4).
     let slack: u128 = 100;
     let lookahead = SchedulerConfig::default().lookahead;
     let us = |a: Instant, b: Instant| b.saturating_duration_since(a).as_micros();
