@@ -287,10 +287,17 @@ fn preview_during_playback_is_released_at_song_end() {
         "곡 끝에서 멈추지 않았다"
     );
     let got = drain(&lb, Duration::from_millis(400));
-    assert!(got.iter().any(|(_, m)| is_on(m, 72)), "{got:?}");
+    let on_at = got.iter().find(|(_, m)| is_on(m, 72)).map(|(t, _)| *t);
+    let off_at = got.iter().find(|(_, m)| is_off(m, 72)).map(|(t, _)| *t);
+    let (Some(on_at), Some(off_at)) = (on_at, off_at) else {
+        panic!("걸린 미리듣기를 끄지 않았다: {got:?}");
+    };
+    // 미리듣기 스스로의 끝(2 s)이 아니라 곡 끝 정리가 껐다. 러너가 느려도 곡 끝(1 s)은 미리듣기보다
+    // 먼저이므로 1.5 s로 가른다(리뷰 3 제안 7).
+    let held = HostTime::from_ticks(off_at).duration_since(HostTime::from_ticks(on_at));
     assert!(
-        got.iter().any(|(_, m)| is_off(m, 72)),
-        "걸린 미리듣기를 끄지 않았다: {got:?}"
+        held < Duration::from_millis(1500),
+        "곡 끝 정리가 아니라 미리듣기 스스로 끝났다: {held:?}"
     );
 }
 
