@@ -10,7 +10,7 @@
 
 실패는 셋으로 나뉜다.
 
-1. 실시간·벽시계 타이밍(9개 대상). 러너가 공유 VM이라 스레드 깨움이 늦다.
+1. 실시간·벽시계 타이밍(8개 대상). 러너가 공유 VM이라 스레드 깨움이 늦다.
    - `keyscore-midi` `scheduler::playback_jitter_p99_within_half_ms_short`: p99 4.48 ms(기준 0.5 ms, REQ 9.2). VM에서는 맞출 수 없는 수치다.
    - `keyscore-midi` `review_s1_t4_r2::many_swaps_do_not_accumulate_rounding_drift`, `review_s1_t5::click_longer_than_beat_stays_on_grid`(클릭 하나 더), `review_s3_t8_r3::pause_just_before_loop_end_can_return_loop_end`.
    - `keyscore-app` `review_s2_t5a_r2`(이 PR이 고침, 1d771b7), `review_s2_t5a_r3::many_metronome_toggles_while_playing_stay_in_sync`, `review_s3_t8_r2::pause_with_full_queue_keeps_playing_and_a_later_pause_works`(첫 박 `[40, 41]`), `transport_bar::tap_tempo_sets_tempo_from_intervals`(84.4 BPM).

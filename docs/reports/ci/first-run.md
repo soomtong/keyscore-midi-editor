@@ -2,6 +2,7 @@
 
 - 브랜치: `claude/handoff-continuation-efszpp`
 - 관련 남은 작업: HANDOFF 「원격 CI 첫 실행과 CI 러너 벤치 기준값」 중 첫 실행 부분. 벤치 기준값은 그대로 S8 이월.
+- 범위(리뷰 2 「범위 재정의」 뒤): MIDI 서버 keepalive, 벽시계 여유로 실패한 일시정지 시험 둘(`review_s2_t5a`, `review_s2_t5a_r2`), `--no-fail-fast`, 그리고 드러난 실패 목록의 기록. 이 PR로 원격 CI가 녹색이 되지는 않는다. 나머지 실패는 결정 요청 `docs/decisions/2026-11-02-ci-runner-scope.md`로 넘긴다.
 
 ## 관찰
 
@@ -15,6 +16,14 @@
 | 4 | 13087f8 | `inspector::send_test_note_reaches_track_port` | `MIDIClientCreate` `-50` |
 
 실행 4는 `inspector`에서 멈춰 `review_s2_t5a`까지 가지 않았다(리뷰 1 지적 2 (가): 처음 쓸 때 실행 2를 「끝난 기록 없음」으로 잘못 적었다).
+
+### PR 1의 CI(`--no-fail-fast`)
+
+PR 실행 41442250458(d19b27b)에서 위 두 시험은 통과했고 keepalive는 시험 끝까지 살아 있었다. 첫 실패에서 멈추지 않자 `main`에 가려져 있던 실패가 시험 대상 14개로 드러났다(리뷰 2 지적 1).
+
+- 벽시계·실시간 타이밍 8개: `keyscore-app` `review_s2_t5a_r2`(`Tick(2834)`·`Tick(3038)`, 이 PR이 고침), `review_s2_t5a_r3`(메트로놈 켜짐 없음), `review_s3_t8_r2`(첫 박 `[40, 41]`), `transport_bar`(탭 템포 84.4). `keyscore-midi` `scheduler`(지터 p99 4.478 ms, 기준 0.5 ms), `review_s1_t4_r2`(`None`), `review_s1_t5`(클릭 하나 더), `review_s3_t8_r3`(루프 끝 경계).
+- CoreMIDI 환경 2개: `keyscore-app` `review_s2_t6c`(「감시가 시작되지 않았다」 둘), `keyscore-midi` `review_s1_t1_r3`(`MIDISourceCreateWithProtocol` `-307`).
+- 파일 시스템 4개: `ksq-cli` `cli`, `review_s0_t8_r6`·`r9`·`r11`(러너의 `/dev` 쓰기가 `EACCES`, 링크 사슬의 종료 코드 등).
 
 ## 원인
 
@@ -30,17 +39,20 @@
 ## 대응
 
 - `crates/keyscore-app/tests/review_s2_t5a.rs`: 상한을 고정값 대신 「재생 직전부터 일시정지가 돌아올 때까지 흐른 시간 + lookahead」를 템포 지도(0.5초까지 120 BPM, 뒤로 60 BPM)로 바꾼 틱으로 잡는다. 하한 1300은 그대로다. 템포 변화를 무시한 구현은 같은 시간에 틱이 거의 두 배라 여전히 실패한다. 시험을 지우거나 `#[ignore]`하지 않았다.
-- `.github/workflows/ci.yml`, `.github/ci/midi-keepalive.swift`: 시험 단계 동안 Swift 스크립트가 CoreMIDI 클라이언트 하나를 쥐고 있어 서버가 바이너리 사이에 내려가지 않게 한다. 띄우지 못해도 시험은 돌린다. 시험 앞뒤로 keepalive 상태를 한 줄씩 남겨(`ready`, `alive after tests`), 다음 실패 때 「가설이 틀림」과 「keepalive가 없었음」을 가른다(리뷰 1 지적 1). 시험은 `--no-fail-fast`로 돌아 한 실패가 뒤 바이너리를 가리지 않는다(리뷰 1 제안 3). 제품 코드의 재시도 시간(10초)은 바꾸지 않았다. 앱 시작 동작을 CI 사정으로 바꾸지 않으려는 것이다.
+- `crates/keyscore-app/tests/review_s2_t5a_r2.rs`: `pause_after_several_tempo_edits_matches_elapsed_time`의 고정 구간(1800–2300)을 편집 호출 앞뒤 시각으로 잰 세 템포 구간의 길이로 바꿨다. 위 끝은 틱이 가장 많이 가게, 아래 끝은 가장 적게 가게 잡고 여유 100틱을 둔다. 템포 편집을 반영하지 않는 구현은 여전히 벗어난다.
+- `.github/workflows/ci.yml`, `.github/ci/midi-keepalive.swift`: 시험 단계 동안 Swift 스크립트가 CoreMIDI 클라이언트 하나를 쥐고 있어 서버가 바이너리 사이에 내려가지 않게 한다. 띄우지 못해도 시험은 돌린다. 시험 앞뒤로 keepalive 상태를 남겨(`ready before tests=yes|no`, `alive after tests`, 살아 있지 않으면 그 로그), 다음 실패 때 「가설이 틀림」과 「keepalive가 없었음」을 가른다(리뷰 1 지적 1). 시험은 `--no-fail-fast`로 돌아 한 실패가 뒤 바이너리를 가리지 않는다(리뷰 1 제안 3). 제품 코드의 재시도 시간(10초)은 바꾸지 않았다. 앱 시작 동작을 CI 사정으로 바꾸지 않으려는 것이다.
 
 ## 확인
 
 - `rustfmt --check`(바꾼 시험 파일), workflow YAML 구문 확인.
-- macOS 빌드·시험은 이 컨테이너에서 돌릴 수 없다. 이 브랜치의 PR(또는 `main` 병합)로 CI가 돌아야 확인된다. 대응 2가 가설대로가 아니면 `inspector` 실패가 다시 나온다. 그때는 실패 직전 시험 바이너리와 `midi-keepalive` 로그 줄을 본다.
+- macOS 빌드·시험은 이 컨테이너에서 돌릴 수 없어 PR 1의 CI로 확인했다. 796f57c·d19b27b 두 실행에서 `review_s2_t5a`와 `inspector`가 통과했다. `review_s2_t5a_r2` 수정(1d771b7)은 그 뒤 실행으로 본다.
+- CI 단계는 셸 모의 실행(가짜 `swift`·`cargo`, `/bin/bash -e`)으로 keepalive가 살아 있음·도중에 죽음·띄우지 못함 세 경우의 로그와 종료 코드 보존을 확인했다.
 
 ## 알려진 한계
 
 - 가설 2가 맞다면 CI만의 사정이 아니다. 사용자가 마지막 MIDI 앱을 끈 직후 KeyScore를 열면 10초 재시도를 넘겨 OUT-1 포트 없이 뜰 수 있다. keepalive는 CI에서 이 경로를 가린다. 녹색 실행 몇 번으로 가설을 확인하지는 못하므로, 제품 쪽(재시도 시간, 늦게라도 포트를 다시 등록하는 길)은 HANDOFF의 후속 항목으로 남긴다(리뷰 1 제안 4).
-- CI에는 사람 Mac과 달리 늘 떠 있는 MIDI 앱이 없다. 다른 타이밍 시험(지터 0.5 ms 등)도 러너 부하에 따라 흔들릴 수 있다. 첫 녹색 실행 뒤 몇 번 더 보고 판단한다.
+- 원격 CI는 이 PR 뒤에도 빨갛다(위 14개 대상 중 이 PR이 고친 하나를 뺀 나머지). 결정 요청 `2026-11-02-ci-runner-scope.md`.
+- keepalive가 있으면 서버 유휴 종료 회귀 시험(`crates/keyscore-midi/tests/review_s1_t1.rs`의 프로세스 클라이언트를 해제하지 않음)이 CI에서 늘 통과한다. 시험 스스로 「다른 MIDI 클라이언트가 떠 있으면 늘 통과한다」고 적은 시험이다. 누가 `MIDIClientDispose`를 되살려도 CI는 잡지 못하고, 사람 Mac의 게이트(다른 MIDI 앱이 없을 때)만 잡는다(리뷰 2 제안 3).
 
 ## 리뷰 대응
 
@@ -53,3 +65,13 @@
 | 3 | 제안 | 받아들임. `--no-fail-fast` | ba00d66 |
 | 4 | 제안 | 받아들임. 「알려진 한계」와 HANDOFF 후속 항목 | 45f3712 |
 | 5 | 제안 | 받아들임. 시험에 가정 주석 | c20dec4 |
+
+### 리뷰 2 (`review-2.md`, 범위 재정의)
+
+| # | 심각도 | 대응 | 커밋 |
+| --- | --- | --- | --- |
+| 1 | 지적 | 받아들임. 범위를 위 「범위」 줄로 다시 정하고, 드러난 14개 대상을 「관찰」에 적고, 나머지는 결정 요청으로 넘겼다. HANDOFF의 「녹색이면 병합」을 고쳤다 | c5592a3, 이 커밋 |
+| 2 | 지적 | 받아들임. keepalive 머리 주석을 가설로 고치고(실행 4), `RunLoop.main.run()`이 러너에서 돌아오지 않았음을 적고, 시험 주석에 1603을 더했다. 커밋 c86a67f 본문은 고쳐 쓰지 않고 주석으로 바로잡는다 | f6e3a28 |
+| 3 | 제안 | 받아들임. 「알려진 한계」에 적음 | 이 커밋 |
+| 4 | 제안 | 받아들임. `grep -qx`, 시험 앞 준비 여부, 살아 있지 않으면 로그 다시 보이기. 셸 모의 실행 세 경우로 확인 | 79dd066 |
+| 5 | 제안 | 받아들임. HANDOFF에 병합 방식(merge commit, squash 금지)을 적고, keepalive가 살아 있는데 `-50`이 다시 나면 재기동 가설이 틀린 것이므로 원인 조사로 고쳤다 | 이 커밋 |
