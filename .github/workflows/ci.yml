@@ -1,6 +1,6 @@
 name: CI
 
-# 문서만 바뀐 변경에는 돌리지 않는다. assets/ 아래 Markdown은 프롬프트 템플릿이라
+# 문서나 spikes/(워크스페이스 밖 기술 검증 코드)만 바뀐 변경에는 돌리지 않는다. assets/ 아래 Markdown은 프롬프트 템플릿이라
 # 테스트가 읽으므로 제외 목록에 넣지 않는다(그래서 **.md 전체를 쓰지 않는다).
 on:
   push:
@@ -15,6 +15,7 @@ on:
       - "docs/**"
       - "plan/**"
       - ".claude/**"
+      - "spikes/**"
   pull_request:
     paths-ignore:
       - "README.md"
@@ -26,6 +27,7 @@ on:
       - "docs/**"
       - "plan/**"
       - ".claude/**"
+      - "spikes/**"
 
 env:
   CARGO_TERM_COLOR: always
