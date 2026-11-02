@@ -1,4 +1,4 @@
-# HANDOFF: KeyScore S3 진행 중 — S3-T7 병합, S3 출구 게이트 다음
+# HANDOFF: KeyScore S3 출구 보고서 작성 — 사람의 수동 확인·서명 대기
 
 ## 목표
 
@@ -10,6 +10,7 @@
 
 ## 완료된 작업
 
+- [x] S3 출구 보고서 `docs/reports/stage-3-exit.md`(2026-11-02, 기준 `c01d6ba`). 자동 게이트 모두 통과: 전체 시험 2806 passed·0 failed·2 ignored, release 프레임 중앙값 1.53 ms·최대 1.86 ms, `pianoroll/scene_10k_notes` -9.5%(core `ksq/read_100k_notes`는 전체 벤치에서 +13.4% 한 번, 단독 두 번 -1.8%·-0.8%로 소음). S3 이월 줄 12개 대조, S4-T2에 이월 줄 둘(배치 뷰 vim 오퍼레이터·비주얼·카운트, 복제 간격 결정 대기)을 더함
 - [x] S3-T5c 드럼 트랙 조성 명암 제외·검은건반 이름 글(리뷰 2회, 2회차 「병합 가능」, 병합 72d5f01, 전체 시험 2670 통과 + 무관한 재생 지터 1(혼자 3회 통과))
 - [x] S3-T5b 건반 뷰 키 라벨 고침(사람이 스크린샷을 보고 승인한 결정 `2026-10-31-keyboard-view-direct-labels.md`, 리뷰 2회, 2회차 「병합 가능」, 병합 aae349e, 전체 시험 2652 통과 + 무관한 재생 지터 1(혼자 3회 통과))
 - [x] S3-T6b 드래그 이동·조절(리뷰 3회: 1회차 차단 1(노트 변환이 가사·오프셋·모르는 키를 지움, 키 `Alt` 조작 회귀)·수정 1(수식키 쥔 `Esc`)·제안 2, 2회차 수정 2(오프셋 노트 음높이 자르기, 취소 키 하드코딩)·제안 1, 3회차 「병합 가능」 제안 1, 병합 1470715). 결정 `2026-10-31-s3-t6-mouse-editing.md` 6절(에이전트 해석). `pianoroll/ops.rs`: `NoteShift{time: TimeShift, pitch, start, end}`, `NoteOp::shift`, `shift_note`(원래 노트를 `with_length`→`with_start`→`with_pitch`로 고침, 1틱 미만이면 그대로), `shifted`·`plan_shift`(`map_notes`)·`plan_shift_copy`(`insert_notes`), `plan_note_op`은 `plan_shift(op.shift(step))`. `pianoroll/mouse.rs`: `Grip`·`grip_at`(min(6 px, 폭/3)), `snap_nearest`, `snap_grid`(`MouseSnap`), `drag_shift`(가장 가까운 격자선, 클립 시작·`pitch_room` 절대 피치로 자르기, 대체 격자선은 원래 끝·시작을 넘지 않음), `Gesture::Move(Box<Drag>)`. `pianoroll_mouse.rs`: `update_move`(움직임·수식키·뷰포트 변화) → `plan_move`(변환이 같으면 생략) → 고스트, `finish_move`(뗌, undo 하나, 본체면 커서 따라감), 미리듣기 `preview_note`(이동 시 미리듣기 설정). 취소 키는 키맵의 `edit::CancelDrag`(`cancels_drag`, 수식키 뺀 모양도), 처리기 `cancel_drag_action`. `window.rs` `watch_modifiers`(루트의 `on_modifiers_changed`). 설정 `input.mouse_snap`, `settings::SetMouseSnap`(Action 1 증가), 설정 > 입력 「마우스 스냅 단위」
@@ -122,6 +123,7 @@
 
 ## 남은 작업
 
+- [ ] 사람(S3 출구): `docs/reports/stage-3-exit.md`의 수동 항목 — M1 「반짝반짝 작은 별」 8마디 Step 입력·수정·저장과 외부 신디 청취, 노트 10,000개 실제 창 줌·스크롤(UI-3) — 과 서명. 서명 전에는 S4를 시작하지 않는다
 - [ ] 사람 확인(S3-T7): 결정 `2026-11-01-s3-t7-search-and-note-info.md`의 에이전트 해석(검색어 문법 `c#4`·`"a"`, 결과 순서와 돎, 기본 프리셋 `Cmd+G`, 노트 없는 트랙 결과, 정보 팝업 내용). 실제 창에서 한글 IME 조합 중 막대의 `Enter`(조합 확정만 하고 검색하지 않아야 함)
 - [ ] 사람 확인(S3-T6c): 결정 `2026-10-31-s3-t6-mouse-editing.md` 7절의 에이전트 해석(4 px마다 한 단계, 템포 1 BPM·`Cmd` 0.1 BPM, 박자표는 누른 쪽 절반으로 분자 1–99·분모 1–32, 뗄 때 한 번 적용이라 끄는 동안 재생 템포는 그대로). 실제 창의 끌기 감각
 - [ ] 사람 확인(S3-T6c 리뷰 3 범위 밖 관찰): 고치는 중인 입력란을 가운데가 아닌 곳(폭의 0.1·0.9 지점)에서 누르면 포커스를 잃고 친 글자가 취소된다. `main`에서도 같아 시험 하네스 탓인지 실제 앱도 그런지 확인한다
@@ -176,7 +178,7 @@ REQ 문구: 사람이 에이전트에게 수정을 허락한 범위(결정 문�
 
 ## 다음 에이전트에게
 
-1. S3 Task는 모두 병합됐다. 다음은 S3 출구 게이트(단계 파일 「출구 게이트」): 자동(피아노롤 벤치 기준, 5.6·5.7 테이블 시험, release 프레임 시험 `cargo test -p keyscore-app --release --test pianoroll frame_with_10k`)을 돌리고 `docs/reports/stage-3-exit.md`를 쓴다. 수동 항목(「반짝반짝 작은 별」 8마디 Step 입력, 외부 신디, 노트 10,000개 줌·스크롤, 서명)은 사람이 한다. 디스크가 빠듯하다(2026-11-01 남은 공간 약 8 GiB, `target/debug`가 50G 넘음). release 빌드 전에 사람에게 정리를 묻는다. 리뷰어 지시에 `CARGO_TARGET_DIR=target/review`와 「MIDI·재생 시험과 전체 시험을 돌리지 않음」을 넣는다. 결정 `2026-10-26-duplicate-offset-grid.md`가 나면 `pianoroll/edit.rs` `duplicate_offset`도. 전체 시험은 20분 넘게 걸리니 백그라운드 시간 제한을 넉넉히(30–60분) 주고 `--no-fail-fast`로 돌린다(흔들리는 시험 하나가 뒤 바이너리를 막지 않게).
+1. S3 출구 보고서를 썼고 자동 게이트는 통과했다(`docs/reports/stage-3-exit.md`). 사람이 수동 항목을 확인하고 서명하면 S4-T1(배치 뷰 Element)을 시작한다. S4 단계 파일의 S4-T1 이월 줄 셋(배치 뷰 줌 처리기, 마크 메뉴·`Cmd+A`·커서부터 재생, Step 격자 표시)과 S4-T2 이월 줄을 먼저 읽는다. 서명 전에는 사람이 알리는 결함만 Task 브랜치로 고친다. 결정 `2026-10-26-duplicate-offset-grid.md`가 나면 `pianoroll/edit.rs` `duplicate_offset`도. 리뷰어 지시에 `CARGO_TARGET_DIR=target/review`와 「MIDI·재생 시험과 전체 시험을 돌리지 않음」을 넣는다. 전체 시험은 처음 빌드부터 35분쯤 걸리니 백그라운드 시간 제한을 넉넉히(60분) 주고 `--no-fail-fast`로 돌린다. 디스크는 2026-11-02 기준 66 GiB 남음.
 2. S2 출구는 서명됐다. 보고서 「사람이 확인할 항목」 가운데 「추후 점검」 항목(메뉴 키 등가물, 팔레트 첫 Esc, 크래시 복구, 가져오기·내보내기, 포트 매핑 시트, 핫플러그·서버 재시작, IME, 타이밍 시험)은 사람이 나중에 보며 S3을 막지 않는다. 사람이 결함을 알리면 Task 브랜치로 고친다.
 3. Task 루프: 브랜치 `s3/t<번호>-<slug>` → `docs/reports/s3-t<번호>/plan.md` → 테스트 먼저(뼈대 `todo!()`로 실패 확인) → 구현 → 게이트 전부(커밋 전에) → `report.md` → 새 에이전트로 적대적 리뷰(`general-purpose`, 구현 맥락 없이, 양식 `plan/templates/adversarial-review.md`, 산출물만 남기고 커밋 금지, 기존 `.proptest-regressions` 삭제 금지) → 지적마다 커밋 하나 → 재리뷰(최대 3회) → `git merge --no-ff`.
 4. 자동 게이트: `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`, `cargo deny check`, `scripts/check-deps.sh`, `scripts/check-deps.test.sh`, `scripts/bench-check.test.sh`. `core`·`text`에 외부 의존을 더하면 `scripts/check-deps.sh`의 허용 목록도 고친다.
