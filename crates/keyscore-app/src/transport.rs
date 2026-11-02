@@ -202,6 +202,12 @@ impl ProjectWindow {
                     cx.notify();
                     return;
                 }
+                Err(MidiError::QueueFull) => {
+                    // 정지 명령이 들어가지 않아 소리는 계속된다. 주인을 놓으면 정지 Action으로 멈출 수 없으므로
+                    // 재생 상태로 남기고 알린다(리뷰 1 제안 4).
+                    self.report(Err(MidiError::QueueFull), cx);
+                    return;
+                }
                 Err(e) => self.report(Err(e), cx),
             }
             cx.global_mut::<Engine>().take_owner(None);
