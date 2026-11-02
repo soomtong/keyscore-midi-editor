@@ -22,5 +22,5 @@ for i in $(seq 1 "$runs"); do
   fi
   [ "$pause" -gt 0 ] && sleep "$pause"
 done
-echo "midi-soak: $runs회 가운데 $failed회 실패"
+echo "midi-soak: ${runs}회 가운데 ${failed}회 실패"
 [ "$failed" -eq 0 ]

@@ -95,12 +95,12 @@ for crate in $crates; do
       while read -r dep _version source; do
         case "$dep" in keyscore-*) continue ;; esac
         if [[ "$allowed" != *" $dep "* ]]; then
-          echo "check-deps: $crate의 직접 의존 $dep가 허용 목록에 없다" >&2
+          echo "check-deps: ${crate}의 직접 의존 ${dep}가 허용 목록에 없다" >&2
           fail=1
         # 레지스트리 crate는 {p}에 소스가 붙지 않는다. path·git 소스는 「(...)」가 붙는다.
         # 허용된 이름을 다른 소스로 바꿔치기하는 것을 막는다(review-2 #2).
         elif [ -n "$source" ]; then
-          echo "check-deps: $crate의 직접 의존 $dep가 레지스트리 crate가 아니다: $source" >&2
+          echo "check-deps: ${crate}의 직접 의존 ${dep}가 레지스트리 crate가 아니다: $source" >&2
           fail=1
         fi
       # 「(*)」(반복 노드)와 「(proc-macro)」는 소스가 아니라 cargo tree의 표시라서 지운다.
@@ -116,7 +116,7 @@ for crate in keyscore-core keyscore-text ksq-cli; do
   fi
   bad=$(echo "$tree" | awk '{print $1}' | grep -E "$forbidden" | sort -u | tr '\n' ' ' || true)
   if [ -n "$bad" ]; then
-    echo "check-deps: $crate가 금지 crate에 의존한다: $bad" >&2
+    echo "check-deps: ${crate}가 금지 crate에 의존한다: $bad" >&2
     fail=1
   fi
 done
