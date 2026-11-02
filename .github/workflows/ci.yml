@@ -83,6 +83,9 @@ jobs:
             play_sends_events_at_scheduled_host_times
             clock_sends_24_ppqn_with_start_spp_continue_stop
             swap_after_pass_capped_mid_tick_with_clock_keeps_clock_grid
+            swap_after_pass_capped_right_before_clock_sends_events_and_clocks_once
+            swap_after_pass_capped_at_later_tick_keeps_clock_on_that_tick
+            many_swaps_with_clock_on_keep_clock_grid
             swap_to_new_meter_keeps_click_grid_and_follows_new_accents
             # CoreMIDI 환경
             create_virtual_output_long_names_are_enumerated_verbatim
