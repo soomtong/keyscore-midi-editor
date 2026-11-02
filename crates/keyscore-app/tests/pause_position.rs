@@ -216,3 +216,25 @@ fn resume_after_pause_does_not_repeat_heard_note(cx: &mut TestAppContext) {
     let expected: Vec<u8> = (FIRST..FIRST + n).collect();
     assert_eq!(heard, expected, "들린 박이 겹치거나 빠졌다");
 }
+
+/// 스케줄러가 곡 끝에서 스스로 멈춘 뒤, 창의 곡 끝 감시가 알아채기 전에 일시정지하면 곡 끝 정지(결정
+/// `2026-10-25-playback-end-of-song.md` A)와 같이 정지 상태가 된다. 곡 끝 뒤 자리에 일시정지하지 않는다
+/// (S3-T8 리뷰 1 제안 3). 시험 실행기의 타이머는 시계를 움직이지 않으면 돌지 않아 감시가 끼지 않는다.
+#[gpui_kit::test]
+fn pause_after_scheduler_reached_song_end_stops(cx: &mut TestAppContext) {
+    let _serial = serial();
+    let lb = start(cx, "song-end");
+    let text = r#"{"tempo": [[0, 500000]], "tracks": [{"name": "Beat", "port": "virtual", "channel": 1,
+        "clips": [{"start": 0, "length": 960, "notes": [[0, 120, 40, 51492], [480, 120, 41, 51492]]}]}]}"#;
+    let (handle, view) = open(cx, ksq::from_str(text).unwrap().0);
+    run(cx, handle, transport::Play);
+    // 곡 끝은 틱 960(0.5 s). 넉넉히 지난 뒤
+    std::thread::sleep(Duration::from_millis(800));
+    assert_eq!(
+        heard_for(&lb.rx, Duration::from_millis(20)),
+        vec![FIRST, FIRST + 1]
+    );
+    run(cx, handle, transport::Pause);
+    let state = cx.read(|cx| view.read(cx).transport_state());
+    assert_eq!(state, TransportState::Stopped, "곡 끝 뒤에 일시정지했다");
+}

@@ -263,6 +263,28 @@ struct Signals {
     paused_tick: AtomicU64,
 }
 
+/// [`Scheduler::pause`]의 답.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PauseReply {
+    /// 재생 중이었다. 이어서 재생할 틱(아직 OS에 넘기지 않은 첫 틱).
+    At(Tick),
+    /// 정지를 처리할 때 이미 재생 중이 아니었다(곡 끝에서 스스로 멈춤, 정지 뒤 다시 정지 등).
+    NotPlaying,
+    /// 기다리는 동안 스레드가 정지를 처리하지 않았다. 정지 명령은 큐에 들어 있다.
+    NoAnswer,
+}
+
+impl PauseReply {
+    /// 재생 중이었으면 이어서 재생할 틱.
+    #[must_use]
+    pub const fn tick(self) -> Option<Tick> {
+        match self {
+            PauseReply::At(t) => Some(t),
+            PauseReply::NotPlaying | PauseReply::NoAnswer => None,
+        }
+    }
+}
+
 /// `Signals::paused_tick`의 「재생 중이 아니었다」.
 const NOT_PLAYING: u64 = u64::MAX;
 
@@ -403,13 +425,15 @@ impl Scheduler {
     /// 정지하고, 재생 중이었으면 이어서 재생할 틱을 돌려준다(S3-T8).
     ///
     /// 그 틱은 OS에 아직 넘기지 않은 첫 틱이다. lookahead 안의 이벤트는 이미 넘겨 취소할 수 없으므로,
-    /// 「지금」의 틱에서 이으면 넘긴 노트가 한 번 더 울린다. 재생 중이 아니었거나 `wait` 안에 스레드가
-    /// 정지를 처리하지 않았으면 `None`이다(부르는 쪽이 추정 자리를 쓴다).
+    /// 「지금」의 틱에서 이으면 넘긴 노트가 한 번 더 울린다. 규칙은 교체와 같아서, 한 틱의 이벤트가 바퀴당
+    /// 항목 상한을 넘어 그 틱을 나눠 보내는 중이면 그 틱을 돌려준다. 이어서 재생하면 그 틱에서 이미 넘긴
+    /// 이벤트를 다시 넘긴다(빠뜨리기보다 겹치기, 리뷰 1 지적 1). 스레드가 `wait` 안에 정지를 처리하지 않았으면
+    /// [`PauseReply::NoAnswer`]다(부르는 쪽이 추정 자리를 쓴다).
     ///
     /// # Errors
     ///
-    /// `QueueFull`, `Os`.
-    pub fn pause(&mut self, wait: Duration) -> Result<Option<Tick>, MidiError> {
+    /// `QueueFull`(정지 명령이 들어가지 않아 재생은 계속된다), `Os`.
+    pub fn pause(&mut self, wait: Duration) -> Result<PauseReply, MidiError> {
         self.send(Command::Stop)?;
         let mine = self.pushed;
         let deadline = std::time::Instant::now() + wait;
@@ -419,10 +443,14 @@ impl Scheduler {
             // `&mut self`라 기다리는 동안 다른 정지가 끼지 않는다. 번호가 내 것 이상이면 틱은 내 정지의 값이다.
             if self.signals.paused.load(Ordering::Acquire) >= mine {
                 let tick = self.signals.paused_tick.load(Ordering::Relaxed);
-                return Ok((tick != NOT_PLAYING).then(|| Tick::new(tick)));
+                return Ok(if tick == NOT_PLAYING {
+                    PauseReply::NotPlaying
+                } else {
+                    PauseReply::At(Tick::new(tick))
+                });
             }
             if std::time::Instant::now() >= deadline {
-                return Ok(None);
+                return Ok(PauseReply::NoAnswer);
             }
             std::thread::sleep(Duration::from_micros(200));
         }

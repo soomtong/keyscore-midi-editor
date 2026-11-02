@@ -37,7 +37,9 @@ pub use ports::{
     Action, Link, PortEvent, PortInfo, Reconnector, Suggestion, diff_ports, suggest_mapping,
 };
 pub use render::{Rendered, render};
-pub use scheduler::{MAX_SCHEDULER_PORTS, ScheduledEvent, Scheduler, SchedulerConfig, Snapshot};
+pub use scheduler::{
+    MAX_SCHEDULER_PORTS, PauseReply, ScheduledEvent, Scheduler, SchedulerConfig, Snapshot,
+};
 pub use smf::{
     ExportReport, ImportError, ImportReport, MAX_SONG_TICKS, SmfError, SmfEvent, SmfEventKind,
     SmfFile, SmfFormat, SmfLimits, SmfTrack, Song, SongNote, SongTrack, smf_export, smf_import,

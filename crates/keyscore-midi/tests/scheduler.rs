@@ -11,8 +11,8 @@ use std::time::{Duration, Instant};
 
 use keyscore_core::{Bank, Channel, Pitch, Program, Tempo, TempoMap, Tick, Velocity};
 use keyscore_midi::{
-    HostTime, Midi1Message, MidiClient, MidiPort, ScheduledEvent, Scheduler, SchedulerConfig,
-    Snapshot, bank_select, control_change, note_off, note_on, program_change,
+    HostTime, Midi1Message, MidiClient, MidiPort, PauseReply, ScheduledEvent, Scheduler,
+    SchedulerConfig, Snapshot, bank_select, control_change, note_off, note_on, program_change,
 };
 
 /// 받은 메시지: (도착 호스트 시각, 패킷 타임스탬프, 바이트).
@@ -472,6 +472,7 @@ fn pause_returns_first_unsent_tick_after_lookahead() {
         let at = s
             .pause(Duration::from_millis(50))
             .unwrap()
+            .tick()
             .expect("재생 중이었다");
         let got = collect(&lb.rx, 64, Duration::from_millis(60));
         let heard = note_ons(&got);
@@ -509,6 +510,7 @@ fn pause_resume_neither_repeats_nor_drops_notes() {
         from = s
             .pause(Duration::from_millis(50))
             .unwrap()
+            .tick()
             .expect("재생 중이었다");
         heard.extend(note_ons(&collect(&lb.rx, 256, Duration::from_millis(40))));
     }
@@ -525,6 +527,9 @@ fn pause_when_stopped_returns_none() {
     let lb = loopback("pause-stopped");
     let mut s =
         Scheduler::start(snapshot(&lb, numbered(4, 480)), SchedulerConfig::default()).unwrap();
-    assert_eq!(s.pause(Duration::from_millis(50)).unwrap(), None);
+    assert_eq!(
+        s.pause(Duration::from_millis(50)).unwrap(),
+        PauseReply::NotPlaying
+    );
     assert!(collect(&lb.rx, 1, Duration::from_millis(50)).is_empty());
 }

@@ -11,8 +11,8 @@ use std::time::{Duration, Instant};
 
 use keyscore_core::{Channel, Pitch, Tempo, TempoMap, Tick, Velocity};
 use keyscore_midi::{
-    HostTime, MidiError, MidiPort, ScheduledEvent, Scheduler, SchedulerConfig, Snapshot, note_off,
-    note_on,
+    HostTime, MidiError, MidiPort, PauseReply, ScheduledEvent, Scheduler, SchedulerConfig,
+    Snapshot, note_off, note_on,
 };
 
 /// 시각을 재는 시험이라 서로 겹치지 않게 돈다.
@@ -165,6 +165,7 @@ fn pause_after_swaps_neither_repeats_nor_drops() {
         let at = s
             .pause(Duration::from_millis(50))
             .unwrap()
+            .tick()
             .expect("재생 중이었다");
         settle();
         let ticks = sent_on_ticks(&rec, GAP);
@@ -210,6 +211,7 @@ fn pause_right_after_play_or_locate_returns_start() {
         let at = s
             .pause(Duration::from_millis(50))
             .unwrap()
+            .tick()
             .expect("재생 중이었다");
         settle();
         assert!(at >= from, "{round}회차 자리 {at:?}가 시작 {from:?} 앞이다");
@@ -239,7 +241,10 @@ fn pause_after_song_end_returns_none() {
     let mut s = Scheduler::start(snap, SchedulerConfig::default()).unwrap();
     s.play(Tick::ZERO).unwrap();
     std::thread::sleep(Duration::from_millis(400));
-    assert_eq!(s.pause(Duration::from_millis(50)).unwrap(), None);
+    assert_eq!(
+        s.pause(Duration::from_millis(50)).unwrap(),
+        PauseReply::NotPlaying
+    );
     assert!(s.take_ended(), "곡 끝 신호는 남아 있다");
 }
 
@@ -256,7 +261,7 @@ fn pause_with_swaps_blocking_queue_head_still_answers() {
         s.swap(snapshot(&rec, numbered(64, 60))).unwrap();
     }
     let started = Instant::now();
-    let at = s.pause(Duration::from_millis(50)).unwrap();
+    let at = s.pause(Duration::from_millis(50)).unwrap().tick();
     assert!(at.is_some(), "답하지 않았다({:?})", started.elapsed());
     settle();
     let ticks = sent_on_ticks(&rec, 60);
@@ -300,6 +305,7 @@ fn pause_inside_capped_tick_does_not_resend_its_events() {
     let at = s
         .pause(Duration::from_millis(50))
         .unwrap()
+        .tick()
         .expect("재생 중이었다");
     settle();
     let sent_before = rec.words().into_iter().filter(|&w| is_note_on(w)).count();

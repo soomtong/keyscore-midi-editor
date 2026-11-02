@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use gpui_kit::{BorrowAppContext as _, Context, SharedString, Task, Window};
 use keyscore_core::{MusicTime, TempoMap, Tick};
-use keyscore_midi::{HostTime, MidiError};
+use keyscore_midi::{HostTime, MidiError, PauseReply};
 
 use crate::actions::transport;
 use crate::app_state::AppSettings;
@@ -191,12 +191,20 @@ impl ProjectWindow {
         let mut at = estimate;
         if cx.has_global::<Engine>() && cx.global::<Engine>().is_owner(&me) {
             let engine = cx.global_mut::<Engine>();
-            engine.take_owner(None);
             match engine.scheduler().pause(PAUSE_WAIT) {
-                Ok(Some(resume)) => at = resume,
-                Ok(None) => {}
+                Ok(PauseReply::At(resume)) => at = resume,
+                Ok(PauseReply::NoAnswer) => {}
+                Ok(PauseReply::NotPlaying) => {
+                    // 스케줄러는 이미 멈췄다(곡 끝). 창의 곡 끝 감시가 아직 몰랐을 뿐이므로 곡 끝 정지와 같이
+                    // 정지 상태로 간다(결정 `2026-10-25-playback-end-of-song.md` A, 리뷰 1 제안 3).
+                    engine.take_owner(None);
+                    self.transport.mark_stopped();
+                    cx.notify();
+                    return;
+                }
                 Err(e) => self.report(Err(e), cx),
             }
+            cx.global_mut::<Engine>().take_owner(None);
         }
         self.transport.mark_stopped();
         self.transport.state = TransportState::Paused(at);
