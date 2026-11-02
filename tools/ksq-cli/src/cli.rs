@@ -277,7 +277,8 @@ fn refuse_same_file(options: &Options, input: (u64, u64)) -> Result<(), CliError
 /// `-o` 쓰기 실패. 확인 때 없던 대상을 만들지 못했으면 원인에 따라 다르게 알린다(계획자 결정 A,
 /// S0-T8 리뷰 10 제안 2). 경로는 이 오류가 한 번만 적는다.
 ///
-/// - 특수 파일 자리(경로가 `/dev/` 아래이거나 끝이 `/`·`/.`이고, 커널 오류가 ENOENT·ENOTDIR·EPERM):
+/// - 특수 파일 자리(경로가 `/dev/` 아래이거나 끝이 `/`·`/.`이고, 커널 오류가 ENOENT·ENOTDIR·EPERM,
+///   `/dev` 아래면 EACCES도):
 ///   다른 거부와 같은 「특수 파일에 쓰려면 … 리다이렉트하라」 안내([`CliError::OutputUncreatable`]).
 /// - 그 밖(권한 없음, 없는 디렉터리 안 등): 셸 리다이렉션도 같은 이유로 실패할 수 있으므로 특수
 ///   파일 안내 대신 다른 경로나 표준 출력을 권한다([`CliError::OutputCreateFailed`]).
@@ -297,12 +298,17 @@ fn output_error(options: &Options, path: &Path, was_missing: bool, cause: CliErr
         } => Some(source),
         _ => None,
     };
+    let under_dev = path.starts_with("/dev");
+    // `/dev`(devfs)에 새 이름을 만들 때 사람 Mac은 EPERM(1)을, macOS 15(원격 CI 러너)는 EACCES(13)를
+    // 돌려준다. 어느 쪽이든 특수 파일 자리라 같은 안내를 한다. `/dev` 밖의 EACCES는 쓰기 권한 문제라
+    // 셸 리다이렉션도 같이 실패하므로 일반 안내로 둔다.
     let special_kind = io.is_some_and(|e| {
         matches!(e.kind(), ErrorKind::NotFound | ErrorKind::NotADirectory)
             || e.raw_os_error() == Some(1)
+            || (under_dev && e.raw_os_error() == Some(13))
     });
     let bytes = path.as_os_str().as_encoded_bytes();
-    let special_place = path.starts_with("/dev") || bytes.ends_with(b"/") || bytes.ends_with(b"/.");
+    let special_place = under_dev || bytes.ends_with(b"/") || bytes.ends_with(b"/.");
     let detail = match cause {
         CliError::Io { source, .. } => source.to_string(),
         CliError::Ksq { source, .. } => source.to_string(),
@@ -475,6 +481,8 @@ fn write_then_rename(temp: &Path, path: &Path, bytes: &[u8]) -> std::io::Result<
     file.write_all(bytes)?;
     file.sync_all()?;
     drop(file);
+    // 임시 파일까지는 커널이 먼저 실패하게 둔다(쓰기 권한 없는 디렉터리의 EACCES 등). 이름 바꾸기만 막는다.
+    refuse_directory_form(path)?;
     fs::rename(temp, path)?;
     // 이름 바꾸기를 디스크에 남긴다. 디렉터리 fsync가 안 되는 파일 시스템도 있어 실패는 무시한다.
     let dir = match path.parent() {
@@ -502,6 +510,29 @@ fn resolve_symlink(path: &Path) -> std::io::Result<PathBuf> {
         }
     }
     Err(std::io::Error::other("심볼릭 링크가 너무 깊거나 순환한다"))
+}
+
+/// 끝이 `/`이거나 마지막 구성 요소가 `.`·`..`인 경로인가. `keyscore-core`의 `ksq::write_file`과 같은
+/// 규칙이다.
+fn directory_form(path: &Path) -> bool {
+    let bytes = path.as_os_str().as_encoded_bytes();
+    let last = bytes.rsplit(|&b| b == b'/').next().unwrap_or_default();
+    bytes.ends_with(b"/") || last == b"." || last == b".."
+}
+
+/// 링크를 푼 쓰기 대상이 디렉터리 꼴이면 이름 바꾸기 전에 실패한다. macOS 15에서는 끊긴 링크
+/// 뒤에 `/`를 붙인 대상(`dl/`)으로 이름 바꾸기가 성공했다(원격 CI). 오류의 원인은 커널이 그 경로에
+/// `stat`으로 답한 것을 쓴다.
+fn refuse_directory_form(path: &Path) -> std::io::Result<()> {
+    if !directory_form(path) {
+        return Ok(());
+    }
+    // ENOTDIR(20)·EISDIR(21)은 macOS와 Linux에서 같은 번호다.
+    match fs::metadata(path) {
+        Err(e) => Err(e),
+        Ok(meta) if meta.is_dir() => Err(std::io::Error::from_raw_os_error(21)),
+        Ok(_) => Err(std::io::Error::from_raw_os_error(20)),
+    }
 }
 
 /// 같은 디렉터리의 임시 파일 경로. 다른 디렉터리면 rename이 원자적이지 않다.
@@ -635,5 +666,17 @@ mod tests {
 
         assert!(refuse_mismatch(&losses).is_ok());
         assert!(refuse_mismatch(&[]).is_ok());
+    }
+
+    #[test]
+    fn directory_form_matches_trailing_slash_dot_and_dotdot() {
+        for yes in [
+            "a/", "a/.", "a/./", "a/..", "/", "a//", "dir/b/.", ".", "..",
+        ] {
+            assert!(directory_form(Path::new(yes)), "{yes}");
+        }
+        for no in ["a", "a/b", "a.", "a/.b", "a/..b", "a/b.", "..."] {
+            assert!(!directory_form(Path::new(no)), "{no}");
+        }
     }
 }
