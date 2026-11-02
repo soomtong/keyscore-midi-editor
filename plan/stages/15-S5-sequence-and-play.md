@@ -42,3 +42,4 @@
 - [ ] 수동: `docs/reports/stage-5-exit.md` 서명.
 
 - 이월(S3-T3d 리뷰 1 제안 3): `Scheduler::locate`는 정지 중이면 무시되는데 `last_start`를 올려, 곡 끝 정지 뒤 창이 아직 「재생 중」인 틈(최대 `END_POLL`)에 위치 이동을 부르면 `take_ended`가 그 정지를 보고하지 않아 창이 재생 중으로 남는다. 위치 이동을 붙일 때 `locate`가 재생 중일 때만 `last_start`를 올리도록(또는 창이 정지 상태를 먼저 확인하도록) 고친다. 루프 구간과 곡 끝(지금은 루프 중 곡 끝 무시)의 관계도 함께 정한다.
+- 이월(S3-T8 리뷰 3): 일시정지 자리는 스케줄러가 알려 주는 「OS에 넘기지 않은 첫 틱」(`Scheduler::pause`)이다. 루프 끝 직전에 일시정지하면 그 자리가 루프 끝과 같을 수 있고(시험 `keyscore-midi/tests/review_s3_t8_r3.rs` `pause_just_before_loop_end_can_return_loop_end`), 그 자리에서 이어서 재생하면 루프가 걸리지 않는다. 루프 구간을 붙일 때 이어서 재생할 자리가 루프 끝이면 루프 시작으로 돌리는지 정한다.

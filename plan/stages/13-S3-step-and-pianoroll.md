@@ -100,6 +100,11 @@
 - 결정(2026-11-01, `docs/decisions/2026-11-01-s3-t7-search-and-note-info.md`, 에이전트 해석): `n`/`Shift+n`은 vim 프리셋의 키다. 기본 프리셋의 `n`은 다음 노트(5.8)라서 다음·이전 결과는 macOS 관례 `Cmd+G`·`Cmd+Shift+G`(기본 프리셋 `Normal`)에 둔다. 검색 모션(`d n`, S3-T3c가 넘긴 것)은 REQ 5.8.1 표에 없어 하지 않는다. 검색 이동은 오퍼레이터 대기를 끝내고 이동만 한다(결정 4절 4). 사람이 원하면 후속 Task로 연다.
 - S3-T7 끝냄(2026-11-01, 리뷰 3회 + 결정 `docs/decisions/2026-11-01-s3-t7-review-limit.md` A의 좁은 확인 1회 「병합 가능」, 병합 3308f90, 전체 시험 2801 + 리뷰 시험 5 통과): `search.rs`(검색어·결과 순서·`step`·카운트 `walk`), `search_bar.rs`(창 안 막대, `Enter`·`Shift+Enter`는 키 가로채기), `note_info.rs`(정보 팝업). 리뷰가 고친 것: 노트 없는 트랙 결과의 「이전」 갇힘, 오퍼레이터 대기 중 `n`, 막대가 열린 채 모드 변경, vim 카운트와 그 이차 비용, cent 표시. 사람 확인: 결정 문서의 해석(`Cmd+G`, 검색어 문법, 결과 순서), IME 조합 중 막대의 `Enter`.
 
+### S3-T8 일시정지 자리와 타이밍 시험 직렬화(출구 대기 중 후속)
+
+- 범위: HANDOFF 후속 두 줄. 흔들리던 `review_s2_t5a_r2::pause_position_does_not_drift_with_many_live_edits`의 원인은 부하가 아니라 lookahead였다(박 직전 일시정지 자리가 이미 넘긴 박 앞, 이어 재생 때 박이 두 번 울림). `crates/keyscore-midi/tests/scheduler.rs`의 지터 측정이 같은 바이너리의 루프백 시험과 겹침.
+- S3-T8 끝냄(2026-11-02, 리뷰 3회, 3회차 「병합 가능」): `Scheduler::pause`와 `PauseReply`(이어서 재생할 자리 = OS에 넘기지 않은 첫 틱, 교체와 같은 규칙), 앱의 `transport_pause`가 그 자리를 씀, 스케줄러가 곡 끝에서 이미 멈췄으면 정지 상태, 큐가 가득이면 재생 유지. `scheduler.rs` 시험은 직렬. 넘김: 루프 끝과 같은 일시정지 자리(S5 이월 줄).
+
 ## 출구 게이트
 
 - [x] 자동(2026-11-02, `docs/reports/stage-3-exit.md`): 피아노롤 벤치 기준 안. 5.6·5.7 테이블 테스트 전부 통과. release 프레임 시험 `cargo test -p keyscore-app --release --test pianoroll frame_with_10k`(중앙값·최대 16.7 ms 안. debug 전체 시험은 단언하지 않는다, S3-T1 리뷰 2 제안 3).
