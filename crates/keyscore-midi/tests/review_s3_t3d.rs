@@ -264,10 +264,14 @@ fn preview_after_song_end_sounds_and_releases() {
 }
 
 /// 곡 끝 직전에 걸린 미리듣기 노트는 곡 끝 정리가 끈다(정지 명령과 같다). 남지 않는다.
+///
+/// 곡 끝은 틱 1920(1 s)이다. 처음에는 480(0.25 s)이라 느린 CI 러너에서 150 ms 잠이 곡 끝을 넘기면
+/// 미리듣기가 재생 뒤에 걸려 시험의 전제가 깨졌다(원격 CI). 미리듣기 길이(2 s)는 곡 끝보다 길어
+/// 스스로 끝나기 전에 곡 끝 정리가 꺼야 한다.
 #[test]
 fn preview_during_playback_is_released_at_song_end() {
     let lb = loopback("held");
-    let mut s = start(snapshot(&lb, Vec::new(), Some(480)));
+    let mut s = start(snapshot(&lb, Vec::new(), Some(1920)));
     s.play(Tick::ZERO).unwrap();
     std::thread::sleep(Duration::from_millis(150));
     s.preview(
@@ -279,7 +283,7 @@ fn preview_during_playback_is_released_at_song_end() {
     )
     .unwrap();
     assert!(
-        wait_ended(&mut s, Duration::from_secs(1)),
+        wait_ended(&mut s, Duration::from_secs(3)),
         "곡 끝에서 멈추지 않았다"
     );
     let got = drain(&lb, Duration::from_millis(400));
