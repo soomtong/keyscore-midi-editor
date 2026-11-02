@@ -277,7 +277,9 @@ fn review2_control_plain_reconnect_during_playback_gets_program(cx: &mut TestApp
     cx.run_until_parked();
     std::thread::sleep(Duration::from_millis(300));
     let back = Destination::new(&device);
-    let got = pump_collect(cx, &back.rx, Duration::from_millis(1500));
+    // 장치가 돌아왔다는 CoreMIDI 알림이 느린 CI 러너에서는 1.5 s 안에 오지 않았다(원격 CI, notes 0).
+    // 대조군은 「결국 다시 보낸다」만 보므로 창을 5 s로 넓힌다.
+    let got = pump_collect(cx, &back.rx, Duration::from_secs(5));
     run(cx, handle, transport::Stop);
     let notes = count(&got, 0x90);
     let programs = count(&got, 0xC0);
