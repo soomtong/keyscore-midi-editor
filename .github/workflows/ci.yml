@@ -50,13 +50,18 @@ jobs:
       - name: test
         run: |
           swift .github/ci/midi-keepalive.swift > "$RUNNER_TEMP/midi-keepalive.log" 2>&1 &
+          keepalive=$!
           for _ in $(seq 1 120); do
             grep -q ready "$RUNNER_TEMP/midi-keepalive.log" && break
-            kill -0 $! 2>/dev/null || break
+            kill -0 "$keepalive" 2>/dev/null || break
             sleep 1
           done
           echo "midi-keepalive: $(cat "$RUNNER_TEMP/midi-keepalive.log")"
-          cargo test --workspace
+          status=0
+          cargo test --workspace || status=$?
+          # 실패가 「가설이 틀림」인지 「keepalive가 없었음」인지 가르려고 시험 뒤 생존을 남긴다(리뷰 1 지적 1).
+          if kill -0 "$keepalive" 2>/dev/null; then echo "midi-keepalive: alive after tests"; else echo "midi-keepalive: gone before tests ended"; fi
+          exit "$status"
       - name: dependency direction
         run: scripts/check-deps.sh
       - name: dependency check regression

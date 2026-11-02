@@ -15,4 +15,7 @@ guard status == noErr else {
 }
 print("ready")
 fflush(stdout)
-RunLoop.main.run()
+// RunLoop.main.run()은 run loop에 입력 소스가 없으면 곧바로 돌아온다(리뷰 1 지적 1). 조건 없이 막힌다.
+while true {
+    sleep(3600)
+}
