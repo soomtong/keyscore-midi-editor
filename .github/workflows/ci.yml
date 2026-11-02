@@ -51,16 +51,24 @@ jobs:
         run: |
           swift .github/ci/midi-keepalive.swift > "$RUNNER_TEMP/midi-keepalive.log" 2>&1 &
           keepalive=$!
+          ready=no
           for _ in $(seq 1 120); do
-            grep -q ready "$RUNNER_TEMP/midi-keepalive.log" && break
+            # 줄 전체가 ready일 때만. 오류 문구 속 "already" 같은 낱말에 걸리지 않게 한다(리뷰 2 제안 4).
+            if grep -qx ready "$RUNNER_TEMP/midi-keepalive.log"; then ready=yes; break; fi
             kill -0 "$keepalive" 2>/dev/null || break
             sleep 1
           done
-          echo "midi-keepalive: $(cat "$RUNNER_TEMP/midi-keepalive.log")"
+          echo "midi-keepalive: ready before tests=$ready"
+          cat "$RUNNER_TEMP/midi-keepalive.log"
           status=0
           cargo test --workspace --no-fail-fast || status=$?
           # 실패가 「가설이 틀림」인지 「keepalive가 없었음」인지 가르려고 시험 뒤 생존을 남긴다(리뷰 1 지적 1).
-          if kill -0 "$keepalive" 2>/dev/null; then echo "midi-keepalive: alive after tests"; else echo "midi-keepalive: gone before tests ended"; fi
+          if kill -0 "$keepalive" 2>/dev/null; then
+            echo "midi-keepalive: alive after tests (ready before tests=$ready)"
+          else
+            echo "midi-keepalive: not alive after tests (ready before tests=$ready)"
+            cat "$RUNNER_TEMP/midi-keepalive.log"
+          fi
           exit "$status"
       - name: dependency direction
         run: scripts/check-deps.sh
