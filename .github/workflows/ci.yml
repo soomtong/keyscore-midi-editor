@@ -45,8 +45,18 @@ jobs:
         run: cargo fmt --all -- --check
       - name: clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
+      # 시험 동안 MIDI 서버가 내려가지 않게 클라이언트 하나를 쥐고 있는다(.github/ci/midi-keepalive.swift).
+      # 띄우지 못해도 시험은 돌린다. 기록은 로그에 남긴다.
       - name: test
-        run: cargo test --workspace
+        run: |
+          swift .github/ci/midi-keepalive.swift > "$RUNNER_TEMP/midi-keepalive.log" 2>&1 &
+          for _ in $(seq 1 120); do
+            grep -q ready "$RUNNER_TEMP/midi-keepalive.log" && break
+            kill -0 $! 2>/dev/null || break
+            sleep 1
+          done
+          echo "midi-keepalive: $(cat "$RUNNER_TEMP/midi-keepalive.log")"
+          cargo test --workspace
       - name: dependency direction
         run: scripts/check-deps.sh
       - name: dependency check regression
