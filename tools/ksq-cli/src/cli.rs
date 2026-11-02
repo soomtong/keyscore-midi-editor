@@ -278,7 +278,7 @@ fn refuse_same_file(options: &Options, input: (u64, u64)) -> Result<(), CliError
 /// S0-T8 리뷰 10 제안 2). 경로는 이 오류가 한 번만 적는다.
 ///
 /// - 특수 파일 자리(경로가 `/dev/` 아래이거나 끝이 `/`·`/.`이고, 커널 오류가 ENOENT·ENOTDIR·EPERM,
-///   `/dev` 아래면 EACCES도):
+///   부모 디렉터리가 devfs면 EACCES도):
 ///   다른 거부와 같은 「특수 파일에 쓰려면 … 리다이렉트하라」 안내([`CliError::OutputUncreatable`]).
 /// - 그 밖(권한 없음, 없는 디렉터리 안 등): 셸 리다이렉션도 같은 이유로 실패할 수 있으므로 특수
 ///   파일 안내 대신 다른 경로나 표준 출력을 권한다([`CliError::OutputCreateFailed`]).
@@ -298,17 +298,17 @@ fn output_error(options: &Options, path: &Path, was_missing: bool, cause: CliErr
         } => Some(source),
         _ => None,
     };
-    let under_dev = path.starts_with("/dev");
     // `/dev`(devfs)에 새 이름을 만들 때 사람 Mac은 EPERM(1)을, macOS 15(원격 CI 러너)는 EACCES(13)를
-    // 돌려준다. 어느 쪽이든 특수 파일 자리라 같은 안내를 한다. `/dev` 밖의 EACCES는 쓰기 권한 문제라
-    // 셸 리다이렉션도 같이 실패하므로 일반 안내로 둔다.
+    // 돌려준다. 어느 쪽이든 특수 파일 자리라 같은 안내를 한다. 그 밖의 EACCES는 쓰기 권한 문제라 셸
+    // 리다이렉션도 같이 실패하므로 일반 안내로 둔다. 경로 글자(`/dev/..`로 시작해 밖으로 나가는 경로)가
+    // 아니라 부모 디렉터리가 실제로 devfs인지로 가른다(리뷰 1 지적 1).
     let special_kind = io.is_some_and(|e| {
         matches!(e.kind(), ErrorKind::NotFound | ErrorKind::NotADirectory)
             || e.raw_os_error() == Some(1)
-            || (under_dev && e.raw_os_error() == Some(13))
+            || (e.raw_os_error() == Some(13) && parent_on_devfs(path))
     });
     let bytes = path.as_os_str().as_encoded_bytes();
-    let special_place = under_dev || bytes.ends_with(b"/") || bytes.ends_with(b"/.");
+    let special_place = path.starts_with("/dev") || bytes.ends_with(b"/") || bytes.ends_with(b"/.");
     let detail = match cause {
         CliError::Io { source, .. } => source.to_string(),
         CliError::Ksq { source, .. } => source.to_string(),
@@ -338,6 +338,13 @@ fn output_error(options: &Options, path: &Path, was_missing: bool, cause: CliErr
 fn on_devfs(meta: &fs::Metadata) -> bool {
     use std::os::unix::fs::MetadataExt;
     fs::metadata("/dev").is_ok_and(|d| d.dev() == meta.dev())
+}
+
+/// `path`의 부모 디렉터리(커널이 푼 것)가 `/dev`와 같은 장치인가. 부모를 `stat`하지 못하면 아니다.
+fn parent_on_devfs(path: &Path) -> bool {
+    path.parent()
+        .and_then(|p| fs::metadata(p).ok())
+        .is_some_and(|m| on_devfs(&m))
 }
 
 /// 오류 메시지에 쓸 파일 종류. 디렉터리는 커널 문구(EISDIR)도 함께 적는다.
