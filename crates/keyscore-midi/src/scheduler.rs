@@ -391,6 +391,16 @@ impl Scheduler {
         self.send(Command::Stop)
     }
 
+    /// 정지하고, 재생 중이었으면 이어서 재생할 틱을 돌려준다(S3-T8).
+    ///
+    /// # Errors
+    ///
+    /// `QueueFull`, `Os`.
+    pub fn pause(&mut self, wait: Duration) -> Result<Option<Tick>, MidiError> {
+        let _ = wait;
+        todo!()
+    }
+
     /// 재생 위치를 옮긴다. 재생 중이면 그 위치에서 이어서 재생한다.
     ///
     /// # Errors
