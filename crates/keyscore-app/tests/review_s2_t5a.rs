@@ -284,8 +284,9 @@ fn pause_position_follows_tempo_change_in_song(cx: &mut TestAppContext) {
     let TransportState::Paused(at) = state(cx, &view) else {
         panic!("{:?}", state(cx, &view));
     };
-    // 위 끝을 고정값(1600)으로 두면 느린 CI 러너에서 잠이 길어진 만큼 넘친다(원격 CI 첫 실행에서
-    // 1601·1604). 그래서 실제로 흐른 시간에 lookahead를 더한 시각을 템포 지도로 바꾼 틱을 위 끝으로 쓴다.
+    // 위 끝을 고정값(1600)으로 두면 느린 CI 러너에서 잠이 길어진 만큼 넘친다(원격 CI 처음 세
+    // 실행에서 1601·1603·1604). 그래서 실제로 흐른 시간에 lookahead를 더한 시각을 템포 지도로
+    // 바꾼 틱을 위 끝으로 쓴다.
     // 템포 변화를 무시하면(120 BPM 그대로) 같은 시간에 틱이 두 배로 늘어 이 끝을 넘으므로 시험의 뜻은 같다.
     // lookahead는 엔진이 스케줄러를 `SchedulerConfig::default()`로 띄운다는 가정이다(`engine.rs`).
     let latest = ticks_at_120_then_60(elapsed + SchedulerConfig::default().lookahead) + 1;
