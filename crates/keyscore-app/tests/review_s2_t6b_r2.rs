@@ -372,17 +372,25 @@ fn cached_render_is_cheap_with_big_keymap(cx: &mut TestAppContext) {
     big.push_str("}}]");
     start(cx, "perf", Some(&big));
     let (handle, _view) = open(cx);
-    let t = Instant::now();
-    render(cx, handle);
-    let closed = t.elapsed();
+    // 한 번 잰 값은 느린 CI 러너에서 멈춤 하나로 몇 배가 된다(원격 CI, 55.7 ms 대 11.6 ms). 양쪽 다
+    // 다섯 번 재서 가운데값을 비교한다. 멈춤 둘까지는 견디고, 캐시가 다섯 중 셋 이상 듣지 않으면 벌어진다
+    // (가장 짧은 값은 한 번만 들어도 통과해 리뷰 3 제안 6으로 바꿨다).
+    let median = |cx: &mut TestAppContext| {
+        let mut times: Vec<_> = (0..5)
+            .map(|_| {
+                let t = Instant::now();
+                render(cx, handle);
+                t.elapsed()
+            })
+            .collect();
+        times.sort();
+        times[2]
+    };
+    let closed = median(cx);
     let t = Instant::now();
     press(cx, handle, "?");
     let opened = t.elapsed();
-    let t = Instant::now();
-    for _ in 0..5 {
-        render(cx, handle);
-    }
-    let cached = t.elapsed() / 5;
+    let cached = median(cx);
     let t = Instant::now();
     press(cx, handle, "ctrl-tab");
     let after_mode = t.elapsed();

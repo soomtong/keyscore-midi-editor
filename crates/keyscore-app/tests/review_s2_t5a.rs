@@ -12,6 +12,7 @@ use keyscore_app::engine::{self, EngineOptions, TransportState};
 use keyscore_app::window::ProjectWindow;
 use keyscore_app::{init, open_project_window};
 use keyscore_core::{Edit, Program, Project, Tempo, Tick, TrackProp, ksq};
+use keyscore_midi::SchedulerConfig;
 
 struct Loopback {
     rx: mpsc::Receiver<Vec<u8>>,
@@ -275,16 +276,34 @@ fn pause_position_follows_tempo_change_in_song(cx: &mut TestAppContext) {
     let text = r#"{"tempo": [[0, 500000], [960, 1000000]], "tracks": [{"port": "virtual", "channel": 1,
         "clips": [{"start": 0, "length": 15360, "notes": [[0, 240, 60, 51492]]}]}]}"#;
     let (handle, view) = open(cx, ksq::from_str(text).unwrap().0);
+    let before_play = Instant::now();
     run(cx, handle, transport::Play);
     std::thread::sleep(Duration::from_secs(1));
     run(cx, handle, transport::Pause);
+    let elapsed = before_play.elapsed();
     let TransportState::Paused(at) = state(cx, &view) else {
         panic!("{:?}", state(cx, &view));
     };
+    // 위 끝을 고정값(1600)으로 두면 느린 CI 러너에서 잠이 길어진 만큼 넘친다(원격 CI 처음 세
+    // 실행에서 1601·1603·1604). 그래서 실제로 흐른 시간에 lookahead를 더한 시각을 템포 지도로
+    // 바꾼 틱을 위 끝으로 쓴다.
+    // 템포 변화를 무시하면(120 BPM 그대로) 같은 시간에 틱이 두 배로 늘어 이 끝을 넘으므로 시험의 뜻은 같다.
+    // lookahead는 엔진이 스케줄러를 `SchedulerConfig::default()`로 띄운다는 가정이다(`engine.rs`).
+    let latest = ticks_at_120_then_60(elapsed + SchedulerConfig::default().lookahead) + 1;
     assert!(
-        at >= Tick::new(1300) && at <= Tick::new(1600),
-        "템포 변화를 따르지 않은 자리: {at:?}"
+        at >= Tick::new(1300) && at <= Tick::new(latest),
+        "템포 변화를 따르지 않은 자리: {at:?}(흐른 시간 {elapsed:?}, 위 끝 {latest})"
     );
+}
+
+/// 0.5 s(틱 960)까지 120 BPM, 그 뒤 60 BPM인 템포 지도에서 `d` 뒤의 틱(내림).
+fn ticks_at_120_then_60(d: Duration) -> u64 {
+    let us = u64::try_from(d.as_micros()).unwrap();
+    if us <= 500_000 {
+        us * 1920 / 1_000_000
+    } else {
+        960 + (us - 500_000) * 960 / 1_000_000
+    }
 }
 
 #[gpui_kit::test]

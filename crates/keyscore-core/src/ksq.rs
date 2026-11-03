@@ -845,6 +845,8 @@ fn write_then_rename(temp: &Path, path: &Path, bytes: &[u8]) -> std::io::Result<
     file.write_all(bytes)?;
     file.sync_all()?;
     drop(file);
+    // 임시 파일까지는 커널이 먼저 실패하게 둔다(쓰기 권한 없는 디렉터리의 EACCES 등). 이름 바꾸기만 막는다.
+    refuse_directory_form(path)?;
     fs::rename(temp, path)?;
     // 이름 바꾸기 자체를 디스크에 남긴다. 상대 경로의 부모는 빈 경로라 "."로 바꾼다(리뷰 1 제안 10).
     // 디렉터리 fsync가 안 되는 파일 시스템도 있어 실패는 무시한다.
@@ -877,6 +879,30 @@ fn resolve_symlink(path: &Path) -> Result<PathBuf, KsqError> {
         &path.display().to_string(),
         "심볼릭 링크가 너무 깊거나 순환한다",
     ))
+}
+
+/// 끝이 `/`이거나 마지막 구성 요소가 `.`·`..`인 경로인가. 디렉터리를 가리키는 꼴이라 일반 파일이 될
+/// 수 없다.
+fn directory_form(path: &Path) -> bool {
+    let bytes = path.as_os_str().as_encoded_bytes();
+    let last = bytes.rsplit(|&b| b == b'/').next().unwrap_or_default();
+    bytes.ends_with(b"/") || last == b"." || last == b".."
+}
+
+/// 링크를 푼 쓰기 대상이 디렉터리 꼴이면 이름 바꾸기 전에 실패한다. macOS 15에서는 끊긴 링크
+/// 뒤에 `/`를 붙인 대상(`dl/`)으로 쓰기가 종료 0으로 끝났다(원격 CI의 `ksq2txt`, 무엇이 어디에
+/// 생겼는지는 보지 못함). 오류의 원인은 커널이 그 경로에 `stat`으로 답한 것을 쓴다(경로 풀이를
+/// 흉내 내지 않는다).
+fn refuse_directory_form(path: &Path) -> std::io::Result<()> {
+    if !directory_form(path) {
+        return Ok(());
+    }
+    // ENOTDIR(20)·EISDIR(21)은 macOS와 Linux에서 같은 번호다.
+    match fs::metadata(path) {
+        Err(e) => Err(e),
+        Ok(meta) if meta.is_dir() => Err(std::io::Error::from_raw_os_error(21)),
+        Ok(_) => Err(std::io::Error::from_raw_os_error(20)),
+    }
 }
 
 /// 같은 디렉터리의 임시 파일 경로. 다른 디렉터리면 rename이 원자적이지 않다.
@@ -1101,5 +1127,41 @@ mod tests {
             from_bytes(&[0xff, 0xfe]),
             Err(KsqError::Invalid { .. })
         ));
+    }
+
+    #[test]
+    fn directory_form_matches_trailing_slash_dot_and_dotdot() {
+        for yes in [
+            "a/", "a/.", "a/./", "a/..", "/", "a//", "dir/b/.", ".", "..",
+        ] {
+            assert!(directory_form(Path::new(yes)), "{yes}");
+        }
+        for no in ["a", "a/b", "a.", "a/.b", "a/..b", "a/b.", "..."] {
+            assert!(!directory_form(Path::new(no)), "{no}");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_file_to_dangling_link_with_trailing_slash_fails_and_keeps_link() {
+        let dir = std::env::temp_dir().join(format!("ks-core-dl-slash-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let link = dir.join("dl");
+        std::os::unix::fs::symlink("dl-target", &link).unwrap();
+        let mut slashed = link.clone().into_os_string();
+        slashed.push("/");
+
+        let result = write_file(Path::new(&slashed), &Project::new(), Compression::None);
+
+        assert!(result.is_err(), "{result:?}");
+        assert!(fs::symlink_metadata(&link).unwrap().is_symlink());
+        let mut names: Vec<_> = fs::read_dir(&dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        names.sort();
+        assert_eq!(names, ["dl"]);
+        fs::remove_dir_all(&dir).unwrap();
     }
 }

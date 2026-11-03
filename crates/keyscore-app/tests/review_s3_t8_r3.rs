@@ -177,6 +177,10 @@ fn other_window_plays_between_pause_and_resume(cx: &mut TestAppContext) {
     let lb = start(cx, "other");
     let (ha, va) = open(cx, notes(FIRST, 24, 240));
     let (hb, vb) = open(cx, notes(90, 8, 120));
+    // 느린 CI 러너에서는 앞 회차 B의 음(90–97)이 B 쪽 20 ms 창에 다 닿지 못하고 다음 회차 A의 창 맨
+    // 앞에 섞였다(원격 CI 실행 9, `[.., 45, 93, 46, ..]`). A의 첫 음 앞에 온 B 음만 버린다. A의 음
+    // 사이나 뒤에 B 음이 오면(주인이 A로 넘어간 뒤에도 B가 보냄) 그대로 남아 아래 단언에서 실패한다.
+    let only_a = |p: Vec<u8>| p.into_iter().skip_while(|&p| p >= 90).collect::<Vec<_>>();
     let mut heard_a = Vec::new();
     for round in 0..4 {
         run(cx, ha, transport::Play);
@@ -185,7 +189,10 @@ fn other_window_plays_between_pause_and_resume(cx: &mut TestAppContext) {
         let TransportState::Paused(at) = state(cx, &va) else {
             panic!("{round}회차 A {:?}", state(cx, &va));
         };
-        heard_a.extend(pitches(&heard_for(&lb.rx, Duration::from_millis(20))));
+        heard_a.extend(only_a(pitches(&heard_for(
+            &lb.rx,
+            Duration::from_millis(20),
+        ))));
         run(cx, hb, transport::Play);
         std::thread::sleep(Duration::from_millis(100));
         if round % 2 == 0 {
@@ -206,7 +213,10 @@ fn other_window_plays_between_pause_and_resume(cx: &mut TestAppContext) {
         TransportState::Playing,
         "B가 재생 중으로 남았다"
     );
-    heard_a.extend(pitches(&heard_for(&lb.rx, Duration::from_millis(400))));
+    heard_a.extend(only_a(pitches(&heard_for(
+        &lb.rx,
+        Duration::from_millis(400),
+    ))));
     run(cx, ha, transport::Stop);
     let n = u8::try_from(heard_a.len()).unwrap();
     let expected: Vec<u8> = (FIRST..FIRST + n).collect();

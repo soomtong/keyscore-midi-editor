@@ -12,6 +12,7 @@ use keyscore_app::engine::{self, EngineOptions, TransportState};
 use keyscore_app::window::ProjectWindow;
 use keyscore_app::{init, open_project_window};
 use keyscore_core::{Bank, Edit, OutputPort, Project, Tempo, Tick, TrackProp, ksq};
+use keyscore_midi::SchedulerConfig;
 
 struct Loopback {
     rx: mpsc::Receiver<Vec<u8>>,
@@ -233,34 +234,70 @@ fn many_tracks(n: usize, notes: &str) -> Project {
 
 // ---------- 기준점: 템포 편집 여러 번 ----------
 
-/// 120 → 60 → 240 BPM으로 0.3 s마다 바꾼 뒤 일시정지. 기대 자리 약 576 + 288 + 1152 = 2016틱.
+/// 120 → 60 BPM으로 0.3 s마다 바꾸고 240 BPM으로 0.9 s 간 뒤 일시정지. 기대 자리 약
+/// 576 + 288 + 3456 = 4320틱.
 #[gpui_kit::test]
 fn pause_after_several_tempo_edits_matches_elapsed_time(cx: &mut TestAppContext) {
     let _lb = start(cx, "tempo-multi");
     let (handle, view) = open(cx, project("[0, 240, 60, 51492], [15000, 240, 62, 51492]"));
+    let before_play = Instant::now();
     run(cx, handle, transport::Play);
+    let after_play = Instant::now();
     std::thread::sleep(Duration::from_millis(300));
+    let before_60 = Instant::now();
     edit(cx, &view, |_| {
         vec![Edit::SetTempo {
             at: Tick::ZERO,
             tempo: Some(Tempo::from_bpm(60).unwrap()),
         }]
     });
+    let after_60 = Instant::now();
     std::thread::sleep(Duration::from_millis(300));
+    let before_240 = Instant::now();
     edit(cx, &view, |_| {
         vec![Edit::SetTempo {
             at: Tick::ZERO,
             tempo: Some(Tempo::from_bpm(240).unwrap()),
         }]
     });
-    std::thread::sleep(Duration::from_millis(300));
+    let after_240 = Instant::now();
+    std::thread::sleep(Duration::from_millis(900));
+    let before_pause = Instant::now();
     run(cx, handle, transport::Pause);
+    let after_pause = Instant::now();
     let TransportState::Paused(at) = state(cx, &view) else {
         panic!("{:?}", state(cx, &view));
     };
+    // 고정 구간(1800–2300)은 느린 CI 러너에서 넘쳤다(원격 CI, 2834). 마지막 구간이 240 BPM이라 잠이
+    // 0.2 s만 길어져도 약 800틱이 는다. 그래서 각 구간의 실제 길이로 범위를 잡는다. 템포는 편집 호출
+    // 안의 어느 순간에 바뀌므로, 위 끝은 틱이 가장 많이 가게(120 BPM을 늦게 끝내고 240 BPM을 일찍
+    // 시작), 아래 끝은 가장 적게 가게 잡는다.
+    // lookahead(`SchedulerConfig::default()`, 엔진이 쓰는 값)는 위 끝에 더한다. 교체는 보낸 구간 뒤부터
+    // 새 템포를 쓰므로 바뀌는 순간이 lookahead만큼 늦을 수 있다. 그 몫과 내림은 여유 `slack`이 덮는다.
+    // 템포 편집을 기준점에 반영하지 않는 구현(1.5 s를 120 또는 240 BPM 하나로 셈)은 약 2880 또는
+    // 5760틱이라 이 범위를 벗어난다. 마지막 240 BPM 구간을 0.9 s로 둔 것은, 편집 호출이 느린 러너에서
+    // (호출마다 0.2 s 남짓) 범위가 넓어져도 120 BPM만 세는 구현과 겹치지 않게 하려는 것이다(리뷰 3 지적 4).
+    let slack: u128 = 100;
+    let lookahead = SchedulerConfig::default().lookahead;
+    let us = |a: Instant, b: Instant| b.saturating_duration_since(a).as_micros();
+    let ticks = |at_120: u128, at_60: u128, at_240: u128| {
+        (at_120 * 1920 + at_60 * 960 + at_240 * 3840) / 1_000_000
+    };
+    let latest = ticks(
+        us(before_play, after_60),
+        us(after_60, before_240),
+        us(before_240, after_pause) + lookahead.as_micros(),
+    ) + slack;
+    let earliest = ticks(
+        us(after_play, before_60),
+        us(before_60, after_240),
+        us(after_240, before_pause),
+    )
+    .saturating_sub(slack);
+    let got = u128::from(at.get());
     assert!(
-        (1800..=2300).contains(&at.get()),
-        "일시정지 자리가 경과 시간과 맞지 않는다: {at:?}"
+        (earliest..=latest).contains(&got),
+        "일시정지 자리가 경과 시간과 맞지 않는다: {at:?}(범위 {earliest}..={latest})"
     );
 }
 

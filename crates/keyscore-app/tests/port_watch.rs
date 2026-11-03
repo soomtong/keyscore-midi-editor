@@ -94,7 +94,9 @@ fn pump(
     done: impl Fn(&mut TestAppContext) -> bool,
     why: &str,
 ) {
-    let deadline = Instant::now() + Duration::from_secs(4);
+    // 느린 CI 러너에서는 CoreMIDI 알림이 4 s 안에 오지 않았다(원격 CI 실행 14, 사라짐 메시지 없음).
+    // 조건이 서면 곧바로 돌아오므로 넓혀도 통과하는 시험은 느려지지 않는다.
+    let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         cx.executor().advance_clock(ports::POLL_INTERVAL);
         cx.run_until_parked();

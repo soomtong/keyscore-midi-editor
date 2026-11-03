@@ -244,7 +244,8 @@ fn review2_returning_device_during_playback_gets_program(cx: &mut TestAppContext
     cx.run_until_parked();
     std::thread::sleep(Duration::from_millis(300));
     let back = Destination::new(&device);
-    let got = pump_collect(cx, &back.rx, Duration::from_millis(1500));
+    // 대조군과 같은 창(5 s)으로 잰다(리뷰 3 지적 3).
+    let got = pump_collect(cx, &back.rx, Duration::from_secs(5));
     run(cx, handle, transport::Stop);
     let notes = count(&got, 0x90);
     let programs = count(&got, 0xC0);
@@ -277,7 +278,10 @@ fn review2_control_plain_reconnect_during_playback_gets_program(cx: &mut TestApp
     cx.run_until_parked();
     std::thread::sleep(Duration::from_millis(300));
     let back = Destination::new(&device);
-    let got = pump_collect(cx, &back.rx, Duration::from_millis(1500));
+    // 느린 CI 러너에서 1.5 s 안에 노트·프로그램이 하나도 오지 않았다(원격 CI 실행 9, notes 0). 원인은
+    // 확인하지 못했다(장치 복귀 알림이 늦은 것으로 본다). 「결국 다시 보낸다」만 보므로 창을 5 s로
+    // 넓히고, 위 실험군도 같은 창으로 잰다.
+    let got = pump_collect(cx, &back.rx, Duration::from_secs(5));
     run(cx, handle, transport::Stop);
     let notes = count(&got, 0x90);
     let programs = count(&got, 0xC0);
