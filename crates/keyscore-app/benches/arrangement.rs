@@ -81,6 +81,27 @@ fn bench(c: &mut Criterion) {
             black_box(scene.clips.len())
         });
     });
+    // 기본 배율(블록 384 px)에서 보이는 4–5마디 × 36행: 라벨(이름·가사 글) 경로를 잰다(리뷰 1 제안 2)
+    let labels = SceneInput {
+        viewport: Viewport {
+            first_tick: 0.0,
+            px_per_tick: 0.1,
+            width: 1600.0,
+            first_row: 0.0,
+            row_height: 28.0,
+            height: 1008.0,
+        },
+        ..input
+    };
+    scene::build(&labels, &mut scene);
+    assert!(scene.clips.iter().all(|b| b.lyric.is_some()));
+    assert!(scene.clips.len() >= 36 * 4);
+    c.bench_function("arrangement/scene_labels_5x36", |b| {
+        b.iter(|| {
+            scene::build(black_box(&labels), &mut scene);
+            black_box(scene.clips.len())
+        });
+    });
 }
 
 criterion_group!(benches, bench);

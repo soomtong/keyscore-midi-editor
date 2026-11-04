@@ -486,6 +486,17 @@ fn scene_labels_use_name_and_first_bar_lyric_only() {
     );
     let plain = Clip::new(Tick::ZERO, BAR).unwrap();
     assert_eq!(scene::first_bar_lyric(&plain, &meter), None);
+    // 마디 중간(셋째 박)에서 시작하는 클립: 「첫 마디」는 그 마디 끝까지 두 박이다(리뷰 1 제안 1)
+    let mut mid = Clip::new(Tick::new(2 * QUARTER), 2 * BAR).unwrap();
+    mid.insert_note(note(0, 480, 60).with_lyric("둘")).unwrap();
+    mid.insert_note(note(QUARTER, 480, 60).with_lyric("셋"))
+        .unwrap();
+    mid.insert_note(note(2 * QUARTER, 480, 60).with_lyric("다음"))
+        .unwrap();
+    assert_eq!(
+        scene::first_bar_lyric(&mid, &meter).as_deref(),
+        Some("둘 셋")
+    );
 
     let mut t = track("T0", 0, &[(0, BAR, None)]);
     t.insert_clip(c).unwrap();
@@ -1042,6 +1053,34 @@ fn step_in_arrangement_draws_cursor_and_ghost_on_grid(cx: &mut TestAppContext) {
     event(cx, handle, &view, ModeEvent::ToNormal);
     set_cursor(cx, handle, &view, 2 * BAR);
     assert!(arr(cx, &view).scene().ghost.is_none());
+}
+
+/// 클립 끝에서 이어 쓰면 클립이 한 마디 늘어난다(REQ 5.10). 늘어나는 구간이 고스트다(리뷰 1 제안 5).
+#[gpui_kit::test]
+fn step_ghost_at_clip_end_shows_the_extension(cx: &mut TestAppContext) {
+    start(cx, "step-extend");
+    let (handle, view) = open(cx, project(vec![track("Lead", 0, &[(0, BAR, None)])]));
+    set_cursor(cx, handle, &view, BAR);
+    event(cx, handle, &view, ModeEvent::Enter(Mode::Step));
+    let ghost = cx
+        .read(|cx| view.read(cx).step_ghost(cx))
+        .expect("이어 쓰기 고스트");
+    assert_eq!(
+        (ghost.start.get(), ghost.end, ghost.blocked),
+        (BAR, 2 * BAR, false)
+    );
+    let g = arr(cx, &view).scene().ghost.expect("장면에 고스트");
+    let v = arr_vp(cx, &view);
+    assert_eq!(g.rect.x, v.x_of(BAR as f64));
+    // 기존 글 표시는 그대로
+    let label = cx
+        .update_window(handle, |_, window, _| {
+            window
+                .try_find("arrangement-step-clip")
+                .and_then(|e| e.label().map(str::to_owned))
+        })
+        .unwrap();
+    assert_eq!(label.as_deref(), Some("클립 1.1.0 끝에 이어 쓴다"));
 }
 
 /// 다음 클립에 막혀 쓸 수 없으면 고스트가 거부 색이다(`arrangement_step`의 「여기서는 쓸 수 없다」와 같은 조건).

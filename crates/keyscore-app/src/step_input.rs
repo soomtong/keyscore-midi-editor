@@ -212,9 +212,10 @@ impl ProjectWindow {
         })
     }
 
-    /// 배치 뷰 격자 위의 Step 고스트(S4-T1, S3-T4c 이월): 커서가 클립 밖이면 다음 확정이 만들 새 클립의 범위.
-    /// 쓸 수 없으면(새 클립이든 클립 끝의 이어 쓰기든 다음 클립에 막힘) 커서가 든 마디를 `blocked`로. 클립 안이나
-    /// 끝에서 이어 쓸 수 있으면 `None`(커서 칸만 보인다). `arrangement_step`과 같은 계획(`plan_step_write`)을 쓴다.
+    /// 배치 뷰 격자 위의 Step 고스트(S4-T1, S3-T4c 이월): 커서가 클립 밖이면 다음 확정이 만들 새 클립의 범위,
+    /// 클립 끝에서 이어 쓰면 클립이 늘어나는 구간(`ExtendClip`, 리뷰 1 제안 5). 쓸 수 없으면(다음 클립에 막힘, 틱
+    /// 넘침) 커서가 든 마디를 `blocked`로. 클립 안이면 `None`(커서 칸만 보인다). `arrangement_step`과 같은 계획
+    /// (`plan_step_write`)을 쓴다.
     #[must_use]
     pub fn step_ghost(&self, cx: &App) -> Option<StepGhost> {
         let mode = self.mode_state();
@@ -242,7 +243,22 @@ impl ProjectWindow {
                 }),
                 _ => None,
             },
-            Ok(_) => None,
+            // 클립 끝의 이어 쓰기: 늘어나는 구간(옛 끝부터 새 끝까지)이 고스트다. 안 늘어나면 고스트 없음
+            Ok((edits, Some(id), _)) => {
+                let clip = project.track(write_track)?.clip(id)?;
+                edits.iter().find_map(|e| match e {
+                    Edit::ExtendClip {
+                        id: extended,
+                        length,
+                        ..
+                    } if *extended == id && *length > clip.length() => Some(StepGhost {
+                        start: Tick::new(clip.end()),
+                        end: clip.start().get().saturating_add(*length),
+                        blocked: false,
+                    }),
+                    _ => None,
+                })
+            }
             Err(_) => {
                 // 틱 u64 끝 근처에서는 마디 끝 계산이 넘칠 수 있다(리뷰 1 지적 1). 포화시켜 `end ≥ start`를 지킨다.
                 let meter = project.meter_map();
