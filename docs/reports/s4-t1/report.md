@@ -12,7 +12,8 @@
   - 자동 게이트 실행 환경: 이 Task의 구현 세션은 Linux 컨테이너라 앱 crate를 빌드하지 못했다(`objc2`·CoreMIDI). 「자동 게이트」 절에 무엇을 어디서 돌렸는지 적는다.
   - 배치 뷰의 `main-view`는 피아노롤과 달리 4 px 여백 바깥(패널 크기)이고 Element가 그 안쪽이다(S2-T6f 리뷰 3 시험이 패널 최소 너비를 `main-view`로 잰다). 배치 뷰 좌표 시험은 여백을 더한다.
   - 기존 시험 둘을 고쳤다(지우지 않음, 커밋 9323162 본문): `review_s3_t1_r2`의 「그리기 전 줌」은 배치 뷰 `cmd-=`가 이제 배치 뷰를 줌하므로 피아노롤 상태 API로 줌한다. `review_s3_t2`의 「배치 뷰 `Cmd+A`는 아무 일도 안 함」은 이월 줄대로 「클립 전부 선택, 노트 선택은 없음」으로.
-  - lockfile: `async-executor 1.14.0`이 yank되어 `cargo deny`가 실패해 1.14.1로 올렸다(이 PR 밖의 사건, 커밋 10321ec).
+  - lockfile: `async-executor 1.14.0`이 yank되어 `cargo deny`가 실패해 1.14.1로 올렸다(이 PR 밖의 사건, 커밋 10321ec). 같은 재해결로 `tempfile`의 `getrandom` 항목이 0.4.3에서 0.3.4로 바뀌었다(두 판 모두 lockfile에 남아 있고 새 crate는 없다).
+  - 리뷰 1 뒤: 첫 마디 가사는 「클립 시작부터 박자표 맵의 그 마디 끝까지」로 정했다(제안 1, 계획 1절 고침). 클립 끝 이어 쓰기의 늘어나는 구간도 고스트로 그린다(제안 5). 따라가기는 두 뷰 모두 하고 줌만 가른다(제안 3, 계획 2절에 적음). 벤치 `arrangement/scene_labels_5x36`을 더했다(제안 2).
 
 ## 구현 요약
 
@@ -84,6 +85,22 @@ core: cargo test -p keyscore-core (이 컨테이너) 새 시험 통과
 - [ ] 단계별 추가 게이트: 벤치 `arrangement/scene_64x200` 기준값은 기계별이라 사람 Mac에서 `python3 -I scripts/bench-check.py --update`로 `benches/baseline.json`에 넣는다. release 프레임 시험(19)도 사람 Mac.
 
 CI(macos-15) 결과: 실행 25 실패(시험 5, 위 표) → 실행 26 시험 전부 통과, deny만 yank로 실패 → 실행 27(lockfile 수정) 대기.
+
+## 리뷰 대응
+
+### 리뷰 1 (`review-1.md`, 수정 후 재리뷰)
+
+| # | 종류 | 대응 | 커밋 |
+| --- | --- | --- | --- |
+| 지적 1 | 수정 | `step_ghost`의 막힌 고스트 끝을 포화 덧셈으로 잡고 `end ≥ start`를 지킨다. `scene::block_rect`도 `saturating_sub`. 시험 `brk_step_ghost_near_u64_end_does_not_overflow`는 CI로 확인 | 167bc68 |
+| 지적 2 | 수정 | 따라가기·가운데 맞추기에서 커서 행까지는 트랙이 있는 것으로 보고 자른다(`admit_row`). 다음 그리기가 참값으로 되돌린다. 시험 `brk_new_track_beyond_viewport_bottom_is_revealed`는 CI로 확인 | 8cfb7dd |
+| 지적 3 | 수정 | `cargo deny`: CI 실행 28 이후의 결과로 닫는다(아래 「자동 게이트」). 벤치 기준값 둘(`arrangement/scene_64x200`, `arrangement/scene_labels_5x36`)과 release 프레임 시험(19)은 기계별 값이라 이 세션에서 잴 수 없다. 사람 Mac에서 `python3 -I scripts/bench-check.py --update`와 `cargo test -p keyscore-app --release --test arrangement frame_with_64x200 -- --nocapture`를 돌려 보고서에 적고 기준값을 커밋해야 닫힌다. 병합 전 사람에게 요청했다 | — |
+| 제안 1 | 받음 | 「클립 시작부터 그 마디 끝까지」로 정하고 계획 1절을 고쳤다. 마디 중간 시작 클립 시험을 더했다 | 2ad4908 |
+| 제안 2 | 받음 | 기본 배율의 라벨 장면 벤치 `arrangement/scene_labels_5x36`(블록 384 px, 36행) | 2ad4908 |
+| 제안 3 | 받음(문서) | 의도다. 계획 2절에 「따라가기는 두 뷰 모두, 줌만 가른다」를 적었다 | 문서 커밋 |
+| 제안 4 | 받음 | `ArrangementState::set_selection`을 `pub(crate)`로 | 8cfb7dd |
+| 제안 5 | 받음 | 클립 끝 이어 쓰기의 `ExtendClip` 구간을 고스트로. 시험 `step_ghost_at_clip_end_shows_the_extension` | 2ad4908 |
+| 제안 6 | 받음(이월) | 단계 파일 S4-T5에 「메인 영역 상단 세그먼트 버튼」 이월 줄 | 문서 커밋 |
 
 ## 알려진 한계
 
