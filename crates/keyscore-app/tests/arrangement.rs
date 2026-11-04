@@ -1034,7 +1034,7 @@ fn step_in_arrangement_draws_cursor_and_ghost_on_grid(cx: &mut TestAppContext) {
                 .and_then(|e| e.label().map(str::to_owned))
         })
         .unwrap();
-    assert_eq!(label.as_deref(), Some("Step: Lead 1.2.0"));
+    assert_eq!(label.as_deref(), Some("Step: Lead 1.1.480"));
     // Normal로 나오면 고스트도 없다
     event(cx, handle, &view, ModeEvent::ToNormal);
     set_cursor(cx, handle, &view, 2 * BAR);

@@ -213,8 +213,8 @@ impl ProjectWindow {
     }
 
     /// 배치 뷰 격자 위의 Step 고스트(S4-T1, S3-T4c 이월): 커서가 클립 밖이면 다음 확정이 만들 새 클립의 범위.
-    /// 다음 클립에 막혀 쓸 수 없으면 커서가 든 마디를 `blocked`로. 클립 안·끝(이어 쓰기)이면 `None`(커서 칸만
-    /// 보인다). `arrangement_step`과 같은 계획(`plan_step_write`)을 쓴다.
+    /// 쓸 수 없으면(새 클립이든 클립 끝의 이어 쓰기든 다음 클립에 막힘) 커서가 든 마디를 `blocked`로. 클립 안이나
+    /// 끝에서 이어 쓸 수 있으면 `None`(커서 칸만 보인다). `arrangement_step`과 같은 계획(`plan_step_write`)을 쓴다.
     #[must_use]
     pub fn step_ghost(&self, cx: &App) -> Option<StepGhost> {
         let mode = self.mode_state();
@@ -223,9 +223,6 @@ impl ProjectWindow {
         }
         let project = self.document.read(cx).project();
         let (write_track, at, push, len, pitch) = self.next_step_write()?;
-        if matches!(step_host(project, write_track, at), Some(Host::Clip { .. })) {
-            return None;
-        }
         let pitch = pitch?;
         let planned = Self::plan_step_write(
             project,
