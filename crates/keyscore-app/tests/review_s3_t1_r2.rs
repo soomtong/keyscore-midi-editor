@@ -14,7 +14,7 @@ use std::path::PathBuf;
 use gpui_kit::test::TestWindowExt as _;
 use gpui_kit::{AnyWindowHandle, AppContext as _, Entity, TestAppContext};
 use keyscore_app::mode::View;
-use keyscore_app::pianoroll::{Cursor, DEFAULT_PX_PER_TICK, Viewport};
+use keyscore_app::pianoroll::{Cursor, DEFAULT_PX_PER_TICK, Viewport, ZOOM_FACTOR};
 use keyscore_app::window::ProjectWindow;
 use keyscore_app::{init, open_project_window};
 use keyscore_core::{Channel, Clip, Note, Pitch, Project, Tick, Track, TrackColor, Velocity};
@@ -201,15 +201,20 @@ fn first_layout_follow_is_consumed_and_does_not_snap_back_later(cx: &mut TestApp
     assert_eq!(vp(cx, &view), away, "그리기만으로 커서로 되돌아간다");
 }
 
-/// 배치 뷰에 있는 동안(피아노롤이 아직 한 번도 그려지지 않았을 때) `cmd-=`로 줌한 뒤 먼 클립으로 들어가도
+/// 배치 뷰에 있는 동안(피아노롤이 아직 한 번도 그려지지 않았을 때) 피아노롤 배율을 올린 뒤 먼 클립으로 들어가도
 /// 커서가 보인다(제안 6의 「크기를 모르면 배율만」과 `pending_follow`의 맞물림).
+///
+/// S4-T1부터 배치 뷰의 `cmd-=`는 배치 뷰 배율을 바꾸므로(제안 7 이월), 숨은 피아노롤의 배율은 상태 API로
+/// 올린다. 검사하는 것(그리기 전 줌 + 진입 때 따라가기)은 같다.
 #[gpui_kit::test]
 fn zoom_before_first_layout_then_enter_far_clip_keeps_cursor_visible(cx: &mut TestAppContext) {
     start(cx, "zoom-then-enter");
     let far = 50 * BAR;
     let (handle, view) = open(cx, project_with_clip(clip(far, BAR, &[note(0, 960, 60)])));
     assert_eq!(current_view(cx, &view), View::Arrangement);
-    press(cx, handle, "cmd-= cmd-= cmd-= cmd-= cmd-=");
+    for _ in 0..5 {
+        cx.read(|cx| view.read(cx).piano_roll().zoom(ZOOM_FACTOR));
+    }
     let zoomed = vp(cx, &view);
     assert!(zoomed.px_per_tick > DEFAULT_PX_PER_TICK, "{zoomed:?}");
     assert_eq!(zoomed.width, 0.0, "아직 그리기 전");
