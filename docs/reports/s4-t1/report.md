@@ -10,6 +10,9 @@
   - 배치 뷰 Step 고스트(`step_ghost`)는 `plan_step_write`가 거부하면 커서가 든 마디를 `blocked`로 돌려준다(계획은 「막힌 고스트」만 적고 범위는 정하지 않았다).
   - core에 `Track::clips_ending_after(tick)`를 더했다(클립 열이 비공개라 `partition_point`를 트랙 안에서 한다). 계획의 인터페이스 초안에는 없던 것이라 계획 7절 설명과 맞춘다.
   - 자동 게이트 실행 환경: 이 Task의 구현 세션은 Linux 컨테이너라 앱 crate를 빌드하지 못했다(`objc2`·CoreMIDI). 「자동 게이트」 절에 무엇을 어디서 돌렸는지 적는다.
+  - 배치 뷰의 `main-view`는 피아노롤과 달리 4 px 여백 바깥(패널 크기)이고 Element가 그 안쪽이다(S2-T6f 리뷰 3 시험이 패널 최소 너비를 `main-view`로 잰다). 배치 뷰 좌표 시험은 여백을 더한다.
+  - 기존 시험 둘을 고쳤다(지우지 않음, 커밋 9323162 본문): `review_s3_t1_r2`의 「그리기 전 줌」은 배치 뷰 `cmd-=`가 이제 배치 뷰를 줌하므로 피아노롤 상태 API로 줌한다. `review_s3_t2`의 「배치 뷰 `Cmd+A`는 아무 일도 안 함」은 이월 줄대로 「클립 전부 선택, 노트 선택은 없음」으로.
+  - lockfile: `async-executor 1.14.0`이 yank되어 `cargo deny`가 실패해 1.14.1로 올렸다(이 PR 밖의 사건, 커밋 10321ec).
 
 ## 구현 요약
 
@@ -31,34 +34,40 @@
 ## 테스트 결과
 
 ~~~
-(CI 실행 결과로 채운다)
+CI 실행 26(macos-15, 커밋 9323162, cargo test --workspace --no-fail-fast, 건너뛰기 19개):
+  2841 passed, 0 failed, 2 ignored (시험 바이너리 311개)
+  tests/arrangement.rs: 22 passed
+  tests/arrangement_step.rs: 9 passed (S3-T4c 글 표시 시험, 접근성 이름으로 그대로 통과)
+  tests/review_s2_t6f_r3.rs 8, review_s3_t1_r2.rs 10, review_s3_t2.rs 13 passed (실행 25 실패분 수정 뒤)
+CI 실행 25(커밋 2f2d7aa): 새 시험 2개(step 고스트) + 기존 시험 3개 실패 → 커밋 bc622df·e9df587·9323162로 고침
+core: cargo test -p keyscore-core (이 컨테이너) 새 시험 통과
 ~~~
 
 구현 전 실패 확인: 시험·벤치 파일을 먼저 커밋(06e238b)하고 교차 타입 검사(`cargo check --tests --benches --target aarch64-apple-darwin`)에서 `keyscore_app::arrangement` 미해결(E0432)로 컴파일되지 않음을 확인했다. core의 `clips_ending_after_skips_clips_that_end_at_or_before_tick`는 메서드 없음(E0599)으로 실패한 뒤 구현으로 통과했다.
 
 | 계획의 테스트 # | 실제 테스트 이름 | 상태 |
 | --- | --- | --- |
-| 1 | `scene_lays_out_clip_blocks_by_track_row_and_tick` | CI 대기 |
-| 2 | `scene_skips_offscreen_clips_with_sorted_search` | CI 대기 |
-| 3 | `scene_labels_use_name_and_first_bar_lyric_only` | CI 대기 |
-| 4 | `scene_grid_lines_follow_meter_map_and_hide_dense_beats` | CI 대기 |
-| 5 | `scene_cursor_selection_ghost_playhead_positions` | CI 대기 |
-| 6 | `clip_boundaries_on_current_track` | CI 대기 |
-| 7 | `v_toggles_views_enter_opens_clip_and_escape_keeps_view` | CI 대기 |
-| 8 | `arrangement_cursor_keys_move_by_clip_boundary_track_and_bar` | CI 대기 |
-| 9 | `cursor_moves_scroll_arrangement_viewport_to_follow` | CI 대기 |
-| 10 | `zoom_keys_apply_only_to_the_visible_view` | CI 대기 |
-| 11 | `select_all_in_arrangement_selects_every_clip_and_escape_clears` | CI 대기 |
-| 12 | `clip_selection_drops_removed_clips` | CI 대기 |
-| 13 | `play_from_cursor_uses_cursor_tick_in_both_views` | CI 대기 |
-| 14 | `right_click_in_arrangement_opens_mark_menu_and_sets_mark` | CI 대기 |
-| 15 | `step_in_arrangement_draws_cursor_and_ghost_on_grid`, `step_ghost_is_blocked_when_next_clip_is_in_the_way` | CI 대기 |
-| 16 | `click_places_cursor_and_wheel_scrolls` | CI 대기 |
-| 17 | `element_paints_every_visible_clip_once` | CI 대기 |
-| 18 | `playhead_follows_transport_in_arrangement` | CI 대기 |
+| 1 | `scene_lays_out_clip_blocks_by_track_row_and_tick` | 통과(CI 26) |
+| 2 | `scene_skips_offscreen_clips_with_sorted_search` | 통과(CI 26) |
+| 3 | `scene_labels_use_name_and_first_bar_lyric_only` | 통과(CI 26) |
+| 4 | `scene_grid_lines_follow_meter_map_and_hide_dense_beats` | 통과(CI 26) |
+| 5 | `scene_cursor_selection_ghost_playhead_positions` | 통과(CI 26) |
+| 6 | `clip_boundaries_on_current_track` | 통과(CI 26) |
+| 7 | `v_toggles_views_enter_opens_clip_and_escape_keeps_view` | 통과(CI 26) |
+| 8 | `arrangement_cursor_keys_move_by_clip_boundary_track_and_bar` | 통과(CI 26) |
+| 9 | `cursor_moves_scroll_arrangement_viewport_to_follow` | 통과(CI 26) |
+| 10 | `zoom_keys_apply_only_to_the_visible_view` | 통과(CI 26) |
+| 11 | `select_all_in_arrangement_selects_every_clip_and_escape_clears` | 통과(CI 26) |
+| 12 | `clip_selection_drops_removed_clips` | 통과(CI 26) |
+| 13 | `play_from_cursor_uses_cursor_tick_in_both_views` | 통과(CI 26) |
+| 14 | `right_click_in_arrangement_opens_mark_menu_and_sets_mark` | 통과(CI 26) |
+| 15 | `step_in_arrangement_draws_cursor_and_ghost_on_grid`, `step_ghost_is_blocked_when_next_clip_is_in_the_way` | 통과(CI 26. 실행 25에서 둘 다 실패: 클립 끝 이어 쓰기가 막힌 경우를 고스트 없이 지나침 → 수정, 라벨 기대값 오타 → 수정) |
+| 16 | `click_places_cursor_and_wheel_scrolls` | 통과(CI 26) |
+| 17 | `element_paints_every_visible_clip_once` | 통과(CI 26) |
+| 18 | `playhead_follows_transport_in_arrangement` | 통과(CI 26) |
 | 19 | `frame_with_64x200_clips_fits_60fps_budget_in_release` | 사람 Mac(release) |
 | 20 | 벤치 `arrangement/scene_64x200` | 사람 Mac(기준값) |
-| (추가) | `cell_at_maps_click_point_to_track_row_and_step`, `clip_selection_set_all_and_retain_existing`, core `clips_ending_after_skips_clips_that_end_at_or_before_tick` | core는 통과, 나머지 CI 대기 |
+| (추가) | `cell_at_maps_click_point_to_track_row_and_step`, `clip_selection_set_all_and_retain_existing`, core `clips_ending_after_skips_clips_that_end_at_or_before_tick` | 통과 |
 
 계획에 있었지만 쓰지 않은 테스트와 이유: 없음.
 
@@ -69,12 +78,12 @@
 - [x] `cargo fmt --all -- --check`: 통과
 - [x] clippy: `cargo clippy -p keyscore-app --all-targets --target aarch64-apple-darwin -- -D warnings` 경고 0(앱 crate·시험·벤치). `cargo clippy -p keyscore-core -p keyscore-text -p keyscore-ai --all-targets -- -D warnings` 경고 0. 교차 검사는 gpui의 Metal 셰이더 빌드 산출물(`stitched_shaders.metal`, `shaders.metallib`)을 빈 파일로 두어 타입 검사만 지나게 한 로컬 우회다. 링크·실행은 하지 않는다.
 - [x] `cargo test -p keyscore-core`: 새 시험 통과. `ksq_write_file_failure_keeps_original` 하나는 이 컨테이너가 root라 읽기 전용 경로 쓰기가 막히지 않아 `main`에서도 같은 자리에서 실패한다(이 변경과 무관).
-- [ ] `cargo test --workspace`: CI(macos-15)에서(아래 CI 결과)
-- [ ] `cargo deny check`: 이 컨테이너에 `cargo-deny`가 없다. 의존성 변경이 없어 CI에서 본다
+- [x] `cargo test --workspace`: CI 실행 26에서 2841 passed, 0 failed, 2 ignored(건너뛰기 19개는 결정 `2026-11-02-ci-runner-scope` A). fmt·clippy도 CI에서 통과.
+- [ ] `cargo deny check`: 이 컨테이너에 `cargo-deny`가 없다. CI 실행 26에서 advisories 실패: `smol` → `async-executor 1.14.0`이 yank됨(이 PR 밖, `main`도 같음). 커밋 10321ec에서 1.14.1로 올렸다. CI 실행 27 결과로 닫는다.
 - [x] `scripts/check-deps.sh` ok, `scripts/check-deps.test.sh` 16 passed, `scripts/bench-check.test.sh` 8 passed
 - [ ] 단계별 추가 게이트: 벤치 `arrangement/scene_64x200` 기준값은 기계별이라 사람 Mac에서 `python3 -I scripts/bench-check.py --update`로 `benches/baseline.json`에 넣는다. release 프레임 시험(19)도 사람 Mac.
 
-CI(macos-15) 결과: (실행 번호와 결과로 채운다)
+CI(macos-15) 결과: 실행 25 실패(시험 5, 위 표) → 실행 26 시험 전부 통과, deny만 yank로 실패 → 실행 27(lockfile 수정) 대기.
 
 ## 알려진 한계
 
