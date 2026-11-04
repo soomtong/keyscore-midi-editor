@@ -244,15 +244,21 @@ impl ProjectWindow {
             },
             Ok(_) => None,
             Err(_) => {
+                // 틱 u64 끝 근처에서는 마디 끝 계산이 넘칠 수 있다(리뷰 1 지적 1). 포화시켜 `end ≥ start`를 지킨다.
                 let meter = project.meter_map();
                 let bar = meter.position(at).bar();
                 let start = meter.bar_start(bar).unwrap_or(at);
-                let end = meter
-                    .bar_start(bar + 1)
-                    .map_or(at.get() + meter.signature_at(at).bar_ticks(), Tick::get);
+                let end = meter.bar_start(bar + 1).map_or_else(
+                    || {
+                        start
+                            .get()
+                            .saturating_add(meter.signature_at(at).bar_ticks())
+                    },
+                    Tick::get,
+                );
                 Some(StepGhost {
                     start,
-                    end,
+                    end: end.max(start.get()),
                     blocked: true,
                 })
             }

@@ -143,9 +143,9 @@ fn visible_rows(vp: Viewport, rows: usize) -> (usize, usize) {
     (first.min(last), last)
 }
 
-/// 블록 사각형: 오른쪽에 1 px 틈(이웃 클립과 구분).
+/// 블록 사각형: 오른쪽에 1 px 틈(이웃 클립과 구분). `end < start`여도 넘치지 않는다(폭 1 px).
 fn block_rect(vp: Viewport, start: u64, end: u64, y: f32, h: f32) -> Rect {
-    let w = px_f32((tick_f(end - start) * vp.px_per_tick - 1.0).max(1.0));
+    let w = px_f32((tick_f(end.saturating_sub(start)) * vp.px_per_tick - 1.0).max(1.0));
     Rect {
         x: vp.x_of(tick_f(start)),
         y,
@@ -188,7 +188,8 @@ fn build_clips(
     }
 }
 
-/// 클립 첫 마디(클립 시작부터 그 마디 끝까지) 노트의 가사를 공백으로 잇는다. 가사가 없으면 `None`.
+/// 클립 첫 마디 노트의 가사를 공백으로 잇는다. 「첫 마디」는 클립 시작부터 박자표 맵의 그 마디 끝까지다(마디
+/// 중간에서 시작하는 클립이면 한 마디보다 짧다. 리뷰 1 제안 1). 가사가 없으면 `None`.
 #[must_use]
 pub fn first_bar_lyric(clip: &Clip, meter: &MeterMap) -> Option<String> {
     let start = clip.start();
