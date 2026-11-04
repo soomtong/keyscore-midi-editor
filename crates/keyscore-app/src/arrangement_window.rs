@@ -184,12 +184,16 @@ impl ProjectWindow {
             );
             move |cell, at, window, cx| listener(&(cell, at), window, cx)
         });
-        // 피아노롤과 같은 id·라벨·여백(창 시험이 「main-view」로 찾고, 4 px 여백은 패널 손잡이 자리).
+        // 같은 id·라벨(창 시험이 「main-view」로 찾는다). 4 px 여백은 패널 분할 손잡이 히트박스 자리다(S3-T1 리뷰 1
+        // 제안 4). 피아노롤과 달리 `main-view`가 여백 바깥(패널 크기)이고 Element는 그 안쪽이다: 패널 최소 너비를 재는
+        // 창 시험(S2-T6f 리뷰 3)이 배치 뷰의 `main-view`를 패널로 본다. 배치 뷰 좌표 시험은 여백만큼 더한다.
         let mut main = div()
             .id("main-view")
             .aria_label("배치 뷰")
             .test_support()
+            .relative()
             .size_full()
+            .p(px(4.))
             .overflow_hidden()
             .child(element);
         // Step 위치 글 표시(S3-T4c)는 격자 위의 커서·고스트로 바뀌었다. 접근성 이름으로만 남긴다(크기 0).
@@ -212,7 +216,7 @@ impl ProjectWindow {
                         .size_0(),
                 );
         }
-        div().size_full().p(px(4.)).child(main)
+        main
     }
 
     /// 배치 뷰 칸을 눌렀을 때: 그 행의 트랙을 현재 트랙으로, 커서 틱을 그 칸으로.

@@ -234,6 +234,9 @@ fn bounds_of(
         .unwrap()
 }
 
+/// `main-view`(패널 크기)의 4 px 여백 안쪽이 Element다.
+const MAIN_PAD: f32 = 4.0;
+
 /// 배치 뷰의 (트랙 행, 틱) 자리의 창 좌표(칸 안쪽).
 fn at_cell(
     cx: &mut TestAppContext,
@@ -244,8 +247,8 @@ fn at_cell(
 ) -> Point<Pixels> {
     let main = bounds_of(cx, handle, "main-view");
     let v = arr_vp(cx, view);
-    let x = v.x_of(tick as f64) + 2.0;
-    let y = v.y_of(row as f32) + 4.0;
+    let x = MAIN_PAD + v.x_of(tick as f64) + 2.0;
+    let y = MAIN_PAD + v.y_of(row as f32) + 4.0;
     main.origin + point(px(x), px(y))
 }
 
