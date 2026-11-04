@@ -6,11 +6,7 @@
 
 use std::time::Duration;
 
-use gpui_kit::component::ActiveTheme as _;
-use gpui_kit::{
-    App, Context, Div, InteractiveElement as _, IntoElement, ParentElement as _, Stateful,
-    StatefulInteractiveElement as _, Styled as _, TestSupportExt as _, Window, div,
-};
+use gpui_kit::{App, Context, Div, InteractiveElement as _, Stateful, Window};
 use keyscore_core::transform::{Splice, clip_for_notes, splice};
 use keyscore_core::{
     Clip, ClipId, Edit, MeterMap, ModelError, Note, Pitch, Project, Tick, TrackId,
@@ -19,6 +15,7 @@ use keyscore_core::{
 use crate::actions::args::{AccidentalKind, KeyLayout};
 use crate::actions::{mode, step};
 use crate::app_state::AppSettings;
+use crate::arrangement::scene::StepGhost;
 use crate::mode::{Mode, ModeEvent, View};
 use crate::pianoroll::Cursor;
 use crate::pianoroll::edit::plan_legato;
@@ -215,36 +212,54 @@ impl ProjectWindow {
         })
     }
 
-    /// 배치 뷰 자리표시 안의 Step 위치 표시(S3-T4c). 격자는 S4-T1이다.
-    pub(crate) fn render_arrangement_step(
-        shown: ArrangementStep,
-        cx: &App,
-    ) -> impl IntoElement + use<> {
-        div()
-            .id("main-view")
-            .aria_label("배치 뷰")
-            .test_support()
-            .size_full()
-            .p_2()
-            .flex()
-            .flex_col()
-            .gap_1()
-            .child(
-                div()
-                    .id("arrangement-step-cursor")
-                    .aria_label(shown.cursor.clone())
-                    .test_support()
-                    .text_color(cx.theme().foreground)
-                    .child(shown.cursor),
-            )
-            .child(
-                div()
-                    .id("arrangement-step-clip")
-                    .aria_label(shown.clip.clone())
-                    .test_support()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(shown.clip),
-            )
+    /// 배치 뷰 격자 위의 Step 고스트(S4-T1, S3-T4c 이월): 커서가 클립 밖이면 다음 확정이 만들 새 클립의 범위.
+    /// 다음 클립에 막혀 쓸 수 없으면 커서가 든 마디를 `blocked`로. 클립 안·끝(이어 쓰기)이면 `None`(커서 칸만
+    /// 보인다). `arrangement_step`과 같은 계획(`plan_step_write`)을 쓴다.
+    #[must_use]
+    pub fn step_ghost(&self, cx: &App) -> Option<StepGhost> {
+        let mode = self.mode_state();
+        if mode.mode() != Mode::Step || mode.view() != View::Arrangement {
+            return None;
+        }
+        let project = self.document.read(cx).project();
+        let (write_track, at, push, len, pitch) = self.next_step_write()?;
+        if matches!(step_host(project, write_track, at), Some(Host::Clip { .. })) {
+            return None;
+        }
+        let pitch = pitch?;
+        let planned = Self::plan_step_write(
+            project,
+            write_track,
+            at,
+            push,
+            len,
+            pitch,
+            self.step.overwrite,
+        );
+        match planned {
+            Ok((edits, None, _)) => match edits.first() {
+                Some(Edit::InsertClip { clip, .. }) => Some(StepGhost {
+                    start: clip.start(),
+                    end: clip.end(),
+                    blocked: false,
+                }),
+                _ => None,
+            },
+            Ok(_) => None,
+            Err(_) => {
+                let meter = project.meter_map();
+                let bar = meter.position(at).bar();
+                let start = meter.bar_start(bar).unwrap_or(at);
+                let end = meter
+                    .bar_start(bar + 1)
+                    .map_or(at.get() + meter.signature_at(at).bar_ticks(), Tick::get);
+                Some(StepGhost {
+                    start,
+                    end,
+                    blocked: true,
+                })
+            }
+        }
     }
 
     /// 상태줄 모드 표시(`STEP ♩ oct4`, 조합 중 `STEP 1/16 oct4 5c_`).

@@ -21,7 +21,7 @@ use crate::window::ProjectWindow;
 const DRUM_CHANNEL: u8 = 10;
 
 impl ProjectWindow {
-    fn track_index(&self, id: TrackId, cx: &gpui_kit::App) -> Option<usize> {
+    pub(crate) fn track_index(&self, id: TrackId, cx: &gpui_kit::App) -> Option<usize> {
         self.document
             .read(cx)
             .project()
@@ -30,12 +30,12 @@ impl ProjectWindow {
             .position(|t| t.id() == id)
     }
 
-    fn current_index(&self, cx: &gpui_kit::App) -> Option<usize> {
+    pub(crate) fn current_index(&self, cx: &gpui_kit::App) -> Option<usize> {
         self.current_track().and_then(|id| self.track_index(id, cx))
     }
 
     /// 현재 트랙을 그 자리의 트랙으로 바꾼다(범위 밖이면 가장 가까운 끝).
-    fn select_track_at(&mut self, index: usize, cx: &mut Context<Self>) {
+    pub(crate) fn select_track_at(&mut self, index: usize, cx: &mut Context<Self>) {
         let id = {
             let tracks = self.document.read(cx).project().tracks();
             tracks

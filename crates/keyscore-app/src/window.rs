@@ -113,6 +113,8 @@ pub struct ProjectWindow {
     pub(crate) autosave: crate::autosave::WindowAutosave,
     /// 피아노롤 커서·뷰포트·선택(S3-T1).
     pub(crate) pianoroll: crate::pianoroll::PianoRollState,
+    /// 배치 뷰 뷰포트·클립 선택(S4-T1). 커서는 `pianoroll`의 틱과 `current_track`을 쓴다.
+    pub(crate) arrangement: crate::arrangement::ArrangementState,
     /// 음 키 대기·레가토 기억·마지막 편집(S3-T3b).
     pub(crate) note_ops: crate::note_ops::NoteOpsState,
     pub(crate) vim: crate::vim::VimState,
@@ -218,6 +220,7 @@ impl ProjectWindow {
             file_flow: false,
             autosave: crate::autosave::WindowAutosave::new(),
             pianoroll: crate::pianoroll::PianoRollState::new(),
+            arrangement: crate::arrangement::ArrangementState::new(),
             note_ops: crate::note_ops::NoteOpsState::default(),
             vim: crate::vim::VimState::default(),
             step: crate::step::StepState::new(AppSettings::get(cx).input.step_default_length),
@@ -324,6 +327,8 @@ impl ProjectWindow {
             }
             let entered_piano_roll =
                 next.view() == View::PianoRoll && self.mode.view() != View::PianoRoll;
+            let entered_arrangement =
+                next.view() == View::Arrangement && self.mode.view() != View::Arrangement;
             let sequence_changed =
                 (self.mode.mode() == Mode::Sequence) != (next.mode() == Mode::Sequence);
             self.mode = next;
@@ -334,6 +339,9 @@ impl ProjectWindow {
             if entered_piano_roll {
                 self.entered_piano_roll(cx);
             }
+            if entered_arrangement {
+                self.entered_arrangement(cx);
+            }
             // FSM이 선택을 비웠으면(뷰 전환, 선택 해제) 실제 선택도 비운다(S3-T2). 기준 칸만 남은 상태도 선택 중이라
             // 함께 지운다. 남기면 문서가 바뀔 때 노트 없는 `Selection` 컨텍스트가 다시 켜진다(리뷰 4 지적 3).
             if !next.has_selection()
@@ -342,6 +350,11 @@ impl ProjectWindow {
                 self.pianoroll
                     .set_selection(crate::pianoroll::Selection::default());
                 self.pianoroll.set_anchor(None);
+            }
+            // 배치 뷰의 클립 선택도 같은 규칙이다(S4-T1).
+            if !next.has_selection() && !self.arrangement.selection().is_empty() {
+                self.arrangement
+                    .set_selection(crate::arrangement::ClipSelection::default());
             }
             // 입력란에서 전역 키(`ctrl-tab`)로 모드가 바뀌면 문서로 포커스를 옮긴다. 그대로 두면 상태줄은
             // 새 모드인데 키는 입력란 글자가 된다(리뷰 2 제안 1).
@@ -381,12 +394,38 @@ impl ProjectWindow {
         self.mode = self.mode.apply(event);
     }
 
-    /// 피아노롤 우클릭 메뉴가 떠 있는가(S3-T2).
+    /// 피아노롤·배치 뷰 우클릭 메뉴가 떠 있는가(S3-T2, S4-T1).
     #[must_use]
     pub fn context_menu_open(&self) -> bool {
-        self.popup
-            .as_ref()
-            .is_some_and(|p| p.kind == PopupKind::PianoRollMenu)
+        self.popup.as_ref().is_some_and(|p| {
+            matches!(
+                p.kind,
+                PopupKind::PianoRollMenu | PopupKind::ArrangementMenu
+            )
+        })
+    }
+
+    /// 배치 뷰 상태(S4-T1).
+    #[must_use]
+    pub fn arrangement(&self) -> &crate::arrangement::ArrangementState {
+        &self.arrangement
+    }
+
+    /// 배치 뷰의 클립 선택(S4-T1).
+    #[must_use]
+    pub fn clip_selection(&self) -> crate::arrangement::ClipSelection {
+        self.arrangement.selection()
+    }
+
+    /// 클립 선택을 바꾸고 모드 FSM의 선택 유무를 맞춘다(S4-T1).
+    pub fn set_clip_selection(
+        &mut self,
+        selection: crate::arrangement::ClipSelection,
+        cx: &mut Context<Self>,
+    ) {
+        self.arrangement.set_selection(selection);
+        self.sync_selection_mode(cx);
+        cx.notify();
     }
 
     /// 피아노롤의 가로·세로 뷰포트. 인스펙터·레인이 같은 가로축을 그릴 때 읽는다(가로 동기 훅).
@@ -432,6 +471,12 @@ impl ProjectWindow {
             self.current_track = track;
             // 오퍼레이터 대기는 그 트랙의 커서에 걸린 것이다(S3-T3c)
             self.clear_operator(cx);
+            // 배치 뷰의 커서 행이 바뀌었다. 트랙 목록 클릭·`Ctrl+j/k`처럼 커서 이동을 거치지 않는 길도 뷰포트가
+            // 따라가게 여기서 맞춘다(S4-T1).
+            if self.in_arrangement() {
+                let cell = self.arrangement_cell(cx);
+                self.arrangement.ensure_visible(cell);
+            }
             cx.notify();
         }
     }
@@ -887,6 +932,7 @@ impl ProjectWindow {
         let e = Self::on_mode::<ai::Dismiss>(e, LeaveAi, cx);
         let e = Self::on_mode::<ai::DismissGhost>(e, DismissGhost, cx);
         let e = Self::piano_roll_handlers(e, cx);
+        let e = Self::arrangement_handlers(e, cx);
         let e = Self::step_handlers(e, cx);
         e.on_action(cx.listener(Self::show_mode_menu))
             .on_action(cx.listener(Self::transport_play))
@@ -1271,10 +1317,7 @@ impl Render for ProjectWindow {
         // 모드 바인딩(재생 토글, vim 카운트)으로 빠지지 않는다(S2-T5b 리뷰 1 지적 1). 팔레트·팝업과 같은
         // 이유다.
         let main_view = match self.mode.view() {
-            View::Arrangement => match self.arrangement_step(cx) {
-                Some(shown) => Self::render_arrangement_step(shown, cx).into_any_element(),
-                None => Self::region("main-view", "배치 뷰", cx).into_any_element(),
-            },
+            View::Arrangement => self.render_arrangement(window, cx).into_any_element(),
             View::PianoRoll => self.render_piano_roll(window, cx).into_any_element(),
         };
         self.release_stale_prefix(window, cx);
@@ -1509,6 +1552,8 @@ pub(crate) enum PopupKind {
     LyricLang,
     /// 피아노롤 우클릭 메뉴(마크, S3-T2)
     PianoRollMenu,
+    /// 배치 뷰 우클릭 메뉴(마크, S4-T1)
+    ArrangementMenu,
 }
 
 /// 열린 팝업 메뉴.

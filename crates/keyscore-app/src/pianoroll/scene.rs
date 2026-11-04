@@ -14,7 +14,7 @@ pub struct Rect {
 }
 
 impl Rect {
-    fn overlaps(&self, width: f32, height: f32) -> bool {
+    pub(crate) fn overlaps(&self, width: f32, height: f32) -> bool {
         self.x + self.w > 0.0 && self.x < width && self.y + self.h > 0.0 && self.y < height
     }
 }
