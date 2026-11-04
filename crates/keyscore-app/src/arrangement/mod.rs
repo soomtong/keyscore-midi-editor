@@ -252,12 +252,21 @@ impl Inner {
         tick >= vp.first_tick && (tick + step <= vp.last_tick() || tick <= vp.first_tick) && row_ok
     }
 
+    /// 그리기 전에 트랙이 늘었을 수 있다(`track::New`가 새 트랙을 현재 트랙으로 삼는다, 리뷰 1 지적 2). 커서 행이
+    /// 마지막 그리기 때의 트랙 수를 넘으면 그 행까지는 있는 것으로 보고 자른다. 다음 그리기가 참값으로 되돌린다.
+    fn admit_row(&mut self, cell: Cell) {
+        if let Some(row) = cell.row {
+            self.rows = self.rows.max(row + 1);
+        }
+    }
+
     fn ensure_visible(&mut self, cell: Cell) {
         if !self.sized() {
             self.pending = Some((Follow::Visible, cell));
             return;
         }
         self.pending = None;
+        self.admit_row(cell);
         let vp = self.viewport();
         let tick = tick_f(cell.tick.get());
         let step = tick_f(cell.step_ticks);
@@ -286,6 +295,7 @@ impl Inner {
             return;
         }
         self.pending = None;
+        self.admit_row(cell);
         let tick = tick_f(cell.tick.get());
         let half = f64::from(self.width) / self.px_per_tick / 2.0;
         self.first_tick = (tick + tick_f(cell.step_ticks) / 2.0 - half).max(0.0);
@@ -363,8 +373,9 @@ impl ArrangementState {
         self.inner.borrow().selection.clone()
     }
 
-    /// 선택을 바꾼다(창은 `ProjectWindow::set_clip_selection`으로 모드 FSM까지 맞춘다).
-    pub fn set_selection(&self, selection: ClipSelection) {
+    /// 선택을 바꾼다. 창의 `ProjectWindow::set_clip_selection`이 모드 FSM까지 맞추므로 crate 밖에는 열지 않는다
+    /// (리뷰 1 제안 4).
+    pub(crate) fn set_selection(&self, selection: ClipSelection) {
         self.inner.borrow_mut().selection = selection;
     }
 
