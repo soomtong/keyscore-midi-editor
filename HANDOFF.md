@@ -1,4 +1,4 @@
-# HANDOFF: KeyScore S3 출구 보고서 작성 — 사람의 수동 확인·서명 대기
+# HANDOFF: KeyScore S3 출구 서명 완료 — S4-T1 시작
 
 ## 목표
 
@@ -124,7 +124,7 @@
 
 ## 남은 작업
 
-- [ ] 사람(S3 출구): `docs/reports/stage-3-exit.md`의 수동 항목 — M1 「반짝반짝 작은 별」 8마디 Step 입력·수정·저장과 외부 신디 청취, 노트 10,000개 실제 창 줌·스크롤(UI-3) — 과 서명. 서명 전에는 S4를 시작하지 않는다
+- [x] 사람(S3 출구): `docs/reports/stage-3-exit.md`의 수동 항목 — M1 「반짝반짝 작은 별」 8마디 Step 입력·수정·저장과 외부 신디 청취, 노트 10,000개 실제 창 줌·스크롤(UI-3, `assets/perf/notes-10k.ksq`) — 과 서명(YoungTaek, 2026-11-04, 이슈 3). S4를 시작할 수 있다
 - [ ] 사람 확인(S3-T7): 결정 `2026-11-01-s3-t7-search-and-note-info.md`의 에이전트 해석(검색어 문법 `c#4`·`"a"`, 결과 순서와 돎, 기본 프리셋 `Cmd+G`, 노트 없는 트랙 결과, 정보 팝업 내용). 실제 창에서 한글 IME 조합 중 막대의 `Enter`(조합 확정만 하고 검색하지 않아야 함)
 - [ ] 사람 확인(S3-T6c): 결정 `2026-10-31-s3-t6-mouse-editing.md` 7절의 에이전트 해석(4 px마다 한 단계, 템포 1 BPM·`Cmd` 0.1 BPM, 박자표는 누른 쪽 절반으로 분자 1–99·분모 1–32, 뗄 때 한 번 적용이라 끄는 동안 재생 템포는 그대로). 실제 창의 끌기 감각
 - [ ] 사람 확인(S3-T6c 리뷰 3 범위 밖 관찰): 고치는 중인 입력란을 가운데가 아닌 곳(폭의 0.1·0.9 지점)에서 누르면 포커스를 잃고 친 글자가 취소된다. `main`에서도 같아 시험 하네스 탓인지 실제 앱도 그런지 확인한다
@@ -138,7 +138,7 @@
 
 - [x] 디스크 정리(사람 답 2026-10-29): `target/debug/incremental`(23G)만 지웠다. `target/review`·`target/alt`는 S3-T4a 동안 다시 생겼다(필요하면 지운다).
 
-- [ ] 원격 CI(macos-15): PR https://github.com/soomtong/keyscore-midi-editor/pull/1 (보고 `docs/reports/ci/first-run.md`, 결정 `docs/decisions/2026-11-02-ci-runner-scope.md` A)에 keepalive, `--no-fail-fast`, 건너뛰기 19개, 벽시계 시험 수정을 담았다. `ksq-cli`은 PR 1 위에 쌓은 PR https://github.com/soomtong/keyscore-midi-editor/pull/2 (2회차 「병합 가능」). 리뷰 3회 상한에 닿아 결정 요청 `docs/decisions/2026-11-02-ci-review-limit.md`(결정 대기). 결정 뒤 PR 2를 PR 1에 병합하고, PR 1이 녹색이면 `main`에 merge commit으로 병합한다(squash 금지, 저장소 설정은 squash를 허용하므로 `--merge`를 고른다). 러너 벤치 기준값은 S8 이월 그대로
+- [x] 원격 CI(macos-15): PR https://github.com/soomtong/keyscore-midi-editor/pull/1 (보고 `docs/reports/ci/first-run.md`, 결정 `docs/decisions/2026-11-02-ci-runner-scope.md` A)에 keepalive, `--no-fail-fast`, 건너뛰기 19개, 벽시계 시험 수정을 담았다. `ksq-cli`은 PR 1 위에 쌓은 PR https://github.com/soomtong/keyscore-midi-editor/pull/2 (2회차 「병합 가능」)가 고쳤고 PR 1에 먼저 병합했다. 리뷰 3회 상한에 닿아 결정 요청 `docs/decisions/2026-11-02-ci-review-limit.md`를 썼고, 사람이 B(추가 리뷰 없이 병합)로 정해 2026-11-03에 `main`에 merge commit 9162298로 병합했다(HEAD CI 실행 41493091079 녹색). 러너 벤치 기준값은 S8 이월 그대로
 - [ ] 후속(CI 보고 「알려진 한계」): `-50` 가설(MIDI 서버 재기동이 가끔 10초를 넘김)이 맞다면 앱이 OUT-1 포트 없이 뜰 수 있다. 사람 Mac에서 재현되면 제품 쪽 Task(재시도 시간, 늦은 포트 재등록)를 연다. CI에서 keepalive가 살아 있는데도 `-50`이 다시 나면 가설이 틀린 것이니 `-50`의 원인부터 찾는다
 - [x] 후속(S3-T8에서 직렬로 묶음): `crates/keyscore-midi/tests/scheduler.rs`의 20초 지터 측정이 같은 바이너리의 루프백 테스트와 겹치면 가끔 0.5 ms를 넘는다. 타이밍 측정 테스트를 서로 직렬로 묶는다.
 - [x] `2026-10-17-keymap-conflicts.md` A1–A12·B24·B25 모두 권고안으로 결정(YoungTaek, 2026-10-24). 반영은 S3·S5·S6·S7 단계 파일의 이월 줄(프리셋 자리 채우기 + REQ 문구)
@@ -180,7 +180,7 @@ REQ 문구: 사람이 에이전트에게 수정을 허락한 범위(결정 문�
 
 ## 다음 에이전트에게
 
-1. S3 출구 보고서를 썼고 자동 게이트는 통과했다(`docs/reports/stage-3-exit.md`). 사람이 수동 항목을 확인하고 서명하면 S4-T1(배치 뷰 Element)을 시작한다. S4 단계 파일의 S4-T1 이월 줄 셋(배치 뷰 줌 처리기, 마크 메뉴·`Cmd+A`·커서부터 재생, Step 격자 표시)과 S4-T2 이월 줄을 먼저 읽는다. 서명 전에는 사람이 알리는 결함만 Task 브랜치로 고친다. 결정 `2026-10-26-duplicate-offset-grid.md`가 나면 `pianoroll/edit.rs` `duplicate_offset`도. 리뷰어 지시에 `CARGO_TARGET_DIR=target/review`와 「MIDI·재생 시험과 전체 시험을 돌리지 않음」을 넣는다. 전체 시험은 처음 빌드부터 35분쯤 걸리니 백그라운드 시간 제한을 넉넉히(60분) 주고 `--no-fail-fast`로 돌린다. 디스크는 2026-11-02 기준 66 GiB 남음.
+1. S3 출구는 서명됐다(`docs/reports/stage-3-exit.md`, YoungTaek, 2026-11-04). 다음은 S4-T1(배치 뷰 Element)이며 브랜치 `s4/t1-<slug>`로 시작한다. S3 에이전트 해석 확인 항목(T3d·T3e·T4b·T6a~c·T7)은 보고서에 남아 있고 S4를 막지 않는다. S4 단계 파일의 S4-T1 이월 줄 셋(배치 뷰 줌 처리기, 마크 메뉴·`Cmd+A`·커서부터 재생, Step 격자 표시)과 S4-T2 이월 줄을 먼저 읽는다. 결정 `2026-10-26-duplicate-offset-grid.md`가 나면 `pianoroll/edit.rs` `duplicate_offset`도. 리뷰어 지시에 `CARGO_TARGET_DIR=target/review`와 「MIDI·재생 시험과 전체 시험을 돌리지 않음」을 넣는다. 전체 시험은 처음 빌드부터 35분쯤 걸리니 백그라운드 시간 제한을 넉넉히(60분) 주고 `--no-fail-fast`로 돌린다. 디스크는 2026-11-02 기준 66 GiB 남음.
 2. S2 출구는 서명됐다. 보고서 「사람이 확인할 항목」 가운데 「추후 점검」 항목(메뉴 키 등가물, 팔레트 첫 Esc, 크래시 복구, 가져오기·내보내기, 포트 매핑 시트, 핫플러그·서버 재시작, IME, 타이밍 시험)은 사람이 나중에 보며 S3을 막지 않는다. 사람이 결함을 알리면 Task 브랜치로 고친다.
 3. Task 루프: 브랜치 `s3/t<번호>-<slug>` → `docs/reports/s3-t<번호>/plan.md` → 테스트 먼저(뼈대 `todo!()`로 실패 확인) → 구현 → 게이트 전부(커밋 전에) → `report.md` → 새 에이전트로 적대적 리뷰(`general-purpose`, 구현 맥락 없이, 양식 `plan/templates/adversarial-review.md`, 산출물만 남기고 커밋 금지, 기존 `.proptest-regressions` 삭제 금지) → 지적마다 커밋 하나 → 재리뷰(최대 3회) → `git merge --no-ff`.
 4. 자동 게이트: `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`, `cargo deny check`, `scripts/check-deps.sh`, `scripts/check-deps.test.sh`, `scripts/bench-check.test.sh`. `core`·`text`에 외부 의존을 더하면 `scripts/check-deps.sh`의 허용 목록도 고친다.

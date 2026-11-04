@@ -1,7 +1,7 @@
 # 결정: 원격 CI 첫 실행 대응(PR 1) 재리뷰 상한 도달 뒤의 진행
 
 - 날짜: 2026-11-02
-- 상태: 결정 대기
+- 상태: 결정됨(B, YoungTaek, 2026-11-03)
 - 관련: PR https://github.com/soomtong/keyscore-midi-editor/pull/1, `docs/reports/ci/review-3.md`, `docs/reports/ci/first-run.md`, 결정 `2026-11-02-ci-runner-scope.md`
 
 ## 상황
@@ -24,4 +24,4 @@ PR 1의 재리뷰가 3회에 닿았다(`plan/01-protocol.md` [8]). 3회차 판�
 
 ## 결정
 
-(사람)
+B. 사람이 2026-11-03에 PR 1의 `main` 병합을 지시했다. 그 시점에 PR 2는 이미 PR 1에 병합돼 있었고(a76275b), HEAD의 원격 CI 실행 41493091079가 녹색이었다. 추가 리뷰 없이 merge commit(9162298)으로 병합했다(squash 금지).
