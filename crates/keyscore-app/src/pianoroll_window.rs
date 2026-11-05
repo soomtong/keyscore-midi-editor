@@ -224,12 +224,21 @@ impl ProjectWindow {
         self.run_motion(Motion::OctaveDown, window, cx);
     }
 
+    // 줌·가운데 처리기는 창에 걸려 있어 현재 뷰에 따라 나눈다(S3-T1 리뷰 1 제안 7, S4-T1 이월): 배치 뷰에서는
+    // 배치 뷰의 배율만 바뀌고 숨은 피아노롤은 그대로다.
+
     pub(crate) fn view_zoom_in(
         &mut self,
         _: &view::ZoomIn,
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.in_arrangement() {
+            self.arrangement
+                .zoom(ZOOM_FACTOR, self.arrangement_cell(cx));
+            cx.notify();
+            return;
+        }
         self.pianoroll.zoom(ZOOM_FACTOR);
         self.piano_roll_view_changed(cx);
         cx.notify();
@@ -241,6 +250,12 @@ impl ProjectWindow {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.in_arrangement() {
+            self.arrangement
+                .zoom(1.0 / ZOOM_FACTOR, self.arrangement_cell(cx));
+            cx.notify();
+            return;
+        }
         self.pianoroll.zoom(1.0 / ZOOM_FACTOR);
         self.piano_roll_view_changed(cx);
         cx.notify();
@@ -252,6 +267,11 @@ impl ProjectWindow {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.in_arrangement() {
+            self.arrangement.zoom_reset(self.arrangement_cell(cx));
+            cx.notify();
+            return;
+        }
         self.pianoroll.zoom_reset();
         self.piano_roll_view_changed(cx);
         cx.notify();
@@ -263,6 +283,11 @@ impl ProjectWindow {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.in_arrangement() {
+            self.arrangement.center(self.arrangement_cell(cx));
+            cx.notify();
+            return;
+        }
         self.pianoroll.center_cursor();
         self.piano_roll_view_changed(cx);
         cx.notify();

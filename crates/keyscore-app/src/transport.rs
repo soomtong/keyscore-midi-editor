@@ -134,18 +134,20 @@ impl ProjectWindow {
         self.play_from(from, cx);
     }
 
-    /// 피아노롤 뷰에서는 피아노롤 커서부터(S3-T2). 배치 뷰 커서는 S4까지 처음부터다.
+    /// 커서부터 재생이 시작할 틱. 커서는 창에 하나라 두 뷰 모두 같은 틱이다(S3-T2, S4-T1).
+    #[must_use]
+    pub fn play_from_cursor_tick(&self) -> Tick {
+        self.pianoroll.cursor().tick
+    }
+
+    /// 커서부터 재생(S3-T2, S4-T1).
     pub(crate) fn transport_play_from_cursor(
         &mut self,
         _: &transport::PlayFromCursor,
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let from = if self.mode_state().view() == crate::mode::View::PianoRoll {
-            self.pianoroll.cursor().tick
-        } else {
-            Tick::ZERO
-        };
+        let from = self.play_from_cursor_tick();
         self.play_from(from, cx);
     }
 

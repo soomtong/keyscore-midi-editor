@@ -612,8 +612,10 @@ fn brk_next_note_walks_tail_note_and_only_this_track() {
 
 // ---------- 시도 12. 배치 뷰의 Cmd+A ----------
 
+/// S3-T2에서는 배치 뷰의 `Cmd+A`가 아무 일도 하지 않았다. S4-T1(이월 줄)부터는 클립 전부를 고르고, 노트 선택은
+/// 그대로 비어 있다. 시험은 그 경계(노트 선택이 생기지 않음)를 지키도록 고쳤다.
 #[gpui_kit::test]
-fn brk_cmd_a_in_arrangement_view_does_nothing(cx: &mut TestAppContext) {
+fn brk_cmd_a_in_arrangement_view_selects_clips_not_notes(cx: &mut TestAppContext) {
     start(cx, "cmd-a-arr");
     let (handle, view) = open(cx, fixture());
     assert_eq!(
@@ -621,10 +623,17 @@ fn brk_cmd_a_in_arrangement_view_does_nothing(cx: &mut TestAppContext) {
         View::Arrangement
     );
     press(cx, handle, "cmd-a");
-    assert!(selection_of(cx, &view).is_empty());
-    assert!(!has_selection(cx, &view));
+    assert!(
+        selection_of(cx, &view).is_empty(),
+        "노트 선택은 생기지 않는다"
+    );
+    assert_eq!(cx.read(|cx| view.read(cx).clip_selection().len()), 2);
+    assert!(has_selection(cx, &view));
     assert_eq!(
         cx.read(|cx| view.read(cx).mode_state().context_path()),
-        &["Normal", "Arrangement"]
+        &["Normal", "Arrangement", "Selection"]
     );
+    press(cx, handle, "escape");
+    assert!(cx.read(|cx| view.read(cx).clip_selection().is_empty()));
+    assert!(!has_selection(cx, &view));
 }

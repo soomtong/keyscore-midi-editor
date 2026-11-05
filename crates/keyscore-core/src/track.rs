@@ -304,6 +304,13 @@ impl Track {
         self.index_of(id).map(|i| &self.clips[i].1)
     }
 
+    /// `tick` 뒤에 끝나는(끝 > `tick`) 클립을 시작 순으로. 클립이 겹치지 않아 끝 틱도 시작 순이므로 이진
+    /// 탐색으로 앞을 건너뛴다. 배치 뷰처럼 보이는 범위의 클립만 훑을 때 쓴다(S4-T1).
+    pub fn clips_ending_after(&self, tick: u64) -> impl Iterator<Item = (ClipId, &Clip)> {
+        let lo = self.clips.partition_point(|(_, c)| c.end() <= tick);
+        self.clips[lo..].iter().map(|(id, clip)| (*id, clip))
+    }
+
     fn index_of(&self, id: ClipId) -> Option<usize> {
         self.clips.iter().position(|(cid, _)| *cid == id)
     }
@@ -785,5 +792,22 @@ mod tests {
         let b = t.insert_clip(clip(0, 10)).unwrap();
         assert_ne!(a, b);
         assert!(t.remove_clip(a).is_none());
+    }
+
+    #[test]
+    fn clips_ending_after_skips_clips_that_end_at_or_before_tick() {
+        let mut t = track();
+        let a = t.insert_clip(clip(0, 100)).unwrap();
+        let b = t.insert_clip(clip(100, 100)).unwrap();
+        let c = t.insert_clip(clip(500, 100)).unwrap();
+        let ids =
+            |tick: u64| -> Vec<ClipId> { t.clips_ending_after(tick).map(|(id, _)| id).collect() };
+        assert_eq!(ids(0), vec![a, b, c]);
+        // 끝 = 틱인 클립은 빠진다(끝은 배타)
+        assert_eq!(ids(100), vec![b, c]);
+        assert_eq!(ids(150), vec![b, c]);
+        assert_eq!(ids(200), vec![c]);
+        assert_eq!(ids(600), vec![]);
+        assert_eq!(track().clips_ending_after(0).count(), 0);
     }
 }

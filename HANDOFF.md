@@ -1,4 +1,4 @@
-# HANDOFF: KeyScore S3 출구 서명 완료 — S4-T1 시작
+# HANDOFF: KeyScore S4-T1 병합(조건 미완) — S4-T1 마무리 뒤 S4-T2
 
 ## 목표
 
@@ -124,6 +124,8 @@
 
 ## 남은 작업
 
+- [ ] S4-T1 마무리(사람 지시로 2026-11-05에 병합 조건 없이 병합, `docs/reports/s4-t1/report.md` 「병합 메모」): (1) `cargo test -p keyscore-app --test arrangement --test review_s4_t1_r1 --test arrangement_step`를 Mac 또는 CI(Actions 사용 한도 확인 뒤)에서 돌려 보고서 표를 채운다. (2) `cargo deny check`. (3) Mac에서 `python3 -I scripts/bench-check.py --update`로 기준값 둘을 넣고 release 프레임 시험(`cargo test -p keyscore-app --release --test arrangement frame_with_64x200 -- --nocapture`)을 보고서에 적는다. (4) 재리뷰 2회차(새 에이전트)를 받아 「병합 가능」을 기록한다. 결함이 나오면 Task 브랜치로 고친다.
+- [ ] 원격 CI: PR 4의 실행 29가 두 번 15분 만에 취소됐다(로그 없음). macOS 러너 Actions 사용 한도로 추정. 사람이 Settings → Billing → Actions를 본다.
 - [x] 사람(S3 출구): `docs/reports/stage-3-exit.md`의 수동 항목 — M1 「반짝반짝 작은 별」 8마디 Step 입력·수정·저장과 외부 신디 청취, 노트 10,000개 실제 창 줌·스크롤(UI-3, `assets/perf/notes-10k.ksq`) — 과 서명(YoungTaek, 2026-11-04, 이슈 3). S4를 시작할 수 있다
 - [ ] 사람 확인(S3-T7): 결정 `2026-11-01-s3-t7-search-and-note-info.md`의 에이전트 해석(검색어 문법 `c#4`·`"a"`, 결과 순서와 돎, 기본 프리셋 `Cmd+G`, 노트 없는 트랙 결과, 정보 팝업 내용). 실제 창에서 한글 IME 조합 중 막대의 `Enter`(조합 확정만 하고 검색하지 않아야 함)
 - [ ] 사람 확인(S3-T6c): 결정 `2026-10-31-s3-t6-mouse-editing.md` 7절의 에이전트 해석(4 px마다 한 단계, 템포 1 BPM·`Cmd` 0.1 BPM, 박자표는 누른 쪽 절반으로 분자 1–99·분모 1–32, 뗄 때 한 번 적용이라 끄는 동안 재생 템포는 그대로). 실제 창의 끌기 감각
@@ -180,7 +182,7 @@ REQ 문구: 사람이 에이전트에게 수정을 허락한 범위(결정 문�
 
 ## 다음 에이전트에게
 
-1. S3 출구는 서명됐다(`docs/reports/stage-3-exit.md`, YoungTaek, 2026-11-04). 다음은 S4-T1(배치 뷰 Element)이며 브랜치 `s4/t1-<slug>`로 시작한다. S3 에이전트 해석 확인 항목(T3d·T3e·T4b·T6a~c·T7)은 보고서에 남아 있고 S4를 막지 않는다. S4 단계 파일의 S4-T1 이월 줄 셋(배치 뷰 줌 처리기, 마크 메뉴·`Cmd+A`·커서부터 재생, Step 격자 표시)과 S4-T2 이월 줄을 먼저 읽는다. 결정 `2026-10-26-duplicate-offset-grid.md`가 나면 `pianoroll/edit.rs` `duplicate_offset`도. 리뷰어 지시에 `CARGO_TARGET_DIR=target/review`와 「MIDI·재생 시험과 전체 시험을 돌리지 않음」을 넣는다. 전체 시험은 처음 빌드부터 35분쯤 걸리니 백그라운드 시간 제한을 넉넉히(60분) 주고 `--no-fail-fast`로 돌린다. 디스크는 2026-11-02 기준 66 GiB 남음.
+1. S3 출구는 서명됐다(`docs/reports/stage-3-exit.md`, YoungTaek, 2026-11-04). S4-T1 배치 뷰 Element는 PR https://github.com/soomtong/keyscore-midi-editor/pull/4 로 병합됐다(계획·보고서·리뷰 1은 `docs/reports/s4-t1/`). 병합 조건이 미완이라 「남은 작업」 첫 항목을 먼저 닫고 S4-T2(클립 조작 키)로 간다. 이 세션(Linux 컨테이너)은 앱 crate를 빌드하지 못했다: 타입 검사·clippy는 `CARGO_TARGET_DIR=target/alt cargo check/clippy -p keyscore-app --all-targets --target aarch64-apple-darwin`(그 target dir의 gpui 셰이더 자리 파일 덕에 통과)로, 시험은 PR CI(macos-15)로 봤다. S3 에이전트 해석 확인 항목(T3d·T3e·T4b·T6a~c·T7)은 보고서에 남아 있고 S4를 막지 않는다. S4 단계 파일의 S4-T1 이월 줄 셋(배치 뷰 줌 처리기, 마크 메뉴·`Cmd+A`·커서부터 재생, Step 격자 표시)과 S4-T2 이월 줄을 먼저 읽는다. 결정 `2026-10-26-duplicate-offset-grid.md`가 나면 `pianoroll/edit.rs` `duplicate_offset`도. 리뷰어 지시에 `CARGO_TARGET_DIR=target/review`와 「MIDI·재생 시험과 전체 시험을 돌리지 않음」을 넣는다. 전체 시험은 처음 빌드부터 35분쯤 걸리니 백그라운드 시간 제한을 넉넉히(60분) 주고 `--no-fail-fast`로 돌린다. 디스크는 2026-11-02 기준 66 GiB 남음.
 2. S2 출구는 서명됐다. 보고서 「사람이 확인할 항목」 가운데 「추후 점검」 항목(메뉴 키 등가물, 팔레트 첫 Esc, 크래시 복구, 가져오기·내보내기, 포트 매핑 시트, 핫플러그·서버 재시작, IME, 타이밍 시험)은 사람이 나중에 보며 S3을 막지 않는다. 사람이 결함을 알리면 Task 브랜치로 고친다.
 3. Task 루프: 브랜치 `s3/t<번호>-<slug>` → `docs/reports/s3-t<번호>/plan.md` → 테스트 먼저(뼈대 `todo!()`로 실패 확인) → 구현 → 게이트 전부(커밋 전에) → `report.md` → 새 에이전트로 적대적 리뷰(`general-purpose`, 구현 맥락 없이, 양식 `plan/templates/adversarial-review.md`, 산출물만 남기고 커밋 금지, 기존 `.proptest-regressions` 삭제 금지) → 지적마다 커밋 하나 → 재리뷰(최대 3회) → `git merge --no-ff`.
 4. 자동 게이트: `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`, `cargo deny check`, `scripts/check-deps.sh`, `scripts/check-deps.test.sh`, `scripts/bench-check.test.sh`. `core`·`text`에 외부 의존을 더하면 `scripts/check-deps.sh`의 허용 목록도 고친다.

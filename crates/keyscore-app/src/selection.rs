@@ -101,6 +101,12 @@ impl ProjectWindow {
         }
         self.sync_selection_mode(cx);
         self.pianoroll.ensure_cursor_visible();
+        // 배치 뷰에서는 배치 뷰의 뷰포트가 커서 칸(틱·트랙 행)을 따라간다(S4-T1). 마디 이동·마크 점프처럼 공유
+        // 커서를 옮기는 모든 길이 여기를 지난다.
+        if self.in_arrangement() {
+            let cell = self.arrangement_cell(cx);
+            self.arrangement.ensure_visible(cell);
+        }
         // 커서를 따라 뷰포트가 움직였으면 끄는 중인 러버밴드도 다시 계산한다(S3-T6a 리뷰 3 제안 1)
         self.piano_roll_view_changed(cx);
         cx.notify();
@@ -132,7 +138,13 @@ impl ProjectWindow {
     /// 비어도 `Shift+이동`의 기준 칸이 남아 있으면(빈 칸을 넓히는 중) 선택 중으로 본다. 그래야 `Esc`가 통상의
     /// 취소로 기준 칸을 지운다(리뷰 3 제안 5).
     pub(crate) fn sync_selection_mode(&mut self, cx: &mut Context<Self>) {
-        let has = !self.pianoroll.selection().is_empty() || self.pianoroll.anchor().is_some();
+        // 뷰마다 선택이 다르다: 피아노롤은 노트(기준 칸 포함), 배치 뷰는 클립(S4-T1).
+        let has = match self.mode_state().view() {
+            View::PianoRoll => {
+                !self.pianoroll.selection().is_empty() || self.pianoroll.anchor().is_some()
+            }
+            View::Arrangement => !self.arrangement.selection().is_empty(),
+        };
         // 오퍼레이터 대기와 선택은 함께 있지 않다(S3-T3c 불변식). 메뉴·팔레트의 선택이나 undo가 되살린 노트로 선택이
         // 생기면 대기를 끝낸다. 대기 중 키 입력은 가로채기가 거르지만 키가 아닌 경로는 여기서만 잡힌다(리뷰 1 지적 1).
         if has {
@@ -167,6 +179,12 @@ impl ProjectWindow {
                 self.pianoroll.set_selection(selection);
                 cx.notify();
             }
+        }
+        // 배치 뷰의 클립 선택도 없어진 클립을 뺀다(S4-T1). 그리기 전에 맞춰야 FSM의 선택 유무가 바로 맞는다.
+        let mut clips = self.arrangement.selection();
+        if !clips.is_empty() && clips.retain_existing(self.document.read(cx).project()) {
+            self.arrangement.set_selection(clips);
+            cx.notify();
         }
         self.sync_selection_mode(cx);
     }
@@ -344,21 +362,32 @@ impl ProjectWindow {
         self.select_in_current_clip(|clip, _| clip.notes().iter().cloned().collect(), cx);
     }
 
-    /// `Cmd+A`: 피아노롤에서는 클립 안 전체(7.5). 배치 뷰의 클립 전체 선택은 S4.
+    /// `Cmd+A`: 피아노롤에서는 클립 안 전체(7.5), 배치 뷰에서는 모든 트랙의 클립 전부(S4-T1).
     ///
     /// 입력란에 포커스가 있으면 글자 전체 선택이다. 표준 키(`cmd-a`)가 입력란의 바인딩보다 우선하므로 여기서
     /// 전파를 이어 입력란 바인딩이 실행되게 한다(KM-14의 undo와 같은 태도).
     fn select_all(&mut self, _: &select::All, window: &mut Window, cx: &mut Context<Self>) {
-        if Self::text_input_focused(window) || self.mode_state().view() != View::PianoRoll {
+        if Self::text_input_focused(window) {
             cx.propagate();
             return;
         }
-        self.select_in_current_clip(|clip, _| clip.notes().iter().cloned().collect(), cx);
+        match self.mode_state().view() {
+            View::PianoRoll => {
+                self.select_in_current_clip(|clip, _| clip.notes().iter().cloned().collect(), cx);
+            }
+            View::Arrangement => {
+                let mut selection = crate::arrangement::ClipSelection::default();
+                selection.set_all(self.document.read(cx).project());
+                self.set_clip_selection(selection, cx);
+            }
+        }
     }
 
-    /// `Esc`(`Normal > Selection`): 선택 해제. 커서·뷰는 그대로다(A13).
+    /// `Esc`(`Normal > Selection`): 선택 해제. 커서·뷰는 그대로다(A13). 두 뷰의 선택을 모두 비운다.
     fn select_clear(&mut self, _: &select::Clear, _: &mut Window, cx: &mut Context<Self>) {
         self.pianoroll.set_anchor(None);
+        self.arrangement
+            .set_selection(crate::arrangement::ClipSelection::default());
         self.set_selection(Selection::default(), cx);
     }
 

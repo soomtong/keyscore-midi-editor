@@ -5,6 +5,8 @@
 
 pub mod actions;
 pub mod app_state;
+pub mod arrangement;
+mod arrangement_window;
 pub mod autosave;
 pub mod clipboard;
 pub mod command_palette;
