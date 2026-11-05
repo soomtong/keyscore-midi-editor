@@ -102,6 +102,17 @@ CI(macos-15) 결과: 실행 25 실패(시험 5, 위 표) → 실행 26 시험 �
 | 제안 5 | 받음 | 클립 끝 이어 쓰기의 `ExtendClip` 구간을 고스트로. 시험 `step_ghost_at_clip_end_shows_the_extension` | 2ad4908 |
 | 제안 6 | 받음(이월) | 단계 파일 S4-T5에 「메인 영역 상단 세그먼트 버튼」 이월 줄 | 문서 커밋 |
 
+## 병합 메모 (2026-11-05)
+
+사람이 2026-11-05에 「그냥 병합」을 지시해 병합 조건을 채우지 않은 채 `main`에 넣는다. 남은 것:
+
+- 리뷰 1 대응 커밋(167bc68, 8cfb7dd, 2ad4908)의 시험 실행이 없다. CI 실행 29(1ba78f8)는 두 번 모두 15분 만에 취소됐다(로그 없음, Actions 사용 한도로 추정). 교차 타입 검사·clippy만 통과했다. `tests/review_s4_t1_r1.rs` 12개(그 가운데 `brk_` 2개)와 새 시험 `step_ghost_at_clip_end_shows_the_extension`·첫 마디 가사 마디 중간 시작 시험을 사람 Mac이나 다음 CI에서 돌려야 한다.
+- `cargo deny check` 통과 실행이 없다(lockfile 수정 10321ec 뒤).
+- 벤치 기준값 `arrangement/scene_64x200`·`arrangement/scene_labels_5x36`이 `benches/baseline.json`에 없고 release 프레임 시험(19) 결과가 없다.
+- 재리뷰(2회차)를 하지 않았다. 리뷰 1 판정은 「수정 후 재리뷰」다.
+
+다음 세션은 S4-T2 전에 위 넷을 닫는다(HANDOFF 「남은 작업」).
+
 ## 알려진 한계
 
 - 라벨(이름·가사)은 보이는 블록마다 매 프레임 `shape_line`으로 다시 만든다(블록이 24 px 이상일 때만). 보이는 블록 수에 비례하는 비용이며 장면 버퍼처럼 캐시하지 않았다. 느리면 (클립 id, revision, 폭) 키의 캐시를 둔다.
